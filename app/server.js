@@ -50,7 +50,8 @@ if (ADMIN_EMAIL && ADMIN_PASSWORD) {
     console.error('Пароль администратора в ADMIN_PASSWORD должен быть не короче 8 символов.');
     process.exit(1);
   }
-  store.ensureAdmin(ADMIN_EMAIL, () => hashPassword(ADMIN_PASSWORD), (hash) => checkPassword(ADMIN_PASSWORD, hash));
+  const fingerprint = crypto.createHash('sha256').update(`${ADMIN_EMAIL.toLowerCase()}\n${ADMIN_PASSWORD}`).digest('hex');
+  store.ensureAdmin(ADMIN_EMAIL, () => hashPassword(ADMIN_PASSWORD), fingerprint);
 }
 if (process.env.REQUIRE_PASSWORD === '1' && store.activeAdmins() === 0) {
   console.error('Задайте администратора в переменных ADMIN_EMAIL и ADMIN_PASSWORD. Без него программа на сервере не запускается.');

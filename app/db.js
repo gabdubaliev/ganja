@@ -816,16 +816,22 @@ function createStore(file) {
       return db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND disabled = 0").get().n;
     },
 
-    // Администратор из переменных ADMIN_EMAIL и ADMIN_PASSWORD: создаётся при запуске,
-    // а если уже есть — снова получает права администратора. makeHash вызывается, только когда
-    // пароль нужно записать: у нового сотрудника или если пароль в переменной сменили.
-    ensureAdmin(adminEmail, makeHash, passwordMatches) {
+    // Администратор из переменных ADMIN_EMAIL и ADMIN_PASSWORD. Пароль записывается, когда сотрудника
+    // ещё нет или когда пароль в переменной поменяли (fingerprint — отпечаток пары email и пароля):
+    // так пароль, сменённый в программе, не сбрасывается при каждом перезапуске сервера.
+    ensureAdmin(adminEmail, makeHash, fingerprint) {
       const e = email(adminEmail);
       const current = this.findUserByEmail(e);
-      if (!current) return this.createUser({ email: e, name: 'Администратор', role: 'admin' }, makeHash());
-      const hash = passwordMatches(current.password_hash) ? current.password_hash : makeHash();
-      db.prepare("UPDATE users SET role = 'admin', disabled = 0, password_hash = ? WHERE id = ?").run(hash, current.id);
-      return publicUser(this.findUser(current.id));
+      const applied = db.prepare("SELECT value FROM settings WHERE key = 'admin_env'").get()?.value;
+      let user;
+      if (!current) user = this.createUser({ email: e, name: 'Администратор', role: 'admin' }, makeHash());
+      else {
+        const hash = applied === fingerprint ? current.password_hash : makeHash();
+        db.prepare("UPDATE users SET role = 'admin', disabled = 0, password_hash = ? WHERE id = ?").run(hash, current.id);
+        user = publicUser(this.findUser(current.id));
+      }
+      this.setSetting('admin_env', fingerprint);
+      return user;
     },
 
     publicUser,
