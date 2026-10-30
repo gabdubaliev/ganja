@@ -1,0 +1,13 @@
+{
+  "name": "my-shop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Учёт товаров, касса и дашборд продаж для небольшого магазина",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "demo": "node --disable-warning=ExperimentalWarning server.js --demo"
+  }
+}
