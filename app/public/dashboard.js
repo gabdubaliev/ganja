@@ -332,9 +332,10 @@ function renderTable(v) {
     });
 
   const shown = rows.slice(0, state.limit);
+  $('#stock-totals').innerHTML = typeof stockTotalsHtml === 'function' ? stockTotalsHtml(state.data.products) : '';
   $('#tbody').innerHTML = shown.length ? shown.map((p) => `
-    <tr>
-      <td><div class="pname">${esc(p.name)}</div>${p.category ? `<div class="pcat">${esc(p.category)}</div>` : ''}</td>
+    <tr class="clickable" data-card="${p.id}" title="Открыть карточку товара">
+      <td><div class="pname"><button type="button" class="link-name">${esc(p.name)}</button></div>${p.category ? `<div class="pcat">${esc(p.category)}</div>` : ''}</td>
       <td>${int(p.qty)}</td>
       <td>${money(p.revenue)}</td>
       <td>${money(p.cost)}</td>
@@ -490,6 +491,14 @@ async function loadCashDesk() {
 // Касса обновляется сама: после каждой продажи и раз в минуту.
 salesFeed.listeners.push(() => { if (currentView === 'home') loadCashDesk(); });
 setInterval(() => { if (currentView === 'home' && !document.hidden) loadCashDesk(); }, 60000);
+
+// Строка таблицы «Товары и остатки» открывает карточку товара с продажами за период.
+$('#tbody').addEventListener('click', (e) => {
+  const tr = e.target.closest('[data-card]');
+  if (!tr) return;
+  const stats = state.view.products.find((p) => String(p.id) === tr.dataset.card);
+  openProductCard(Number(tr.dataset.card), stats);
+});
 
 views.home = { show: () => { renderPeriods(); load(); loadCashDesk(); }, right: 'dashboard' };
 setInterval(() => { if (currentView === 'home') load(); }, REFRESH_MS);

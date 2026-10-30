@@ -17,6 +17,98 @@ function markup(p) {
   return p.cost > 0 ? (p.price - p.cost) / p.cost : null;
 }
 
+/* ---------- Итоги остатков ---------- */
+// Сколько товара на складе: позиций, единиц, по себестоимости и по цене продажи.
+// list — продаваемые товары (без «шапок» с модификациями); отрицательный остаток не считается.
+function stockTotalsHtml(list) {
+  const positions = list.length;
+  if (list.some((p) => p.stock === null)) {
+    return `<div class="st-tile"><span>Товаров</span><b class="num">${int(positions)}</b><small>позиций в продаже</small></div>`;
+  }
+  const inStock = list.filter((p) => p.stock > 0);
+  const units = inStock.reduce((s, p) => s + p.stock, 0);
+  const atCost = inStock.reduce((s, p) => s + p.stock * p.cost, 0);
+  const atPrice = inStock.reduce((s, p) => s + p.stock * p.price, 0);
+  const noCost = inStock.filter((p) => !p.cost).length;
+  return `
+    <div class="st-tile"><span>Товаров</span><b class="num">${int(positions)}</b><small>${int(inStock.length)} в наличии · ${int(positions - inStock.length)} нет</small></div>
+    <div class="st-tile"><span>Остаток, единиц</span><b class="num">${qtyFmt.format(Math.round(units * 1000) / 1000)}</b><small>штук, кг, литров вместе</small></div>
+    <div class="st-tile"><span>По себестоимости</span><b class="num">${money(atCost)}</b><small>${noCost ? `у ${noCost} без себестоимости` : 'сколько вложено в товар'}</small></div>
+    <div class="st-tile accent"><span>По цене продажи</span><b class="num">${money(atPrice)}</b><small>можно выручить · наценка ${money(atPrice - atCost)}</small></div>`;
+}
+
+/* ---------- Карточка товара: просмотр, переход к изменению ---------- */
+// stats — продажи товара из главной за выбранный период (необязательно).
+let cardProduct = null;
+async function openProductCard(id, stats = null) {
+  if (!catalog.list.length) {
+    try { await catalog.load(); } catch (err) { return toast(err.message, 'error'); }
+  }
+  const p = catalog.byId(id);
+  if (!p) return toast('Товар не найден — возможно, он убран из продажи', 'error');
+  cardProduct = p;
+  const base = p.parent_id ? catalog.byId(p.parent_id) : null;
+  const kids = catalog.children(p.id);
+  const stock = catalog.stockOf(p);
+  const showStock = stock !== null;
+  const photo = photoUrl(p) || (base ? photoUrl(base) : '');
+  $('#pc-photo').innerHTML = photo ? `<img src="${photo}" alt="">` : '<span aria-hidden="true">📦</span>';
+  $('#pc-title').textContent = base ? `${base.name}` : p.name;
+  $('#pc-sub').textContent = [base ? optionsText(p) : '', p.category || base?.category || 'Без категории', p.archived ? 'убран из продажи' : ''].filter(Boolean).join(' · ');
+  const m = markup(p);
+  const cell = (label, value, note = '') => `<div class="pc-cell"><span>${label}</span><b class="num">${value}</b>${note ? `<small>${note}</small>` : ''}</div>`;
+  const prices = kids.length ? kids.map((k) => k.price) : [p.price];
+  const lo = Math.min(...prices), hi = Math.max(...prices);
+  $('#pc-grid').innerHTML = [
+    cell('Цена продажи', lo === hi ? money2(lo) : `${money2(lo)} – ${money2(hi)}`),
+    kids.length ? '' : cell('Себестоимость', p.cost ? money2(p.cost) : '—', m === null ? '' : `наценка ${pct(m)}`),
+    showStock ? cell('Остаток', qty(stock, p.unit), stock <= 0 ? '<span class="neg">нет в наличии</span>' : '') : '',
+    showStock && !kids.length && stock > 0 ? cell('Остаток на сумму', money(stock * p.price), `по себестоимости ${money(stock * p.cost)}`) : '',
+    !kids.length ? cell('Штрихкод', esc(p.barcode || '—'), p.code ? `код ${esc(p.code)}` : '') : '',
+  ].join('');
+  $('#pc-variants').innerHTML = kids.length ? `<h3>Модификации (${kids.length})</h3><div class="pc-variants">${kids.map((k) => `
+    <button type="button" class="pc-variant" data-card-kid="${k.id}"><span>${esc(optionsText(k) || k.name)}</span><span class="num">${money2(k.price)}</span>${k.stock === null ? '' : `<span class="num ${k.stock <= 0 ? 'neg' : ''}">${qty(k.stock, k.unit)}</span>`}</button>`).join('')}</div>` : '';
+  $('#pc-sales').innerHTML = stats ? `<h3>Продажи за выбранный на главной период</h3><div class="pc-grid">
+    ${cell('Продано', qty(stats.qty, p.unit))}${cell('Выручка', money(stats.revenue))}${cell('Прибыль', money(stats.profit), stats.margin === null ? '' : `маржа ${pct(stats.margin)}`)}
+    ${showStock && stats.daysLeft !== null ? cell('Хватит на', stats.daysLeft === Infinity ? 'не продаётся' : stats.daysLeft < 1 ? 'меньше дня' : `${int(Math.floor(stats.daysLeft))} ${plural(Math.floor(stats.daysLeft), ['день', 'дня', 'дней'])}`, `за 30 дней продано ${qty(stats.sold30, p.unit)}`) : ''}</div>` : '';
+  $('#pc-edit').hidden = !session.can('products');
+  $('#pc-stock').hidden = !session.can('stock') || kids.length > 0 || !showStock;
+  $('#pc-open').hidden = !session.can('products') && !session.can('photos');
+  if (!$('#product-card').open) $('#product-card').showModal();
+}
+
+$('#pc-close').addEventListener('click', () => $('#product-card').close());
+$('#pc-variants').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-card-kid]');
+  if (b) openProductCard(Number(b.dataset.cardKid));
+});
+// После изменения — обновить и справочник, и экран, с которого открыли карточку.
+async function afterCardEdit() {
+  await catalog.load().catch(() => {});
+  if (currentView === 'products') renderProducts();
+  if (currentView === 'home' && typeof load === 'function') load();
+}
+$('#pc-edit').addEventListener('click', () => {
+  $('#product-card').close();
+  openProductDialog(cardProduct, afterCardEdit);
+});
+$('#pc-stock').addEventListener('click', () => {
+  $('#product-card').close();
+  stockProduct = cardProduct;
+  $('#stock-name').textContent = `${stockProduct.name}. Сейчас в программе: ${qty(stockProduct.stock, stockProduct.unit)}.`;
+  $('#stock-form').elements.stock.value = stockProduct.stock;
+  $('#stock-error').hidden = true;
+  $('#stock-dialog').showModal();
+  $('#stock-form').elements.stock.select();
+});
+$('#pc-open').addEventListener('click', () => {
+  const name = (cardProduct.parent_id ? catalog.byId(cardProduct.parent_id) : cardProduct).name;
+  $('#product-card').close();
+  productsView.query = name;
+  $('#products-search').value = name;
+  if (currentView === 'products') renderProducts(); else location.hash = 'products';
+});
+
 async function renderProducts() {
   let list;
   try {
@@ -42,11 +134,12 @@ async function renderProducts() {
   const ids = new Set(list.map((p) => p.id));
   for (const id of productsView.selected) if (!ids.has(id)) productsView.selected.delete(id);
   const canEdit = session.can('products');
-  const stockValue = list.reduce((s, p) => s + Math.max(0, p.stock) * p.cost, 0);
   const goods = list.filter((p) => !p.parent_id).length;
   $('#products-summary').textContent = productsView.archived
     ? `Скрыто товаров: ${list.length}`
-    : `${goods} ${plural(goods, ['товар', 'товара', 'товаров'])}${list.length > goods ? `, ${list.length - goods} ${plural(list.length - goods, ['модификация', 'модификации', 'модификаций'])}` : ''}${session.can('stock.view') ? ` · товара на складе по себестоимости на ${money(stockValue)}` : ''}`;
+    : `${goods} ${plural(goods, ['товар', 'товара', 'товаров'])}${list.length > goods ? `, ${list.length - goods} ${plural(list.length - goods, ['модификация', 'модификации', 'модификаций'])}` : ''}`;
+  $('#products-totals').hidden = productsView.archived;
+  $('#products-totals').innerHTML = stockTotalsHtml(list.filter((p) => !kids.has(p.id)));
   $('#products-body').innerHTML = rows.length ? rows.map((p) => {
     const m = markup(p);
     const children = kids.get(p.id) || [];
@@ -55,8 +148,8 @@ async function renderProducts() {
     const prices = group ? children.map((k) => k.price) : [p.price];
     const lo = Math.min(...prices), hi = Math.max(...prices);
     const name = p.parent_id
-      ? `<div class="pname">${esc(optionsText(p))}</div><div class="pcat">${esc(byId.get(p.parent_id)?.name ?? '')}</div>`
-      : `<div class="pname">${esc(p.name)}${group ? ` <span class="role-tag">${children.length} ${plural(children.length, ['модификация', 'модификации', 'модификаций'])}</span>` : ''}</div>${p.category ? `<div class="pcat">${esc(p.category)}</div>` : ''}`;
+      ? `<div class="pname"><button type="button" class="link-name" data-card="${p.id}">${esc(optionsText(p))}</button></div><div class="pcat">${esc(byId.get(p.parent_id)?.name ?? '')}</div>`
+      : `<div class="pname"><button type="button" class="link-name" data-card="${p.id}">${esc(p.name)}</button>${group ? ` <span class="role-tag">${children.length} ${plural(children.length, ['модификация', 'модификации', 'модификаций'])}</span>` : ''}</div>${p.category ? `<div class="pcat">${esc(p.category)}</div>` : ''}`;
     return `<tr class="${productsView.selected.has(p.id) ? 'selected' : ''} ${p.parent_id ? 'variant-row' : ''}">
       ${canEdit ? `<td class="sel"><input type="checkbox" data-select="${p.id}" ${productsView.selected.has(p.id) ? 'checked' : ''} aria-label="Выбрать ${esc(p.name)}"></td>` : ''}
       <td class="name-col"><div class="with-thumb">${photoCell(p)}<div>${name}</div></div></td>
@@ -453,6 +546,8 @@ $('#products-body').addEventListener('click', async (e) => {
   }
   const edit = e.target.closest('[data-edit]');
   const stock = e.target.closest('[data-stock]');
+  const card = e.target.closest('[data-card]');
+  if (card) return openProductCard(Number(card.dataset.card));
   if (edit) {
     const list = productsView.archived ? await api('/api/products?archived=1') : catalog.list;
     openProductDialog(list.find((p) => p.id === Number(edit.dataset.edit)), renderProducts);

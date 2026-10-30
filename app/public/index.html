@@ -90,13 +90,14 @@
     <div class="panel-head">
       <div>
         <h2>Товары и остатки</h2>
-        <p class="sub">Продажи за выбранный период. «Хватит на» считается по продажам за последние 30 дней. Изменить товары можно в разделе <a href="#products">«Товары»</a>.</p>
+        <p class="sub">Продажи за выбранный период. «Хватит на» считается по продажам за последние 30 дней. Нажмите на товар, чтобы открыть карточку и при необходимости изменить его.</p>
       </div>
       <div class="tools">
         <div class="chips" id="filters"></div>
         <input id="search" class="search" type="search" placeholder="Найти товар" aria-label="Найти товар">
       </div>
     </div>
+    <div class="stock-totals" id="stock-totals"></div>
     <div class="table-wrap">
       <table>
         <thead><tr id="thead"></tr></thead>
@@ -116,6 +117,7 @@
       <button type="button" class="btn primary" id="product-add" data-can="products" hidden>Добавить товар</button>
     </div>
   </header>
+  <section class="stock-totals as-tiles" id="products-totals"></section>
   <section class="panel">
     <div class="panel-head">
       <input id="products-search" class="input search" type="search" placeholder="Найти по названию, коду, категории или штрихкоду" aria-label="Найти товар">
@@ -978,6 +980,22 @@
       <button type="submit" class="btn primary">Сохранить</button>
     </div>
   </form>
+</dialog>
+
+<dialog id="product-card" class="product-card" aria-labelledby="pc-title">
+  <div class="pc-head">
+    <div class="pc-photo" id="pc-photo"></div>
+    <div class="pc-title-box"><h2 id="pc-title"></h2><p class="sub" id="pc-sub"></p></div>
+    <button type="button" class="icon-btn" id="pc-close" aria-label="Закрыть">×</button>
+  </div>
+  <div class="pc-grid" id="pc-grid"></div>
+  <div id="pc-variants"></div>
+  <div class="pc-sales" id="pc-sales"></div>
+  <div class="form-actions">
+    <button type="button" class="btn ghost" id="pc-open">Открыть в «Товарах»</button>
+    <button type="button" class="btn" id="pc-stock" hidden>Пересчитать остаток</button>
+    <button type="button" class="btn primary" id="pc-edit" hidden>Изменить</button>
+  </div>
 </dialog>
 
 <dialog id="product-dialog" class="product-dialog" aria-labelledby="product-dialog-title">
