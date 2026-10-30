@@ -240,6 +240,7 @@ const routes = [
   ['POST', '/api/sales/delete', (p, url, body, user) => store.deleteSales(body, user), 'sales.delete'],
   ['GET', '/api/arrivals', () => store.listArrivals(), 'arrivals'],
   ['POST', '/api/arrivals', (p, url, body) => store.createArrival(body), 'arrivals'],
+  ['GET', '/api/cash-desk', () => store.cashDesk(), ['dashboard', 'shifts']],
   ['GET', '/api/analytics', (p, url, body, user) => {
     const a = store.analytics(range(url));
     return { ...a, products: hideStock(user, a.products) };

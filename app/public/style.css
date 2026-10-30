@@ -1002,3 +1002,32 @@ thead .ts-total { background: var(--surface-2); }
 .pin-pad button { height: 58px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-2); font-size: 22px; font-weight: 650; color: var(--ink); cursor: pointer; }
 .pin-pad button:active { background: var(--series-soft); }
 @media (max-width: 640px) { .switch-btn .switch-label { display: none; } }
+
+/* ---------- Главная: касса сейчас ---------- */
+.desk-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.desk-tile { display: grid; gap: 4px; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface-2); }
+.desk-tile span { font-size: 13px; color: var(--ink-2); font-weight: 600; }
+.desk-tile b { font-size: 26px; letter-spacing: -0.02em; }
+.desk-tile small { color: var(--muted); font-size: 12px; }
+.desk-tile.cash { background: color-mix(in srgb, #1a9d55 10%, var(--surface)); border-color: color-mix(in srgb, #1a9d55 30%, var(--border)); }
+.desk-tile.cashless { background: color-mix(in srgb, var(--series) 8%, var(--surface)); border-color: color-mix(in srgb, var(--series) 30%, var(--border)); }
+.desk-shifts { margin-top: 12px; overflow-x: auto; }
+.desk-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.desk-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--grid); }
+.desk-table td { padding: 10px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+.desk-table th:nth-child(n+3), .desk-table td:nth-child(n+3) { text-align: right; }
+.live-dot { display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: #1a9d55; box-shadow: 0 0 0 3px color-mix(in srgb, #1a9d55 25%, transparent); vertical-align: 1px; }
+#desk-today { margin: 12px 0 0; }
+@media (max-width: 760px) { .desk-tiles { grid-template-columns: 1fr; } }
+.desk-table td:nth-child(2) { text-align: left; }
+@media (max-width: 640px) {
+  .desk-table { font-size: 13px; }
+  .desk-table th:nth-child(2), .desk-table td:nth-child(2), .desk-table th:nth-child(3), .desk-table td:nth-child(3) { display: none; }
+  .desk-table td, .desk-table th { padding: 8px 4px; }
+}
+@media (max-width: 640px) {
+  .desk-table { min-width: 0 !important; table-layout: fixed; }
+  .desk-table td, .desk-table th { white-space: normal; overflow-wrap: anywhere; }
+  .desk-table th:first-child { width: 34%; }
+}
+@media (max-width: 640px) { .desk-table th { overflow-wrap: normal; letter-spacing: 0; font-size: 10px; } }

@@ -1410,6 +1410,36 @@ function createStore(file) {
       return t;
     },
 
+    // Открытые сейчас смены и деньги на кассе: наличные и безнал по каждому способу оплаты,
+    // плюс то же за весь сегодняшний день (включая закрытые смены и чеки без смены).
+    cashDesk() {
+      const shifts = db.prepare('SELECT id FROM shifts WHERE closed_at IS NULL ORDER BY opened_at').all().map((r) => this.getShift(r.id));
+      const sumUp = (methods) => {
+        const cash = methods.filter((m) => m.kind === 'cash').reduce((s, m) => s + m.sum, 0);
+        const all = methods.reduce((s, m) => s + m.sum, 0);
+        return { cash: round2(cash), cashless: round2(all - cash), commission: round2(methods.reduce((s, m) => s + (m.commission || 0), 0)) };
+      };
+      const merged = new Map();
+      for (const sh of shifts) {
+        for (const m of sh.byMethod) {
+          const x = merged.get(m.name) || { name: m.name, kind: m.kind, sum: 0, commission: 0 };
+          x.sum = round2(x.sum + m.sum);
+          x.commission = round2(x.commission + m.commission);
+          merged.set(m.name, x);
+        }
+      }
+      const open = [...merged.values()].sort((a, b) => b.sum - a.sum);
+      const d = new Date();
+      const from = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+      const today = this.reportPayments({ from, to: from + 864e5 }).map((r) => ({ name: r.name, kind: r.kind, sum: r.money, commission: r.commission }));
+      const todayCount = db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(total), 0) AS revenue FROM sales WHERE refunded_at IS NULL AND created_at >= ? AND created_at < ?').get(from, from + 864e5);
+      return {
+        shifts,
+        open: { ...sumUp(open), methods: open, receipts: shifts.reduce((s, x) => s + x.receipts, 0) },
+        today: { ...sumUp(today), methods: today, receipts: todayCount.n, revenue: round2(todayCount.revenue) },
+      };
+    },
+
     listShifts({ from, to }) {
       return db.prepare('SELECT id FROM shifts WHERE opened_at >= ? AND opened_at < ? ORDER BY opened_at DESC LIMIT 1000').all(from, to).map((r) => this.getShift(r.id));
     },

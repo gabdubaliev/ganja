@@ -451,5 +451,45 @@ $('#notice').addEventListener('click', async (e) => {
   }
 });
 
-views.home = { show: () => { renderPeriods(); load(); }, right: 'dashboard' };
+/* ---------- Касса сейчас: открытые смены, наличные и безнал ---------- */
+const durationText = (ms) => {
+  const m = Math.max(0, Math.round(ms / 60000));
+  return m < 60 ? `${m} мин` : `${Math.floor(m / 60)} ч ${m % 60 ? `${m % 60} мин` : ''}`.trim();
+};
+const methodsText = (methods) => methods.filter((m) => m.kind !== 'cash' && m.sum).map((m) => `${esc(m.name)} ${money(m.sum)}`).join(' · ');
+
+async function loadCashDesk() {
+  let d;
+  try { d = await api('/api/cash-desk'); } catch { return; }
+  const o = d.open;
+  $('#desk-sub').textContent = d.shifts.length
+    ? `${d.shifts.length} ${plural(d.shifts.length, ['открытая смена', 'открытые смены', 'открытых смен'])} · ${int(o.receipts)} ${plural(o.receipts, ['чек', 'чека', 'чеков'])}`
+    : 'Сейчас открытых смен нет';
+  $('#desk-tiles').innerHTML = `
+    <div class="desk-tile cash"><span>💵 Наличными в кассе</span><b class="num">${money(o.cash)}</b><small>за открытые смены</small></div>
+    <div class="desk-tile cashless"><span>💳 Безнал</span><b class="num">${money(o.cashless)}</b><small>${methodsText(o.methods) || 'карты, банки, QR'}</small></div>
+    <div class="desk-tile total"><span>Всего за смены</span><b class="num">${money(o.cash + o.cashless)}</b><small>${o.commission ? `комиссия банков −${money(o.commission)} · к зачислению ${money(o.cash + o.cashless - o.commission)}` : 'без комиссий'}</small></div>`;
+  $('#desk-shifts').innerHTML = d.shifts.length ? `<table class="desk-table">
+    <thead><tr><th>Кассир</th><th>Открыта</th><th>Чеков</th><th>Наличные</th><th>Безнал</th><th>Всего</th></tr></thead>
+    <tbody>${d.shifts.map((sh) => {
+      const cash = sh.byMethod.filter((m) => m.kind === 'cash').reduce((s, m) => s + m.sum, 0);
+      const other = sh.byMethod.filter((m) => m.kind !== 'cash');
+      return `<tr>
+        <td><span class="live-dot" aria-hidden="true"></span><b>${esc(sh.user_name || '—')}</b></td>
+        <td>${new Date(sh.opened_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}<div class="pcat">${new Date(sh.opened_at).toDateString() === new Date().toDateString() ? '' : new Date(sh.opened_at).toLocaleDateString('ru-RU') + ' · '}идёт ${durationText(Date.now() - sh.opened_at)}</div></td>
+        <td>${int(sh.receipts)}</td>
+        <td>${money(cash)}</td>
+        <td>${money(other.reduce((s, m) => s + m.sum, 0))}${other.length ? `<div class="pcat">${methodsText(other)}</div>` : ''}</td>
+        <td><b>${money(sh.revenue)}</b></td>
+      </tr>`;
+    }).join('')}</tbody></table>` : '';
+  const t = d.today;
+  $('#desk-today').innerHTML = `За сегодня всего (все смены и чеки): ${int(t.receipts)} ${plural(t.receipts, ['чек', 'чека', 'чеков'])} · наличными <b>${money(t.cash)}</b> · безнал <b>${money(t.cashless)}</b>${methodsText(t.methods) ? ` (${methodsText(t.methods)})` : ''}${t.commission ? ` · комиссия −${money(t.commission)}` : ''}`;
+}
+
+// Касса обновляется сама: после каждой продажи и раз в минуту.
+salesFeed.listeners.push(() => { if (currentView === 'home') loadCashDesk(); });
+setInterval(() => { if (currentView === 'home' && !document.hidden) loadCashDesk(); }, 60000);
+
+views.home = { show: () => { renderPeriods(); load(); loadCashDesk(); }, right: 'dashboard' };
 setInterval(() => { if (currentView === 'home') load(); }, REFRESH_MS);
