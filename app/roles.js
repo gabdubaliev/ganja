@@ -22,6 +22,7 @@ const RIGHTS = [
   { key: 'arrivals', group: 'Склад', label: 'Приход товара от поставщика' },
   { key: 'crm', group: 'Покупатели', label: 'CRM: сделки, переписка с клиентами, задачи' },
   { key: 'customers', group: 'Покупатели', label: 'Список покупателей, рейтинг и история бонусов' },
+  { key: 'customers.accounts', group: 'Покупатели', label: 'Аккаунты покупателей на витрине: коды подтверждения, сброс пароля, блокировка' },
   { key: 'loyalty', group: 'Покупатели', label: 'Правила бонусов и ручное изменение бонусов' },
   { key: 'orders', group: 'Интернет-витрина', label: 'Заказы с витрины' },
   { key: 'shop', group: 'Интернет-витрина', label: 'Создавать витрину и менять её оформление' },
@@ -44,7 +45,7 @@ const ROLES = {
   manager: {
     name: 'Управляющий',
     about: 'Видит всё и ведёт магазин, выписывает штрафы и правит смены. По умолчанию не меняет сотрудников, бонусы, оформление, настройки и не видит журнал действий.',
-    can: ['dashboard', 'kpi', 'pos', 'sales', 'refund', 'products', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'orders', 'notify', 'shifts', 'fines'],
+    can: ['dashboard', 'kpi', 'pos', 'sales', 'refund', 'products', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'notify', 'shifts', 'fines'],
   },
   cashier: {
     name: 'Кассир',

@@ -233,7 +233,7 @@ session.ready = api('/api/status').then((s) => {
     $('#me-password').textContent = s.user.name || s.user.email;
     $('#me-password').title = `${session.roleName(s.user.role)} · сменить пароль`;
   }
-  if (session.can('notify') || session.can('orders') || session.can('crm')) listenSales();
+  if (['notify', 'orders', 'crm', 'customers.accounts'].some((r) => session.can(r))) listenSales();
 }).catch((err) => toast(err.message, 'error'));
 $('#logout').addEventListener('click', async () => {
   await fetch('/api/logout', { method: 'POST' }).catch(() => {});
@@ -295,7 +295,7 @@ const dateInput = (t) => { const d = new Date(t); return `${d.getFullYear()}-${S
 const fromDateInput = (v) => { const [y, m, d] = v.split('-').map(Number); return new Date(y, m - 1, d).getTime(); };
 
 /* ---------- Уведомления о продажах ---------- */
-const salesFeed = { listeners: [], orderListeners: [], leadListeners: [] };
+const salesFeed = { listeners: [], orderListeners: [], leadListeners: [], codeListeners: [] };
 
 function listenSales() {
   if (!window.EventSource) return;
@@ -312,6 +312,15 @@ function listenSales() {
       }
     } catch { /* на некоторых телефонах уведомления из страницы запрещены */ }
     for (const fn of salesFeed.listeners) fn(sale);
+  });
+  source.addEventListener('code', (e) => {
+    const c = JSON.parse(e.data);
+    const text = `🔑 ${c.name || 'Покупатель'} (${phoneFmt(c.phone)}) просит код: ${c.purpose === 'reset' ? 'забыл пароль' : 'регистрация'}. Код — в «Покупателях».`;
+    toast(text);
+    try {
+      if (window.Notification && Notification.permission === 'granted' && document.hidden) new Notification('Покупатель ждёт код', { body: text, tag: 'code-' + c.phone });
+    } catch { /* см. выше */ }
+    for (const fn of salesFeed.codeListeners) fn(c);
   });
   source.addEventListener('lead', (e) => {
     const lead = JSON.parse(e.data);

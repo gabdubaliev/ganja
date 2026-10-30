@@ -7,7 +7,7 @@ const path = require('node:path');
 loadEnv(path.join(__dirname, '.env'));
 // Дни, смены и выплатные периоды считаются по времени Бишкека, даже если сервер живёт в UTC.
 process.env.TZ ||= 'Asia/Bishkek';
-const { createStore, UserError } = require('./db');
+const { createStore, UserError, phone: normalizePhone } = require('./db');
 const { seedDemo } = require('./demo');
 const crypto = require('node:crypto');
 const { createAuth, hashPassword, checkPassword } = require('./auth');
@@ -15,6 +15,7 @@ const { RIGHTS, ROLES, rightsOf, can } = require('./roles');
 const { themeCss, shopCss } = require('./theme');
 const { createNotifier } = require('./notify');
 const { createCrm } = require('./crm');
+const { createShopAuth } = require('./shop-auth');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -63,12 +64,25 @@ if (process.env.REQUIRE_PASSWORD === '1' && store.activeAdmins() === 0) {
 
 const notifier = createNotifier(store);
 const crm = createCrm(store);
+// Код подтверждения, который сотрудник передаёт покупателю сам: уведомление в программу и в Telegram.
+const shopAuth = createShopAuth(store, {
+  onCodeRequested(c) {
+    const what = c.purpose === 'reset' ? 'восстановление пароля' : 'регистрация';
+    notifier.broadcast('code', { phone: c.phone, name: c.name, purpose: c.purpose }, 'customers.accounts');
+    const tg = notifier.telegramSettings();
+    if (tg.enabled) {
+      notifier.sendTelegram(`🔑 Код для покупателя ${c.name ? c.name + ', ' : ''}+${c.phone} (${what}): ${c.code}\nПозвоните или напишите покупателю и назовите код. Действует 15 минут.`, tg)
+        .catch((err) => console.error('Код в Telegram не отправлен:', err.message));
+    }
+  },
+});
 const auth = createAuth(store, process.env.SESSION_SECRET || store.setting('session_secret', crypto.randomBytes(32).toString('base64url')));
 
 // Сотрудник с правом «Сотрудники», но не администратор, не может назначать
 // администраторов и менять их: иначе он выдал бы себе все права.
 // Настройки WhatsApp для экрана: секреты не отдаём, только признак, что они заданы.
-const whatsappPublic = (s) => ({ enabled: s.enabled, verifyToken: s.verifyToken, phoneNumberId: s.phoneNumberId, hasSecret: Boolean(s.appSecret), hasToken: Boolean(s.accessToken), webhookPath: '/webhooks/whatsapp' });
+const whatsappPublic = (s) => ({ enabled: s.enabled, verifyToken: s.verifyToken, phoneNumberId: s.phoneNumberId, hasSecret: Boolean(s.appSecret), hasToken: Boolean(s.accessToken),
+  otpEnabled: Boolean(s.otpEnabled), otpTemplate: s.otpTemplate || '', otpLang: s.otpLang || 'ru', webhookPath: '/webhooks/whatsapp' });
 
 function guardAdmin(user, target, body) {
   if (!user || user.role === 'admin') return;
@@ -216,6 +230,11 @@ const routes = [
   ['POST', '/api/customers', (p, url, body) => store.createCustomer(body), 'pos'],
   ['GET', '/api/customers', (p, url) => store.listCustomers({ q: url.searchParams.get('q') || '' }), 'customers'],
   ['GET', '/api/customers/rating', () => store.customerRating(), 'customers'],
+  ['GET', '/api/customers/codes', () => shopAuth.pendingCodes(), 'customers.accounts'],
+  ['POST', '/api/customers/codes/:id/sent', (p, url, body, user) => shopAuth.markCodeSent(p.id, user), 'customers.accounts'],
+  ['POST', '/api/customers/:id/password', (p) => shopAuth.adminResetPassword(p.id), 'customers.accounts'],
+  ['PUT', '/api/customers/:id/login', (p, url, body) => shopAuth.setLoginDisabled(p.id, body.disabled), 'customers.accounts'],
+  ['GET', '/api/customers/:id/orders', (p) => shopAuth.myOrders(store.findCustomer(p.id) || (() => { throw new UserError('Покупатель не найден'); })()), 'customers'],
   ['GET', '/api/customers/:id/bonus', (p) => store.bonusHistory(p.id), 'customers'],
   ['PUT', '/api/customers/:id', (p, url, body) => store.updateCustomer(p.id, body), 'loyalty'],
   ['POST', '/api/customers/:id/bonus', (p, url, body, user) => store.adjustBonus(p.id, body, user), 'loyalty'],
@@ -348,6 +367,9 @@ const AUDIT_LABELS = {
   'POST /api/crm/leads/:id/instagram': 'Ответил клиенту в Instagram',
   'POST /api/crm/leads/:id/whatsapp': 'Ответил клиенту в WhatsApp',
   'PUT /api/settings/whatsapp': 'Изменил подключение WhatsApp',
+  'POST /api/customers/codes/:id/sent': 'Передал покупателю код подтверждения',
+  'POST /api/customers/:id/password': 'Выдал покупателю временный пароль',
+  'PUT /api/customers/:id/login': 'Изменил доступ покупателя к витрине',
   'POST /api/settings/telegram/test': 'Отправил пробное уведомление',
 };
 const ORDER_NAMES = { confirmed: 'подтверждён', ready: 'собран', shipped: 'передан курьеру', done: 'выдан', cancelled: 'отменён' };
@@ -358,6 +380,8 @@ function auditDetails(key, params, body, result) {
   switch (key) {
     case 'POST /api/sales': return `Чек №${r.id} на ${r.total} сом${r.discount ? `, скидка ${r.discount} сом (${r.discountReason})` : ''}`;
     case 'POST /api/sales/:id/refund': return `Чек №${params.id}`;
+    case 'POST /api/customers/:id/password': return `+${r.phone}`;
+    case 'PUT /api/customers/:id/login': return `${r.name || '+' + r.phone}: вход ${r.login_disabled ? 'закрыт' : 'открыт'}`;
     case 'POST /api/sales/delete': {
       const scope = Array.isArray(body.ids) ? `чеки ${body.ids.slice(0, 20).map((id) => '№' + id).join(', ')}${body.ids.length > 20 ? '…' : ''}`
         : body.all ? 'все продажи за всё время' : `все за ${new Date(Number(body.from)).toLocaleDateString('ru-RU')} — ${new Date(Number(body.to) - 1).toLocaleDateString('ru-RU')}`;
@@ -453,6 +477,75 @@ async function metaWebhook(req, res, url, channel) {
   }
 }
 
+// Личный кабинет покупателя на витрине: регистрация, вход, «Забыл пароль», мои заказы.
+async function shopAccount(req, res, url) {
+  const action = url.pathname.slice('/shop/account/'.length);
+  const ip = clientIp(req);
+  const who = (c, phoneText) => ({ ip, device: device(req), userName: `Покупатель: ${c?.name ? c.name + ', ' : ''}+${c?.phone || phoneText || ''}` });
+  const done = (result) => {
+    if (result.cookie) res.setHeader('Set-Cookie', result.cookie);
+    const { cookie, ...rest } = result;
+    return sendJson(res, 200, rest);
+  };
+  try {
+    if (req.method === 'GET' && action === 'me') {
+      const c = shopAuth.current(req);
+      if (!c) return sendJson(res, 200, { customer: null });
+      const full = store.findCustomer(c.id);
+      return sendJson(res, 200, { customer: { ...shopAuth.publicCustomer(c), birthdayDiscount: full.birthdayDiscount }, orders: shopAuth.myOrders(c), loyalty: store.loyalty() });
+    }
+    if (req.method !== 'POST' && req.method !== 'PUT') return sendJson(res, 405, { error: 'Неверный запрос' });
+    const body = await readBody(req);
+    switch (action) {
+      case 'register': {
+        const r = await shopAuth.register(body, req);
+        if (r.customer) store.audit({ ...who(r.customer), kind: 'change', action: 'Покупатель зарегистрировался на витрине' });
+        return done(r);
+      }
+      case 'register/confirm': {
+        const r = shopAuth.confirmRegistration(body, req);
+        store.audit({ ...who(r.customer), kind: 'change', action: 'Покупатель зарегистрировался на витрине', details: 'номер подтверждён кодом' });
+        return done(r);
+      }
+      case 'login':
+        try {
+          const r = shopAuth.login(body, req, ip);
+          store.audit({ ...who(r.customer), kind: 'login', action: 'Покупатель вошёл на витрину' });
+          return done(r);
+        } catch (err) {
+          let typed = String(body.phone || '').replace(/\D/g, '');
+          try { typed = normalizePhone(body.phone); } catch { /* в журнал — как ввели */ }
+          store.audit({ ...who(null, typed), kind: 'login_failed', action: 'Неудачный вход покупателя на витрину', details: err.message });
+          throw err;
+        }
+      case 'logout':
+        res.setHeader('Set-Cookie', shopAuth.logoutCookie(req));
+        return sendJson(res, 200, { ok: true });
+      case 'reset/request':
+        return done(await shopAuth.requestReset(body));
+      case 'reset': {
+        const r = shopAuth.resetPassword(body, req);
+        store.audit({ ...who(r.customer), kind: 'change', action: 'Покупатель сменил пароль по коду' });
+        return done(r);
+      }
+      case 'me': {
+        const c = shopAuth.current(req);
+        if (!c) return sendJson(res, 401, { error: 'Войдите снова' });
+        const fresh = shopAuth.updateProfile(c, body);
+        // Если сменили пароль, старая сессия кончилась — выдаём новую.
+        if (body.newPassword) res.setHeader('Set-Cookie', shopAuth.login({ phone: fresh.phone, password: body.newPassword }, req, ip).cookie);
+        return sendJson(res, 200, { customer: shopAuth.publicCustomer(fresh) });
+      }
+      default:
+        return sendJson(res, 404, { error: 'Не найдено' });
+    }
+  } catch (err) {
+    if (err instanceof UserError) return sendJson(res, 400, { error: err.message });
+    console.error(err);
+    return sendJson(res, 500, { error: 'Что-то пошло не так. Попробуйте ещё раз.' });
+  }
+}
+
 // Страницы и запросы без входа: оформление, интернет-витрина и её заказы.
 async function handlePublic(req, res, url, user) {
   const { pathname } = url;
@@ -491,6 +584,7 @@ async function handlePublic(req, res, url, user) {
     const found = store.getPhoto(photo[1]);
     return sendBytes(res, found.mime, Buffer.from(found.data), 'public, max-age=86400');
   }
+  if (pathname.startsWith('/shop/account/')) return shopAccount(req, res, url);
   if (req.method === 'POST' && pathname === '/shop/order') {
     const ip = clientIp(req);
     const now = Date.now();
@@ -500,7 +594,9 @@ async function handlePublic(req, res, url, user) {
       const body = await readBody(req);
       // Скрытое поле: люди его не видят и не заполняют, а боты заполняют.
       if (body.website) return sendJson(res, 200, { ok: true, id: 0 });
-      const order = store.createOrder(body);
+      const customer = shopAuth.current(req);
+      if (!customer) return sendJson(res, 401, { error: 'Чтобы оформить заказ, войдите или зарегистрируйтесь' });
+      const order = store.createOrder(body, customer);
       recent.push(now);
       orderLog.set(ip, recent);
       notifier.order(order);
@@ -561,7 +657,7 @@ const server = http.createServer(async (req, res) => {
     return res.end(Buffer.from(found.data));
   }
   if (req.method === 'GET' && url.pathname === '/api/events') {
-    if (!['notify', 'orders', 'crm'].some((r) => can(user, r))) return sendJson(res, 403, { error: 'Нет доступа' });
+    if (!['notify', 'orders', 'crm', 'customers.accounts'].some((r) => can(user, r))) return sendJson(res, 403, { error: 'Нет доступа' });
     return notifier.subscribe(req, res, user);
   }
   const route = match(req.method, url.pathname);

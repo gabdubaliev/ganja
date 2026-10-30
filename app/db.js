@@ -1343,7 +1343,9 @@ function createStore(file) {
       return this.shopProducts().some((p) => p.id === Number(id) && p.photo);
     },
 
-    createOrder(input) {
+    // customer — покупатель, вошедший на витрине: имя и телефон заказа берутся из его аккаунта.
+    createOrder(input, customer = null) {
+      if (!customer) throw new UserError('Чтобы оформить заказ, войдите или зарегистрируйтесь');
       const s = this.shop();
       if (!s.enabled) throw new UserError('Витрина сейчас закрыта');
       const available = new Map(this.shopProducts().filter((p) => !p.hasVariants).map((p) => [p.id, p]));
@@ -1362,8 +1364,8 @@ function createStore(file) {
       const address = text(input.address, 'Адрес', { max: 300 });
       if (delivery === 'delivery' && !address) throw new UserError('Укажите адрес доставки');
       return transaction(db, () => {
-        const { lastInsertRowid: id } = db.prepare('INSERT INTO orders (created_at, name, phone, comment, delivery, address, total) VALUES (?, ?, ?, ?, ?, ?, ?)')
-          .run(Date.now(), text(input.name, 'Имя', { required: true, max: 80 }), phone(input.phone), text(input.comment, 'Комментарий', { max: 1000 }), delivery, address, total);
+        const { lastInsertRowid: id } = db.prepare('INSERT INTO orders (created_at, name, phone, comment, delivery, address, total, customer_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(Date.now(), text(input.name || customer.name, 'Имя', { required: true, max: 80 }), customer.phone, text(input.comment, 'Комментарий', { max: 1000 }), delivery, address, total, customer.id);
         const add = db.prepare('INSERT INTO order_items (order_id, product_id, name, qty, price) VALUES (?, ?, ?, ?, ?)');
         for (const l of lines) add.run(id, l.p.id, l.p.name, l.qty, l.p.price);
         return this.getOrder(id);
@@ -1420,4 +1422,4 @@ function createStore(file) {
   };
 }
 
-module.exports = { createStore, UserError, text, number, phone, round2, transaction };
+module.exports = { createStore, UserError, text, number, phone, birthday, round2, transaction };

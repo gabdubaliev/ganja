@@ -379,7 +379,12 @@ function createCrm(store) {
         appSecret: input.appSecret ? text(input.appSecret, 'App Secret', { max: 100 }) : cur.appSecret,
         accessToken: input.accessToken ? text(input.accessToken, 'Токен доступа', { max: 1000 }) : cur.accessToken,
         phoneNumberId: input.phoneNumberId !== undefined ? text(input.phoneNumberId, 'ID номера телефона', { max: 40 }).replace(/\D/g, '') : cur.phoneNumberId,
+        // Коды подтверждения для покупателей витрины — одобренным шаблоном категории «Аутентификация».
+        otpEnabled: input.otpEnabled === undefined ? Boolean(cur.otpEnabled) : Boolean(input.otpEnabled),
+        otpTemplate: input.otpTemplate !== undefined ? text(input.otpTemplate, 'Название шаблона', { max: 100 }) : cur.otpTemplate || '',
+        otpLang: input.otpLang !== undefined ? text(input.otpLang, 'Язык шаблона', { max: 10 }) || 'ru' : cur.otpLang || 'ru',
       };
+      if (next.otpEnabled && !next.otpTemplate) throw new UserError('Укажите название одобренного шаблона для кодов');
       if (next.enabled && (!next.appSecret || !next.accessToken || !next.phoneNumberId)) {
         throw new UserError('Чтобы включить WhatsApp, укажите App Secret, токен доступа и ID номера телефона');
       }

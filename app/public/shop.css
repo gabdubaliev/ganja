@@ -87,6 +87,37 @@ img { max-width: 100%; display: block; }
 .opt-values button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .opt-values button.na { color: var(--ink-soft); text-decoration: line-through; opacity: 0.6; }
 
+/* Аккаунт покупателя */
+.account-btn { display: inline-flex; align-items: center; gap: 6px; flex: none; height: 46px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font-weight: 650; }
+.account-btn svg { width: 20px; height: 20px; }
+.acc { display: grid; gap: 12px; }
+.acc label, .acc-form label { display: grid; gap: 4px; font-size: 14px; color: var(--ink-soft); }
+.acc input { padding: 11px 14px; border: 1px solid var(--line); border-radius: calc(var(--radius) * 0.7); background: var(--surface); color: var(--ink); font: inherit; }
+.acc input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.code-input { font-size: 26px !important; letter-spacing: 0.4em; text-align: center; font-variant-numeric: tabular-nums; }
+.acc-links { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+.link { border: 0; background: none; color: var(--accent); padding: 0; font-weight: 600; font-size: 14px; }
+.small.left { text-align: left; }
+.ghost { border: 1px solid var(--line); background: none; padding: 13px 20px; border-radius: 999px; font-weight: 700; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.checkout-login { display: grid; gap: 10px; padding: 14px; border-radius: var(--radius); background: var(--accent-soft); }
+.checkout-login p { margin: 0; font-weight: 600; }
+.checkout-who { padding: 10px 14px; border-radius: calc(var(--radius) * 0.7); background: var(--surface); border: 1px solid var(--line); font-size: 14px; }
+.profile-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.profile-cards div { display: grid; gap: 2px; padding: 12px 14px; border-radius: var(--radius); background: var(--accent-soft); }
+.profile-cards b { font-size: 18px; }
+.birthday-note { margin: 0; padding: 10px 14px; border-radius: var(--radius); background: #fff1c2; color: #5b4100; font-weight: 600; }
+.acc h3 { margin: 6px 0 0; font-size: 16px; }
+.profile-orders { display: grid; gap: 8px; max-height: 300px; overflow-y: auto; }
+.profile-order { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: calc(var(--radius) * 0.7); }
+.status { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 650; background: var(--accent-soft); color: var(--accent); }
+.status.s-done { background: rgba(22, 163, 74, 0.14); color: #15803d; }
+.status.s-cancelled { background: rgba(225, 29, 72, 0.12); color: #be123c; }
+.profile-edit summary { cursor: pointer; font-weight: 600; color: var(--accent); }
+.acc-form { display: grid; gap: 10px; margin-top: 10px; }
+.shop-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 50; background: #141625; color: #fff; padding: 12px 20px; border-radius: 999px; font-weight: 600; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); }
+@media (max-width: 700px) { .account-btn span { display: none; } .account-btn { padding: 0 12px; } }
+
 /* Подвал */
 .site-foot { background: var(--surface); border-top: 1px solid var(--line); padding: 40px 0 calc(40px + env(safe-area-inset-bottom, 0px)); }
 .foot-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 32px; }

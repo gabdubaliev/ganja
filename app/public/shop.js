@@ -16,7 +16,7 @@ const FONTS = {
   condensed: '"Roboto Condensed", "Arial Narrow", "Segoe UI", system-ui, sans-serif',
 };
 
-const state = { settings: null, products: [], cat: '', query: '', way: 'pickup', cart: loadCart(), open: null, sel: {} };
+const state = { settings: null, products: [], cat: '', query: '', way: 'pickup', cart: loadCart(), open: null, sel: {}, me: null, orders: [], codeFor: null };
 
 function loadCart() {
   try { return JSON.parse(localStorage.getItem('shop.cart')) || {}; } catch { return {}; }
@@ -253,6 +253,12 @@ function renderCart() {
     .map(([k, label]) => `<button type="button" data-way="${k}" aria-pressed="${state.way === k}">${label}</button>`).join('');
   $('#ways').hidden = !(s.pickup && s.delivery);
   $('#address-row').hidden = state.way !== 'delivery';
+  // Без входа заказ не оформить: вместо формы — приглашение войти.
+  const guest = !state.me;
+  $('#checkout-login').hidden = !guest;
+  for (const el of $('#checkout').querySelectorAll('#ways, #checkout-who, label, button[type=submit], .small')) el.hidden = guest || (el.id === 'address-row' && state.way !== 'delivery');
+  $('#ways').hidden = guest || !(s.pickup && s.delivery);
+  $('#checkout-who').innerHTML = state.me ? `Заказ на <b>${esc(state.me.name)}</b>, ${esc(phoneText(state.me.phone))}` : '';
   const short = s.minOrder && goods < s.minOrder;
   const submit = $('#checkout button[type=submit]');
   submit.disabled = Boolean(short);
@@ -309,11 +315,7 @@ $('#checkout').addEventListener('submit', async (e) => {
   const f = e.target;
   const err = $('#checkout-error');
   err.hidden = true;
-  if (!f.elements.name.value.trim() || !f.elements.phone.value.trim()) {
-    err.textContent = 'Укажите имя и телефон';
-    err.hidden = false;
-    return;
-  }
+  if (!state.me) return openAccount('login');
   const submit = f.querySelector('button[type=submit]');
   submit.disabled = true;
   try {
@@ -321,13 +323,15 @@ $('#checkout').addEventListener('submit', async (e) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name: f.elements.name.value, phone: f.elements.phone.value, address: f.elements.address.value,
+        address: f.elements.address.value,
         comment: f.elements.comment.value, website: f.elements.website.value, delivery: state.way,
         items: cartLines().map((l) => ({ productId: l.p.id, qty: l.qty })),
       }),
     });
     const data = await res.json().catch(() => ({}));
+    if (res.status === 401) { state.me = null; renderAccountButton(); openAccount('login'); throw new Error(data.error); }
     if (!res.ok) throw new Error(data.error || 'Не получилось оформить заказ');
+    loadMe();
     state.cart = {};
     saveCart();
     renderAll();
@@ -342,6 +346,171 @@ $('#checkout').addEventListener('submit', async (e) => {
     submit.disabled = false;
     renderCart();
   }
+});
+
+/* ---------- Аккаунт покупателя ---------- */
+const phoneText = (p) => (p.length === 12 && p.startsWith('996') ? `+996 ${p.slice(3, 6)} ${p.slice(6, 9)} ${p.slice(9)}` : '+' + p);
+const ORDER_STATUS = { new: 'Принят', confirmed: 'Подтверждён', ready: 'Собран', shipped: 'Передан курьеру', done: 'Получен', cancelled: 'Отменён' };
+
+async function account(path, body, method = 'POST') {
+  const res = await fetch('/shop/account/' + path, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Что-то пошло не так');
+  return data;
+}
+
+async function loadMe() {
+  try {
+    const d = await fetch('/shop/account/me').then((r) => r.json());
+    state.me = d.customer;
+    state.orders = d.orders || [];
+  } catch {
+    state.me = null;
+  }
+  renderAccountButton();
+  renderCart();
+}
+
+function renderAccountButton() {
+  $('#account-label').textContent = state.me ? state.me.name.split(' ')[0] : 'Войти';
+}
+
+function openAccount(view) {
+  if (!view) view = state.me ? 'profile' : 'login';
+  for (const el of document.querySelectorAll('#account .acc')) el.hidden = el.dataset.view !== view;
+  for (const e of document.querySelectorAll('#account .error')) e.hidden = true;
+  if (view === 'profile') renderProfile();
+  if (!$('#account').open) $('#account').showModal();
+  $(`#account [data-view="${view}"] input`)?.focus();
+}
+
+function showError(form, err) {
+  const el = form.querySelector('.error');
+  el.textContent = err.message === 'Failed to fetch' ? 'Нет связи. Проверьте интернет.' : err.message;
+  el.hidden = false;
+}
+
+// Код подтверждения: purpose — register или reset, channel — whatsapp или manual (через сотрудника).
+function openCode(purpose, phone, channel, extra = {}) {
+  state.codeFor = { purpose, phone, ...extra };
+  openAccount('code');
+  const form = $('#account [data-view="code"]');
+  form.reset();
+  form.querySelector('.new-pass').hidden = purpose !== 'reset';
+  form.querySelector('.code-hint').textContent = channel === 'whatsapp'
+    ? 'Мы отправили код в WhatsApp на ваш номер. Код действует 15 минут.'
+    : 'Мы получили запрос: сотрудник магазина позвонит или напишет вам и назовёт код. Код действует 15 минут.' +
+      (state.settings.phone ? ` Можно позвонить нам: ${state.settings.phone}.` : '');
+}
+
+function loggedIn(data, message) {
+  state.me = data.customer;
+  renderAccountButton();
+  $('#account').close();
+  loadMe();
+  toast(message);
+}
+
+// Простое всплывающее сообщение внизу витрины.
+function toast(text) {
+  const el = document.createElement('div');
+  el.className = 'shop-toast';
+  el.textContent = text;
+  document.body.append(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+function renderProfile() {
+  const me = state.me;
+  $('#profile-name').textContent = me.name;
+  $('#profile-bonus').textContent = `${new Intl.NumberFormat('ru-RU').format(me.bonus)} бонусов`;
+  $('#profile-phone').textContent = phoneText(me.phone);
+  $('#profile-bday').hidden = !me.birthdayDiscount;
+  $('#profile-bday').textContent = me.birthdayDiscount ? `🎂 С днём рождения! Скидка ${me.birthdayDiscount}% — назовите номер телефона на кассе.` : '';
+  $('#profile-orders').innerHTML = state.orders.length ? state.orders.map((o) => `
+    <div class="profile-order">
+      <div><b>№${o.id}</b> · ${new Date(o.created_at).toLocaleDateString('ru-RU')} <span class="status s-${o.status}">${ORDER_STATUS[o.status] || o.status}</span></div>
+      <div class="small left">${o.items.map((i) => `${esc(i.name)} × ${qtyFmt.format(i.qty)}`).join(', ')}</div>
+      <b>${rub(o.total)}</b>
+    </div>`).join('') : '<p class="small left">Заказов пока нет</p>';
+  const f = $('#profile-form');
+  f.elements.name.value = me.name;
+  const [y, m, d] = (me.birthday || '').split('-');
+  f.elements.birthday.value = me.birthday ? `${d}.${m}${y !== '0000' ? '.' + y : ''}` : '';
+  f.elements.password.value = '';
+  f.elements.newPassword.value = '';
+}
+
+$('#account-open').addEventListener('click', () => openAccount());
+document.addEventListener('click', (e) => {
+  const link = e.target.closest('[data-account]');
+  if (!link) return;
+  if ($('#cart').open) $('#cart').close();
+  openAccount(link.dataset.account);
+});
+
+$('#account [data-view="login"]').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  try {
+    loggedIn(await account('login', { phone: f.elements.phone.value, password: f.elements.password.value }), 'Вы вошли');
+  } catch (err) { showError(f, err); }
+});
+$('#account [data-view="register"]').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const body = Object.fromEntries(['phone', 'name', 'birthday', 'password'].map((k) => [k, f.elements[k].value]));
+  try {
+    const d = await account('register', body);
+    if (d.needCode) return openCode('register', body.phone, d.channel, { body });
+    loggedIn(d, 'Готово! Вы зарегистрированы');
+  } catch (err) { showError(f, err); }
+});
+$('#account [data-view="forgot"]').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  try {
+    const d = await account('reset/request', { phone: f.elements.phone.value });
+    openCode('reset', f.elements.phone.value, d.channel);
+  } catch (err) { showError(f, err); }
+});
+$('#account [data-view="code"]').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const c = state.codeFor;
+  try {
+    if (c.purpose === 'register') loggedIn(await account('register/confirm', { phone: c.phone, code: f.elements.code.value }), 'Номер подтверждён, вы зарегистрированы');
+    else loggedIn(await account('reset', { phone: c.phone, code: f.elements.code.value, password: f.elements.password.value }), 'Пароль изменён, вы вошли');
+  } catch (err) { showError(f, err); }
+});
+$('#account [data-resend]').addEventListener('click', async () => {
+  const c = state.codeFor;
+  const f = $('#account [data-view="code"]');
+  try {
+    const d = c.purpose === 'register' ? await account('register', c.body) : await account('reset/request', { phone: c.phone });
+    openCode(c.purpose, c.phone, d.channel, c.purpose === 'register' ? { body: c.body } : {});
+    toast('Новый код запрошен');
+  } catch (err) { showError(f, err); }
+});
+$('#profile-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  try {
+    const d = await account('me', { name: f.elements.name.value, birthday: f.elements.birthday.value, password: f.elements.password.value, newPassword: f.elements.newPassword.value }, 'PUT');
+    state.me = { ...state.me, ...d.customer };
+    renderAccountButton();
+    renderProfile();
+    toast('Сохранено');
+  } catch (err) { showError(f, err); }
+});
+$('#logout').addEventListener('click', async () => {
+  await account('logout').catch(() => {});
+  state.me = null;
+  state.orders = [];
+  renderAccountButton();
+  renderCart();
+  $('#account').close();
+  toast('Вы вышли');
 });
 
 // Предпросмотр из конструктора: принимаем сообщения только со своего сайта.
@@ -370,5 +539,6 @@ addEventListener('message', (e) => {
   renderFrame();
   renderCats();
   renderAll();
+  loadMe();
   parent.postMessage({ type: 'shop-ready' }, location.origin);
 })();

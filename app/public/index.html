@@ -446,6 +446,13 @@
       <button type="submit" class="btn primary" data-can="loyalty">Сохранить правила</button>
     </form>
   </section>
+  <section class="panel codes-panel" id="codes-panel" hidden>
+    <div class="panel-head">
+      <div><h2>🔑 Коды подтверждения для покупателей</h2>
+      <p class="sub">Покупатель запросил код на витрине («Забыл пароль» или регистрация на номер, который уже есть у нас). Позвоните или напишите ему и назовите код — он действует 15 минут. Чтобы коды уходили сами, настройте WhatsApp в «Настройках».</p></div>
+    </div>
+    <div id="codes-list" class="codes-list"></div>
+  </section>
   <section class="panel">
     <div class="panel-head">
       <div><h2>Рейтинг покупателей</h2><p class="sub">Кто чаще и больше покупает. Учитываются чеки без возвратов, к которым привязан покупатель, — на кассе и выданные заказы с витрины.</p></div>
@@ -531,6 +538,15 @@
       <div class="field"><label for="wa-secret">Секрет приложения (App Secret)</label><input id="wa-secret" name="appSecret" class="input" autocomplete="off"></div>
       <div class="field"><label for="wa-token">Постоянный токен доступа</label><input id="wa-token" name="accessToken" class="input" autocomplete="off"></div>
       <label class="check"><input type="checkbox" name="enabled"> Принимать сообщения из WhatsApp</label>
+      <fieldset class="rights">
+        <legend>Коды подтверждения для покупателей витрины</legend>
+        <p class="sub">Код для регистрации и «Забыл пароль» уйдёт покупателю в WhatsApp сам. Для этого в WhatsApp Manager создайте шаблон категории <b>«Аутентификация»</b> с кнопкой «Скопировать код» и дождитесь одобрения Meta. Если отправить не получится, код увидит сотрудник в «Покупателях», как без WhatsApp.</p>
+        <label class="check"><input type="checkbox" name="otpEnabled"> Отправлять коды через WhatsApp</label>
+        <div class="form-grid">
+          <div class="field"><label for="wa-otp-tpl">Название шаблона</label><input id="wa-otp-tpl" name="otpTemplate" class="input" autocomplete="off" placeholder="например, login_code"></div>
+          <div class="field"><label for="wa-otp-lang">Язык шаблона</label><input id="wa-otp-lang" name="otpLang" class="input" autocomplete="off" placeholder="ru"></div>
+        </div>
+      </fieldset>
       <p class="form-error" id="whatsapp-error" role="alert" hidden></p>
       <div class="form-actions start"><button type="submit" class="btn primary">Сохранить</button></div>
     </form>
@@ -544,6 +560,16 @@
       <div class="field"><label for="cf-phone">Телефон</label><input id="cf-phone" name="phone" class="input" inputmode="tel" required autocomplete="off" placeholder="+996 700 123 456"></div>
       <div class="field"><label for="cf-name">Имя</label><input id="cf-name" name="name" class="input" autocomplete="off" placeholder="Необязательно"></div>
       <div class="field"><label for="cf-bday">Дата рождения</label><input id="cf-bday" name="birthday" class="input" inputmode="numeric" autocomplete="off" placeholder="ДД.ММ.ГГГГ"></div>
+    </div>
+    <div class="shop-account" id="customer-account" hidden>
+      <h3>Аккаунт на витрине</h3>
+      <p class="sub" id="customer-account-info"></p>
+      <div class="tools" data-can="customers.accounts" hidden>
+        <button type="button" class="btn small" id="customer-temp-pass">Выдать временный пароль</button>
+        <button type="button" class="btn small ghost danger-text" id="customer-block"></button>
+      </div>
+      <p class="temp-pass" id="customer-temp-result" hidden></p>
+      <div id="customer-orders" class="history"></div>
     </div>
     <div id="customer-bonus" hidden>
       <p class="balance">Бонусов: <b class="num" id="customer-balance"></b></p>

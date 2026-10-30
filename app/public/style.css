@@ -646,6 +646,16 @@ input[type="range"] { width: 100%; accent-color: var(--series); }
 .compose-kind { grid-template-columns: repeat(4, auto); justify-content: start; }
 .compose-kind button { padding: 6px 12px; font-size: 13px; }
 
+/* Аккаунты покупателей */
+.codes-panel { border-color: color-mix(in srgb, #f59e0b 45%, transparent); background: linear-gradient(90deg, rgba(245, 158, 11, 0.08), var(--surface) 40%); }
+.codes-list { display: grid; gap: 8px; }
+.code-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 10px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.code-row.sent { opacity: 0.6; }
+.code-big { font-size: 24px; letter-spacing: 0.15em; color: var(--series); }
+.shop-account { border-top: 1px solid var(--grid); margin-top: 14px; padding-top: 6px; display: grid; gap: 8px; }
+.temp-pass { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--series-soft); }
+@media (max-width: 640px) { .code-row { grid-template-columns: 1fr; } }
+
 /* «Ещё» */
 .more-groups { display: grid; gap: 20px; }
 .more-group h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 8px; }
