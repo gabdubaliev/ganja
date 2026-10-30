@@ -175,8 +175,9 @@ function open(file) {
   addColumns('users', [['plan_bonus', 'REAL NOT NULL DEFAULT 0']]);
   // PIN-код для быстрой смены кассира на кассе (scrypt-хеш, как пароль).
   addColumns('users', [['pin_hash', 'TEXT']]);
+  // owner_shadow — запись владельца в базе филиала: владелец входит один раз и работает в любом магазине.
+  addColumns('users', [['owner_shadow', 'INTEGER NOT NULL DEFAULT 0']]);
   // Штрафы и бонусы сотрудникам — одна таблица: kind 'fine' уменьшает зарплату, 'bonus' увеличивает.
-  addColumns('fines', [['kind', "TEXT NOT NULL DEFAULT 'fine'"]]);
   // Ручные исправления ведомости за конкретный период: field — 'salary' (за смены и оклад),
   // 'bonus' (% от продаж) или 'pay' (итог к выплате). Действуют, когда отчёт открыт ровно за этот период.
   db.exec(`
@@ -356,7 +357,6 @@ function open(file) {
       created_at INTEGER NOT NULL
     );
   `);
-  addColumns('shifts', [['register_id', 'INTEGER']]);
   if (!db.prepare('SELECT 1 FROM registers').get()) db.prepare("INSERT INTO registers (name, sort, created_at) VALUES ('Касса 1', 1, ?)").run(Date.now());
 
   // Задания сотрудникам: open — в работе, done — сотрудник отметил «Выполнено» и ждёт проверки,
@@ -435,6 +435,9 @@ function open(file) {
   // Российских номеров на 70… не бывает, так что это кыргызские: 996700123456.
   db.exec("UPDATE OR IGNORE customers SET phone = '996' || substr(phone, 3) WHERE length(phone) = 11 AND phone LIKE '70%'");
   db.exec("UPDATE orders SET phone = '996' || substr(phone, 3) WHERE length(phone) = 11 AND phone LIKE '70%'");
+  // Колонки таблиц, которые создаются выше в этой же функции: на новой базе их добавляем после создания таблиц.
+  addColumns('fines', [['kind', "TEXT NOT NULL DEFAULT 'fine'"]]);
+  addColumns('shifts', [['register_id', 'INTEGER']]);
   return db;
 }
 
@@ -2252,9 +2255,22 @@ function createStore(file) {
       return publicUser(this.findUser(u.id));
     },
 
+    // Владелец (администратор основного магазина) в базе филиала: заводится и обновляется сам.
+    ownerShadow(owner) {
+      const cur = db.prepare('SELECT * FROM users WHERE email = ?').get(owner.email);
+      if (cur && !cur.owner_shadow) throw new UserError(`В этом магазине уже есть сотрудник с email ${owner.email}`);
+      if (cur) {
+        db.prepare("UPDATE users SET name = ?, password_hash = ?, role = 'admin', disabled = 0 WHERE id = ?").run(owner.name, owner.password_hash, cur.id);
+        return this.findUser(cur.id);
+      }
+      const { lastInsertRowid } = db.prepare("INSERT INTO users (email, name, role, password_hash, created_at, owner_shadow) VALUES (?, ?, 'admin', ?, ?, 1)")
+        .run(owner.email, owner.name, owner.password_hash, Date.now());
+      return this.findUser(lastInsertRowid);
+    },
+
     // Кто может работать на кассе — для кнопки «Сменить кассира».
     kassaUsers() {
-      return db.prepare('SELECT * FROM users WHERE disabled = 0 ORDER BY name, email').all()
+      return db.prepare('SELECT * FROM users WHERE disabled = 0 AND owner_shadow = 0 ORDER BY name, email').all()
         .filter((u) => can(u, 'pos'))
         .map((u) => ({ id: u.id, name: u.name || u.email, role: u.role, hasPin: Boolean(u.pin_hash) }));
     },

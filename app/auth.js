@@ -31,6 +31,8 @@ function createAuth(users, secret) {
   // Сравнение с несуществующим сотрудником занимает столько же времени, сколько с настоящим.
   const dummyHash = hashPassword(crypto.randomBytes(16).toString('hex'));
 
+  // Ключ сотрудника в cookie: «магазин-id» (у филиалов своя база) или просто id.
+  const keyOf = (user) => (users.keyOf ? users.keyOf(user) : user.id);
   const sign = (value) => crypto.createHmac('sha256', secret).update(value).digest('base64url');
 
   function sameText(a, b) {
@@ -89,7 +91,7 @@ function createAuth(users, secret) {
       }
       failures.delete(ip);
       const expires = String(now + SESSION_DAYS * 864e5);
-      const value = `${user.id}.${expires}`;
+      const value = `${keyOf(user)}.${expires}`;
       const cookie = `${COOKIE}=${value}.${sign(`${value}.${user.password_hash}`)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${isSecure(req) ? '; Secure' : ''}`;
       return { ok: true, cookie, user };
     },
@@ -115,7 +117,7 @@ function createAuth(users, secret) {
       }
       failures.delete(ip);
       const expires = String(now + SESSION_DAYS * 864e5);
-      const value = `${user.id}.${expires}`;
+      const value = `${keyOf(user)}.${expires}`;
       const cookie = `${COOKIE}=${value}.${sign(`${value}.${user.password_hash}`)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${isSecure(req) ? '; Secure' : ''}`;
       return { ok: true, cookie, user };
     },

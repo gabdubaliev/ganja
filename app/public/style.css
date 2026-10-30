@@ -1135,3 +1135,9 @@ button.inv-option:hover { border-color: var(--series); box-shadow: var(--shadow-
 .reg-open { padding: 8px 10px; border-radius: 10px; background: var(--surface-2); }
 .shift-actions { display: inline-flex; gap: 6px; align-items: center; }
 .shift-actions select { width: auto; }
+
+/* ---------- Магазины ---------- */
+.branch-switch select { padding: 6px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font: inherit; font-weight: 650; color: var(--ink); max-width: 220px; }
+.branch-chip { display: inline-block; padding: 6px 10px; border-radius: 10px; background: var(--series-soft); color: var(--series); font-weight: 650; font-size: 13px; }
+.acc-card.current-branch { border-color: var(--series); box-shadow: 0 0 0 2px color-mix(in srgb, var(--series) 25%, transparent); }
+@media (max-width: 640px) { .branch-switch select { max-width: 130px; } }

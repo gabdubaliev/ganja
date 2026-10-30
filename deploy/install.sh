@@ -146,10 +146,18 @@ EOF
 cat > /usr/local/bin/shop-backup <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-file=$BACKUP_DIR/shop-\$(date +%F).db
-rm -f "\$file"
-/usr/bin/node --disable-warning=ExperimentalWarning -e "new (require('node:sqlite').DatabaseSync)('$DATA_DIR/shop.db', { readOnly: true }).exec(\"VACUUM INTO '\$file'\")"
+# Основной магазин и все филиалы (branch-N.db): у каждого своя копия на дату.
+for db in $DATA_DIR/shop.db $DATA_DIR/branch-*.db; do
+  [[ -f \$db ]] || continue
+  name=\$(basename "\$db" .db)
+  file=$BACKUP_DIR/\$name-\$(date +%F).db
+  rm -f "\$file"
+  /usr/bin/node --disable-warning=ExperimentalWarning -e "new (require('node:sqlite').DatabaseSync)('\$db', { readOnly: true }).exec(\"VACUUM INTO '\$file'\")"
+done
 ls -1t $BACKUP_DIR/shop-*.db | tail -n +31 | xargs -r rm -f
+for b in \$(ls $BACKUP_DIR/branch-*.db 2>/dev/null | sed -E 's/-[0-9]{4}-[0-9]{2}-[0-9]{2}\.db$//' | sort -u); do
+  ls -1t \$b-*.db | tail -n +31 | xargs -r rm -f
+done
 EOF
 chmod 755 /usr/local/bin/shop-backup
 cat > /etc/systemd/system/shop-backup.service <<EOF

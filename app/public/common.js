@@ -225,7 +225,7 @@ const session = {
   roleName(role) { return this.roles[role]?.name || role; },
 };
 session.ready = api('/api/status').then((s) => {
-  Object.assign(session, { user: s.user, rights: new Set(s.can), roles: s.roles, rightsList: s.rights, loyalty: s.loyalty, design: s.design, shop: s.shop });
+  Object.assign(session, { user: s.user, rights: new Set(s.can), roles: s.roles, rightsList: s.rights, loyalty: s.loyalty, design: s.design, shop: s.shop, branch: s.branch });
   applyBrand(s.design.name);
   setOrdersBadge(s.newOrders);
   for (const el of document.querySelectorAll('[data-can]')) el.hidden = !session.can(el.dataset.can);
@@ -235,7 +235,33 @@ session.ready = api('/api/status').then((s) => {
     $('#me-password').title = `${session.roleName(s.user.role)} · сменить пароль или PIN`;
   }
   if (['notify', 'orders', 'crm', 'customers.accounts'].some((r) => session.can(r))) listenSales();
+  renderBranchSwitch();
 }).catch((err) => toast(err.message, 'error'));
+
+// Магазин (филиал) в шапке: владелец переключается списком, остальные видят, в каком магазине работают.
+async function renderBranchSwitch() {
+  const b = session.branch;
+  if (!b || b.count < 2 || !session.user) return;
+  const host = $('#nav-user');
+  const el = document.createElement('span');
+  el.className = 'branch-switch';
+  if (session.user.owner) {
+    const { branches } = await api('/api/branches');
+    el.innerHTML = `<select aria-label="Магазин" title="Магазин, в котором вы сейчас работаете">${branches.map((x) => `<option value="${x.id}" ${x.current ? 'selected' : ''}>🏬 ${esc(x.name)}</option>`).join('')}</select>`;
+    el.querySelector('select').addEventListener('change', (e) => switchBranch(Number(e.target.value)));
+  } else {
+    el.innerHTML = `<span class="branch-chip" title="Ваш магазин">🏬 ${esc(b.name)}</span>`;
+  }
+  host.prepend(el);
+}
+
+async function switchBranch(id) {
+  try {
+    await api('/api/branch/switch', { method: 'POST', body: { id } });
+    location.hash = '';
+    location.reload();
+  } catch (err) { toast(err.message, 'error'); }
+}
 $('#logout').addEventListener('click', async () => {
   await fetch('/api/logout', { method: 'POST' }).catch(() => {});
   location.replace('/login.html');

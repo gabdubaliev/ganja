@@ -228,6 +228,18 @@
   <div class="acc-list" id="reg-list"></div>
 </main>
 
+<main class="page" data-view="branches" hidden>
+  <header class="top">
+    <div class="title"><h1>Магазины</h1><span class="source">филиалы: у каждого свои товары, остатки, сотрудники, кассы и документы</span></div>
+    <div class="tools"><button type="button" class="btn primary" id="branch-add" hidden>Открыть новый магазин</button></div>
+  </header>
+  <div class="acc-list" id="branches-list"></div>
+  <section class="panel">
+    <h2>Как работают филиалы</h2>
+    <p class="sub">Владелец (администратор основного магазина) входит один раз и переключается между магазинами списком вверху справа. Сотрудники филиала заводятся в самом филиале и видят только его. Email сотрудника один на все магазины. Товар между магазинами передаётся документом «Перемещение»: в одном магазине убавится, в другом прибавится (если такого товара там нет — он заведётся сам). Интернет-витрина и заказы с неё — у основного магазина.</p>
+  </section>
+</main>
+
 <main class="page" data-view="suppliers" hidden>
   <header class="top">
     <div class="title"><h1>Поставщики</h1></div>
@@ -1059,6 +1071,23 @@
   </form>
 </dialog>
 
+<dialog id="branch-dialog" aria-labelledby="branch-title">
+  <form id="branch-form" novalidate>
+    <h2 id="branch-title">Новый магазин</h2>
+    <div class="form-grid">
+      <div class="field wide"><label for="br-name">Название</label><input id="br-name" name="name" class="input" required autocomplete="off" placeholder="Например, Филиал на Ахунбаева"></div>
+      <div class="field"><label for="br-address">Адрес</label><input id="br-address" name="address" class="input" autocomplete="off"></div>
+      <div class="field"><label for="br-phone">Телефон</label><input id="br-phone" name="phone" class="input" inputmode="tel" autocomplete="off"></div>
+      <label class="check wide"><input type="checkbox" name="copy" checked> Скопировать каталог товаров и категории из основного магазина (остатки — нули; товар привезёте перемещением или закупкой)</label>
+    </div>
+    <p class="form-error" id="branch-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="branch-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Открыть магазин</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="supplier-dialog" aria-labelledby="supplier-title">
   <form id="supplier-form" novalidate>
     <h2 id="supplier-title">Поставщик</h2>
@@ -1210,6 +1239,7 @@
 <script src="products.js"></script>
 <script src="docs.js"></script>
 <script src="refs.js"></script>
+<script src="branches.js"></script>
 <script src="sales.js"></script>
 <script src="labels.js"></script>
 <script src="xlsx.js"></script>

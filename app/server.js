@@ -10,6 +10,7 @@ process.env.TZ ||= 'Asia/Bishkek';
 const { createStore, UserError, phone: normalizePhone } = require('./db');
 const { seedDemo } = require('./demo');
 const crypto = require('node:crypto');
+const { AsyncLocalStorage } = require('node:async_hooks');
 const { createAuth, hashPassword, checkPassword } = require('./auth');
 const { RIGHTS, ROLES, rightsOf, can } = require('./roles');
 const { themeCss, shopCss } = require('./theme');
@@ -45,7 +46,64 @@ function loadEnv(file) {
   }
 }
 
-const store = createStore(DB_FILE);
+/* ---------- Магазины (филиалы) ----------
+   У каждого магазина своя база: товары, сотрудники, кассы, продажи, документы. Основной магазин — DB_FILE,
+   филиалы — branch-N.db рядом с ней, список хранится в настройках основного. Каждый запрос выполняется
+   в контексте своего магазина (AsyncLocalStorage), поэтому код маршрутов работает с «store» как раньше. */
+const mainStore = createStore(DB_FILE);
+const contexts = new Map(); // id магазина -> { id, store, notifier, crm, shopAuth }
+const als = new AsyncLocalStorage();
+const current = () => als.getStore() || contexts.get(1);
+// store, notifier, crm, shopAuth ниже — это магазин текущего запроса.
+const scoped = (key) => new Proxy({}, { get: (_, k) => { const t = current()[key]; const v = t[k]; return typeof v === 'function' ? v.bind(t) : v; } });
+const store = scoped('store');
+const notifier = scoped('notifier');
+const crm = scoped('crm');
+const shopAuth = scoped('shopAuth');
+
+function branchList() {
+  const saved = JSON.parse(mainStore.setting('branches', '[]'));
+  return [{ id: 1, name: mainStore.design().name || 'Основной магазин', address: '', main: true }, ...saved];
+}
+
+function makeContext(id, st) {
+  const ctx = { id, store: st };
+  ctx.notifier = createNotifier(st);
+  ctx.crm = createCrm(st);
+  // Код подтверждения, который сотрудник передаёт покупателю сам: уведомление в программу и в Telegram.
+  ctx.shopAuth = createShopAuth(st, {
+    onCodeRequested(c) {
+      const what = c.purpose === 'reset' ? 'восстановление пароля' : 'регистрация';
+      ctx.notifier.broadcast('code', { phone: c.phone, name: c.name, purpose: c.purpose }, 'customers.accounts');
+      const tg = ctx.notifier.telegramSettings();
+      if (tg.enabled) {
+        ctx.notifier.sendTelegram(`🔑 Код для покупателя ${c.name ? c.name + ', ' : ''}+${c.phone} (${what}): ${c.code}\nПозвоните или напишите покупателю и назовите код. Действует 15 минут.`, tg)
+          .catch((err) => console.error('Код в Telegram не отправлен:', err.message));
+      }
+    },
+  });
+  // Перемещение: товар уходит отсюда и приходит в другой магазин.
+  st.setBranchLink({
+    send(to, payload, user) {
+      const target = contextOf(to);
+      if (!target || to === id) throw new UserError('Выберите другой магазин');
+      return target.store.receiveTransfer({ ...payload, fromBranch: id, fromName: branchList().find((b) => b.id === id)?.name || `Магазин №${id}` }, user);
+    },
+    cancel(to, docId) { contextOf(to)?.store.cancelTransfer(docId); },
+  });
+  contexts.set(id, ctx);
+  return ctx;
+}
+
+function contextOf(id) {
+  const n = Number(id) || 1;
+  if (contexts.has(n)) return contexts.get(n);
+  const b = branchList().find((x) => x.id === n);
+  if (!b || b.main) return null;
+  return makeContext(n, createStore(path.join(path.dirname(DB_FILE), b.file)));
+}
+makeContext(1, mainStore);
+for (const b of branchList()) if (!b.main) contextOf(b.id);
 
 // Администратор из переменных. APP_PASSWORD — пароль из прошлых версий, где вход был без email.
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || '';
@@ -63,21 +121,44 @@ if (process.env.REQUIRE_PASSWORD === '1' && store.activeAdmins() === 0) {
   process.exit(1);
 }
 
-const notifier = createNotifier(store);
-const crm = createCrm(store);
-// Код подтверждения, который сотрудник передаёт покупателю сам: уведомление в программу и в Telegram.
-const shopAuth = createShopAuth(store, {
-  onCodeRequested(c) {
-    const what = c.purpose === 'reset' ? 'восстановление пароля' : 'регистрация';
-    notifier.broadcast('code', { phone: c.phone, name: c.name, purpose: c.purpose }, 'customers.accounts');
-    const tg = notifier.telegramSettings();
-    if (tg.enabled) {
-      notifier.sendTelegram(`🔑 Код для покупателя ${c.name ? c.name + ', ' : ''}+${c.phone} (${what}): ${c.code}\nПозвоните или напишите покупателю и назовите код. Действует 15 минут.`, tg)
-        .catch((err) => console.error('Код в Telegram не отправлен:', err.message));
-    }
+// Сотрудники всех магазинов для входа: email ищется сначала в основном магазине, потом в филиалах.
+// В cookie — «магазин-id» (у основного — просто id, как в прошлых версиях).
+const staffDirectory = {
+  countUsers: () => mainStore.countUsers(),
+  keyOf: (u) => (u.branch && u.branch !== 1 ? `${u.branch}-${u.id}` : String(u.id)),
+  findUser(key) {
+    const [b, id] = String(key).includes('-') ? String(key).split('-') : [1, key];
+    const ctx = contextOf(b);
+    const u = ctx && ctx.store.findUser(id);
+    return u ? { ...u, branch: ctx.id } : null;
   },
-});
-const auth = createAuth(store, process.env.SESSION_SECRET || store.setting('session_secret', crypto.randomBytes(32).toString('base64url')));
+  findUserByEmail(email) {
+    for (const b of branchList()) {
+      const ctx = contextOf(b.id);
+      const u = ctx?.store.findUserByEmail(email);
+      if (u && !u.owner_shadow) return { ...u, branch: ctx.id };
+    }
+    return null;
+  },
+};
+const auth = createAuth(staffDirectory, process.env.SESSION_SECRET || mainStore.setting('session_secret', crypto.randomBytes(32).toString('base64url')));
+const isOwner = (u) => u && (u.branch || 1) === 1 && u.role === 'admin';
+
+// Магазин запроса: сотрудник филиала работает в своём, владелец — в выбранном (cookie shop_branch).
+function branchCookie(req) {
+  const m = String(req.headers.cookie || '').match(/(?:^|;\s*)shop_branch=(\d+)/);
+  return m ? Number(m[1]) : 1;
+}
+function resolveContext(req, user) {
+  if (!user) return { ctx: contexts.get(1), user: null, owner: null };
+  if (isOwner(user)) {
+    const ctx = contextOf(branchCookie(req)) || contexts.get(1);
+    if (ctx.id === 1) return { ctx, user, owner: user };
+    const shadow = ctx.store.ownerShadow(user);
+    return { ctx, user: { ...shadow, branch: ctx.id }, owner: user };
+  }
+  return { ctx: contextOf(user.branch) || contexts.get(1), user, owner: null };
+}
 
 // Сотрудник с правом «Сотрудники», но не администратор, не может назначать
 // администраторов и менять их: иначе он выдал бы себе все права.
@@ -127,6 +208,49 @@ function docRight(user, kind) {
   if (!k) throw new UserError('Неизвестный вид документа');
   if (!can(user, k.right)) throw new UserError(`У вас нет права на документы «${k.many}»`);
   return true;
+}
+
+// Новый магазин: своя база рядом с основной. По желанию — копия каталога товаров (без остатков) и категорий.
+function createBranch(input, user) {
+  if (auth.enabled && !user?.owner) throw new UserError('Магазины заводит владелец — администратор основного магазина');
+  const name = String(input.name ?? '').trim().slice(0, 80);
+  if (!name) throw new UserError('Название магазина');
+  const list = branchList();
+  if (list.some((b) => b.name.toLowerCase() === name.toLowerCase())) throw new UserError('Магазин с таким названием уже есть');
+  const id = Math.max(...list.map((b) => b.id)) + 1;
+  const b = { id, name, address: String(input.address ?? '').trim().slice(0, 200), phone: String(input.phone ?? '').trim().slice(0, 40), file: `branch-${id}.db`, created_at: Date.now() };
+  mainStore.setSetting('branches', JSON.stringify([...list.filter((x) => !x.main), b]));
+  const ctx = contextOf(id);
+  ctx.store.setDesign?.({ ...mainStore.design(), name });
+  if (input.copyProducts) {
+    const db = ctx.store.db;
+    db.exec(`ATTACH DATABASE '${path.join(path.dirname(DB_FILE), path.basename(DB_FILE)).replace(/'/g, "''")}' AS src`);
+    try {
+      db.exec(`INSERT INTO categories SELECT * FROM src.categories;
+        INSERT INTO images SELECT * FROM src.images WHERE id IN (SELECT image_id FROM src.categories WHERE image_id IS NOT NULL);
+        INSERT INTO products SELECT * FROM src.products WHERE deleted = 0;
+        INSERT INTO product_photos SELECT * FROM src.product_photos WHERE product_id IN (SELECT id FROM src.products WHERE deleted = 0);
+        UPDATE products SET stock = 0;`);
+    } finally {
+      db.exec('DETACH DATABASE src');
+    }
+  }
+  return { ...b, products: ctx.store.listProducts({}).length };
+}
+
+function updateBranch(id, input, user) {
+  if (auth.enabled && !user?.owner) throw new UserError('Магазины меняет владелец');
+  const n = Number(id);
+  if (n === 1) {
+    mainStore.setDesign?.({ ...mainStore.design(), name: String(input.name ?? '').trim().slice(0, 80) || mainStore.design().name });
+    return branchList()[0];
+  }
+  const list = branchList().filter((b) => !b.main);
+  const b = list.find((x) => x.id === n);
+  if (!b) throw new UserError('Магазин не найден');
+  Object.assign(b, { name: String(input.name ?? b.name).trim().slice(0, 80) || b.name, address: String(input.address ?? b.address).trim().slice(0, 200), phone: String(input.phone ?? b.phone ?? '').trim().slice(0, 40) });
+  mainStore.setSetting('branches', JSON.stringify(list));
+  return b;
 }
 
 function guardAdmin(user, target, body) {
@@ -183,6 +307,7 @@ function range(url) {
 const routes = [
   ['GET', '/api/status', (p, url, body, user) => ({
     empty: store.isEmpty(), auth: auth.enabled, user,
+    branch: (() => { const b = branchList().find((x) => x.id === current().id); return { id: b.id, name: b.name, count: branchList().length }; })(),
     can: rightsOf(user),
     roles: ROLES,
     rights: RIGHTS,
@@ -192,6 +317,12 @@ const routes = [
     newOrders: can(user, 'orders') ? store.countNewOrders() : 0,
   }), 'any'],
   ['GET', '/api/kassa/users', () => store.kassaUsers(), 'pos'],
+  ['GET', '/api/branches', (p, url, body, user) => ({
+    branches: branchList().map((b) => ({ id: b.id, name: b.name, address: b.address || '', phone: b.phone || '', main: Boolean(b.main), current: b.id === current().id })),
+    canManage: Boolean(user?.owner) || !auth.enabled,
+  }), 'any'],
+  ['POST', '/api/branches', (p, url, body, user) => createBranch(body, user), 'any'],
+  ['PUT', '/api/branches/:id', (p, url, body, user) => updateBranch(p.id, body, user), 'any'],
   ['PUT', '/api/me/pin', (p, url, body, user) => {
     if (!user) throw new UserError('Сначала заведите сотрудников');
     if (!checkPassword(body.current, store.findUser(user.id).password_hash)) throw new UserError('Текущий пароль указан неверно');
@@ -386,6 +517,12 @@ const routes = [
   ['GET', '/api/users', () => store.listUsers(), 'staff'],
   ['POST', '/api/users', (p, url, body, user) => {
     guardAdmin(user, null, body);
+    // Email входа один на все магазины: по нему программа понимает, в какой магазин пустить.
+    const email = String(body.email || '').trim().toLowerCase();
+    for (const b of branchList()) {
+      const other = b.id !== current().id && contextOf(b.id)?.store.findUserByEmail(email);
+      if (other && !other.owner_shadow) throw new UserError(`Email ${email} уже занят сотрудником магазина «${b.name}»`);
+    }
     const pin = body.pin ? pinHash(body.pin) : null;
     const made = store.createUser(body, password(body.password));
     return pin ? store.setUserPin(made.id, pin) : made;
@@ -624,20 +761,32 @@ async function handleAuth(req, res, url) {
   }
   // Смена кассира: только с кассы, где уже работает сотрудник с правом «Касса».
   if (url.pathname === '/api/switch-user' && req.method === 'POST') {
-    const current = auth.currentUser(req);
-    if (!current || !can(current, 'pos')) return sendJson(res, 403, { error: 'Смена кассира доступна только на открытой кассе' });
+    const onTill = auth.currentUser(req);
+    if (!onTill || !can(onTill, 'pos')) return sendJson(res, 403, { error: 'Смена кассира доступна только на открытой кассе' });
     const body = await readBody(req);
     const target = store.findUser(body.userId);
     if (!target || !can(target, 'pos')) return sendJson(res, 400, { error: 'Этот сотрудник не работает на кассе' });
-    const result = auth.switchUser(req, target.id, String(body.code || ''));
+    // Кассир выбирается в магазине, где сейчас открыта касса.
+    const result = auth.switchUser(req, staffDirectory.keyOf({ ...target, branch: current().id }), String(body.code || ''));
     const who = { ip: clientIp(req), device: device(req) };
     if (!result.ok) {
-      store.audit({ ...who, kind: 'login_failed', userName: target.name || target.email, action: 'Неудачная смена кассира', details: `${result.error} (на кассе был ${current.name || current.email})` });
+      store.audit({ ...who, kind: 'login_failed', userName: target.name || target.email, action: 'Неудачная смена кассира', details: `${result.error} (на кассе был ${onTill.name || onTill.email})` });
       return sendJson(res, result.status, { error: result.error });
     }
-    store.audit({ ...who, kind: 'login', user: result.user, action: 'Смена кассира', details: `после ${current.name || current.email}` });
+    store.audit({ ...who, kind: 'login', user: result.user, action: 'Смена кассира', details: `после ${onTill.name || onTill.email}` });
     res.setHeader('Set-Cookie', result.cookie);
     return sendJson(res, 200, { ok: true, user: store.publicUser(result.user) });
+  }
+  // Владелец переключается между магазинами: выбор хранится в cookie shop_branch.
+  if (url.pathname === '/api/branch/switch' && req.method === 'POST') {
+    const me = auth.currentUser(req);
+    if (!isOwner(me)) return sendJson(res, 403, { error: 'Переключать магазины может владелец — администратор основного магазина' });
+    const body = await readBody(req);
+    const ctx = contextOf(body.id);
+    if (!ctx) return sendJson(res, 400, { error: 'Магазин не найден' });
+    res.setHeader('Set-Cookie', `shop_branch=${ctx.id}; Path=/; SameSite=Lax; Max-Age=${365 * 86400}`);
+    mainStore.audit({ kind: 'change', user: me, ip: clientIp(req), device: device(req), action: 'Перешёл в магазин', details: branchList().find((b) => b.id === ctx.id)?.name || '' });
+    return sendJson(res, 200, { ok: true, id: ctx.id });
   }
   if (url.pathname === '/api/logout' && req.method === 'POST') {
     const user = auth.currentUser(req);
@@ -837,8 +986,18 @@ async function handlePublic(req, res, url, user) {
   return false;
 }
 
-const server = http.createServer(async (req, res) => {
+// Каждый запрос выполняется в контексте магазина: сотрудник филиала — в своём, владелец — в выбранном.
+// Интернет-витрина и вебхуки Instagram/WhatsApp — у основного магазина.
+const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
+  let found = null;
+  try { found = auth.currentUser(req); } catch {}
+  const shared = url.pathname.startsWith('/shop') || url.pathname.startsWith('/webhooks/');
+  const { ctx, user, owner } = shared ? { ctx: contexts.get(1), user: found, owner: null } : resolveContext(req, found);
+  return als.run(ctx, () => handleRequest(req, res, url, user, owner));
+});
+
+async function handleRequest(req, res, url, user, owner) {
   // SAMEORIGIN, а не DENY: конструктор витрины показывает её предпросмотр во фрейме.
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -847,7 +1006,6 @@ const server = http.createServer(async (req, res) => {
   } catch (err) {
     return sendJson(res, err instanceof UserError ? 400 : 500, { error: err instanceof UserError ? err.message : 'Внутренняя ошибка' });
   }
-  const user = auth.currentUser(req);
   try {
     if ((await handlePublic(req, res, url, user)) !== false) return;
   } catch (err) {
@@ -891,7 +1049,7 @@ const server = http.createServer(async (req, res) => {
   }
   try {
     const body = req.method === 'GET' ? {} : await readBody(req);
-    const result = await route.handler(route.params, url, body, user && store.publicUser(user));
+    const result = await route.handler(route.params, url, body, user && { ...store.publicUser(user), owner: Boolean(owner) });
     const key = `${req.method} ${route.pattern}`;
     // Предварительный подсчёт (dryRun) ничего не меняет — в журнал не пишем.
     if (AUDIT_LABELS[key] && !body.dryRun) {
@@ -907,7 +1065,7 @@ const server = http.createServer(async (req, res) => {
     console.error(err);
     sendJson(res, 500, { error: 'Внутренняя ошибка, подробности в окне программы' });
   }
-});
+}
 
 if (process.argv.includes('--demo')) {
   if (!store.isEmpty()) {
