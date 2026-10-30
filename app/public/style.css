@@ -903,3 +903,4 @@ tr.audit-login_failed, tr.audit-denied { background: rgba(208, 59, 59, 0.06); }
   .cart-line > .cart-sum { grid-area: sum; }
   .cart-line > .icon-btn { grid-area: rm; }
 }
+.kpi .label .kpi-note { display: block; font-size: 11px; font-weight: 500; text-transform: none; letter-spacing: 0; opacity: .8; }

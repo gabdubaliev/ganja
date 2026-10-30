@@ -297,6 +297,10 @@ function role(value) {
 
 // Сотрудник без хеша пароля — так он уходит в интерфейс.
 // rights — личный набор прав или null, если действуют права роли.
+// Комиссия банков по чеку s и доля строки si в ней (по стоимости строки) — вычитается из выручки и прибыли.
+const SALE_FEE = '(SELECT COALESCE(SUM(sp.commission), 0) FROM sale_payments sp WHERE sp.sale_id = s.id)';
+const LINE_FEE = `(CASE WHEN s.total > 0 THEN si.qty * si.price * ${SALE_FEE} / s.total ELSE 0 END)`;
+
 const publicUser = ({ password_hash, ...u }) => ({ ...u, disabled: Boolean(u.disabled), rights: u.rights ? JSON.parse(u.rights) : null,
   payment_methods: u.payment_methods ? JSON.parse(u.payment_methods) : null });
 
@@ -1095,21 +1099,23 @@ function createStore(file) {
     // Эффективность сотрудников за период. Оклад и план заданы на месяц и
     // пересчитываются на долю каждого календарного месяца в периоде: весь октябрь — ровно один оклад.
     kpi({ from, to }) {
+      // Выручка — за вычетом комиссии банков: это деньги, которые реально пришли магазину.
       const months = monthsBetween(from, to);
       const rows = db.prepare(`
         SELECT s.user_id AS id,
           COUNT(CASE WHEN s.refunded_at IS NULL THEN 1 END) AS receipts,
-          COALESCE(SUM(CASE WHEN s.refunded_at IS NULL THEN s.total END), 0) AS revenue,
+          COALESCE(SUM(CASE WHEN s.refunded_at IS NULL THEN s.total - ${SALE_FEE} END), 0) AS revenue,
+          COALESCE(SUM(CASE WHEN s.refunded_at IS NULL THEN ${SALE_FEE} END), 0) AS commission,
           COUNT(s.refunded_at) AS refunds,
           COALESCE(SUM(CASE WHEN s.refunded_at IS NOT NULL THEN s.total END), 0) AS refunded,
           COUNT(CASE WHEN s.refunded_at IS NULL AND s.customer_id IS NOT NULL THEN 1 END) AS loyalty_receipts
         FROM sales s WHERE s.created_at >= ? AND s.created_at < ? GROUP BY s.user_id`).all(from, to);
       const profit = new Map(db.prepare(`
-        SELECT s.user_id AS id, SUM(si.qty * (si.price - si.cost)) AS profit, SUM(si.qty) AS items
+        SELECT s.user_id AS id, SUM(si.qty * (si.price - si.cost) - ${LINE_FEE}) AS profit, SUM(si.qty) AS items
         FROM sales s JOIN sale_items si ON si.sale_id = s.id
         WHERE s.refunded_at IS NULL AND s.created_at >= ? AND s.created_at < ? GROUP BY s.user_id`).all(from, to).map((r) => [r.id, r]));
       const byDay = db.prepare(`
-        SELECT s.user_id AS id, s.created_at AS t, s.total FROM sales s
+        SELECT s.user_id AS id, s.created_at AS t, s.total - ${SALE_FEE} AS total FROM sales s
         WHERE s.refunded_at IS NULL AND s.created_at >= ? AND s.created_at < ?`).all(from, to);
       const stats = new Map(rows.map((r) => [r.id, r]));
       // Выход на смену считается по дням: две смены в один день — один выход.
@@ -1165,7 +1171,7 @@ function createStore(file) {
     reportProducts({ from, to }) {
       return db.prepare(`
         SELECT si.product_id AS id, MAX(si.name) AS name, p.category, p.unit, p.parent_id,
-          SUM(si.qty) AS qty, SUM(si.qty * si.price) AS revenue, SUM(si.qty * (si.price - si.cost)) AS profit, COUNT(DISTINCT s.id) AS receipts
+          SUM(si.qty) AS qty, SUM(si.qty * si.price - ${LINE_FEE}) AS revenue, SUM(si.qty * (si.price - si.cost) - ${LINE_FEE}) AS profit, COUNT(DISTINCT s.id) AS receipts
         FROM sales s JOIN sale_items si ON si.sale_id = s.id LEFT JOIN products p ON p.id = si.product_id
         WHERE s.refunded_at IS NULL AND s.created_at >= ? AND s.created_at < ?
         GROUP BY si.product_id ORDER BY revenue DESC`).all(from, to)
@@ -1435,7 +1441,8 @@ function createStore(file) {
         AND NOT EXISTS (SELECT 1 FROM products c WHERE c.parent_id = p.id AND c.deleted = 0)`).all()
         .map((p) => ({ ...p, id: String(p.id) }));
       const sales = db.prepare(`
-        SELECT s.created_at AS t, s.id AS r, s.user_id AS u, si.product_id AS p, si.name AS n, si.qty AS q, si.qty * si.price AS s, si.qty * si.cost AS c
+        SELECT s.created_at AS t, s.id AS r, s.user_id AS u, si.product_id AS p, si.name AS n, si.qty AS q,
+          si.qty * si.price - ${LINE_FEE} AS s, si.qty * si.cost AS c, ${LINE_FEE} AS f
         FROM sales s JOIN sale_items si ON si.sale_id = s.id
         WHERE s.refunded_at IS NULL AND s.created_at >= ? AND s.created_at < ?
         ORDER BY s.created_at`).all(from, to)

@@ -34,7 +34,7 @@ function compute(data, key, now) {
   const range = periodRange(key, now);
   const stockFrom = addDays(dayStart(now), -(STOCK_WINDOW_DAYS - 1));
   const buckets = buildBuckets(key, range);
-  const cur = { revenue: 0, cost: 0, receipts: new Set() };
+  const cur = { revenue: 0, cost: 0, fee: 0, receipts: new Set() };
   const prev = { revenue: 0, cost: 0, receipts: new Set() };
   const byId = new Map();
   const staffById = new Map();
@@ -64,7 +64,7 @@ function compute(data, key, now) {
     if (l.t >= range.start && l.t < range.end) {
       const p = product(l.p, l.n);
       p.qty += l.q; p.revenue += l.s; p.cost += l.c;
-      cur.revenue += l.s; cur.cost += l.c; cur.receipts.add(l.r);
+      cur.revenue += l.s; cur.cost += l.c; cur.fee += l.f || 0; cur.receipts.add(l.r);
       const w = person(l.u);
       w.revenue += l.s; w.cost += l.c; w.receipts.add(l.r);
       const b = buckets[bucketIndex(buckets, l.t)];
@@ -120,7 +120,8 @@ function renderKpis(v) {
   const p = PERIODS[state.period];
   const c = v.cur, pr = v.prev;
   const tiles = [
-    ['Выручка', money(c.revenue), c.revenue, pr.revenue],
+    // Выручка уже за вычетом комиссии банков (М-Банк и т.п.) — так же и прибыль.
+    [c.fee >= 0.5 ? `Выручка <small class="kpi-note">без комиссии банков −${money(c.fee)}</small>` : 'Выручка', money(c.revenue), c.revenue, pr.revenue],
     ['Себестоимость', money(c.cost), c.cost, pr.cost, false, true],
     ['Прибыль', money(c.revenue - c.cost), c.revenue - c.cost, pr.revenue - pr.cost],
     ['Маржа', c.revenue ? pct((c.revenue - c.cost) / c.revenue) : '—', c.revenue ? (c.revenue - c.cost) / c.revenue : 0, pr.revenue ? (pr.revenue - pr.cost) / pr.revenue : 0, true],
