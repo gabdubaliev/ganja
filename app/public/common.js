@@ -135,9 +135,10 @@ const catalog = {
   search(q, limit = 8) {
     q = q.trim().toLowerCase();
     if (!q) return [];
-    const exact = this.list.find((p) => p.barcode && p.barcode === q);
-    if (exact) return [exact];
-    return this.list.filter((p) => p.name.toLowerCase().includes(q) || p.barcode.includes(q) || p.category.toLowerCase().includes(q)).slice(0, limit);
+    // Штрихкод бывает общим у нескольких товаров (цвета одной модели) — возвращаем все.
+    const exact = this.list.filter((p) => (p.barcode && p.barcode === q) || (p.code && p.code.toLowerCase() === q));
+    if (exact.length) return exact;
+    return this.list.filter((p) => p.name.toLowerCase().includes(q) || p.barcode.includes(q) || p.code.toLowerCase().includes(q) || p.category.toLowerCase().includes(q)).slice(0, limit);
   },
 };
 

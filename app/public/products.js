@@ -16,7 +16,7 @@ async function renderProducts() {
     return toast(err.message, 'error');
   }
   const q = productsView.query.trim().toLowerCase();
-  const rows = list.filter((p) => !q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q) || p.barcode.includes(q));
+  const rows = list.filter((p) => !q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q) || p.barcode.includes(q) || p.code.toLowerCase().includes(q));
   const stockValue = list.reduce((s, p) => s + Math.max(0, p.stock) * p.cost, 0);
   $('#products-summary').textContent = productsView.archived
     ? `Скрыто товаров: ${list.length}`
@@ -25,6 +25,7 @@ async function renderProducts() {
     const m = markup(p);
     return `<tr>
       <td><div class="pname">${esc(p.name)}</div>${p.category ? `<div class="pcat">${esc(p.category)}</div>` : ''}</td>
+      <td class="num">${esc(p.code) || '—'}</td>
       <td class="num">${esc(p.barcode) || '—'}</td>
       <td>${money2(p.price)}</td>
       <td>${p.cost ? money2(p.cost) : '—'}</td>
@@ -35,7 +36,7 @@ async function renderProducts() {
         ${productsView.archived ? '' : `<button type="button" class="btn small ghost" data-stock="${p.id}">Пересчитать</button>`}
       </div></td>
     </tr>`;
-  }).join('') : `<tr><td colspan="7" class="empty">${list.length ? 'Ничего не нашлось' : productsView.archived ? 'Скрытых товаров нет' : 'Товаров пока нет. Нажмите «Добавить товар».'}</td></tr>`;
+  }).join('') : `<tr><td colspan="8" class="empty">${list.length ? 'Ничего не нашлось' : productsView.archived ? 'Скрытых товаров нет' : 'Товаров пока нет. Нажмите «Добавить товар» или загрузите их из Excel.'}</td></tr>`;
 }
 
 /* ---------- Карточка товара ---------- */
@@ -52,7 +53,7 @@ function openProductDialog(product = null, onSaved = null) {
   $('#product-archived-field').hidden = !product;
   $('#product-error').hidden = true;
   if (product) {
-    for (const key of ['name', 'category', 'barcode', 'unit', 'price', 'cost']) f.elements[key].value = product[key];
+    for (const key of ['name', 'category', 'code', 'barcode', 'unit', 'price', 'cost']) f.elements[key].value = product[key];
     f.elements.archived.checked = Boolean(product.archived);
   }
   $('#categories').innerHTML = [...new Set(catalog.list.map((p) => p.category).filter(Boolean))].sort().map((c) => `<option value="${esc(c)}">`).join('');
@@ -67,6 +68,7 @@ $('#product-form').addEventListener('submit', async (e) => {
     name: f.elements.name.value,
     category: f.elements.category.value,
     barcode: f.elements.barcode.value,
+    code: f.elements.code.value,
     unit: f.elements.unit.value,
     price: f.elements.price.value,
     cost: f.elements.cost.value || 0,

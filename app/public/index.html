@@ -88,7 +88,7 @@
   </header>
   <div class="pos">
     <section class="panel pos-pick" aria-label="Подбор товаров">
-      <input id="pos-search" class="input big" type="search" placeholder="Название или штрихкод" autocomplete="off" aria-label="Найти товар">
+      <input id="pos-search" class="input big" type="search" placeholder="Название, код или штрихкод" autocomplete="off" aria-label="Найти товар">
       <div id="pos-results" class="pick-list"></div>
     </section>
     <section class="panel pos-cart" aria-label="Чек">
@@ -113,16 +113,19 @@
 <main class="page" data-view="products" hidden>
   <header class="top">
     <div class="title"><h1>Товары</h1><span class="source" id="products-summary"></span></div>
-    <button type="button" class="btn primary" id="product-add">Добавить товар</button>
+    <div class="tools">
+      <button type="button" class="btn" id="product-import">Импорт из Excel</button>
+      <button type="button" class="btn primary" id="product-add">Добавить товар</button>
+    </div>
   </header>
   <section class="panel">
     <div class="panel-head">
-      <input id="products-search" class="input search" type="search" placeholder="Найти по названию, категории или штрихкоду" aria-label="Найти товар">
+      <input id="products-search" class="input search" type="search" placeholder="Найти по названию, коду, категории или штрихкоду" aria-label="Найти товар">
       <label class="check"><input type="checkbox" id="products-archived"> Показать убранные из продажи</label>
     </div>
     <div class="table-wrap">
       <table class="products-table">
-        <thead><tr><th>Товар</th><th>Штрихкод</th><th>Цена</th><th>Себестоимость</th><th>Наценка</th><th>Остаток</th><th></th></tr></thead>
+        <thead><tr><th>Товар</th><th>Код</th><th>Штрихкод</th><th>Цена</th><th>Себестоимость</th><th>Наценка</th><th>Остаток</th><th></th></tr></thead>
         <tbody id="products-body"></tbody>
       </table>
     </div>
@@ -181,7 +184,8 @@
     <h2 id="product-dialog-title">Новый товар</h2>
     <div class="form-grid">
       <div class="field wide"><label for="pf-name">Название</label><input id="pf-name" name="name" class="input" required autocomplete="off"></div>
-      <div class="field"><label for="pf-category">Категория</label><input id="pf-category" name="category" class="input" list="categories" autocomplete="off"><datalist id="categories"></datalist></div>
+      <div class="field wide"><label for="pf-category">Категория</label><input id="pf-category" name="category" class="input" list="categories" autocomplete="off"><datalist id="categories"></datalist></div>
+      <div class="field"><label for="pf-code">Код товара</label><input id="pf-code" name="code" class="input" autocomplete="off" placeholder="Необязательно"></div>
       <div class="field"><label for="pf-barcode">Штрихкод</label><input id="pf-barcode" name="barcode" class="input" inputmode="numeric" autocomplete="off" placeholder="Можно отсканировать"></div>
       <div class="field"><label for="pf-price">Цена продажи, ₽</label><input id="pf-price" name="price" class="input num" inputmode="decimal" required autocomplete="off"></div>
       <div class="field"><label for="pf-cost">Себестоимость, ₽</label><input id="pf-cost" name="cost" class="input num" inputmode="decimal" autocomplete="off" placeholder="Закупочная цена"></div>
@@ -212,6 +216,10 @@
   </form>
 </dialog>
 
+<dialog id="import-dialog" class="wide" aria-label="Импорт товаров">
+  <div id="import-body"></div>
+</dialog>
+
 <div id="tip" class="tip" hidden></div>
 <div id="toasts" class="toasts" aria-live="polite"></div>
 
@@ -221,6 +229,8 @@
 <script src="products.js"></script>
 <script src="arrivals.js"></script>
 <script src="sales.js"></script>
+<script src="xlsx.js"></script>
+<script src="import.js"></script>
 <script>route();</script>
 </body>
 </html>

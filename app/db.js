@@ -21,6 +21,7 @@ function open(file) {
       name TEXT NOT NULL,
       category TEXT NOT NULL DEFAULT '',
       barcode TEXT NOT NULL DEFAULT '',
+      code TEXT NOT NULL DEFAULT '',
       unit TEXT NOT NULL DEFAULT 'шт',
       price REAL NOT NULL DEFAULT 0,
       cost REAL NOT NULL DEFAULT 0,
@@ -61,6 +62,11 @@ function open(file) {
       cost REAL NOT NULL
     );
   `);
+  // Базы, созданные до появления кода товара.
+  if (!db.prepare('PRAGMA table_info(products)').all().some((c) => c.name === 'code')) {
+    db.exec("ALTER TABLE products ADD COLUMN code TEXT NOT NULL DEFAULT ''");
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS products_code ON products(code)');
   return db;
 }
 
@@ -97,6 +103,7 @@ function createStore(file) {
     name: text(input.name ?? current.name, 'Название', { required: true }),
     category: text(input.category ?? current.category, 'Категория'),
     barcode: text(input.barcode ?? current.barcode, 'Штрихкод', { max: 64 }),
+    code: text(input.code ?? current.code, 'Код товара', { max: 64 }),
     unit: text(input.unit ?? current.unit ?? 'шт', 'Единица', { max: 10 }) || 'шт',
     price: round2(number(input.price ?? current.price, 'Цена продажи')),
     cost: round2(number(input.cost ?? current.cost ?? 0, 'Себестоимость')),
@@ -106,12 +113,6 @@ function createStore(file) {
     const p = db.prepare('SELECT * FROM products WHERE id = ?').get(Number(id));
     if (!p) throw new UserError('Товар не найден');
     return p;
-  }
-
-  function checkBarcode(barcode, exceptId = 0) {
-    if (!barcode) return;
-    const other = db.prepare('SELECT name FROM products WHERE barcode = ? AND archived = 0 AND id != ?').get(barcode, exceptId);
-    if (other) throw new UserError(`Штрихкод ${barcode} уже есть у товара «${other.name}»`);
   }
 
   return {
@@ -128,20 +129,18 @@ function createStore(file) {
     createProduct(input) {
       const f = productFields(input);
       const stock = number(input.stock ?? 0, 'Остаток');
-      checkBarcode(f.barcode);
       const { lastInsertRowid } = db.prepare(`
-        INSERT INTO products (name, category, barcode, unit, price, cost, stock, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(f.name, f.category, f.barcode, f.unit, f.price, f.cost, stock, Date.now());
+        INSERT INTO products (name, category, barcode, code, unit, price, cost, stock, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(f.name, f.category, f.barcode, f.code, f.unit, f.price, f.cost, stock, Date.now());
       return getProduct(lastInsertRowid);
     },
 
     updateProduct(id, input) {
       const current = getProduct(id);
       const f = productFields(input, current);
-      checkBarcode(f.barcode, current.id);
       const archived = input.archived === undefined ? current.archived : input.archived ? 1 : 0;
-      db.prepare(`UPDATE products SET name = ?, category = ?, barcode = ?, unit = ?, price = ?, cost = ?, archived = ? WHERE id = ?`)
-        .run(f.name, f.category, f.barcode, f.unit, f.price, f.cost, archived, current.id);
+      db.prepare(`UPDATE products SET name = ?, category = ?, barcode = ?, code = ?, unit = ?, price = ?, cost = ?, archived = ? WHERE id = ?`)
+        .run(f.name, f.category, f.barcode, f.code, f.unit, f.price, f.cost, archived, current.id);
       return getProduct(current.id);
     },
 
@@ -150,6 +149,61 @@ function createStore(file) {
       const p = getProduct(id);
       db.prepare('UPDATE products SET stock = ? WHERE id = ?').run(number(stock, 'Остаток'), p.id);
       return getProduct(p.id);
+    },
+
+    // Импорт из таблицы. Существующий товар ищется по коду, а без кода — по паре
+    // «название + штрихкод»: у разных товаров (цветов одной модели) штрихкод бывает общим.
+    // Строки с ошибками пропускаются, остальные загружаются.
+    importProducts(rows, { update = false } = {}) {
+      if (!Array.isArray(rows) || !rows.length) throw new UserError('В файле нет товаров');
+      return transaction(db, () => {
+        const result = { created: 0, updated: 0, skipped: [] };
+        const byCode = new Map();
+        const byNameBarcode = new Map();
+        const nameKey = (p) => `${p.name.toLowerCase()}\n${p.barcode}`;
+        const remember = (p) => {
+          if (p.code) byCode.set(p.code, p);
+          byNameBarcode.set(nameKey(p), p);
+        };
+        db.prepare('SELECT * FROM products WHERE archived = 0').all().forEach(remember);
+        const insert = db.prepare(`
+          INSERT INTO products (name, category, barcode, code, unit, price, cost, stock, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+        const change = db.prepare('UPDATE products SET name = ?, category = ?, barcode = ?, unit = ?, price = ?, cost = ?, stock = ? WHERE id = ?');
+
+        rows.forEach((row, i) => {
+          const line = row.line || i + 1;
+          try {
+            const f = productFields({ ...row, unit: row.unit || 'шт' });
+            const stock = row.stock === '' || row.stock == null ? null : number(row.stock, 'Остаток', { min: -Infinity });
+            const existing = f.code ? byCode.get(f.code) : byNameBarcode.get(nameKey(f));
+            if (existing) {
+              if (!update) return result.skipped.push({ line, name: f.name, reason: 'уже есть в программе' });
+              const next = {
+                ...existing,
+                name: f.name,
+                category: f.category || existing.category,
+                barcode: f.barcode || existing.barcode,
+                unit: row.unit ? f.unit : existing.unit,
+                price: f.price,
+                cost: row.cost === '' || row.cost == null ? existing.cost : f.cost,
+                stock: stock ?? existing.stock,
+              };
+              change.run(next.name, next.category, next.barcode, next.unit, next.price, next.cost, next.stock, existing.id);
+              remember(next);
+              result.updated++;
+            } else {
+              const { lastInsertRowid } = insert.run(f.name, f.category, f.barcode, f.code, f.unit, f.price, f.cost, stock ?? 0, Date.now());
+              remember({ ...f, id: Number(lastInsertRowid), stock: stock ?? 0 });
+              result.created++;
+            }
+          } catch (err) {
+            if (!(err instanceof UserError)) throw err;
+            result.skipped.push({ line, name: String(row.name ?? '').trim(), reason: err.message });
+          }
+        });
+        return result;
+      });
     },
 
     createSale({ items, payment, at }) {
@@ -161,7 +215,6 @@ function createStore(file) {
           if (p.archived) throw new UserError(`Товар «${p.name}» убран из продажи`);
           const qty = number(item.qty, 'Количество', { positive: true });
           const price = round2(number(item.price ?? p.price, 'Цена'));
-          if (qty > p.stock + 1e-9) throw new UserError(`Не хватает «${p.name}»: на складе ${p.stock} ${p.unit}, в чеке ${qty}`);
           return { p, qty, price };
         });
         const total = round2(lines.reduce((s, l) => s + l.qty * l.price, 0));
@@ -228,7 +281,7 @@ function createStore(file) {
 
     // Данные для дашборда: товары и строки продаж (без возвратов) за период.
     analytics({ from, to }) {
-      const products = db.prepare('SELECT id, name, category, unit, stock, price, cost FROM products WHERE archived = 0').all()
+      const products = db.prepare('SELECT id, name, category, code, unit, stock, price, cost FROM products WHERE archived = 0').all()
         .map((p) => ({ ...p, id: String(p.id) }));
       const sales = db.prepare(`
         SELECT s.created_at AS t, s.id AS r, si.product_id AS p, si.name AS n, si.qty AS q, si.qty * si.price AS s, si.qty * si.cost AS c

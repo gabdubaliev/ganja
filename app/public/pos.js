@@ -14,10 +14,10 @@ function renderPick() {
   $('#pos-results').innerHTML = list.length ? list.map((p) => {
     const inCart = pos.cart.find((l) => l.productId === p.id)?.qty || 0;
     const left = p.stock - inCart;
-    return `<button type="button" class="pick" data-id="${p.id}" ${left <= 0 ? 'disabled' : ''}>
+    return `<button type="button" class="pick ${left <= 0 ? 'out' : ''}" data-id="${p.id}">
       <span class="pick-name">${esc(p.name)}</span>
       <span class="pick-price num">${money2(p.price)}</span>
-      <span class="pick-meta">${esc(p.category || 'Без категории')}</span>
+      <span class="pick-meta">${esc([p.code, p.category].filter(Boolean).join(' · ') || 'Без категории')}</span>
       <span class="pick-stock num ${left <= 0 ? 'neg' : ''}">${left <= 0 ? 'нет на складе' : 'осталось ' + qty(left, p.unit)}</span>
     </button>`;
   }).join('') : `<p class="empty">${catalog.list.length ? 'Ничего не нашлось' : 'Товаров пока нет. Добавьте их в разделе <a href="#products">«Товары»</a>.'}</p>`;
@@ -32,7 +32,7 @@ function renderCart() {
     const p = catalog.byId(l.productId);
     const over = l.qty > p.stock;
     return `<div class="cart-line" data-i="${i}">
-      <div class="cart-name">${esc(p.name)}<span class="pick-meta num">${money2(l.price)} за ${esc(p.unit)}</span>${over ? `<span class="neg">На складе только ${qty(p.stock, p.unit)}</span>` : ''}</div>
+      <div class="cart-name">${esc(p.name)}<span class="pick-meta num">${money2(l.price)} за ${esc(p.unit)}</span>${over ? `<span class="neg">На складе ${qty(p.stock, p.unit)}, остаток уйдёт в минус</span>` : ''}</div>
       <div class="stepper">
         <button type="button" data-step="-1" aria-label="Меньше">−</button>
         <input class="num" inputmode="decimal" value="${qtyFmt.format(l.qty)}" aria-label="Количество ${esc(p.name)}">
@@ -70,12 +70,14 @@ $('#pos-search').addEventListener('keydown', (e) => {
   e.preventDefault();
   const found = catalog.search(e.target.value, 2);
   // Сканер штрихкодов вводит код и нажимает Enter.
-  if (found.length === 1 || (found.length && found[0].barcode === e.target.value.trim())) {
+  if (found.length === 1) {
     addToCart(found[0].id);
     e.target.value = '';
     renderPick();
   } else if (!found.length) {
     toast('Товар не найден', 'error');
+  } else {
+    toast(`Подходит ${found.length} ${plural(found.length, ['товар', 'товара', 'товаров'])}, выберите нужный`);
   }
 });
 $('#pos-results').addEventListener('click', (e) => {

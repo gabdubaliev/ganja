@@ -42,7 +42,7 @@ async function readBody(req) {
   const chunks = [];
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 1e6) throw new UserError('Слишком большой запрос');
+    if (size > 20e6) throw new UserError('Слишком большой запрос');
     chunks.push(chunk);
   }
   try {
@@ -70,6 +70,7 @@ const routes = [
   ['GET', '/api/products', (p, url) => store.listProducts({ archived: url.searchParams.get('archived') === '1' })],
   ['POST', '/api/products', (p, url, body) => store.createProduct(body)],
   ['PUT', '/api/products/:id', (p, url, body) => store.updateProduct(p.id, body)],
+  ['POST', '/api/products/import', (p, url, body) => store.importProducts(body.rows, { update: Boolean(body.update) })],
   ['PUT', '/api/products/:id/stock', (p, url, body) => store.setStock(p.id, body.stock)],
   ['GET', '/api/sales', (p, url) => store.listSales(range(url))],
   ['POST', '/api/sales', (p, url, body) => store.createSale(body)],

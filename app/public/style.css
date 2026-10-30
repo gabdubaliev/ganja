@@ -245,7 +245,7 @@ select.input { text-align: left; }
   border: 1px solid var(--border); background: var(--bg); border-radius: 8px; padding: 10px 12px;
 }
 .pick:hover:not(:disabled) { border-color: var(--series); }
-.pick:disabled { opacity: 0.5; cursor: not-allowed; }
+.pick.out { opacity: 0.6; }
 .pick-name { font-weight: 550; overflow-wrap: anywhere; }
 .pick-price { font-weight: 650; white-space: nowrap; }
 .pick-meta { color: var(--muted); font-size: 12.5px; }
@@ -272,7 +272,7 @@ select.input { text-align: left; }
 .change { font-weight: 600; }
 
 /* Таблица товаров */
-.products-table, .arrival-table { min-width: 720px; }
+.products-table, .arrival-table { min-width: 820px; }
 .products-table .actions { display: flex; gap: 4px; justify-content: flex-end; }
 .products-table th:last-child, .products-table td:last-child { text-align: right; }
 .panel-head .search { flex: 1 1 280px; width: auto; max-width: 480px; }
@@ -321,6 +321,20 @@ dialog h2 { font-size: 18px; margin-bottom: 14px; }
 .form-grid .wide { grid-column: 1 / -1; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 
+/* Импорт */
+dialog.wide { width: min(980px, calc(100vw - 32px)); }
+.file-pick { display: inline-block; margin: 8px 0; }
+.file-pick input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.file-pick input:focus-visible + .btn { outline: 2px solid var(--series); outline-offset: 2px; }
+.map-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px 12px; margin: 14px 0; }
+.import-preview { margin: 6px 0 14px; max-height: 280px; overflow: auto; }
+.import-preview table { min-width: 640px; font-size: 13px; }
+.import-preview th, .import-preview td { text-align: left; padding: 6px 8px; }
+.import-stats { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+.import-stats div { display: grid; padding: 10px 16px; border: 1px solid var(--border); border-radius: var(--radius); min-width: 120px; }
+.import-stats b { font-size: 26px; }
+.import-stats span { color: var(--ink-2); font-size: 13px; }
+
 /* Уведомления */
 .toasts {
   position: fixed; z-index: 30; display: grid; gap: 8px; justify-items: end;
@@ -341,6 +355,7 @@ dialog h2 { font-size: 18px; margin-bottom: 14px; }
 }
 @media (max-width: 640px) {
   .form-grid { grid-template-columns: 1fr; }
+  .map-grid { grid-template-columns: 1fr 1fr; }
   .logo { display: none; }
   .nav a { padding: 7px 10px; }
   .doc summary, #arrival-history .doc summary { grid-template-columns: minmax(0, 1fr) auto; }
