@@ -276,6 +276,67 @@
   </div>
 </main>
 
+<main class="page" data-view="crm" hidden>
+  <header class="top">
+    <div class="title"><h1>CRM</h1><span class="source" id="crm-sub"></span></div>
+    <div class="tools">
+      <input id="crm-search" class="input search" type="search" placeholder="Имя, телефон, Instagram" aria-label="Поиск сделок">
+      <select id="crm-source" class="input" aria-label="Источник"></select>
+      <label class="check"><input type="checkbox" id="crm-mine"> Только мои</label>
+      <button type="button" class="btn primary" id="crm-add">+ Сделка</button>
+    </div>
+  </header>
+  <section class="crm-tasks" id="crm-tasks" hidden></section>
+  <div class="kanban" id="crm-board"></div>
+</main>
+
+<dialog id="lead-dialog" class="lead-dialog" aria-labelledby="lead-title">
+  <div class="lead-grid">
+    <form id="lead-form" class="lead-info" novalidate>
+      <div class="lead-head"><h2 id="lead-title">Новая сделка</h2><button type="button" class="icon-btn" id="lead-close" aria-label="Закрыть">×</button></div>
+      <div class="field"><label for="ld-title">Что хочет клиент</label><input id="ld-title" name="title" class="input" autocomplete="off" placeholder="Например, кроссовки 39 размера"></div>
+      <div class="form-grid">
+        <div class="field"><label for="ld-name">Имя</label><input id="ld-name" name="name" class="input" autocomplete="off"></div>
+        <div class="field"><label for="ld-phone">Телефон</label><input id="ld-phone" name="phone" class="input" inputmode="tel" autocomplete="off" placeholder="+996"></div>
+        <div class="field"><label for="ld-ig">Instagram</label><input id="ld-ig" name="instagram" class="input" autocomplete="off" placeholder="@ник"></div>
+        <div class="field"><label for="ld-source">Откуда</label><select id="ld-source" name="source" class="input"></select></div>
+        <div class="field"><label for="ld-stage">Этап</label><select id="ld-stage" name="stage" class="input"></select></div>
+        <div class="field"><label for="ld-amount">Сумма сделки, сом</label><input id="ld-amount" name="amount" class="input num" inputmode="decimal" autocomplete="off"></div>
+        <div class="field wide"><label for="ld-user">Ответственный</label><select id="ld-user" name="user_id" class="input"></select></div>
+        <div class="field wide" id="ld-lost-field" hidden><label for="ld-lost">Причина отказа</label><input id="ld-lost" name="lost_reason" class="input" autocomplete="off" placeholder="Дорого, нет размера, купил в другом месте…"></div>
+      </div>
+      <div class="lead-links" id="lead-links"></div>
+      <p class="form-error" id="lead-error" role="alert" hidden></p>
+      <div class="form-actions">
+        <button type="button" class="btn ghost danger-text" id="lead-delete" hidden>Удалить</button>
+        <button type="submit" class="btn primary">Сохранить</button>
+      </div>
+    </form>
+    <section class="lead-side" id="lead-side" hidden>
+      <div class="lead-tasks">
+        <h3>Задачи</h3>
+        <div id="lead-task-list"></div>
+        <form id="lead-task-form" class="task-add" novalidate>
+          <input name="text" class="input" placeholder="Что сделать: перезвонить, отправить фото…" autocomplete="off" aria-label="Что сделать">
+          <input name="due" type="datetime-local" class="input" aria-label="Когда">
+          <button type="submit" class="btn">Добавить</button>
+        </form>
+      </div>
+      <h3>История и переписка</h3>
+      <div class="timeline" id="lead-timeline"></div>
+      <form id="lead-note-form" class="composer" novalidate>
+        <div class="seg compose-kind" id="compose-kind">
+          <button type="button" data-kind="note" aria-pressed="true">Заметка</button>
+          <button type="button" data-kind="call" aria-pressed="false">Звонок</button>
+          <button type="button" data-kind="instagram" aria-pressed="false" id="compose-ig" hidden>Ответ в Instagram</button>
+        </div>
+        <textarea name="text" class="input" rows="2" placeholder="Что обсудили, о чём договорились" aria-label="Текст"></textarea>
+        <button type="submit" class="btn primary">Добавить</button>
+      </form>
+    </section>
+  </div>
+</dialog>
+
 <main class="page" data-view="shifts" hidden>
   <header class="top">
     <div class="title"><h1>Смены</h1><span class="source" id="shifts-sub"></span></div>
@@ -423,6 +484,29 @@
         <button type="submit" class="btn primary">Сохранить</button>
         <button type="button" class="btn" id="telegram-test">Отправить пробное</button>
       </div>
+    </form>
+  </section>
+  <section class="panel">
+    <form id="instagram-form" class="settings-form" novalidate>
+      <div>
+        <h2>Instagram Direct → CRM</h2>
+        <p class="sub">Сообщения из Direct сами попадают в CRM новой сделкой, а ответить можно прямо из карточки клиента. Работает, когда программа открыта по адресу в интернете с HTTPS (например, montshop.kg), — с localhost Instagram достучаться не сможет.</p>
+      </div>
+      <ol class="steps">
+        <li>Аккаунт Instagram должен быть <b>профессиональным</b> (бизнес или автор): в приложении Instagram → Настройки → Тип аккаунта.</li>
+        <li>Зайдите на <b>developers.facebook.com</b> → «Мои приложения» → «Создать приложение» → тип «Бизнес» → добавьте продукт <b>Instagram</b> (API с входом через Instagram).</li>
+        <li>В разделе Instagram → «Настройка API» добавьте свой аккаунт Instagram и нажмите «Создать токен» — вставьте его ниже в «Токен доступа».</li>
+        <li>В «Настройки приложения» → «Основное» скопируйте <b>Секрет приложения</b> (App Secret) — вставьте ниже.</li>
+        <li>В «Настроить вебхуки» укажите адрес обратного вызова и токен подтверждения (ниже), нажмите «Подтвердить и сохранить», подпишитесь на поле <b>messages</b>.</li>
+        <li>Пока приложение в режиме разработки, сообщения приходят только от аккаунтов, добавленных в роли приложения. Чтобы писали все клиенты, отправьте приложение на проверку Meta (разрешение instagram_business_manage_messages).</li>
+      </ol>
+      <div class="field"><label>Адрес обратного вызова (Callback URL)</label><div class="input-row"><input id="ig-webhook" class="input" readonly><button type="button" class="btn" data-copy="#ig-webhook">Копировать</button></div></div>
+      <div class="field"><label>Токен подтверждения (Verify token)</label><div class="input-row"><input id="ig-verify" class="input" readonly><button type="button" class="btn" data-copy="#ig-verify">Копировать</button></div></div>
+      <div class="field"><label for="ig-secret">Секрет приложения (App Secret)</label><input id="ig-secret" name="appSecret" class="input" autocomplete="off"></div>
+      <div class="field"><label for="ig-token">Токен доступа Instagram</label><input id="ig-token" name="accessToken" class="input" autocomplete="off"></div>
+      <label class="check"><input type="checkbox" name="enabled"> Принимать сообщения из Instagram</label>
+      <p class="form-error" id="instagram-error" role="alert" hidden></p>
+      <div class="form-actions start"><button type="submit" class="btn primary">Сохранить</button></div>
     </form>
   </section>
 </main>
@@ -742,6 +826,7 @@
 <script src="kpi.js"></script>
 <script src="staff-time.js"></script>
 <script src="audit.js"></script>
+<script src="crm.js"></script>
 <script src="loyalty.js"></script>
 <script src="users.js"></script>
 <script src="settings.js"></script>

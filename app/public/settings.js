@@ -39,4 +39,40 @@ $('#telegram-test').addEventListener('click', async () => {
   }
 });
 
-views.settings = { show: renderSettings, right: 'settings' };
+/* ---------- Instagram ---------- */
+async function renderInstagram() {
+  const f = $('#instagram-form');
+  $('#instagram-error').hidden = true;
+  try {
+    const s = await api('/api/settings/instagram');
+    $('#ig-webhook').value = location.origin + s.webhookPath;
+    $('#ig-verify').value = s.verifyToken;
+    f.elements.appSecret.value = '';
+    f.elements.accessToken.value = '';
+    f.elements.appSecret.placeholder = s.hasSecret ? 'Сохранён. Введите новый, чтобы заменить' : '';
+    f.elements.accessToken.placeholder = s.hasToken ? 'Сохранён. Введите новый, чтобы заменить' : 'IGAA…';
+    f.elements.enabled.checked = s.enabled;
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+$('#instagram-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  try {
+    await api('/api/settings/instagram', { method: 'PUT', body: { appSecret: f.elements.appSecret.value, accessToken: f.elements.accessToken.value, enabled: f.elements.enabled.checked } });
+    toast('Настройки Instagram сохранены');
+    renderInstagram();
+  } catch (err) {
+    showFormError('#instagram-error', err);
+  }
+});
+$('#instagram-form').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-copy]');
+  if (!btn) return;
+  const value = $(btn.dataset.copy).value;
+  try { await navigator.clipboard.writeText(value); toast('Скопировано'); } catch { $(btn.dataset.copy).select(); }
+});
+
+views.settings = { show: () => { renderSettings(); renderInstagram(); }, right: 'settings' };

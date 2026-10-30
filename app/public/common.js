@@ -233,7 +233,7 @@ session.ready = api('/api/status').then((s) => {
     $('#me-password').textContent = s.user.name || s.user.email;
     $('#me-password').title = `${session.roleName(s.user.role)} · сменить пароль`;
   }
-  if (session.can('notify') || session.can('orders')) listenSales();
+  if (session.can('notify') || session.can('orders') || session.can('crm')) listenSales();
 }).catch((err) => toast(err.message, 'error'));
 $('#logout').addEventListener('click', async () => {
   await fetch('/api/logout', { method: 'POST' }).catch(() => {});
@@ -295,7 +295,7 @@ const dateInput = (t) => { const d = new Date(t); return `${d.getFullYear()}-${S
 const fromDateInput = (v) => { const [y, m, d] = v.split('-').map(Number); return new Date(y, m - 1, d).getTime(); };
 
 /* ---------- Уведомления о продажах ---------- */
-const salesFeed = { listeners: [], orderListeners: [] };
+const salesFeed = { listeners: [], orderListeners: [], leadListeners: [] };
 
 function listenSales() {
   if (!window.EventSource) return;
@@ -312,6 +312,15 @@ function listenSales() {
       }
     } catch { /* на некоторых телефонах уведомления из страницы запрещены */ }
     for (const fn of salesFeed.listeners) fn(sale);
+  });
+  source.addEventListener('lead', (e) => {
+    const lead = JSON.parse(e.data);
+    const text = `${lead.source === 'Instagram' ? '📩 Instagram' : '🤝 CRM'}: ${lead.name || 'клиент'} — ${lead.text}`.slice(0, 160);
+    toast(text);
+    try {
+      if (window.Notification && Notification.permission === 'granted' && document.hidden) new Notification('Новое сообщение клиента', { body: text, tag: 'lead-' + lead.id });
+    } catch { /* см. выше */ }
+    for (const fn of salesFeed.leadListeners) fn(lead);
   });
   source.addEventListener('order', (e) => {
     const order = JSON.parse(e.data);

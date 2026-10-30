@@ -14,6 +14,7 @@ const { createAuth, hashPassword, checkPassword } = require('./auth');
 const { RIGHTS, ROLES, rightsOf, can } = require('./roles');
 const { themeCss, shopCss } = require('./theme');
 const { createNotifier } = require('./notify');
+const { createCrm } = require('./crm');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -61,6 +62,7 @@ if (process.env.REQUIRE_PASSWORD === '1' && store.activeAdmins() === 0) {
 }
 
 const notifier = createNotifier(store);
+const crm = createCrm(store);
 const auth = createAuth(store, process.env.SESSION_SECRET || store.setting('session_secret', crypto.randomBytes(32).toString('base64url')));
 
 // Сотрудник с правом «Сотрудники», но не администратор, не может назначать
@@ -171,7 +173,31 @@ const routes = [
   ['POST', '/api/fines', (p, url, body, user) => store.addFine(body, user), 'fines'],
   ['DELETE', '/api/fines/:id', (p) => store.deleteFine(p.id), 'fines'],
   // Короткий список сотрудников для выбора в сменах и штрафах.
-  ['GET', '/api/staff-list', () => store.listUsers().map((u) => ({ id: u.id, name: u.name || u.email, role: u.role, disabled: u.disabled })), ['shifts', 'fines', 'kpi', 'staff']],
+  ['GET', '/api/staff-list', () => store.listUsers().map((u) => ({ id: u.id, name: u.name || u.email, role: u.role, disabled: u.disabled })), ['shifts', 'fines', 'kpi', 'staff', 'crm']],
+  // CRM. mine=1 — только мои сделки и задачи.
+  ['GET', '/api/crm/leads', (p, url, body, user) => crm.list({ q: url.searchParams.get('q') || '', source: url.searchParams.get('source') || '',
+    userId: url.searchParams.get('mine') === '1' && user ? user.id : null }), 'crm'],
+  ['GET', '/api/crm/summary', () => crm.summary(), 'crm'],
+  ['GET', '/api/crm/tasks', (p, url, body, user) => crm.tasks({ userId: url.searchParams.get('mine') === '1' && user ? user.id : null }), 'crm'],
+  ['POST', '/api/crm/leads', (p, url, body, user) => crm.create(body, user), 'crm'],
+  ['GET', '/api/crm/leads/:id', (p) => crm.get(p.id), 'crm'],
+  ['PUT', '/api/crm/leads/:id', (p, url, body, user) => crm.update(p.id, body, user), 'crm'],
+  ['DELETE', '/api/crm/leads/:id', (p) => crm.remove(p.id), 'crm'],
+  ['POST', '/api/crm/leads/:id/events', (p, url, body, user) => crm.addEvent(p.id, body, user), 'crm'],
+  ['POST', '/api/crm/leads/:id/read', (p) => crm.markRead(p.id), 'crm'],
+  ['POST', '/api/crm/leads/:id/tasks', (p, url, body, user) => crm.addTask(p.id, body, user), 'crm'],
+  ['POST', '/api/crm/tasks/:id/toggle', (p, url, body, user) => crm.toggleTask(p.id, user), 'crm'],
+  ['POST', '/api/crm/leads/:id/customer', (p, url, body, user) => crm.toCustomer(p.id, user), 'crm'],
+  ['POST', '/api/crm/leads/:id/instagram', (p, url, body, user) => crm.replyInstagram(p.id, body.text, user), 'crm'],
+  // Секреты Instagram наружу не отдаём: только признак, что они заданы.
+  ['GET', '/api/settings/instagram', (p, url) => {
+    const s = crm.instagramSettings();
+    return { enabled: s.enabled, verifyToken: s.verifyToken, hasSecret: Boolean(s.appSecret), hasToken: Boolean(s.accessToken), webhookPath: '/webhooks/instagram' };
+  }, 'settings'],
+  ['PUT', '/api/settings/instagram', (p, url, body) => {
+    const s = crm.setInstagram(body);
+    return { enabled: s.enabled, verifyToken: s.verifyToken, hasSecret: Boolean(s.appSecret), hasToken: Boolean(s.accessToken), webhookPath: '/webhooks/instagram' };
+  }, 'settings'],
   ['GET', '/api/audit', (p, url) => store.listAudit({ ...range(url), kind: url.searchParams.get('kind') || '', q: url.searchParams.get('q') || '' }), 'audit'],
   ['POST', '/api/demo', () => {
     if (!store.isEmpty()) throw new UserError('Пример можно загрузить только в пустую базу');
@@ -309,6 +335,11 @@ const AUDIT_LABELS = {
   'PUT /api/shop': 'Изменил витрину',
   'PUT /api/orders/:id': 'Изменил статус заказа',
   'PUT /api/settings/telegram': 'Изменил уведомления в Telegram',
+  'PUT /api/settings/instagram': 'Изменил подключение Instagram',
+  'POST /api/crm/leads': 'Создал сделку в CRM',
+  'PUT /api/crm/leads/:id': 'Изменил сделку в CRM',
+  'DELETE /api/crm/leads/:id': 'Удалил сделку в CRM',
+  'POST /api/crm/leads/:id/instagram': 'Ответил клиенту в Instagram',
   'POST /api/settings/telegram/test': 'Отправил пробное уведомление',
 };
 const ORDER_NAMES = { confirmed: 'подтверждён', ready: 'собран', shipped: 'передан курьеру', done: 'выдан', cancelled: 'отменён' };
@@ -373,6 +404,42 @@ function sendBytes(res, type, data, cache = 'no-cache') {
 
 const clientIp = (req) => String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '';
 
+// Вебхук Instagram (Meta). GET — проверка адреса при подключении: вернуть hub.challenge,
+// если токен совпал. POST — новые сообщения; подпись X-Hub-Signature-256 проверяется по App Secret.
+async function instagramWebhook(req, res, url) {
+  const settings = crm.instagramSettings();
+  if (req.method === 'GET') {
+    const ok = url.searchParams.get('hub.mode') === 'subscribe' && url.searchParams.get('hub.verify_token') === settings.verifyToken;
+    res.writeHead(ok ? 200 : 403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    return res.end(ok ? url.searchParams.get('hub.challenge') || '' : 'Неверный токен проверки');
+  }
+  if (req.method !== 'POST') return sendJson(res, 405, { error: 'Только GET и POST' });
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > 1e6) return sendJson(res, 413, { error: 'Слишком большой запрос' });
+    chunks.push(chunk);
+  }
+  const raw = Buffer.concat(chunks);
+  if (!settings.enabled || !crm.verifySignature(raw, req.headers['x-hub-signature-256'])) {
+    store.audit({ kind: 'denied', userName: 'Instagram', ip: clientIp(req), device: device(req), action: 'Вебхук Instagram отклонён', details: settings.enabled ? 'неверная подпись' : 'Instagram выключен в настройках' });
+    return sendJson(res, 403, { error: 'Подпись не совпала' });
+  }
+  // Meta ждёт ответ быстро: отвечаем сразу, сообщения разбираем после.
+  sendJson(res, 200, { ok: true });
+  try {
+    const got = crm.receiveInstagram(JSON.parse(raw.toString('utf8')));
+    for (const { lead, isNew } of got) {
+      if (isNew) await crm.fillInstagramProfile(lead.id);
+      const fresh = crm.get(lead.id);
+      notifier.broadcast('lead', { id: fresh.id, name: fresh.name, source: 'Instagram', text: fresh.events.at(-1)?.text || '' }, 'crm');
+    }
+  } catch (err) {
+    console.error('Instagram: не получилось разобрать сообщение:', err.message);
+  }
+}
+
 // Страницы и запросы без входа: оформление, интернет-витрина и её заказы.
 async function handlePublic(req, res, url, user) {
   const { pathname } = url;
@@ -384,6 +451,7 @@ async function handlePublic(req, res, url, user) {
     if (!found) return sendJson(res, 404, { error: 'Картинки нет' });
     return sendBytes(res, found.mime, Buffer.from(found.data), 'public, max-age=31536000, immutable');
   }
+  if (pathname === '/webhooks/instagram') return instagramWebhook(req, res, url);
   if (!pathname.startsWith('/shop')) return false;
 
   // Сотрудник с правом «Витрина» видит её и до открытия — чтобы настроить.
@@ -422,6 +490,12 @@ async function handlePublic(req, res, url, user) {
       recent.push(now);
       orderLog.set(ip, recent);
       notifier.order(order);
+      try {
+        const lead = crm.fromOrder(order);
+        notifier.broadcast('lead', { id: lead.id, name: lead.name, source: lead.source, text: `Заказ №${order.id}` }, 'crm');
+      } catch (err) {
+        console.error('CRM: заказ не попал в сделки:', err.message);
+      }
       store.audit({ kind: 'change', userName: `Покупатель: ${order.name}`, ip, device: device(req), action: 'Новый заказ с витрины', details: `Заказ №${order.id} на ${order.total} сом` });
       return sendJson(res, 200, { ok: true, id: order.id, total: order.total });
     } catch (err) {
@@ -473,7 +547,7 @@ const server = http.createServer(async (req, res) => {
     return res.end(Buffer.from(found.data));
   }
   if (req.method === 'GET' && url.pathname === '/api/events') {
-    if (!can(user, 'notify') && !can(user, 'orders')) return sendJson(res, 403, { error: 'Нет доступа' });
+    if (!['notify', 'orders', 'crm'].some((r) => can(user, r))) return sendJson(res, 403, { error: 'Нет доступа' });
     return notifier.subscribe(req, res, user);
   }
   const route = match(req.method, url.pathname);

@@ -1420,4 +1420,4 @@ function createStore(file) {
   };
 }
 
-module.exports = { createStore, UserError };
+module.exports = { createStore, UserError, text, number, phone, round2, transaction };

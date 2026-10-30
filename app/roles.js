@@ -20,6 +20,7 @@ const RIGHTS = [
   { key: 'stock', group: 'Товары', label: 'Пересчитывать остаток (инвентаризация)' },
   { key: 'photos', group: 'Товары', label: 'Добавлять, менять и удалять фото товаров' },
   { key: 'arrivals', group: 'Склад', label: 'Приход товара от поставщика' },
+  { key: 'crm', group: 'Покупатели', label: 'CRM: сделки, переписка с клиентами, задачи' },
   { key: 'customers', group: 'Покупатели', label: 'Список покупателей, рейтинг и история бонусов' },
   { key: 'loyalty', group: 'Покупатели', label: 'Правила бонусов и ручное изменение бонусов' },
   { key: 'orders', group: 'Интернет-витрина', label: 'Заказы с витрины' },
@@ -43,7 +44,7 @@ const ROLES = {
   manager: {
     name: 'Управляющий',
     about: 'Видит всё и ведёт магазин, выписывает штрафы и правит смены. По умолчанию не меняет сотрудников, бонусы, оформление, настройки и не видит журнал действий.',
-    can: ['dashboard', 'kpi', 'pos', 'sales', 'refund', 'products', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'customers', 'orders', 'notify', 'shifts', 'fines'],
+    can: ['dashboard', 'kpi', 'pos', 'sales', 'refund', 'products', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'orders', 'notify', 'shifts', 'fines'],
   },
   cashier: {
     name: 'Кассир',
