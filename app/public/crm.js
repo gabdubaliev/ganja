@@ -181,14 +181,15 @@ function renderLeadSide() {
   const tl = $('#lead-timeline');
   tl.scrollTop = tl.scrollHeight;
   $('#compose-ig').hidden = !l.ig_user_id;
-  if (!l.ig_user_id && crmView.kind === 'instagram') crmView.kind = 'note';
+  $('#compose-wa').hidden = !l.wa_id;
+  if ((!l.ig_user_id && crmView.kind === 'instagram') || (!l.wa_id && crmView.kind === 'whatsapp')) crmView.kind = 'note';
   renderComposeKind();
 }
 
 function renderComposeKind() {
   for (const b of document.querySelectorAll('#compose-kind [data-kind]')) b.setAttribute('aria-pressed', b.dataset.kind === crmView.kind);
-  $('#lead-note-form').elements.text.placeholder = { note: 'Что обсудили, о чём договорились', call: 'Итог звонка', instagram: 'Сообщение клиенту в Direct' }[crmView.kind];
-  $('#lead-note-form button[type=submit]').textContent = crmView.kind === 'instagram' ? 'Отправить в Instagram' : 'Добавить';
+  $('#lead-note-form').elements.text.placeholder = { note: 'Что обсудили, о чём договорились', call: 'Итог звонка', instagram: 'Сообщение клиенту в Direct', whatsapp: 'Сообщение клиенту в WhatsApp' }[crmView.kind];
+  $('#lead-note-form button[type=submit]').textContent = { instagram: 'Отправить в Instagram', whatsapp: 'Отправить в WhatsApp' }[crmView.kind] || 'Добавить';
 }
 
 $('#lead-form').addEventListener('change', (e) => {
@@ -279,11 +280,12 @@ $('#lead-note-form').addEventListener('submit', async (e) => {
   const btn = f.querySelector('button[type=submit]');
   btn.disabled = true;
   try {
-    crmView.lead = crmView.kind === 'instagram'
-      ? await api(`/api/crm/leads/${id}/instagram`, { method: 'POST', body: { text } })
+    const channel = ['instagram', 'whatsapp'].includes(crmView.kind) ? crmView.kind : null;
+    crmView.lead = channel
+      ? await api(`/api/crm/leads/${id}/${channel}`, { method: 'POST', body: { text } })
       : await api(`/api/crm/leads/${id}/events`, { method: 'POST', body: { kind: crmView.kind, text } });
     f.elements.text.value = '';
-    if (crmView.kind === 'instagram') toast('Сообщение отправлено в Instagram');
+    if (channel) toast(`Сообщение отправлено в ${channel === 'instagram' ? 'Instagram' : 'WhatsApp'}`);
     renderLeadSide();
   } catch (err) {
     toast(err.message, 'error');

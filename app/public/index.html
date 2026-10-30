@@ -329,6 +329,7 @@
           <button type="button" data-kind="note" aria-pressed="true">Заметка</button>
           <button type="button" data-kind="call" aria-pressed="false">Звонок</button>
           <button type="button" data-kind="instagram" aria-pressed="false" id="compose-ig" hidden>Ответ в Instagram</button>
+          <button type="button" data-kind="whatsapp" aria-pressed="false" id="compose-wa" hidden>Ответ в WhatsApp</button>
         </div>
         <textarea name="text" class="input" rows="2" placeholder="Что обсудили, о чём договорились" aria-label="Текст"></textarea>
         <button type="submit" class="btn primary">Добавить</button>
@@ -506,6 +507,31 @@
       <div class="field"><label for="ig-token">Токен доступа Instagram</label><input id="ig-token" name="accessToken" class="input" autocomplete="off"></div>
       <label class="check"><input type="checkbox" name="enabled"> Принимать сообщения из Instagram</label>
       <p class="form-error" id="instagram-error" role="alert" hidden></p>
+      <div class="form-actions start"><button type="submit" class="btn primary">Сохранить</button></div>
+    </form>
+  </section>
+  <section class="panel">
+    <form id="whatsapp-form" class="settings-form" novalidate>
+      <div>
+        <h2>WhatsApp → CRM</h2>
+        <p class="sub">Сообщения клиентов в WhatsApp сами попадают в CRM: новый номер — новая сделка, знакомый — в его открытую сделку. Ответить можно прямо из карточки. Работает через официальный WhatsApp Business Cloud API от Meta и только по адресу в интернете с HTTPS (например, montshop.kg).</p>
+      </div>
+      <ol class="steps">
+        <li>Нужен <b>отдельный номер</b> для WhatsApp Business API: номер, который уже работает в обычном WhatsApp или WhatsApp Business на телефоне, сначала придётся оттуда удалить (или взять новую сим-карту).</li>
+        <li>Зайдите на <b>developers.facebook.com</b> → «Мои приложения» → «Создать приложение» → тип «Бизнес» → добавьте продукт <b>WhatsApp</b>. Можно взять то же приложение, что для Instagram.</li>
+        <li>WhatsApp → «Настройка API»: добавьте свой номер и подтвердите его кодом из SMS. Скопируйте <b>ID номера телефона</b> (Phone number ID) — вставьте ниже.</li>
+        <li>Создайте <b>постоянный токен</b>: business.facebook.com → «Настройки компании» → «Пользователи системы» → добавить пользователя → «Создать токен» с разрешениями whatsapp_business_messaging и whatsapp_business_management. Вставьте его ниже. (Временный токен со страницы «Настройка API» работает только сутки.)</li>
+        <li>«Настройки приложения» → «Основное» → <b>Секрет приложения</b> (App Secret) — вставьте ниже.</li>
+        <li>WhatsApp → «Конфигурация» → вебхук: вставьте адрес и токен подтверждения (ниже), нажмите «Подтвердить и сохранить», подпишитесь на поле <b>messages</b>.</li>
+        <li>Чтобы писать любым клиентам, добавьте способ оплаты в WhatsApp Manager: Meta берёт плату за разговоры, начатые компанией; ответы клиенту, который написал сам, в течение 24 часов обычно бесплатны (уточняйте тарифы Meta для Кыргызстана).</li>
+      </ol>
+      <div class="field"><label>Адрес обратного вызова (Callback URL)</label><div class="input-row"><input id="wa-webhook" class="input" readonly><button type="button" class="btn" data-copy="#wa-webhook">Копировать</button></div></div>
+      <div class="field"><label>Токен подтверждения (Verify token)</label><div class="input-row"><input id="wa-verify" class="input" readonly><button type="button" class="btn" data-copy="#wa-verify">Копировать</button></div></div>
+      <div class="field"><label for="wa-phone-id">ID номера телефона (Phone number ID)</label><input id="wa-phone-id" name="phoneNumberId" class="input num" inputmode="numeric" autocomplete="off" placeholder="Например, 106540352242922"></div>
+      <div class="field"><label for="wa-secret">Секрет приложения (App Secret)</label><input id="wa-secret" name="appSecret" class="input" autocomplete="off"></div>
+      <div class="field"><label for="wa-token">Постоянный токен доступа</label><input id="wa-token" name="accessToken" class="input" autocomplete="off"></div>
+      <label class="check"><input type="checkbox" name="enabled"> Принимать сообщения из WhatsApp</label>
+      <p class="form-error" id="whatsapp-error" role="alert" hidden></p>
       <div class="form-actions start"><button type="submit" class="btn primary">Сохранить</button></div>
     </form>
   </section>

@@ -75,4 +75,42 @@ $('#instagram-form').addEventListener('click', async (e) => {
   try { await navigator.clipboard.writeText(value); toast('Скопировано'); } catch { $(btn.dataset.copy).select(); }
 });
 
-views.settings = { show: () => { renderSettings(); renderInstagram(); }, right: 'settings' };
+/* ---------- WhatsApp ---------- */
+async function renderWhatsapp() {
+  const f = $('#whatsapp-form');
+  $('#whatsapp-error').hidden = true;
+  try {
+    const s = await api('/api/settings/whatsapp');
+    $('#wa-webhook').value = location.origin + s.webhookPath;
+    $('#wa-verify').value = s.verifyToken;
+    f.elements.phoneNumberId.value = s.phoneNumberId;
+    f.elements.appSecret.value = '';
+    f.elements.accessToken.value = '';
+    f.elements.appSecret.placeholder = s.hasSecret ? 'Сохранён. Введите новый, чтобы заменить' : '';
+    f.elements.accessToken.placeholder = s.hasToken ? 'Сохранён. Введите новый, чтобы заменить' : 'EAAG…';
+    f.elements.enabled.checked = s.enabled;
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+$('#whatsapp-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  try {
+    await api('/api/settings/whatsapp', { method: 'PUT', body: {
+      phoneNumberId: f.elements.phoneNumberId.value, appSecret: f.elements.appSecret.value, accessToken: f.elements.accessToken.value, enabled: f.elements.enabled.checked,
+    } });
+    toast('Настройки WhatsApp сохранены');
+    renderWhatsapp();
+  } catch (err) {
+    showFormError('#whatsapp-error', err);
+  }
+});
+$('#whatsapp-form').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-copy]');
+  if (!btn) return;
+  try { await navigator.clipboard.writeText($(btn.dataset.copy).value); toast('Скопировано'); } catch { $(btn.dataset.copy).select(); }
+});
+
+views.settings = { show: () => { renderSettings(); renderInstagram(); renderWhatsapp(); }, right: 'settings' };

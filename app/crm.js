@@ -1,6 +1,6 @@
 'use strict';
 
-// CRM: сделки (заявки) по воронке, история общения, задачи и связь с Instagram Direct.
+// CRM: сделки (заявки) по воронке, история общения, задачи и связь с Instagram Direct и WhatsApp.
 //
 // Сделка — это обращение клиента: из Instagram, WhatsApp, звонка, витрины и т.д.
 // У неё есть этап воронки, сумма, ответственный сотрудник, лента событий
@@ -21,6 +21,7 @@ const STAGE_KEYS = new Set(STAGES.map(([k]) => k));
 const CLOSED = new Set(['won', 'lost']);
 const SOURCES = ['Instagram', 'WhatsApp', 'Telegram', 'Звонок', 'Витрина', 'Магазин', 'Рекомендация', 'Другое'];
 const INSTAGRAM_API = 'https://graph.instagram.com/v21.0';
+const WHATSAPP_API = 'https://graph.facebook.com/v21.0';
 
 function createCrm(store) {
   const db = store.db;
@@ -70,6 +71,9 @@ function createCrm(store) {
   // Номер сообщения Instagram: Meta иногда присылает одно сообщение повторно — второй раз не записываем.
   if (!db.prepare('PRAGMA table_info(lead_events)').all().some((c) => c.name === 'ext_id')) db.exec('ALTER TABLE lead_events ADD COLUMN ext_id TEXT');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS lead_events_ext ON lead_events(ext_id) WHERE ext_id IS NOT NULL');
+  // wa_id — номер, с которого клиент написал в WhatsApp: только таким можно ответить из CRM.
+  if (!db.prepare('PRAGMA table_info(leads)').all().some((c) => c.name === 'wa_id')) db.exec('ALTER TABLE leads ADD COLUMN wa_id TEXT');
+  db.exec('CREATE INDEX IF NOT EXISTS leads_wa ON leads(wa_id)');
 
   const who = (user) => (user ? user.name || user.email : '');
   const event = (leadId, kind, body, userName = '', extId = null) => {
@@ -276,9 +280,8 @@ function createCrm(store) {
       return next;
     },
 
-    // Проверка подписи Meta: HMAC-SHA256 тела запроса ключом App Secret.
-    verifySignature(raw, header) {
-      const { appSecret } = crm.instagramSettings();
+    // Проверка подписи Meta (Instagram и WhatsApp): HMAC-SHA256 тела запроса ключом App Secret.
+    verifySignature(raw, header, appSecret) {
       if (!appSecret || !header?.startsWith('sha256=')) return false;
       const expected = crypto.createHmac('sha256', appSecret).update(raw).digest();
       const given = Buffer.from(header.slice(7), 'hex');
@@ -352,6 +355,98 @@ function createCrm(store) {
       if (!res.ok || data.error) {
         const msg = data.error?.message || `ошибка ${res.status}`;
         throw new UserError(/24|window|outside/i.test(msg) ? 'Прошло больше 24 часов с последнего сообщения клиента — Instagram не даёт написать первым. Ответьте, когда клиент напишет снова.' : `Instagram не принял сообщение: ${msg}`);
+      }
+      event(l.id, 'out', t, who(user));
+      return crm.get(l.id);
+    },
+
+    /* ---------- WhatsApp (WhatsApp Business Cloud API) ---------- */
+
+    whatsappSettings() {
+      const saved = JSON.parse(store.setting('whatsapp', '{}'));
+      if (!saved.verifyToken) {
+        saved.verifyToken = crypto.randomBytes(12).toString('hex');
+        store.setSetting('whatsapp', JSON.stringify(saved));
+      }
+      return { enabled: false, appSecret: '', accessToken: '', phoneNumberId: '', ...saved };
+    },
+
+    setWhatsapp(input) {
+      const cur = crm.whatsappSettings();
+      const next = {
+        ...cur,
+        enabled: Boolean(input.enabled),
+        appSecret: input.appSecret ? text(input.appSecret, 'App Secret', { max: 100 }) : cur.appSecret,
+        accessToken: input.accessToken ? text(input.accessToken, 'Токен доступа', { max: 1000 }) : cur.accessToken,
+        phoneNumberId: input.phoneNumberId !== undefined ? text(input.phoneNumberId, 'ID номера телефона', { max: 40 }).replace(/\D/g, '') : cur.phoneNumberId,
+      };
+      if (next.enabled && (!next.appSecret || !next.accessToken || !next.phoneNumberId)) {
+        throw new UserError('Чтобы включить WhatsApp, укажите App Secret, токен доступа и ID номера телефона');
+      }
+      store.setSetting('whatsapp', JSON.stringify(next));
+      return next;
+    },
+
+    // Входящие из вебхука WhatsApp: entry[].changes[].value.messages[]. Статусы доставки пропускаем.
+    receiveWhatsapp(payload) {
+      const received = [];
+      const ATTACH = { image: '🖼 Фото', video: '🎬 Видео', audio: '🎤 Голосовое', voice: '🎤 Голосовое', document: '📄 Документ', sticker: 'Стикер', location: '📍 Геолокация', contacts: '👤 Контакт' };
+      for (const entry of payload?.entry || []) {
+        for (const change of entry.changes || []) {
+          const value = change.value || {};
+          const names = Object.fromEntries((value.contacts || []).map((c) => [String(c.wa_id), c.profile?.name || '']));
+          for (const m of value.messages || []) {
+            const from = String(m.from || '').replace(/\D/g, '');
+            if (!from) continue;
+            const body = m.type === 'text' ? m.text?.body
+              : m.type === 'button' ? m.button?.text
+              : m.type === 'interactive' ? m.interactive?.button_reply?.title || m.interactive?.list_reply?.title
+              : `${ATTACH[m.type] || '📎 Вложение'} — откройте в WhatsApp${m[m.type]?.caption ? `: ${m[m.type].caption}` : ''}`;
+            if (!body) continue;
+            const mid = m.id ? `wa:${m.id}` : null;
+            if (mid && db.prepare('SELECT 1 FROM lead_events WHERE ext_id = ?').get(mid)) continue;
+            const name = names[from] || '';
+            // Открытая сделка с этого номера или с тем же телефоном, внесённым вручную.
+            let lead = db.prepare('SELECT * FROM leads WHERE (wa_id = ? OR phone = ?) AND closed_at IS NULL ORDER BY updated_at DESC LIMIT 1').get(from, from);
+            const isNew = !lead;
+            if (!lead) {
+              lead = crm.create({ title: 'Сообщение в WhatsApp', source: 'WhatsApp', phone: from, name: name || 'Клиент из WhatsApp', unread: true }, null, { quiet: true });
+            }
+            db.prepare("UPDATE leads SET wa_id = ?, unread = 1, name = CASE WHEN name IN ('', 'Клиент из WhatsApp') AND ? <> '' THEN ? ELSE name END WHERE id = ?")
+              .run(from, name, name, lead.id);
+            event(lead.id, 'in', body, name || '+' + from, mid);
+            received.push({ lead, isNew });
+          }
+        }
+      }
+      return received;
+    },
+
+    // Ответ клиенту в WhatsApp. Свободным текстом можно писать 24 часа после последнего сообщения клиента,
+    // позже — только одобренным шаблоном (в Meta Business Manager).
+    async replyWhatsapp(id, body, user) {
+      const l = getLead(id);
+      const t = text(body, 'Сообщение', { required: true, max: 4096 });
+      const { enabled, accessToken, phoneNumberId } = crm.whatsappSettings();
+      if (!enabled || !accessToken || !phoneNumberId) throw new UserError('WhatsApp не подключён: «Ещё» → «Настройки» → WhatsApp');
+      if (!l.wa_id) throw new UserError('Этот клиент не писал в WhatsApp. Напишите ему по кнопке «WhatsApp» — откроется чат в приложении.');
+      let res, data;
+      try {
+        res = await fetch(`${WHATSAPP_API}/${encodeURIComponent(phoneNumberId)}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: l.wa_id, type: 'text', text: { preview_url: false, body: t } }),
+          signal: AbortSignal.timeout(15_000),
+        });
+        data = await res.json().catch(() => ({}));
+      } catch (err) {
+        throw new UserError(`Нет связи с WhatsApp: ${err.message}`);
+      }
+      if (!res.ok || data.error) {
+        const msg = data.error?.error_data?.details || data.error?.message || `ошибка ${res.status}`;
+        throw new UserError(data.error?.code === 131047 || /24|re-engagement|window/i.test(msg)
+          ? 'Прошло больше 24 часов с последнего сообщения клиента — WhatsApp разрешает писать только шаблоном. Позвоните клиенту или дождитесь, когда он напишет.'
+          : `WhatsApp не принял сообщение: ${msg}`);
       }
       event(l.id, 'out', t, who(user));
       return crm.get(l.id);

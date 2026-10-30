@@ -67,6 +67,9 @@ const auth = createAuth(store, process.env.SESSION_SECRET || store.setting('sess
 
 // Сотрудник с правом «Сотрудники», но не администратор, не может назначать
 // администраторов и менять их: иначе он выдал бы себе все права.
+// Настройки WhatsApp для экрана: секреты не отдаём, только признак, что они заданы.
+const whatsappPublic = (s) => ({ enabled: s.enabled, verifyToken: s.verifyToken, phoneNumberId: s.phoneNumberId, hasSecret: Boolean(s.appSecret), hasToken: Boolean(s.accessToken), webhookPath: '/webhooks/whatsapp' });
+
 function guardAdmin(user, target, body) {
   if (!user || user.role === 'admin') return;
   if (target?.role === 'admin' || body.role === 'admin') throw new UserError('Администраторов назначает и меняет только администратор');
@@ -189,6 +192,9 @@ const routes = [
   ['POST', '/api/crm/tasks/:id/toggle', (p, url, body, user) => crm.toggleTask(p.id, user), 'crm'],
   ['POST', '/api/crm/leads/:id/customer', (p, url, body, user) => crm.toCustomer(p.id, user), 'crm'],
   ['POST', '/api/crm/leads/:id/instagram', (p, url, body, user) => crm.replyInstagram(p.id, body.text, user), 'crm'],
+  ['POST', '/api/crm/leads/:id/whatsapp', (p, url, body, user) => crm.replyWhatsapp(p.id, body.text, user), 'crm'],
+  ['GET', '/api/settings/whatsapp', () => whatsappPublic(crm.whatsappSettings()), 'settings'],
+  ['PUT', '/api/settings/whatsapp', (p, url, body) => whatsappPublic(crm.setWhatsapp(body)), 'settings'],
   // Секреты Instagram наружу не отдаём: только признак, что они заданы.
   ['GET', '/api/settings/instagram', (p, url) => {
     const s = crm.instagramSettings();
@@ -340,6 +346,8 @@ const AUDIT_LABELS = {
   'PUT /api/crm/leads/:id': 'Изменил сделку в CRM',
   'DELETE /api/crm/leads/:id': 'Удалил сделку в CRM',
   'POST /api/crm/leads/:id/instagram': 'Ответил клиенту в Instagram',
+  'POST /api/crm/leads/:id/whatsapp': 'Ответил клиенту в WhatsApp',
+  'PUT /api/settings/whatsapp': 'Изменил подключение WhatsApp',
   'POST /api/settings/telegram/test': 'Отправил пробное уведомление',
 };
 const ORDER_NAMES = { confirmed: 'подтверждён', ready: 'собран', shipped: 'передан курьеру', done: 'выдан', cancelled: 'отменён' };
@@ -404,10 +412,16 @@ function sendBytes(res, type, data, cache = 'no-cache') {
 
 const clientIp = (req) => String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '';
 
-// Вебхук Instagram (Meta). GET — проверка адреса при подключении: вернуть hub.challenge,
-// если токен совпал. POST — новые сообщения; подпись X-Hub-Signature-256 проверяется по App Secret.
-async function instagramWebhook(req, res, url) {
-  const settings = crm.instagramSettings();
+// Вебхуки Meta: Instagram Direct и WhatsApp. GET — проверка адреса при подключении: вернуть
+// hub.challenge, если токен совпал. POST — новые сообщения; подпись X-Hub-Signature-256 проверяется по App Secret.
+const META_CHANNELS = {
+  instagram: { name: 'Instagram', settings: () => crm.instagramSettings(), receive: (p) => crm.receiveInstagram(p), profile: (id) => crm.fillInstagramProfile(id) },
+  whatsapp: { name: 'WhatsApp', settings: () => crm.whatsappSettings(), receive: (p) => crm.receiveWhatsapp(p), profile: async () => {} },
+};
+
+async function metaWebhook(req, res, url, channel) {
+  const ch = META_CHANNELS[channel];
+  const settings = ch.settings();
   if (req.method === 'GET') {
     const ok = url.searchParams.get('hub.mode') === 'subscribe' && url.searchParams.get('hub.verify_token') === settings.verifyToken;
     res.writeHead(ok ? 200 : 403, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -422,21 +436,20 @@ async function instagramWebhook(req, res, url) {
     chunks.push(chunk);
   }
   const raw = Buffer.concat(chunks);
-  if (!settings.enabled || !crm.verifySignature(raw, req.headers['x-hub-signature-256'])) {
-    store.audit({ kind: 'denied', userName: 'Instagram', ip: clientIp(req), device: device(req), action: 'Вебхук Instagram отклонён', details: settings.enabled ? 'неверная подпись' : 'Instagram выключен в настройках' });
+  if (!settings.enabled || !crm.verifySignature(raw, req.headers['x-hub-signature-256'], settings.appSecret)) {
+    store.audit({ kind: 'denied', userName: ch.name, ip: clientIp(req), device: device(req), action: `Вебхук ${ch.name} отклонён`, details: settings.enabled ? 'неверная подпись' : `${ch.name} выключен в настройках` });
     return sendJson(res, 403, { error: 'Подпись не совпала' });
   }
   // Meta ждёт ответ быстро: отвечаем сразу, сообщения разбираем после.
   sendJson(res, 200, { ok: true });
   try {
-    const got = crm.receiveInstagram(JSON.parse(raw.toString('utf8')));
-    for (const { lead, isNew } of got) {
-      if (isNew) await crm.fillInstagramProfile(lead.id);
+    for (const { lead, isNew } of ch.receive(JSON.parse(raw.toString('utf8')))) {
+      if (isNew) await ch.profile(lead.id);
       const fresh = crm.get(lead.id);
-      notifier.broadcast('lead', { id: fresh.id, name: fresh.name, source: 'Instagram', text: fresh.events.at(-1)?.text || '' }, 'crm');
+      notifier.broadcast('lead', { id: fresh.id, name: fresh.name, source: ch.name, text: fresh.events.at(-1)?.text || '' }, 'crm');
     }
   } catch (err) {
-    console.error('Instagram: не получилось разобрать сообщение:', err.message);
+    console.error(`${ch.name}: не получилось разобрать сообщение:`, err.message);
   }
 }
 
@@ -451,7 +464,8 @@ async function handlePublic(req, res, url, user) {
     if (!found) return sendJson(res, 404, { error: 'Картинки нет' });
     return sendBytes(res, found.mime, Buffer.from(found.data), 'public, max-age=31536000, immutable');
   }
-  if (pathname === '/webhooks/instagram') return instagramWebhook(req, res, url);
+  const hook = pathname.match(/^\/webhooks\/(instagram|whatsapp)$/);
+  if (hook) return metaWebhook(req, res, url, hook[1]);
   if (!pathname.startsWith('/shop')) return false;
 
   // Сотрудник с правом «Витрина» видит её и до открытия — чтобы настроить.
