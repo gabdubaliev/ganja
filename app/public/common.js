@@ -160,9 +160,13 @@ function toast(message, kind = 'ok') {
 const views = {};
 let currentView = null;
 
+// Разделы, открытые продавцу. Остальные видит только администратор.
+const SELLER_VIEWS = new Set(['pos', 'sales']);
+
 function route() {
-  const name = location.hash.slice(1) || 'home';
-  const target = views[name] ? name : 'home';
+  const home = session.isAdmin ? 'home' : 'pos';
+  const name = location.hash.slice(1) || home;
+  const target = views[name] && (session.isAdmin || SELLER_VIEWS.has(name)) ? name : home;
   currentView = target;
   for (const el of document.querySelectorAll('[data-view]')) el.hidden = el.dataset.view !== target;
   for (const a of document.querySelectorAll('.nav a')) a.setAttribute('aria-current', a.getAttribute('href') === '#' + target ? 'page' : 'false');
@@ -170,8 +174,19 @@ function route() {
 }
 addEventListener('hashchange', route);
 
-// Кнопка «Выйти» видна, только когда вход по паролю включён.
-api('/api/status').then((s) => { $('#logout').hidden = !s.auth; }).catch(() => {});
+// Кто вошёл. Пока сотрудников нет, программа открыта и работает как у администратора.
+const ROLE_NAMES = { admin: 'Администратор', seller: 'Продавец' };
+const session = { user: null, isAdmin: true };
+session.ready = api('/api/status').then((s) => {
+  session.user = s.user;
+  session.isAdmin = !s.user || s.user.role === 'admin';
+  document.body.dataset.role = session.isAdmin ? 'admin' : 'seller';
+  $('#nav-user').hidden = !s.user;
+  if (s.user) {
+    $('#me-password').textContent = s.user.name || s.user.email;
+    $('#me-password').title = `${ROLE_NAMES[s.user.role]} · сменить пароль`;
+  }
+}).catch((err) => toast(err.message, 'error'));
 $('#logout').addEventListener('click', async () => {
   await fetch('/api/logout', { method: 'POST' }).catch(() => {});
   location.replace('/login.html');

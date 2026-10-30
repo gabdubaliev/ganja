@@ -16,11 +16,15 @@
   <form class="panel" id="login-form" novalidate>
     <div>
       <h1>Мой магазин</h1>
-      <p class="sub">Введите пароль, чтобы открыть программу.</p>
+      <p class="sub">Войдите, чтобы открыть программу.</p>
+    </div>
+    <div class="field">
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" class="input big" autocomplete="username" required autofocus>
     </div>
     <div class="field">
       <label for="password">Пароль</label>
-      <input id="password" name="password" type="password" class="input big" autocomplete="current-password" required autofocus>
+      <input id="password" name="password" type="password" class="input big" autocomplete="current-password" required>
     </div>
     <p class="form-error" id="login-error" role="alert" hidden></p>
     <button type="submit" class="btn primary big">Войти</button>
@@ -37,7 +41,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     const res = await fetch('/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: e.target.elements.password.value }),
+      body: JSON.stringify({ email: e.target.elements.email.value, password: e.target.elements.password.value }),
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok) return location.replace('/');

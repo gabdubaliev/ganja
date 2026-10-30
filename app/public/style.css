@@ -204,7 +204,14 @@ a { color: var(--series); }
   color: var(--ink-2); text-decoration: none; padding: 7px 12px; border-radius: 8px; font-weight: 500; white-space: nowrap;
 }
 .nav a:hover { background: var(--hover); color: var(--ink); }
-.nav-logout { margin-left: auto; }
+.nav-user { margin-left: auto; display: flex; gap: 4px; align-items: center; min-width: 0; }
+.nav-user[hidden] { display: none; }
+#me-password { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body[data-role="seller"] [data-admin],
+body[data-role="seller"] [data-refund] { display: none; }
+.users-table { min-width: 640px; }
+.role-tag { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--series-soft); font-size: 13px; }
+.muted { color: var(--ink-2); }
 .nav a[aria-current="page"] { background: var(--series-soft); color: var(--ink); font-weight: 650; }
 
 /* Кнопки и поля */

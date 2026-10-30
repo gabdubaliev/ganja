@@ -1,7 +1,8 @@
 'use strict';
 
-// Вход по одному паролю из переменной APP_PASSWORD.
-// Сессия — подписанная cookie: смена пароля сразу завершает все старые сессии.
+// Вход по email и паролю. Пароли хранятся как scrypt-хеш с солью.
+// Сессия — подписанная cookie с id сотрудника. В подпись входит хеш пароля,
+// поэтому смена пароля или удаление сотрудника сразу завершает его сессии.
 
 const crypto = require('node:crypto');
 
@@ -10,10 +11,25 @@ const SESSION_DAYS = 30;
 const MAX_FAILURES = 10;
 const FAILURE_WINDOW_MS = 15 * 60_000;
 
-function createAuth(password) {
-  const enabled = Boolean(password);
-  const secret = crypto.createHash('sha256').update('session:' + password).digest();
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(String(password), salt, 32);
+  return `scrypt:${salt.toString('base64url')}:${hash.toString('base64url')}`;
+}
+
+function checkPassword(password, stored) {
+  const [kind, salt, hash] = String(stored || '').split(':');
+  if (kind !== 'scrypt' || !salt || !hash) return false;
+  const expected = Buffer.from(hash, 'base64url');
+  const given = crypto.scryptSync(String(password), Buffer.from(salt, 'base64url'), expected.length);
+  return crypto.timingSafeEqual(given, expected);
+}
+
+// users — хранилище сотрудников из db.js, secret — ключ подписи cookie.
+function createAuth(users, secret) {
   const failures = new Map(); // ip -> { count, since }
+  // Сравнение с несуществующим сотрудником занимает столько же времени, сколько с настоящим.
+  const dummyHash = hashPassword(crypto.randomBytes(16).toString('hex'));
 
   const sign = (value) => crypto.createHmac('sha256', secret).update(value).digest('base64url');
 
@@ -40,17 +56,22 @@ function createAuth(password) {
   }
 
   return {
-    enabled,
-
-    isLoggedIn(req) {
-      if (!enabled) return true;
-      const [expires, signature] = readCookie(req).split('.');
-      if (!expires || !signature || Number(expires) < Date.now()) return false;
-      return sameText(signature, sign(expires));
+    // Без сотрудников программа открыта всем — так она работает на своём компьютере.
+    get enabled() {
+      return users.countUsers() > 0;
     },
 
-    // Возвращает { ok, cookie } или { ok: false, error, status }.
-    login(req, given) {
+    // Сотрудник текущей сессии или null.
+    currentUser(req) {
+      const [id, expires, signature] = readCookie(req).split('.');
+      if (!id || !expires || !signature || Number(expires) < Date.now()) return null;
+      const user = users.findUser(id);
+      if (!user || user.disabled) return null;
+      return sameText(signature, sign(`${id}.${expires}.${user.password_hash}`)) ? user : null;
+    },
+
+    // Возвращает { ok, cookie, user } или { ok: false, error, status }.
+    login(req, email, password) {
       const ip = clientIp(req);
       const now = Date.now();
       const f = failures.get(ip);
@@ -58,16 +79,19 @@ function createAuth(password) {
       if ((failures.get(ip)?.count || 0) >= MAX_FAILURES) {
         return { ok: false, status: 429, error: 'Слишком много неверных попыток. Подождите 15 минут.' };
       }
-      if (!enabled || !sameText(given, password)) {
+      const user = users.findUserByEmail(email);
+      const valid = checkPassword(password, user?.password_hash || dummyHash) && user && !user.disabled;
+      if (!valid) {
         const entry = failures.get(ip) || { count: 0, since: now };
         entry.count++;
         failures.set(ip, entry);
-        return { ok: false, status: 401, error: 'Неверный пароль' };
+        return { ok: false, status: 401, error: 'Неверный email или пароль' };
       }
       failures.delete(ip);
       const expires = String(now + SESSION_DAYS * 864e5);
-      const cookie = `${COOKIE}=${expires}.${sign(expires)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${isSecure(req) ? '; Secure' : ''}`;
-      return { ok: true, cookie };
+      const value = `${user.id}.${expires}`;
+      const cookie = `${COOKIE}=${value}.${sign(`${value}.${user.password_hash}`)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${isSecure(req) ? '; Secure' : ''}`;
+      return { ok: true, cookie, user };
     },
 
     logoutCookie(req) {
@@ -76,4 +100,4 @@ function createAuth(password) {
   };
 }
 
-module.exports = { createAuth };
+module.exports = { createAuth, hashPassword, checkPassword };

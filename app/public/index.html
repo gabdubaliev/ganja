@@ -10,12 +10,16 @@
 <nav class="nav" aria-label="Разделы">
   <div class="nav-inner">
     <span class="logo">Мой магазин</span>
-    <a href="#home">Главная</a>
+    <a href="#home" data-admin>Главная</a>
     <a href="#pos">Касса</a>
-    <a href="#products">Товары</a>
-    <a href="#arrivals">Приход</a>
+    <a href="#products" data-admin>Товары</a>
+    <a href="#arrivals" data-admin>Приход</a>
     <a href="#sales">Чеки</a>
-    <button type="button" class="btn small ghost nav-logout" id="logout" hidden>Выйти</button>
+    <a href="#users" data-admin>Сотрудники</a>
+    <span class="nav-user" id="nav-user" hidden>
+      <button type="button" class="btn small ghost" id="me-password" title="Сменить пароль"></button>
+      <button type="button" class="btn small ghost" id="logout">Выйти</button>
+    </span>
   </div>
 </nav>
 
@@ -180,6 +184,58 @@
   </section>
 </main>
 
+<main class="page" data-view="users" hidden>
+  <header class="top">
+    <div class="title"><h1>Сотрудники</h1><span class="source" id="users-summary"></span></div>
+    <div class="tools"><button type="button" class="btn primary" id="user-add">Добавить сотрудника</button></div>
+  </header>
+  <section class="panel">
+    <p class="sub" id="users-hint">Администратор видит и меняет всё. Продавец работает на кассе и видит чеки, но не может менять товары, приход, возвраты и сотрудников.</p>
+    <div class="table-wrap">
+      <table class="users-table">
+        <thead><tr><th>Сотрудник</th><th>Роль</th><th>Доступ</th><th>Добавлен</th><th></th></tr></thead>
+        <tbody id="users-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<dialog id="user-dialog" aria-labelledby="user-dialog-title">
+  <form id="user-form" novalidate>
+    <h2 id="user-dialog-title">Новый сотрудник</h2>
+    <div class="form-grid">
+      <div class="field wide"><label for="uf-email">Email для входа</label><input id="uf-email" name="email" type="email" class="input" required autocomplete="off"></div>
+      <div class="field wide"><label for="uf-name">Имя</label><input id="uf-name" name="name" class="input" autocomplete="off" placeholder="Необязательно"></div>
+      <div class="field"><label for="uf-role">Роль</label>
+        <select id="uf-role" name="role" class="input"><option value="seller">Продавец</option><option value="admin">Администратор</option></select>
+      </div>
+      <div class="field"><label for="uf-password" id="uf-password-label">Пароль</label><input id="uf-password" name="password" type="password" class="input" autocomplete="new-password" minlength="8"></div>
+      <label class="check wide" id="user-disabled-field"><input type="checkbox" id="uf-disabled" name="disabled"> Закрыть доступ (сотрудник не сможет войти)</label>
+    </div>
+    <p class="form-error" id="user-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="user-delete" hidden>Удалить</button>
+      <button type="button" class="btn ghost" id="user-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="password-dialog" aria-labelledby="password-dialog-title">
+  <form id="password-form" novalidate>
+    <h2 id="password-dialog-title">Сменить пароль</h2>
+    <div class="form-grid">
+      <div class="field wide"><label for="pw-current">Текущий пароль</label><input id="pw-current" name="current" type="password" class="input" autocomplete="current-password" required></div>
+      <div class="field wide"><label for="pw-new">Новый пароль, не короче 8 символов</label><input id="pw-new" name="password" type="password" class="input" autocomplete="new-password" required minlength="8"></div>
+    </div>
+    <p class="form-error" id="password-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="password-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="product-dialog" aria-labelledby="product-dialog-title">
   <form id="product-form" novalidate>
     <h2 id="product-dialog-title">Новый товар</h2>
@@ -232,6 +288,7 @@
 <script src="sales.js"></script>
 <script src="xlsx.js"></script>
 <script src="import.js"></script>
-<script>route();</script>
+<script src="users.js"></script>
+<script>session.ready.then(route);</script>
 </body>
 </html>

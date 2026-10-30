@@ -61,6 +61,19 @@ function open(file) {
       qty REAL NOT NULL,
       cost REAL NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      name TEXT NOT NULL DEFAULT '',
+      role TEXT NOT NULL DEFAULT 'seller',
+      password_hash TEXT NOT NULL,
+      disabled INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
   // Базы, созданные до появления кода товара.
   if (!db.prepare('PRAGMA table_info(products)').all().some((c) => c.name === 'code')) {
@@ -95,6 +108,23 @@ function number(value, field, { min = 0, positive = false } = {}) {
   if (positive ? n <= 0 : n < min) throw new UserError(`В поле «${field}» должно быть число ${positive ? 'больше 0' : `не меньше ${min}`}`);
   return n;
 }
+
+const ROLES = ['admin', 'seller'];
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function email(value) {
+  const s = text(value, 'Email', { required: true, max: 120 }).toLowerCase();
+  if (!EMAIL_RE.test(s)) throw new UserError('Email указан неверно');
+  return s;
+}
+
+function role(value) {
+  if (!ROLES.includes(value)) throw new UserError('Неизвестная роль');
+  return value;
+}
+
+// Сотрудник без хеша пароля — так он уходит в интерфейс.
+const publicUser = ({ password_hash, ...u }) => ({ ...u, disabled: Boolean(u.disabled) });
 
 function createStore(file) {
   const db = open(file);
@@ -290,6 +320,89 @@ function createStore(file) {
         ORDER BY s.created_at`).all(from, to)
         .map((l) => ({ ...l, p: String(l.p), r: String(l.r) }));
       return { products, sales, updatedAt: Date.now() };
+    },
+
+    /* ---------- Сотрудники ---------- */
+    // passwordHash готовит auth.js, хранилище пароль в открытом виде не видит.
+
+    countUsers() {
+      return db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
+    },
+
+    findUser(id) {
+      return db.prepare('SELECT * FROM users WHERE id = ?').get(Number(id)) || null;
+    },
+
+    findUserByEmail(value) {
+      return db.prepare('SELECT * FROM users WHERE email = ?').get(String(value ?? '').trim()) || null;
+    },
+
+    listUsers() {
+      return db.prepare('SELECT * FROM users ORDER BY role, email').all().map(publicUser);
+    },
+
+    createUser(input, passwordHash) {
+      const e = email(input.email);
+      if (this.findUserByEmail(e)) throw new UserError('Сотрудник с таким email уже есть');
+      const { lastInsertRowid } = db.prepare('INSERT INTO users (email, name, role, password_hash, created_at) VALUES (?, ?, ?, ?, ?)')
+        .run(e, text(input.name, 'Имя', { max: 80 }), role(input.role || 'seller'), passwordHash, Date.now());
+      return publicUser(this.findUser(lastInsertRowid));
+    },
+
+    // Последнего действующего администратора нельзя понизить, отключить или удалить:
+    // иначе управлять программой станет некому.
+    updateUser(id, input, passwordHash = null) {
+      const current = this.findUser(id);
+      if (!current) throw new UserError('Сотрудник не найден');
+      const next = {
+        email: input.email === undefined ? current.email : email(input.email),
+        name: input.name === undefined ? current.name : text(input.name, 'Имя', { max: 80 }),
+        role: input.role === undefined ? current.role : role(input.role),
+        disabled: input.disabled === undefined ? current.disabled : input.disabled ? 1 : 0,
+      };
+      const other = this.findUserByEmail(next.email);
+      if (other && other.id !== current.id) throw new UserError('Сотрудник с таким email уже есть');
+      if (current.role === 'admin' && !current.disabled && (next.role !== 'admin' || next.disabled) && this.activeAdmins() <= 1) {
+        throw new UserError('Это единственный администратор. Сначала назначьте другого.');
+      }
+      db.prepare('UPDATE users SET email = ?, name = ?, role = ?, disabled = ?, password_hash = ? WHERE id = ?')
+        .run(next.email, next.name, next.role, next.disabled, passwordHash || current.password_hash, current.id);
+      return publicUser(this.findUser(current.id));
+    },
+
+    deleteUser(id) {
+      const current = this.findUser(id);
+      if (!current) throw new UserError('Сотрудник не найден');
+      if (current.role === 'admin' && !current.disabled && this.activeAdmins() <= 1) {
+        throw new UserError('Это единственный администратор. Сначала назначьте другого.');
+      }
+      db.prepare('DELETE FROM users WHERE id = ?').run(current.id);
+      return { ok: true };
+    },
+
+    activeAdmins() {
+      return db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND disabled = 0").get().n;
+    },
+
+    // Администратор из переменных ADMIN_EMAIL и ADMIN_PASSWORD: создаётся при запуске,
+    // а если уже есть — снова получает права администратора. makeHash вызывается, только когда
+    // пароль нужно записать: у нового сотрудника или если пароль в переменной сменили.
+    ensureAdmin(adminEmail, makeHash, passwordMatches) {
+      const e = email(adminEmail);
+      const current = this.findUserByEmail(e);
+      if (!current) return this.createUser({ email: e, name: 'Администратор', role: 'admin' }, makeHash());
+      const hash = passwordMatches(current.password_hash) ? current.password_hash : makeHash();
+      db.prepare("UPDATE users SET role = 'admin', disabled = 0, password_hash = ? WHERE id = ?").run(hash, current.id);
+      return publicUser(this.findUser(current.id));
+    },
+
+    publicUser,
+
+    setting(key, fallback) {
+      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+      if (row) return row.value;
+      db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(key, fallback);
+      return fallback;
     },
 
     transaction: (fn) => transaction(db, fn),
