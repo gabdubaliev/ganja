@@ -190,6 +190,13 @@ const routes = [
     return store.bulkProducts(body);
   }, 'products'],
   ['DELETE', '/api/products/:id', (p) => store.bulkProducts({ ids: [Number(p.id)], action: 'delete' }), 'products.delete'],
+  ['GET', '/api/categories', () => store.listCategories(), 'any'],
+  ['POST', '/api/categories', (p, url, body) => store.createCategory(body), 'products'],
+  ['PUT', '/api/categories/:id', (p, url, body) => store.renameCategory(p.id, body), 'products'],
+  ['DELETE', '/api/categories/:id', (p, url) => store.deleteCategory(p.id, { moveTo: url.searchParams.get('moveTo') || '' }), 'products'],
+  ['PUT', '/api/categories-order', (p, url, body) => store.sortCategories(body.ids), ['products', 'shop']],
+  // Картинка категории для витрины: загрузить (mime + data) или убрать (пустое тело).
+  ['PUT', '/api/categories/:id/image', (p, url, body) => store.setCategoryImage(p.id, body.data ? store.addImage(body).id : null), ['products', 'shop']],
   ['POST', '/api/products/:id/variants', (p, url, body) => store.createVariants(p.id, body), 'products'],
   ['GET', '/api/barcode', () => ({ barcode: store.newBarcode() }), 'products'],
   ['PUT', '/api/products/:id/photo', (p, url, body) => store.setPhoto(p.id, body), 'photos'],
@@ -384,6 +391,11 @@ const AUDIT_LABELS = {
   'DELETE /api/products/:id/photo': 'Удалил фото товара',
   'POST /api/products/bulk': 'Групповое изменение товаров',
   'POST /api/products/:id/variants': 'Добавил модификации',
+  'POST /api/categories': 'Создал категорию',
+  'PUT /api/categories/:id': 'Переименовал категорию',
+  'DELETE /api/categories/:id': 'Удалил категорию',
+  'PUT /api/categories/:id/image': 'Поменял картинку категории',
+  'PUT /api/categories-order': 'Изменил порядок категорий',
   'POST /api/sales': 'Пробил чек',
   'POST /api/sales/:id/refund': 'Оформил возврат',
   'POST /api/sales/delete': 'Удалил продажи',
@@ -443,6 +455,7 @@ function auditDetails(key, params, body, result) {
     case 'POST /api/products/import': return `создано ${r.created}, обновлено ${r.updated}, пропущено ${r.skipped?.length ?? 0}`;
     case 'PUT /api/products/:id/stock': return `${r.name}: остаток ${r.stock}`;
     case 'PUT /api/products/:id': return `${r.name}: цена ${r.price}, себестоимость ${r.cost}`;
+    case 'DELETE /api/categories/:id': return `товаров перенесено: ${r.moved}${r.to ? ` в «${r.to}»` : ', остались без категории'}`;
     case 'POST /api/products/:id/variants': return `${Array.isArray(r) ? r.length : 0} шт.`;
     case 'POST /api/arrivals': return `Приход №${r.id} на ${r.total} сом${body.supplier ? `, ${body.supplier}` : ''}`;
     case 'POST /api/fines': return `${store.findUser(body.user_id)?.name || ''}: ${r.amount} сом — ${r.reason}`;
@@ -626,7 +639,8 @@ async function handlePublic(req, res, url, user) {
   if (req.method === 'GET' && pathname === '/shop/data') {
     if (!open) return sendJson(res, 404, { error: 'Витрина закрыта' });
     const { css, ...publicSettings } = shop;
-    return sendJson(res, 200, { settings: { ...publicSettings, preview: !shop.enabled }, products: store.shopProducts() });
+    const products = store.shopProducts();
+    return sendJson(res, 200, { settings: { ...publicSettings, preview: !shop.enabled }, products, categories: store.shopCategories(products) });
   }
   const photo = req.method === 'GET' && pathname.match(/^\/shop\/photo\/(\d+)$/);
   if (photo) {

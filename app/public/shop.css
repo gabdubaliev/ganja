@@ -50,6 +50,14 @@ img { max-width: 100%; display: block; }
 .cats { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
 .cats button { flex: none; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--line); background: none; font-weight: 600; font-size: 14px; color: var(--ink-soft); }
 .cats button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+/* Категории с картинками: кружок над названием */
+.cats.with-images { gap: 14px; padding: 4px 2px 8px; }
+.cats.with-images button { display: grid; justify-items: center; gap: 6px; padding: 0; border: 0; border-radius: 0; background: none; width: 84px; white-space: normal; text-align: center; font-size: 13px; line-height: 1.2; }
+.cats.with-images .cat-pic { width: 72px; height: 72px; border-radius: 50%; overflow: hidden; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-size: 26px; font-weight: 800; border: 3px solid transparent; transition: border-color 0.15s, transform 0.15s; }
+.cats.with-images .cat-pic img { width: 100%; height: 100%; object-fit: cover; }
+.cats.with-images button:hover .cat-pic { transform: scale(1.04); }
+.cats.with-images button[aria-pressed="true"] { background: none; color: var(--ink); }
+.cats.with-images button[aria-pressed="true"] .cat-pic { border-color: var(--accent); }
 
 .grid { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 18px; }
 .cat-title { grid-column: 1 / -1; margin: 18px 0 0; font-size: 22px; }

@@ -16,7 +16,7 @@ const FONTS = {
   condensed: '"Roboto Condensed", "Arial Narrow", "Segoe UI", system-ui, sans-serif',
 };
 
-const state = { settings: null, products: [], cat: '', query: '', way: 'pickup', cart: loadCart(), open: null, sel: {}, me: null, orders: [], codeFor: null };
+const state = { settings: null, products: [], categories: [], cat: '', query: '', way: 'pickup', cart: loadCart(), open: null, sel: {}, me: null, orders: [], codeFor: null };
 
 function loadCart() {
   try { return JSON.parse(localStorage.getItem('shop.cart')) || {}; } catch { return {}; }
@@ -92,10 +92,18 @@ function renderFrame() {
 }
 
 /* ---------- Каталог ---------- */
+// Категории с картинками (если их задали в программе) в порядке справочника.
 function renderCats() {
-  const cats = [...new Set(state.products.map((p) => p.category).filter(Boolean))];
+  const used = [...new Set(state.products.filter((p) => !p.parent_id).map((p) => p.category).filter(Boolean))];
+  const meta = new Map(state.categories.map((c) => [c.name, c]));
+  const cats = [...state.categories.map((c) => c.name).filter((n) => used.includes(n)), ...used.filter((n) => !meta.has(n))];
+  const withImages = cats.some((c) => meta.get(c)?.image);
   $('#cats').hidden = cats.length < 2;
-  $('#cats').innerHTML = ['', ...cats].map((c) => `<button type="button" data-cat="${esc(c)}" aria-pressed="${state.cat === c}">${c ? esc(c) : 'Все товары'}</button>`).join('');
+  $('#cats').classList.toggle('with-images', withImages);
+  $('#cats').innerHTML = ['', ...cats].map((c) => {
+    const img = meta.get(c)?.image;
+    return `<button type="button" data-cat="${esc(c)}" aria-pressed="${state.cat === c}">${withImages ? `<span class="cat-pic">${img ? `<img src="${img}" alt="" loading="lazy">` : c ? esc(c.trim()[0].toUpperCase()) : '★'}</span>` : ''}<span>${c ? esc(c) : 'Все товары'}</span></button>`;
+  }).join('');
 }
 
 function priceHtml(p) {
@@ -534,6 +542,7 @@ addEventListener('message', (e) => {
     if (!res.ok) throw new Error(data.error);
     state.settings = data.settings;
     state.products = data.products;
+    state.categories = data.categories || [];
   } catch {
     document.body.innerHTML = '<p class="empty">Магазин сейчас недоступен. Попробуйте обновить страницу.</p>';
     return;

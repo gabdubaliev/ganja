@@ -646,6 +646,22 @@ input[type="range"] { width: 100%; accent-color: var(--series); }
 .compose-kind { grid-template-columns: repeat(4, auto); justify-content: start; }
 .compose-kind button { padding: 6px 12px; font-size: 13px; }
 
+/* Категории */
+.category-filter { width: auto; max-width: 260px; }
+.cat-manager { display: grid; gap: 12px; }
+.cat-add { display: flex; gap: 8px; }
+.cat-list { display: grid; gap: 8px; max-height: 60vh; overflow-y: auto; }
+.cat-row { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.cat-img { width: 48px; height: 48px; border-radius: 50%; overflow: hidden; display: grid; place-items: center; padding: 0; border: 1px dashed var(--axis); background: var(--surface-2); font-size: 20px; }
+.cat-img img { width: 100%; height: 100%; object-fit: cover; }
+.cat-img:hover { border-color: var(--series); }
+.cat-count { white-space: nowrap; }
+.cat-actions { display: flex; gap: 2px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.cat-delete { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px; border-radius: 10px; background: color-mix(in srgb, var(--critical) 6%, transparent); }
+.cat-delete select { width: auto; }
+#categories-dialog { width: min(760px, calc(100vw - 24px)); }
+@media (max-width: 640px) { .cat-row { grid-template-columns: 52px minmax(0, 1fr); } .cat-count, .cat-actions { grid-column: 2; justify-content: flex-start; } }
+
 /* Настройки SMS */
 .sms-help { padding: 10px 14px; border-radius: 10px; background: var(--surface-2); color: var(--ink-2); font-size: 13px; }
 .custom-sms { display: grid; gap: 8px; }

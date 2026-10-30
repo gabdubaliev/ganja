@@ -147,6 +147,16 @@ function open(file) {
     );
   `);
   addColumns('orders', [['sale_id', 'INTEGER']]);
+  // Справочник категорий. Товар хранит название категории, справочник — картинку и порядок на витрине.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS categories (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      image_id INTEGER,
+      sort INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+  `);
   // Дни рождения и скидка в день рождения, оплата за смену.
   addColumns('customers', [['birthday', "TEXT NOT NULL DEFAULT ''"], ['birthday_used', 'INTEGER']]);
   addColumns('sales', [['discount', 'REAL NOT NULL DEFAULT 0'], ['discount_reason', "TEXT NOT NULL DEFAULT ''"], ['shift_id', 'INTEGER']]);
@@ -368,9 +378,17 @@ function monthsBetween(from, to) {
 function createStore(file) {
   const db = open(file);
 
+  // Категория по названию без учёта регистра. Сравниваем здесь, а не в SQLite: его NOCASE не знает кириллицу.
+  const findCategory = (name) => {
+    const key = String(name ?? '').trim().toLowerCase();
+    return key ? db.prepare('SELECT * FROM categories').all().find((c) => c.name.toLowerCase() === key) || null : null;
+  };
+  // «бакалея» в карточке товара становится уже заведённой «Бакалеей».
+  const canonicalCategory = (name) => findCategory(name)?.name ?? name;
+
   const productFields = (input, current = {}) => ({
     name: text(input.name ?? current.name, 'Название', { required: true }),
-    category: text(input.category ?? current.category, 'Категория'),
+    category: canonicalCategory(text(input.category ?? current.category, 'Категория')),
     barcode: text(input.barcode ?? current.barcode, 'Штрихкод', { max: 64 }),
     code: text(input.code ?? current.code, 'Код товара', { max: 64 }),
     description: text(input.description ?? current.description, 'Описание', { max: 2000 }),
@@ -465,6 +483,88 @@ function createStore(file) {
       return getProduct(lastInsertRowid);
     },
 
+    /* ---------- Категории ---------- */
+
+    // Категории из справочника плюс те, что вписаны у товаров, но ещё не заведены (досоздаются).
+    listCategories() {
+      const add = db.prepare('INSERT OR IGNORE INTO categories (name, created_at) VALUES (?, ?)');
+      for (const { category } of db.prepare("SELECT DISTINCT category FROM products WHERE category <> '' AND deleted = 0").all()) add.run(category, Date.now());
+      return db.prepare(`SELECT c.*, (SELECT COUNT(*) FROM products p WHERE p.category = c.name AND p.parent_id IS NULL AND p.deleted = 0) AS count
+        FROM categories c ORDER BY c.sort, c.name COLLATE NOCASE`).all();
+    },
+
+    getCategory(id) {
+      const c = db.prepare('SELECT * FROM categories WHERE id = ?').get(Number(id));
+      if (!c) throw new UserError('Категория не найдена');
+      return c;
+    },
+
+    createCategory(input) {
+      const name = text(input.name, 'Название категории', { required: true, max: 200 });
+      if (findCategory(name)) throw new UserError('Такая категория уже есть');
+      const sort = (db.prepare('SELECT MAX(sort) AS m FROM categories').get().m ?? 0) + 1;
+      const { lastInsertRowid } = db.prepare('INSERT INTO categories (name, sort, created_at) VALUES (?, ?, ?)').run(name, sort, Date.now());
+      return this.getCategory(lastInsertRowid);
+    },
+
+    // Переименование: товары (и модификации) и фильтр категорий витрины переходят на новое название.
+    // Если такая категория уже есть — категории объединяются.
+    renameCategory(id, input) {
+      const cur = this.getCategory(id);
+      const name = text(input.name, 'Название категории', { required: true, max: 200 });
+      if (name === cur.name) return cur;
+      return transaction(db, () => {
+        const found = findCategory(name);
+        const other = found && found.id !== cur.id ? found : null;
+        db.prepare('UPDATE products SET category = ? WHERE category = ?').run(other ? other.name : name, cur.name);
+        if (other) {
+          if (!other.image_id && cur.image_id) db.prepare('UPDATE categories SET image_id = ? WHERE id = ?').run(cur.image_id, other.id);
+          db.prepare('DELETE FROM categories WHERE id = ?').run(cur.id);
+        } else {
+          db.prepare('UPDATE categories SET name = ? WHERE id = ?').run(name, cur.id);
+        }
+        this.renameShopCategory(cur.name, other ? other.name : name);
+        return this.getCategory(other ? other.id : cur.id);
+      });
+    },
+
+    // Удаление: товары переходят в moveTo (другую категорию) или остаются без категории.
+    deleteCategory(id, { moveTo = '' } = {}) {
+      const cur = this.getCategory(id);
+      const target = canonicalCategory(text(moveTo, 'Куда перенести', { max: 200 }));
+      if (target.toLowerCase() === cur.name.toLowerCase()) throw new UserError('Выберите другую категорию');
+      return transaction(db, () => {
+        if (target && !findCategory(target)) db.prepare('INSERT INTO categories (name, created_at) VALUES (?, ?)').run(target, Date.now());
+        const { changes } = db.prepare('UPDATE products SET category = ? WHERE category = ?').run(target, cur.name);
+        db.prepare('DELETE FROM categories WHERE id = ?').run(cur.id);
+        this.renameShopCategory(cur.name, target);
+        return { moved: changes, to: target };
+      });
+    },
+
+    setCategoryImage(id, imageId) {
+      const cur = this.getCategory(id);
+      if (imageId && !this.getImage(imageId)) throw new UserError('Картинка не найдена');
+      db.prepare('UPDATE categories SET image_id = ? WHERE id = ?').run(imageId ? Number(imageId) : null, cur.id);
+      return this.getCategory(cur.id);
+    },
+
+    // Порядок категорий на витрине: ids — в нужном порядке.
+    sortCategories(ids) {
+      if (!Array.isArray(ids)) throw new UserError('Порядок передан неверно');
+      const st = db.prepare('UPDATE categories SET sort = ? WHERE id = ?');
+      transaction(db, () => ids.forEach((id, i) => st.run(i + 1, Number(id))));
+      return this.listCategories();
+    },
+
+    // Витрина показывает выбранные категории по названию — переименование и удаление переносим туда.
+    renameShopCategory(from, to) {
+      const shop = this.shop();
+      if (!shop.categories?.length) return;
+      const next = [...new Set(shop.categories.map((c) => (c === from ? to : c)).filter(Boolean))];
+      this.setSetting('shop', JSON.stringify({ ...shop, categories: next }));
+    },
+
     // Групповые действия с товарами. ids — список товаров, action — что сделать.
     // Удалённый товар пропадает из всех списков, но история продаж и приходов по нему остаётся.
     bulkProducts({ ids, action, value, mode }) {
@@ -507,7 +607,8 @@ function createStore(file) {
           case 'archive': set('UPDATE products SET archived = 1 WHERE id = ?', () => []); break;
           case 'restore': set('UPDATE products SET archived = 0 WHERE id = ?', () => []); break;
           case 'category': {
-            const c = text(value, 'Категория');
+            const c = canonicalCategory(text(value, 'Категория'));
+            if (c && !findCategory(c)) db.prepare('INSERT INTO categories (name, created_at) VALUES (?, ?)').run(c, Date.now());
             set('UPDATE products SET category = ? WHERE id = ?', () => [c]);
             break;
           }
@@ -1321,7 +1422,10 @@ function createStore(file) {
     shopProducts() {
       const s = this.shop();
       const cats = new Set(s.categories);
-      const all = db.prepare('SELECT id, name, category, unit, price, stock, description, photo_at, parent_id, options FROM products WHERE archived = 0 AND deleted = 0 ORDER BY category, name COLLATE NOCASE').all();
+      // Порядок категорий на витрине — как в справочнике.
+      const all = db.prepare(`SELECT p.id, p.name, p.category, p.unit, p.price, p.stock, p.description, p.photo_at, p.parent_id, p.options
+        FROM products p LEFT JOIN categories c ON c.name = p.category
+        WHERE p.archived = 0 AND p.deleted = 0 ORDER BY p.category = '', COALESCE(c.sort, 1e9), p.category, p.name COLLATE NOCASE`).all();
       const kids = new Map();
       for (const p of all) if (p.parent_id) kids.set(p.parent_id, [...(kids.get(p.parent_id) || []), p]);
       const shown = (p) => p.price > 0 && (!s.hideOutOfStock || p.stock > 0);
@@ -1337,6 +1441,12 @@ function createStore(file) {
         ...p, options: p.options ? JSON.parse(p.options) : null, hasVariants: kids.has(p.id),
         stock: s.showStock ? Math.max(0, p.stock) : p.stock > 0 ? 1 : 0, photo: Boolean(p.photo_at),
       }));
+    },
+
+    // Категории витрины с картинками — только те, где есть показанные товары, в порядке справочника.
+    shopCategories(products) {
+      const used = new Set(products.map((p) => p.category).filter(Boolean));
+      return this.listCategories().filter((c) => used.has(c.name)).map((c) => ({ name: c.name, image: c.image_id ? `/img/${c.image_id}` : null }));
     },
 
     shopPhotoAllowed(id) {

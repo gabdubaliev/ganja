@@ -2,7 +2,16 @@
 
 // Товары: справочник, добавление, изменение, инвентаризация.
 
-const productsView = { archived: false, query: '', selected: new Set(), rows: [] };
+const productsView = { archived: false, query: '', category: '', selected: new Set(), rows: [] };
+// Справочник категорий: для фильтра, карточки товара и переноса.
+const categories = {
+  list: [],
+  async load() { this.list = await api('/api/categories'); return this.list; },
+  names() { return this.list.map((c) => c.name); },
+  options(selected = '', empty = 'Без категории') {
+    return `<option value="">${empty}</option>` + this.list.map((c) => `<option ${c.name === selected ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+  },
+};
 
 function markup(p) {
   return p.cost > 0 ? (p.price - p.cost) / p.cost : null;
@@ -11,7 +20,7 @@ function markup(p) {
 async function renderProducts() {
   let list;
   try {
-    list = productsView.archived ? await api('/api/products?archived=1') : await catalog.load();
+    [list] = await Promise.all([productsView.archived ? api('/api/products?archived=1') : catalog.load(), categories.load()]);
   } catch (err) {
     return toast(err.message, 'error');
   }
@@ -21,10 +30,14 @@ async function renderProducts() {
   for (const p of list) if (p.parent_id) kids.set(p.parent_id, [...(kids.get(p.parent_id) || []), p]);
   // Модификации идут сразу под своим товаром.
   const sortKey = (p) => (p.parent_id ? `${byId.get(p.parent_id)?.name ?? ''}\u0001${p.name}` : p.name).toLowerCase();
+  // Фильтр по категории: модификации идут за своим товаром.
+  const catOf = (p) => (p.parent_id ? byId.get(p.parent_id)?.category ?? p.category : p.category);
   const rows = list
+    .filter((p) => !productsView.category || (productsView.category === '—' ? !catOf(p) : catOf(p) === productsView.category))
     .filter((p) => !q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q) || p.barcode.includes(q) || p.code.toLowerCase().includes(q))
     .sort((a, b) => sortKey(a).localeCompare(sortKey(b), 'ru'));
   productsView.rows = rows;
+  renderCategoryFilter();
   // Выбранными остаются только товары, которые есть в этом списке.
   const ids = new Set(list.map((p) => p.id));
   for (const id of productsView.selected) if (!ids.has(id)) productsView.selected.delete(id);
@@ -96,7 +109,7 @@ function openBulk(action) {
   $('#bulk-error').hidden = true;
   $('#bulk-submit').className = 'btn ' + (b.danger ? 'danger' : 'primary');
   $('#bulk-submit').textContent = b.danger ? `Удалить ${n}` : 'Применить';
-  const cats = [...new Set(catalog.list.map((p) => p.category).filter(Boolean))].sort();
+  const cats = categories.names();
   $('#bulk-fields').innerHTML = {
     price: `
       <div class="field wide"><label for="bf-mode">Как изменить</label>
@@ -107,7 +120,8 @@ function openBulk(action) {
           ${action === 'price' ? '<option value="markup">Наценка от себестоимости, %</option>' : ''}
         </select></div>
       <div class="field wide"><label for="bf-value">Значение</label><input id="bf-value" name="value" class="input num" inputmode="decimal" autocomplete="off" placeholder="Например, 10 или -5"></div>`,
-    category: `<div class="field wide"><label for="bf-value">Новая категория (пусто — без категории)</label><input id="bf-value" name="value" class="input" list="bulk-cats" autocomplete="off"><datalist id="bulk-cats">${cats.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>`,
+    category: `<div class="field wide"><label for="bf-value">Перенести в категорию</label><select id="bf-value" name="value" class="input">${categories.options('', 'Без категории')}<option value="__new">+ Новая категория…</option></select></div>
+      <div class="field wide" id="bf-new-field" hidden><label for="bf-new">Название новой категории</label><input id="bf-new" name="newCategory" class="input" autocomplete="off"></div>`,
     unit: `<div class="field wide"><label for="bf-value">Единица</label><select id="bf-value" name="value" class="input"><option>шт</option><option>кг</option><option>л</option><option>м</option><option>уп</option></select></div>`,
   }[b.fields] || '';
   $('#bulk-dialog').showModal();
@@ -135,6 +149,7 @@ $('#bulk-form').addEventListener('submit', async (e) => {
   const f = e.target;
   const body = { ids: [...productsView.selected], action: bulkAction };
   if (f.elements.value) body.value = f.elements.value.value.replace(/[−–—]/g, '-');
+  if (body.value === '__new') body.value = f.elements.newCategory.value.trim();
   if (f.elements.mode) body.mode = f.elements.mode.value;
   try {
     const result = await api('/api/products/bulk', { method: 'POST', body });
@@ -231,7 +246,7 @@ function openProductDialog(product = null, onSaved = null) {
   $('#pf-variants').hidden = variant || !session.can('products');
   renderVariantsList();
   renderGenOptions();
-  $('#categories').innerHTML = [...new Set(catalog.list.map((p) => p.category).filter(Boolean))].sort().map((c) => `<option value="${esc(c)}">`).join('');
+  $('#categories').innerHTML = categories.names().map((c) => `<option value="${esc(c)}">`).join('');
   syncPrices();
   renderBarcodePreview();
   $('#product-dialog').showModal();
@@ -452,6 +467,115 @@ $('#products-body').addEventListener('click', async (e) => {
 });
 $('#product-add').addEventListener('click', () => openProductDialog(null, renderProducts));
 $('#products-search').addEventListener('input', (e) => { productsView.query = e.target.value; renderProducts(); });
+$('#bulk-form').addEventListener('change', (e) => {
+  if (e.target.id === 'bf-value' && $('#bf-new-field')) $('#bf-new-field').hidden = e.target.value !== '__new';
+});
+$('#products-category').addEventListener('change', (e) => { productsView.category = e.target.value; productsView.selected.clear(); renderProducts(); });
+
+/* ---------- Справочник категорий ---------- */
+async function renderCategoryFilter() {
+  const counts = new Map(categories.list.map((c) => [c.name, c.count]));
+  $('#products-category').innerHTML = `<option value="">Все категории</option>` +
+    categories.list.map((c) => `<option value="${esc(c.name)}" ${c.name === productsView.category ? 'selected' : ''}>${esc(c.name)} (${counts.get(c.name) || 0})</option>`).join('') +
+    `<option value="—" ${productsView.category === '—' ? 'selected' : ''}>Без категории</option>`;
+}
+
+async function renderCategoryManager() {
+  try { await categories.load(); } catch (err) { return toast(err.message, 'error'); }
+  const list = categories.list;
+  $('#cat-list').innerHTML = list.length ? list.map((c, i) => `
+    <div class="cat-row" data-cat-id="${c.id}">
+      <button type="button" class="cat-img" data-cat-image="${c.id}" title="${c.image_id ? 'Заменить картинку' : 'Добавить картинку для витрины'}">${c.image_id ? `<img src="/img/${c.image_id}" alt="">` : '<span aria-hidden="true">🖼️</span>'}</button>
+      <input class="input" value="${esc(c.name)}" data-cat-name="${c.id}" aria-label="Название категории">
+      <span class="pcat cat-count">${int(c.count)} ${plural(c.count, ['товар', 'товара', 'товаров'])}</span>
+      <div class="cat-actions">
+        <button type="button" class="icon-btn" data-cat-move="-1" ${i === 0 ? 'disabled' : ''} aria-label="Выше">↑</button>
+        <button type="button" class="icon-btn" data-cat-move="1" ${i === list.length - 1 ? 'disabled' : ''} aria-label="Ниже">↓</button>
+        ${c.image_id ? `<button type="button" class="btn small ghost" data-cat-image-del="${c.id}">Убрать картинку</button>` : ''}
+        <button type="button" class="btn small ghost danger-text" data-cat-delete="${c.id}">Удалить</button>
+      </div>
+      <div class="cat-delete" data-cat-delete-box="${c.id}" hidden>
+        <span>Товары категории перенести в</span>
+        <select class="input"><option value="">Без категории</option>${list.filter((o) => o.id !== c.id).map((o) => `<option>${esc(o.name)}</option>`).join('')}</select>
+        <button type="button" class="btn small danger" data-cat-delete-ok="${c.id}">Удалить категорию</button>
+      </div>
+    </div>`).join('') : '<p class="empty">Категорий пока нет. Добавьте первую выше или впишите категорию в карточке товара.</p>';
+}
+
+$('#categories-open').addEventListener('click', async () => {
+  await renderCategoryManager();
+  $('#categories-dialog').showModal();
+});
+$('#cat-close').addEventListener('click', () => $('#categories-dialog').close());
+// Закрыли окно — обновляем список товаров: категории могли поменяться.
+$('#categories-dialog').addEventListener('close', () => renderProducts());
+$('#cat-add').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('/api/categories', { method: 'POST', body: { name: e.target.elements.name.value } });
+    e.target.reset();
+    renderCategoryManager();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+// Переименование — по выходу из поля или Enter.
+$('#cat-list').addEventListener('change', async (e) => {
+  const input = e.target.closest('[data-cat-name]');
+  if (!input) return;
+  const cat = categories.list.find((c) => c.id === Number(input.dataset.catName));
+  if (!input.value.trim() || input.value.trim() === cat.name) { input.value = cat.name; return; }
+  try {
+    const saved = await api(`/api/categories/${cat.id}`, { method: 'PUT', body: { name: input.value } });
+    toast(saved.id === cat.id ? `Категория переименована: «${saved.name}»` : `Категории объединены в «${saved.name}»`);
+    if (productsView.category === cat.name) productsView.category = saved.name;
+    renderCategoryManager();
+  } catch (err) {
+    toast(err.message, 'error');
+    input.value = cat.name;
+  }
+});
+$('#cat-list').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('[data-cat-name]')) e.target.blur(); });
+$('#cat-list').addEventListener('click', async (e) => {
+  const row = e.target.closest('[data-cat-id]');
+  if (!row) return;
+  const id = Number(row.dataset.catId);
+  const move = e.target.closest('[data-cat-move]');
+  try {
+    if (move) {
+      const ids = categories.list.map((c) => c.id);
+      const i = ids.indexOf(id), j = i + Number(move.dataset.catMove);
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+      await api('/api/categories-order', { method: 'PUT', body: { ids } });
+      return renderCategoryManager();
+    }
+    if (e.target.closest('[data-cat-image]')) {
+      const file = await pickFile();
+      if (!file) return;
+      await api(`/api/categories/${id}/image`, { method: 'PUT', body: { mime: 'image/jpeg', data: await shrinkPhoto(file, 600) } });
+      toast('Картинка категории сохранена');
+      return renderCategoryManager();
+    }
+    if (e.target.closest('[data-cat-image-del]')) {
+      await api(`/api/categories/${id}/image`, { method: 'PUT', body: {} });
+      return renderCategoryManager();
+    }
+    if (e.target.closest('[data-cat-delete]')) {
+      row.querySelector('[data-cat-delete-box]').hidden = false;
+      return;
+    }
+    if (e.target.closest('[data-cat-delete-ok]')) {
+      const moveTo = row.querySelector('[data-cat-delete-box] select').value;
+      const r = await api(`/api/categories/${id}?moveTo=${encodeURIComponent(moveTo)}`, { method: 'DELETE' });
+      toast(`Категория удалена. Товаров ${r.to ? `перенесено в «${r.to}»` : 'без категории'}: ${r.moved}`);
+      productsView.category = '';
+      return renderCategoryManager();
+    }
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+
 $('#products-archived').addEventListener('change', (e) => { productsView.archived = e.target.checked; productsView.selected.clear(); renderProducts(); });
 
 views.products = { show: renderProducts, right: 'products' };
