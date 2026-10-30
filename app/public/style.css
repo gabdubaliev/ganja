@@ -982,3 +982,23 @@ thead .ts-total { background: var(--surface-2); }
 }
 .ts-table tbody .ts-name, .ts-table tfoot .ts-name, .ts-table .ts-name small { text-transform: none; letter-spacing: 0; }
 .ts-table tbody .ts-name span { color: var(--ink); }
+
+/* ---------- Смена кассира ---------- */
+.switch-btn { display: inline-flex; gap: 6px; align-items: center; font-weight: 650; color: var(--series); border-color: color-mix(in srgb, var(--series) 40%, var(--border)); }
+.switch-btn span[aria-hidden] { font-size: 15px; }
+.switch-dialog { width: min(460px, calc(100vw - 24px)); }
+.switch-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.switch-head h2 { margin: 0; }
+.switch-users { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+.switch-user { display: grid; justify-items: center; gap: 4px; padding: 16px 8px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); cursor: pointer; text-align: center; }
+.switch-user:hover:not(:disabled) { border-color: var(--series); box-shadow: var(--shadow-sm); }
+.switch-user.current { opacity: .55; cursor: default; }
+.switch-user .avatar, .switch-who .avatar { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 50%; background: var(--grad); color: #fff; font-size: 22px; font-weight: 750; }
+.switch-form { display: grid; gap: 12px; }
+.switch-form .link { justify-self: start; }
+.switch-who { display: flex; align-items: center; gap: 12px; font-size: 18px; }
+.switch-code { text-align: center; letter-spacing: .4em; font-size: 24px; }
+.pin-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.pin-pad button { height: 58px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-2); font-size: 22px; font-weight: 650; color: var(--ink); cursor: pointer; }
+.pin-pad button:active { background: var(--series-soft); }
+@media (max-width: 640px) { .switch-btn .switch-label { display: none; } }

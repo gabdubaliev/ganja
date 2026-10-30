@@ -28,7 +28,8 @@ function renderPick() {
     const inCart = group
       ? pos.cart.filter((l) => catalog.byId(l.productId)?.parent_id === p.id).reduce((s, l) => s + l.qty, 0)
       : pos.cart.find((l) => l.productId === p.id)?.qty || 0;
-    const left = catalog.stockOf(p) - inCart;
+    const hidden = catalog.stockOf(p) === null;
+    const left = hidden ? Infinity : catalog.stockOf(p) - inCart;
     // У модификации без своего фото показываем фото товара.
     const photo = photoUrl(p) || (p.parent_id ? photoUrl(catalog.byId(p.parent_id) || {}) : '');
     const prices = group ? catalog.children(p.id).map((k) => k.price) : [p.price];
@@ -38,7 +39,7 @@ function renderPick() {
       <span class="pick-name">${esc(p.name)}${group ? `<span class="pick-meta"> · ${catalog.children(p.id).length} вар.</span>` : ''}</span>
       <span class="pick-price num">${group && Math.max(...prices) !== lo ? 'от ' : ''}${money2(lo)}</span>
       <span class="pick-meta">${esc([p.code, p.category].filter(Boolean).join(' · ') || 'Без категории')}</span>
-      <span class="pick-stock num ${left <= 0 ? 'neg' : ''}">${left <= 0 ? 'нет на складе' : 'осталось ' + qty(left, p.unit)}</span>
+      ${hidden ? '' : `<span class="pick-stock num ${left <= 0 ? 'neg' : ''}">${left <= 0 ? 'нет на складе' : 'осталось ' + qty(left, p.unit)}</span>`}
     </button>`;
   }).join('') : `<p class="empty">${catalog.list.length ? 'Ничего не нашлось' : 'Товаров пока нет. Их добавляет администратор или кладовщик.'}</p>`;
 }
@@ -79,7 +80,7 @@ function renderCart() {
   const canDiscount = session.can('discount');
   $('#cart').innerHTML = pos.cart.length ? pos.cart.map((l, i) => {
     const p = catalog.byId(l.productId);
-    const over = l.qty > p.stock;
+    const over = p.stock !== null && l.qty > p.stock;
     const c = calc.lines[i];
     const changed = Math.abs(c.final - l.price) > 0.00001;
     return `<div class="cart-line ${canDiscount ? 'with-sel' : ''} ${l.sel ? 'selected' : ''}" data-i="${i}">
@@ -417,7 +418,7 @@ function groupVariants(found, q) {
 
 /* ---------- Выбор модификации: сначала цвет, потом размер ---------- */
 const picker = { base: null, sel: {}, qty: 1 };
-const leftOf = (k) => k.stock - (pos.cart.find((l) => l.productId === k.id)?.qty || 0);
+const leftOf = (k) => (k.stock === null ? Infinity : k.stock) - (pos.cart.find((l) => l.productId === k.id)?.qty || 0);
 const optsOf = (k) => (k.options ? JSON.parse(k.options) : {});
 
 // Свойства товара в порядке модификаций: «Цвет», «Размер».
@@ -460,7 +461,8 @@ function renderVariantPicker() {
         // Значение «нет», если с остальными выбранными свойствами такой модификации нет на складе.
         const alt = matchVariant(base, { ...picker.sel, [name]: v });
         const stock = alt ? leftOf(alt) : 0;
-        return `<button type="button" data-opt="${esc(name)}" data-val="${esc(v)}" aria-pressed="${picker.sel[name] === v}" class="${!alt ? 'none' : stock <= 0 ? 'out' : ''}" title="${!alt ? 'Такого сочетания нет' : stock <= 0 ? 'Нет на складе' : `Осталось ${qtyFmt.format(stock)}`}">${esc(v)}</button>`;
+        const title = !alt ? 'Такого сочетания нет' : stock <= 0 ? 'Нет на складе' : stock === Infinity ? '' : `Осталось ${qtyFmt.format(stock)}`;
+        return `<button type="button" data-opt="${esc(name)}" data-val="${esc(v)}" aria-pressed="${picker.sel[name] === v}" class="${!alt ? 'none' : stock <= 0 ? 'out' : ''}" title="${title}">${esc(v)}</button>`;
       }).join('')}</div>
     </div>`;
   }).join('');
@@ -469,7 +471,7 @@ function renderVariantPicker() {
   $('#variant-result').innerHTML = k ? `
     <div><b>${esc(optionsText(k))}</b><div class="pick-meta">${esc(k.barcode || k.code || '')}</div></div>
     <div class="variant-price num">${money2(k.price)}</div>
-    <div class="pick-stock num ${left <= 0 ? 'neg' : ''}">${left <= 0 ? 'нет на складе — продажа уйдёт в минус' : 'осталось ' + qty(left, k.unit)}</div>`
+    ${left === Infinity ? '' : `<div class="pick-stock num ${left <= 0 ? 'neg' : ''}">${left <= 0 ? 'нет на складе — продажа уйдёт в минус' : 'осталось ' + qty(left, k.unit)}</div>`}`
     : '<p class="pick-meta">Такого сочетания нет — выберите другое</p>';
   $('#variant-qty input').value = qtyFmt.format(picker.qty);
   $('#variant-add').disabled = !k;
@@ -661,9 +663,89 @@ $('#pos-cats').addEventListener('click', (e) => {
   renderPick();
 });
 
+/* ---------- Смена кассира ---------- */
+// Два кассира на одной кассе: выбрать себя и ввести PIN (или пароль, если PIN не задан).
+// Чек, который собирали, не теряется — он переходит к новому кассиру.
+const CART_KEY = 'kassa.cart';
+const sw = { users: [], user: null };
+
+async function openSwitch() {
+  try { sw.users = await api('/api/kassa/users'); } catch (err) { return toast(err.message, 'error'); }
+  sw.user = null;
+  renderSwitchUsers();
+  $('#switch-dialog').showModal();
+}
+
+function renderSwitchUsers() {
+  $('#switch-form').hidden = true;
+  $('#switch-users').hidden = false;
+  $('#switch-users').innerHTML = sw.users.map((u) => `
+    <button type="button" class="switch-user ${u.id === session.user?.id ? 'current' : ''}" data-user="${u.id}" ${u.id === session.user?.id ? 'disabled' : ''}>
+      <span class="avatar" aria-hidden="true">${esc((u.name || '?').trim()[0].toUpperCase())}</span>
+      <b>${esc(u.name)}</b><span class="pick-meta">${u.id === session.user?.id ? 'сейчас на кассе' : esc(session.roleName(u.role))}</span>
+    </button>`).join('') || '<p class="empty">Других кассиров нет</p>';
+}
+
+function pickSwitchUser(id) {
+  sw.user = sw.users.find((u) => u.id === id);
+  $('#switch-users').hidden = true;
+  $('#switch-form').hidden = false;
+  $('#switch-who').innerHTML = `<span class="avatar" aria-hidden="true">${esc(sw.user.name.trim()[0].toUpperCase())}</span><b>${esc(sw.user.name)}</b>`;
+  const code = $('#switch-code');
+  code.value = '';
+  // С PIN — цифровая клавиатура; без PIN — обычный пароль.
+  code.inputMode = sw.user.hasPin ? 'numeric' : 'text';
+  code.placeholder = sw.user.hasPin ? 'PIN-код' : 'Пароль';
+  $('#pin-pad').hidden = !sw.user.hasPin;
+  $('#switch-hint').textContent = sw.user.hasPin ? '' : 'PIN-код не задан — введите пароль. Задать PIN: нажмите на своё имя вверху → «PIN-код».';
+  $('#switch-error').hidden = true;
+  code.focus();
+}
+
+$('#switch-user').addEventListener('click', openSwitch);
+$('#switch-close').addEventListener('click', () => $('#switch-dialog').close());
+$('#switch-back').addEventListener('click', renderSwitchUsers);
+$('#switch-users').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-user]');
+  if (b && !b.disabled) pickSwitchUser(Number(b.dataset.user));
+});
+$('#pin-pad').addEventListener('click', (e) => {
+  const k = e.target.closest('[data-key]')?.dataset.key;
+  if (!k) return;
+  const code = $('#switch-code');
+  code.value = k === 'clear' ? '' : k === 'back' ? code.value.slice(0, -1) : (code.value + k).slice(0, 6);
+  // Шесть цифр — входим сразу, без кнопки.
+  if (code.value.length === 6) $('#switch-form').requestSubmit();
+});
+$('#switch-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const code = $('#switch-code').value;
+  if (!code) return;
+  try {
+    const res = await fetch('/api/switch-user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: sw.user.id, code }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Не получилось сменить кассира');
+    try { sessionStorage.setItem(CART_KEY, JSON.stringify({ cart: pos.cart })); } catch {}
+    location.reload();
+  } catch (err) {
+    $('#switch-code').value = '';
+    showFormError('#switch-error', err);
+  }
+});
+
+// Чек, оставшийся от предыдущего кассира.
+function restoreCart() {
+  let saved = null;
+  try { saved = JSON.parse(sessionStorage.getItem(CART_KEY) || 'null'); sessionStorage.removeItem(CART_KEY); } catch {}
+  if (!saved?.cart?.length) return;
+  pos.cart = saved.cart.filter((l) => catalog.byId(l.productId));
+  if (pos.cart.length) toast(`Чек предыдущего кассира перенесён: ${pos.cart.length} ${plural(pos.cart.length, ['позиция', 'позиции', 'позиций'])}`);
+}
+
 views.pos = {
   async show() {
     try { await Promise.all([catalog.load(), loadPosCats(), loadPayMethods()]); } catch (err) { toast(err.message, 'error'); }
+    if (!pos.restored) { pos.restored = true; restoreCart(); }
     renderPick();
     renderCart();
     loadShift();

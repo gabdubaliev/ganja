@@ -32,6 +32,8 @@ function openUserDialog(user = null) {
   $('#user-dialog-title').textContent = user ? 'Изменить сотрудника' : 'Новый сотрудник';
   $('#uf-password-label').textContent = user ? 'Новый пароль (пусто — не менять)' : 'Пароль, не короче 8 символов';
   f.elements.password.required = !user;
+  $('#uf-pin-label').textContent = user?.hasPin ? 'PIN задан. Новый PIN (пусто — не менять)' : 'PIN для смены кассира, 4–6 цифр';
+  $('#uf-pin-clear-row').hidden = !user?.hasPin;
   $('#user-disabled-field').hidden = !user;
   $('#user-delete').hidden = !user || session.user?.id === user.id;
   $('#user-delete').className = 'btn ghost';
@@ -144,6 +146,8 @@ $('#user-form').addEventListener('submit', async (e) => {
     payment_methods: methodsForSave(),
   };
   if (f.elements.password.value) body.password = f.elements.password.value;
+  if (f.elements.pin.value) body.pin = f.elements.pin.value;
+  else if (f.elements.clearPin.checked) body.clearPin = true;
   if (editingUser) body.disabled = f.elements.disabled.checked;
   try {
     const saved = await api(editingUser ? `/api/users/${editingUser.id}` : '/api/users', { method: editingUser ? 'PUT' : 'POST', body });

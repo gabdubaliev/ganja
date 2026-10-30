@@ -173,6 +173,8 @@ function open(file) {
   addColumns('users', [['payment_methods', 'TEXT'], ['max_discount', 'REAL']]);
   // plan_bonus — премия в сомах за выполнение месячного плана продаж.
   addColumns('users', [['plan_bonus', 'REAL NOT NULL DEFAULT 0']]);
+  // PIN-код для быстрой смены кассира на кассе (scrypt-хеш, как пароль).
+  addColumns('users', [['pin_hash', 'TEXT']]);
   // Штрафы и бонусы сотрудникам — одна таблица: kind 'fine' уменьшает зарплату, 'bonus' увеличивает.
   addColumns('fines', [['kind', "TEXT NOT NULL DEFAULT 'fine'"]]);
   // Ручные исправления ведомости за конкретный период: field — 'salary' (за смены и оклад),
@@ -343,7 +345,8 @@ function role(value) {
 const SALE_FEE = '(SELECT COALESCE(SUM(sp.commission), 0) FROM sale_payments sp WHERE sp.sale_id = s.id)';
 const LINE_FEE = `(CASE WHEN s.total > 0 THEN si.qty * si.price * ${SALE_FEE} / s.total ELSE 0 END)`;
 
-const publicUser = ({ password_hash, ...u }) => ({ ...u, disabled: Boolean(u.disabled), rights: u.rights ? JSON.parse(u.rights) : null,
+// Хеши пароля и PIN-кода в браузер не уходят; вместо PIN — признак hasPin.
+const publicUser = ({ password_hash, pin_hash, ...u }) => ({ ...u, hasPin: Boolean(pin_hash), disabled: Boolean(u.disabled), rights: u.rights ? JSON.parse(u.rights) : null,
   payment_methods: u.payment_methods ? JSON.parse(u.payment_methods) : null });
 
 function rightsList(value) {
@@ -1734,6 +1737,21 @@ function createStore(file) {
       db.prepare('UPDATE users SET shift_rate = ?, salary = ?, percent = ?, plan = ?, plan_bonus = ? WHERE id = ?')
         .run(pay.shift_rate, pay.salary, pay.percent, pay.plan, pay.plan_bonus, current.id);
       return publicUser(this.findUser(current.id));
+    },
+
+    // pinHash готовит сервер (scrypt), null — убрать PIN.
+    setUserPin(id, pinHash) {
+      const u = this.findUser(id);
+      if (!u) throw new UserError('Сотрудник не найден');
+      db.prepare('UPDATE users SET pin_hash = ? WHERE id = ?').run(pinHash, u.id);
+      return publicUser(this.findUser(u.id));
+    },
+
+    // Кто может работать на кассе — для кнопки «Сменить кассира».
+    kassaUsers() {
+      return db.prepare('SELECT * FROM users WHERE disabled = 0 ORDER BY name, email').all()
+        .filter((u) => can(u, 'pos'))
+        .map((u) => ({ id: u.id, name: u.name || u.email, role: u.role, hasPin: Boolean(u.pin_hash) }));
     },
 
     deleteUser(id) {

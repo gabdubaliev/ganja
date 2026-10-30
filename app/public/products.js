@@ -46,7 +46,7 @@ async function renderProducts() {
   const goods = list.filter((p) => !p.parent_id).length;
   $('#products-summary').textContent = productsView.archived
     ? `Скрыто товаров: ${list.length}`
-    : `${goods} ${plural(goods, ['товар', 'товара', 'товаров'])}${list.length > goods ? `, ${list.length - goods} ${plural(list.length - goods, ['модификация', 'модификации', 'модификаций'])}` : ''} · товара на складе по себестоимости на ${money(stockValue)}`;
+    : `${goods} ${plural(goods, ['товар', 'товара', 'товаров'])}${list.length > goods ? `, ${list.length - goods} ${plural(list.length - goods, ['модификация', 'модификации', 'модификаций'])}` : ''}${session.can('stock.view') ? ` · товара на складе по себестоимости на ${money(stockValue)}` : ''}`;
   $('#products-body').innerHTML = rows.length ? rows.map((p) => {
     const m = markup(p);
     const children = kids.get(p.id) || [];
@@ -65,7 +65,7 @@ async function renderProducts() {
       <td>${lo === hi ? money2(lo) : `${money2(lo)} – ${money2(hi)}`}</td>
       <td>${p.cost ? money2(p.cost) : '—'}</td>
       <td>${group || m === null ? '—' : pct(m)}</td>
-      <td class="${stock <= 0 ? 'neg' : ''}">${qty(stock, p.unit)}</td>
+      <td class="${stock !== null && stock <= 0 ? 'neg' : ''}">${p.stock === null ? '—' : qty(stock, p.unit)}</td>
       <td><div class="actions">
         ${canEdit ? `<button type="button" class="btn small ghost" data-edit="${p.id}">Изменить</button>` : ''}
         ${productsView.archived || group || !session.can('stock') ? '' : `<button type="button" class="btn small ghost" data-stock="${p.id}">Пересчитать</button>`}
@@ -223,7 +223,7 @@ function openProductDialog(product = null, onSaved = null) {
     $('#pf-variant-options').innerHTML = Object.entries(opts).map(([k, v]) => `
       <div class="field"><label>${esc(k)}</label><input class="input" data-opt="${esc(k)}" value="${esc(v)}" autocomplete="off"></div>`).join('');
   }
-  $('#product-stock-field').hidden = Boolean(product);
+  $('#product-stock-field').hidden = Boolean(product) || !session.can('stock.view');
   // Основной товар с модификациями не продают: штрихкод и код — у модификаций, его цена — по умолчанию для новых.
   $('#pf-code').closest('.field').hidden = group;
   $('#pf-barcode').closest('.field').hidden = group;
@@ -262,7 +262,7 @@ function renderVariantsList() {
         <td>${esc(optionsText(k))}</td>
         <td class="num">${esc(k.barcode) || '—'}</td>
         <td>${money2(k.price)}</td>
-        <td class="${k.stock <= 0 ? 'neg' : ''}">${qty(k.stock, k.unit)}</td>
+        <td class="${k.stock !== null && k.stock <= 0 ? 'neg' : ''}">${k.stock === null ? '—' : qty(k.stock, k.unit)}</td>
         <td><button type="button" class="btn small ghost" data-variant-edit="${k.id}">Изменить</button></td>
       </tr>`).join('')}</tbody>
     </table>` : '';

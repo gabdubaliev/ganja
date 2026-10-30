@@ -926,6 +926,8 @@
         <select id="uf-role" name="role" class="input"></select>
       </div>
       <div class="field"><label for="uf-password" id="uf-password-label">Пароль</label><input id="uf-password" name="password" type="password" class="input" autocomplete="new-password" minlength="8"></div>
+      <div class="field"><label for="uf-pin" id="uf-pin-label">PIN для смены кассира, 4–6 цифр</label><input id="uf-pin" name="pin" type="password" class="input num" inputmode="numeric" autocomplete="off" maxlength="6" pattern="\d*">
+        <label class="check" id="uf-pin-clear-row" hidden><input type="checkbox" name="clearPin"> убрать PIN</label></div>
       <p class="sub wide" id="uf-role-about"></p>
       <div class="field"><label for="uf-rate">Оплата за выход на смену, сом</label><input id="uf-rate" name="shift_rate" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
       <div class="field"><label for="uf-salary">Оклад в месяц, сом (если есть)</label><input id="uf-salary" name="salary" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
@@ -954,10 +956,11 @@
 
 <dialog id="password-dialog" aria-labelledby="password-dialog-title">
   <form id="password-form" novalidate>
-    <h2 id="password-dialog-title">Сменить пароль</h2>
+    <h2 id="password-dialog-title">Пароль и PIN-код</h2>
     <div class="form-grid">
       <div class="field wide"><label for="pw-current">Текущий пароль</label><input id="pw-current" name="current" type="password" class="input" autocomplete="current-password" required></div>
-      <div class="field wide"><label for="pw-new">Новый пароль, не короче 8 символов</label><input id="pw-new" name="password" type="password" class="input" autocomplete="new-password" required minlength="8"></div>
+      <div class="field wide"><label for="pw-new">Новый пароль, не короче 8 символов (пусто — не менять)</label><input id="pw-new" name="password" type="password" class="input" autocomplete="new-password" minlength="8"></div>
+      <div class="field wide"><label for="pw-pin">PIN для быстрой смены кассира, 4–6 цифр (пусто — не менять)</label><input id="pw-pin" name="pin" type="password" class="input num" inputmode="numeric" autocomplete="off" maxlength="6"></div>
     </div>
     <p class="form-error" id="password-error" role="alert" hidden></p>
     <div class="form-actions">

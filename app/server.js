@@ -119,10 +119,21 @@ function setSms(input) {
 const whatsappPublic = (s) => ({ enabled: s.enabled, verifyToken: s.verifyToken, phoneNumberId: s.phoneNumberId, hasSecret: Boolean(s.appSecret), hasToken: Boolean(s.accessToken),
   otpEnabled: Boolean(s.otpEnabled), otpTemplate: s.otpTemplate || '', otpLang: s.otpLang || 'ru', webhookPath: '/webhooks/whatsapp' });
 
+const hideStock = (user, list) => (can(user, 'stock.view') ? list : list.map((p) => ({ ...p, stock: null })));
+
 function guardAdmin(user, target, body) {
   if (!user || user.role === 'admin') return;
   if (target?.role === 'admin' || body.role === 'admin') throw new UserError('Администраторов назначает и меняет только администратор');
   if (target && target.id === user.id && body.rights !== undefined) throw new UserError('Свои права может поменять только администратор');
+}
+
+// PIN для смены кассира: 4–6 цифр; пустой — убрать PIN.
+function pinHash(value) {
+  const s = String(value ?? '').trim();
+  if (!s) return null;
+  if (!/^\d{4,6}$/.test(s)) throw new UserError('PIN-код — от 4 до 6 цифр');
+  if (/^(\d)\1+$/.test(s) || '0123456789'.includes(s) || '9876543210'.includes(s)) throw new UserError('Слишком простой PIN-код, придумайте другой');
+  return hashPassword(s);
 }
 
 function password(value) {
@@ -172,6 +183,13 @@ const routes = [
     shop: { enabled: store.shop().enabled },
     newOrders: can(user, 'orders') ? store.countNewOrders() : 0,
   }), 'any'],
+  ['GET', '/api/kassa/users', () => store.kassaUsers(), 'pos'],
+  ['PUT', '/api/me/pin', (p, url, body, user) => {
+    if (!user) throw new UserError('Сначала заведите сотрудников');
+    if (!checkPassword(body.current, store.findUser(user.id).password_hash)) throw new UserError('Текущий пароль указан неверно');
+    store.setUserPin(user.id, pinHash(body.pin));
+    return { ok: true };
+  }, 'any'],
   ['PUT', '/api/me/password', (p, url, body, user) => {
     if (!user) throw new UserError('Сначала заведите сотрудников');
     if (!checkPassword(body.current, store.findUser(user.id).password_hash)) throw new UserError('Текущий пароль указан неверно');
@@ -179,7 +197,8 @@ const routes = [
     return { ok: true };
   }, 'any'],
 
-  ['GET', '/api/products', (p, url) => store.listProducts({ archived: url.searchParams.get('archived') === '1' }), 'any'],
+  // Без права «Видеть остатки» остаток не уходит в браузер вовсе.
+  ['GET', '/api/products', (p, url, body, user) => hideStock(user, store.listProducts({ archived: url.searchParams.get('archived') === '1' })), 'any'],
   ['POST', '/api/products', (p, url, body) => store.createProduct(body), 'products'],
   ['PUT', '/api/products/:id', (p, url, body) => store.updateProduct(p.id, body), 'products'],
   ['POST', '/api/products/import', (p, url, body) => store.importProducts(body.rows, { update: Boolean(body.update) }), 'import'],
@@ -221,7 +240,10 @@ const routes = [
   ['POST', '/api/sales/delete', (p, url, body, user) => store.deleteSales(body, user), 'sales.delete'],
   ['GET', '/api/arrivals', () => store.listArrivals(), 'arrivals'],
   ['POST', '/api/arrivals', (p, url, body) => store.createArrival(body), 'arrivals'],
-  ['GET', '/api/analytics', (p, url) => store.analytics(range(url)), 'dashboard'],
+  ['GET', '/api/analytics', (p, url, body, user) => {
+    const a = store.analytics(range(url));
+    return { ...a, products: hideStock(user, a.products) };
+  }, 'dashboard'],
   ['GET', '/api/kpi', (p, url) => store.kpi(range(url)), ['kpi', 'salary']],
   ['GET', '/api/reports/products', (p, url) => store.reportProducts(range(url)), 'kpi'],
 
@@ -324,11 +346,15 @@ const routes = [
   ['GET', '/api/users', () => store.listUsers(), 'staff'],
   ['POST', '/api/users', (p, url, body, user) => {
     guardAdmin(user, null, body);
-    return store.createUser(body, password(body.password));
+    const pin = body.pin ? pinHash(body.pin) : null;
+    const made = store.createUser(body, password(body.password));
+    return pin ? store.setUserPin(made.id, pin) : made;
   }, 'staff'],
   ['PUT', '/api/users/:id', (p, url, body, user) => {
     guardAdmin(user, store.findUser(p.id), body);
-    return store.updateUser(p.id, body, body.password ? password(body.password) : null);
+    const pin = body.clearPin ? null : body.pin ? pinHash(body.pin) : undefined;
+    const saved = store.updateUser(p.id, body, body.password ? password(body.password) : null);
+    return pin === undefined ? saved : store.setUserPin(p.id, pin);
   }, 'staff'],
   ['DELETE', '/api/users/:id', (p, url, body, user) => {
     if (user && Number(p.id) === user.id) throw new UserError('Нельзя удалить самого себя');
@@ -408,6 +434,7 @@ function device(req) {
 // Что записать в журнал о каждом изменении. Ключ — «метод путь» маршрута.
 const AUDIT_LABELS = {
   'PUT /api/me/password': 'Сменил свой пароль',
+  'PUT /api/me/pin': 'Сменил свой PIN-код для кассы',
   'POST /api/products': 'Добавил товар',
   'PUT /api/products/:id': 'Изменил товар',
   'DELETE /api/products/:id': 'Удалил товар',
@@ -508,7 +535,7 @@ function auditDetails(key, params, body, result) {
     case 'PUT /api/users/:id/pay': return `${r.name || r.email}: за смену ${r.shift_rate}, оклад ${r.salary}, ${r.percent}%, план ${r.plan}, бонус за план ${r.plan_bonus}`;
     case 'POST /api/customers/:id/bonus': return `${r.name || '+' + r.phone}: ${body.delta > 0 ? '+' : ''}${body.delta}${body.reason ? ` (${body.reason})` : ''}`;
     case 'PUT /api/orders/:id': return `Заказ №${params.id} ${ORDER_NAMES[body.status] || body.status}`;
-    case 'PUT /api/users/:id': return `${r.name || r.email}${body.password ? ', новый пароль' : ''}${body.rights !== undefined ? ', права' : ''}`;
+    case 'PUT /api/users/:id': return `${r.name || r.email}${body.password ? ', новый пароль' : ''}${body.pin ? ', новый PIN' : body.clearPin ? ', PIN убран' : ''}${body.rights !== undefined ? ', права' : ''}`;
     case 'POST /api/shift/close': return `чеков ${r.receipts} на ${r.revenue} сом`;
     case 'PUT /api/shifts/:id':
     case 'POST /api/shifts': return `${r.user_name}: ${new Date(r.opened_at).toLocaleString('ru-RU')}${r.closed_at ? ' — ' + new Date(r.closed_at).toLocaleString('ru-RU') : ''}`;
@@ -526,6 +553,23 @@ async function handleAuth(req, res, url) {
       return sendJson(res, result.status, { error: result.error });
     }
     store.audit({ ...who, kind: 'login', user: result.user, action: 'Вход в программу' });
+    res.setHeader('Set-Cookie', result.cookie);
+    return sendJson(res, 200, { ok: true, user: store.publicUser(result.user) });
+  }
+  // Смена кассира: только с кассы, где уже работает сотрудник с правом «Касса».
+  if (url.pathname === '/api/switch-user' && req.method === 'POST') {
+    const current = auth.currentUser(req);
+    if (!current || !can(current, 'pos')) return sendJson(res, 403, { error: 'Смена кассира доступна только на открытой кассе' });
+    const body = await readBody(req);
+    const target = store.findUser(body.userId);
+    if (!target || !can(target, 'pos')) return sendJson(res, 400, { error: 'Этот сотрудник не работает на кассе' });
+    const result = auth.switchUser(req, target.id, String(body.code || ''));
+    const who = { ip: clientIp(req), device: device(req) };
+    if (!result.ok) {
+      store.audit({ ...who, kind: 'login_failed', userName: target.name || target.email, action: 'Неудачная смена кассира', details: `${result.error} (на кассе был ${current.name || current.email})` });
+      return sendJson(res, result.status, { error: result.error });
+    }
+    store.audit({ ...who, kind: 'login', user: result.user, action: 'Смена кассира', details: `после ${current.name || current.email}` });
     res.setHeader('Set-Cookie', result.cookie);
     return sendJson(res, 200, { ok: true, user: store.publicUser(result.user) });
   }

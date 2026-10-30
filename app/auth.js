@@ -94,6 +94,32 @@ function createAuth(users, secret) {
       return { ok: true, cookie, user };
     },
 
+    // Быстрая смена кассира на кассе: сотрудник выбран из списка, проверяется его PIN
+    // (или пароль, если PIN не задан). Неверные попытки считаются вместе со входом.
+    switchUser(req, userId, code) {
+      const ip = clientIp(req);
+      const now = Date.now();
+      const f = failures.get(ip);
+      if (f && now - f.since > FAILURE_WINDOW_MS) failures.delete(ip);
+      if ((failures.get(ip)?.count || 0) >= MAX_FAILURES) {
+        return { ok: false, status: 429, error: 'Слишком много неверных попыток. Подождите 15 минут.' };
+      }
+      const user = users.findUser(userId);
+      const stored = user?.pin_hash || user?.password_hash || dummyHash;
+      const valid = checkPassword(code, stored) && user && !user.disabled;
+      if (!valid) {
+        const entry = failures.get(ip) || { count: 0, since: now };
+        entry.count++;
+        failures.set(ip, entry);
+        return { ok: false, status: 401, error: user?.pin_hash ? 'Неверный PIN-код' : 'Неверный пароль' };
+      }
+      failures.delete(ip);
+      const expires = String(now + SESSION_DAYS * 864e5);
+      const value = `${user.id}.${expires}`;
+      const cookie = `${COOKIE}=${value}.${sign(`${value}.${user.password_hash}`)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${isSecure(req) ? '; Secure' : ''}`;
+      return { ok: true, cookie, user };
+    },
+
     logoutCookie(req) {
       return `${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${isSecure(req) ? '; Secure' : ''}`;
     },

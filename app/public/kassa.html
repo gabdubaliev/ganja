@@ -24,6 +24,7 @@
       <a href="#photos" data-can="photos" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><span>Фото</span></a>
     </div>
     <span class="nav-user" id="nav-user" hidden>
+      <button type="button" class="btn small switch-btn" id="switch-user" title="Сменить кассира"><span aria-hidden="true">⇄</span><span class="switch-label">Сменить кассира</span></button>
       <button type="button" class="btn small ghost" id="me-password" title="Сменить пароль"></button>
       <button type="button" class="btn small ghost" id="logout">Выйти</button>
     </span>
@@ -201,12 +202,35 @@
   </form>
 </dialog>
 
+<dialog id="switch-dialog" class="switch-dialog" aria-labelledby="switch-title">
+  <div class="switch-head">
+    <h2 id="switch-title">Сменить кассира</h2>
+    <button type="button" class="icon-btn" id="switch-close" aria-label="Закрыть">×</button>
+  </div>
+  <div id="switch-users" class="switch-users"></div>
+  <form id="switch-form" class="switch-form" novalidate hidden>
+    <button type="button" class="link" id="switch-back">← другой сотрудник</button>
+    <div class="switch-who" id="switch-who"></div>
+    <input id="switch-code" class="input big num switch-code" type="password" autocomplete="off" aria-label="PIN-код или пароль">
+    <div class="pin-pad" id="pin-pad">
+      <button type="button" data-key="1">1</button><button type="button" data-key="2">2</button><button type="button" data-key="3">3</button>
+      <button type="button" data-key="4">4</button><button type="button" data-key="5">5</button><button type="button" data-key="6">6</button>
+      <button type="button" data-key="7">7</button><button type="button" data-key="8">8</button><button type="button" data-key="9">9</button>
+      <button type="button" data-key="clear" aria-label="Стереть всё">C</button><button type="button" data-key="0">0</button><button type="button" data-key="back" aria-label="Стереть цифру">⌫</button>
+    </div>
+    <p class="form-error" id="switch-error" role="alert" hidden></p>
+    <button type="submit" class="btn primary big">Войти</button>
+    <p class="pick-meta" id="switch-hint"></p>
+  </form>
+</dialog>
+
 <dialog id="password-dialog" aria-labelledby="password-dialog-title">
   <form id="password-form" novalidate>
-    <h2 id="password-dialog-title">Сменить пароль</h2>
+    <h2 id="password-dialog-title">Пароль и PIN-код</h2>
     <div class="form-grid">
       <div class="field wide"><label for="pw-current">Текущий пароль</label><input id="pw-current" name="current" type="password" class="input" autocomplete="current-password" required></div>
-      <div class="field wide"><label for="pw-new">Новый пароль, не короче 8 символов</label><input id="pw-new" name="password" type="password" class="input" autocomplete="new-password" required minlength="8"></div>
+      <div class="field wide"><label for="pw-new">Новый пароль, не короче 8 символов (пусто — не менять)</label><input id="pw-new" name="password" type="password" class="input" autocomplete="new-password" minlength="8"></div>
+      <div class="field wide"><label for="pw-pin">PIN для быстрой смены кассира, 4–6 цифр (пусто — не менять)</label><input id="pw-pin" name="pin" type="password" class="input num" inputmode="numeric" autocomplete="off" maxlength="6"></div>
     </div>
     <p class="form-error" id="password-error" role="alert" hidden></p>
     <div class="form-actions">

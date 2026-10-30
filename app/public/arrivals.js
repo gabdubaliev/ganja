@@ -10,7 +10,7 @@ function renderArrivalPick() {
   $('#arrival-results').hidden = !q.trim();
   $('#arrival-results').innerHTML = list.map((p) => `
     <button type="button" class="suggest" data-id="${p.id}">
-      <span>${esc(p.name)}</span><span class="pick-meta num">на складе ${qty(p.stock, p.unit)}</span>
+      <span>${esc(p.name)}</span>${p.stock === null ? '' : `<span class="pick-meta num">на складе ${qty(p.stock, p.unit)}</span>`}
     </button>`).join('') + `<button type="button" class="suggest new" data-new>+ Новый товар «${esc(q.trim())}»</button>`;
 }
 
@@ -19,7 +19,7 @@ function renderArrival() {
   $('#arrival-lines').innerHTML = arrival.lines.length ? arrival.lines.map((l, i) => {
     const p = catalog.byId(l.productId);
     return `<tr data-i="${i}">
-      <td><div class="pname">${esc(p.name)}</div><div class="pcat">сейчас на складе ${qty(p.stock, p.unit)}</div></td>
+      <td><div class="pname">${esc(p.name)}</div>${p.stock === null ? '' : `<div class="pcat">сейчас на складе ${qty(p.stock, p.unit)}</div>`}</td>
       <td><input class="input num" data-field="qty" inputmode="decimal" value="${l.qty ? String(l.qty).replace('.', ',') : ''}" placeholder="0" aria-label="Количество"></td>
       <td><input class="input num" data-field="cost" inputmode="decimal" value="${l.cost ? String(l.cost).replace('.', ',') : ''}" placeholder="0" aria-label="Закупочная цена"></td>
       <td class="num">${money2(l.qty * l.cost)}</td>

@@ -154,7 +154,8 @@ const catalog = {
   children(id) { return this.kids.get(Number(id)) || []; },
   isGroup(p) { return this.kids.has(p.id); },
   // Остаток основного товара — сумма остатков модификаций.
-  stockOf(p) { return this.isGroup(p) ? this.children(p.id).reduce((s, k) => s + k.stock, 0) : p.stock; },
+  // null — остаток скрыт: у сотрудника нет права «Видеть остатки».
+  stockOf(p) { if (p.stock === null) return null; return this.isGroup(p) ? this.children(p.id).reduce((s, k) => s + k.stock, 0) : p.stock; },
   // То, что можно продать или оприходовать: всё, кроме основных товаров с модификациями.
   sellable() { return this.list.filter((p) => !this.isGroup(p)); },
   search(q, limit = 8) {
@@ -231,7 +232,7 @@ session.ready = api('/api/status').then((s) => {
   $('#nav-user').hidden = !s.user;
   if (s.user) {
     $('#me-password').textContent = s.user.name || s.user.email;
-    $('#me-password').title = `${session.roleName(s.user.role)} · сменить пароль`;
+    $('#me-password').title = `${session.roleName(s.user.role)} · сменить пароль или PIN`;
   }
   if (['notify', 'orders', 'crm', 'customers.accounts'].some((r) => session.can(r))) listenSales();
 }).catch((err) => toast(err.message, 'error'));
@@ -447,7 +448,14 @@ $('#me-password').addEventListener('click', () => {
 $('#password-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   try {
-    await api('/api/me/password', { method: 'PUT', body: { current: e.target.elements.current.value, password: e.target.elements.password.value } });
+    const f = e.target.elements;
+    if (!f.password.value && !f.pin.value) throw new Error('Введите новый пароль или PIN-код');
+    if (f.pin.value) await api('/api/me/pin', { method: 'PUT', body: { current: f.current.value, pin: f.pin.value } });
+    if (!f.password.value) {
+      $('#password-dialog').close();
+      return toast('PIN-код сохранён. Им можно быстро войти через «Сменить кассира»');
+    }
+    await api('/api/me/password', { method: 'PUT', body: { current: f.current.value, password: f.password.value } });
     // Сессия подписана старым паролем и закончилась — входим заново.
     location.replace('/login.html');
   } catch (err) {
