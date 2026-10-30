@@ -440,6 +440,24 @@
   </form>
 </dialog>
 
+<dialog id="fix-dialog" aria-labelledby="fix-title">
+  <form id="fix-form" novalidate>
+    <h2 id="fix-title">Исправить сумму</h2>
+    <p class="sub" id="fix-sub"></p>
+    <div class="form-grid">
+      <div class="field wide"><label for="fx-amount">Сумма, сом</label><input id="fx-amount" name="amount" class="input big num" inputmode="decimal" autocomplete="off" required></div>
+      <div class="field wide"><label for="fx-reason">Причина (необязательно)</label><input id="fx-reason" name="reason" class="input" autocomplete="off" placeholder="Например, забыла открыть смену 12-го"></div>
+    </div>
+    <p class="sub">Исправление действует только за этот выплатный период и записывается в журнал действий.</p>
+    <p class="form-error" id="fix-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="fix-reset" hidden>Вернуть расчёт</button>
+      <button type="button" class="btn ghost" id="fix-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="bonus-dialog" aria-labelledby="bonus-title">
   <form id="bonus-form" novalidate>
     <h2 id="bonus-title">Начислить бонус</h2>

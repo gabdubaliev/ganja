@@ -175,6 +175,22 @@ function open(file) {
   addColumns('users', [['plan_bonus', 'REAL NOT NULL DEFAULT 0']]);
   // Штрафы и бонусы сотрудникам — одна таблица: kind 'fine' уменьшает зарплату, 'bonus' увеличивает.
   addColumns('fines', [['kind', "TEXT NOT NULL DEFAULT 'fine'"]]);
+  // Ручные исправления ведомости за конкретный период: field — 'salary' (за смены и оклад),
+  // 'bonus' (% от продаж) или 'pay' (итог к выплате). Действуют, когда отчёт открыт ровно за этот период.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pay_overrides (
+      id INTEGER PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      period_from INTEGER NOT NULL,
+      period_to INTEGER NOT NULL,
+      field TEXT NOT NULL,
+      amount REAL NOT NULL,
+      reason TEXT NOT NULL DEFAULT '',
+      created_by TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL,
+      UNIQUE (user_id, period_from, period_to, field)
+    );
+  `);
   // Комиссия банка в процентах для способа оплаты (М-Банк, эквайринг…).
   addColumns('payment_methods', [['commission', 'REAL NOT NULL DEFAULT 0']]);
   // Оплата чека частями: наличные + карта и т.д. У каждой части — способ, сумма и удержанная комиссия.
@@ -1138,14 +1154,24 @@ function createStore(file) {
         .filter((u) => stats.has(u.id) || shiftDays.has(u.id) || fines.has(u.id) || extras.has(u.id) || (!u.disabled && (can(u, 'pos') || u.shift_rate > 0 || u.salary > 0)))
         .map((u) => ({ user: publicUser(u), ...stats.get(u.id) }));
       if (stats.has(null)) result.push({ user: null, ...stats.get(null) });
+      const overrides = new Map();
+      for (const o of db.prepare('SELECT * FROM pay_overrides WHERE period_from = ? AND period_to = ?').all(from, to)) {
+        overrides.set(`${o.user_id}:${o.field}`, o);
+      }
       return {
         from, to, months,
         staff: result.map((r) => {
           const revenue = r.revenue || 0;
           const shifts = r.user ? shiftDays.get(r.user.id)?.size || 0 : 0;
           // Оклад: ставка за выход × число выходов, плюс месячный оклад (если есть) за долю месяца.
-          const salary = r.user ? round2(r.user.shift_rate * shifts + r.user.salary * months) : 0;
-          const bonus = r.user ? round2(revenue * r.user.percent / 100) : 0;
+          // Сумма, исправленная вручную, заменяет расчёт; расчёт остаётся в calc для сравнения.
+          // 'rate' — ставка за выход только в этом периоде.
+          const fixed = (field) => (r.user ? overrides.get(`${r.user.id}:${field}`) : null);
+          const rate = r.user ? (fixed('rate') ? fixed('rate').amount : r.user.shift_rate) : 0;
+          const calcSalary = r.user ? round2(rate * shifts + r.user.salary * months) : 0;
+          const calcBonus = r.user ? round2(revenue * r.user.percent / 100) : 0;
+          const salary = fixed('salary') ? fixed('salary').amount : calcSalary;
+          const bonus = fixed('bonus') ? fixed('bonus').amount : calcBonus;
           const fine = r.user ? round2(fines.get(r.user.id)?.sum || 0) : 0;
           const plan = r.user ? round2(r.user.plan * months) : 0;
           // Бонус за план: план и премия заданы на месяц и пересчитываются на период, как оклад.
@@ -1172,7 +1198,10 @@ function createStore(file) {
             planBonus,
             extra,
             extraCount: r.user ? extras.get(r.user.id)?.n || 0 : 0,
-            pay: round2(salary + bonus + planBonus + extra - fine),
+            pay: fixed('pay') ? fixed('pay').amount : round2(salary + bonus + planBonus + extra - fine),
+            rate,
+            calc: { rate: r.user?.shift_rate || 0, salary: calcSalary, bonus: calcBonus, pay: round2(salary + bonus + planBonus + extra - fine) },
+            overrides: Object.fromEntries(['rate', 'salary', 'bonus', 'pay'].filter(fixed).map((f) => [f, { amount: fixed(f).amount, reason: fixed(f).reason, by: fixed(f).created_by, at: fixed(f).created_at }])),
           };
         }),
         sales: byDay.map((x) => ({ u: x.id, t: x.t, s: x.total })),
@@ -1526,6 +1555,25 @@ function createStore(file) {
         .run(next.email, next.name, next.role, next.disabled, passwordHash || current.password_hash, pay.salary, pay.percent, pay.plan, rights, pay.shift_rate, methods, maxDiscount, current.id);
       db.prepare('UPDATE users SET plan_bonus = ? WHERE id = ?').run(pay.plan_bonus, current.id);
       return publicUser(this.findUser(current.id));
+    },
+
+    // Исправить сумму в ведомости за период или (amount = null) вернуть расчёт.
+    setPayOverride({ user_id: userId, from, to, field, amount, reason }, by) {
+      const u = this.findUser(userId);
+      if (!u) throw new UserError('Сотрудник не найден');
+      if (!['rate', 'salary', 'bonus', 'pay'].includes(field)) throw new UserError('Неизвестная графа ведомости');
+      const pf = number(from, 'Начало периода', { positive: true }), pt = number(to, 'Конец периода', { positive: true });
+      if (pt <= pf) throw new UserError('Неверный период');
+      if (amount === null || amount === undefined || amount === '') {
+        db.prepare('DELETE FROM pay_overrides WHERE user_id = ? AND period_from = ? AND period_to = ? AND field = ?').run(u.id, pf, pt, field);
+        return { user: u.name || u.email, field, amount: null };
+      }
+      const value = round2(number(amount, 'Сумма', { min: 0 }));
+      const why = text(reason, 'Причина', { max: 300 });
+      db.prepare(`INSERT INTO pay_overrides (user_id, period_from, period_to, field, amount, reason, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (user_id, period_from, period_to, field) DO UPDATE SET amount = excluded.amount, reason = excluded.reason, created_by = excluded.created_by, created_at = excluded.created_at`)
+        .run(u.id, pf, pt, field, value, why, by ? by.name || by.email : '', Date.now());
+      return { user: u.name || u.email, field, amount: value, reason: why };
     },
 
     // Зарплатные условия сотрудника: ставка за смену, оклад, процент, план и бонус за план.

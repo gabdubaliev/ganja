@@ -909,3 +909,8 @@ tr.audit-login_failed, tr.audit-denied { background: rgba(208, 59, 59, 0.06); }
 .pos-text { color: var(--pos, #1a9d55); }
 .pay-table .row-actions { white-space: nowrap; }
 .pay-table .row-actions .btn + .btn { margin-left: 6px; }
+
+.fix-cell { padding: 2px 6px; margin: -2px -6px; border: 1px dashed transparent; border-radius: 8px; background: none; color: inherit; font: inherit; cursor: pointer; text-align: inherit; }
+.fix-cell:hover, .fix-cell:focus-visible { border-color: var(--series); background: color-mix(in srgb, var(--series) 6%, transparent); }
+.fix-cell.fixed { border-color: color-mix(in srgb, var(--series) 45%, transparent); }
+.fix-mark { font-size: 11px; color: var(--series); white-space: nowrap; }

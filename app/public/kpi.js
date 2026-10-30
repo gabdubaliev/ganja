@@ -62,17 +62,17 @@ function renderPay() {
     tile('Выручка сотрудников', money(sum('revenue'))),
   ].join('');
   const edit = session.can('salary');
-  $('#kpi-note').textContent = `Выход — день, в который сотрудник открывал смену. ${edit ? 'Ставку, оклад, процент, план и бонус за план меняет кнопка «Изменить ЗП»' : 'Ставка, процент и оклад задаются в карточке сотрудника'}, штрафы — в разделе «Штрафы».`;
+  $('#kpi-note').textContent = `Выход — день, в который сотрудник открывал смену. ${edit ? 'Ставку, оклад, процент, план и бонус за план меняет кнопка «Изменить ЗП». Чтобы вписать свою сумму за этот период (при ошибке), нажмите на сумму в таблице' : 'Ставка, процент и оклад задаются в карточке сотрудника'}, штрафы — в разделе «Штрафы».`;
   $('#pay-body').innerHTML = staff.length ? staff.map((r) => `<tr>
       <td><div class="pname">${esc(staffName(r.user))}</div><div class="pcat">${esc(session.roleName(r.user.role))}${r.user.shift_rate ? ` · ${money(r.user.shift_rate)} за смену` : ''}${r.user.percent ? ` · ${r.user.percent}%` : ''}</div>
         ${r.plan ? `<div class="pcat">план ${money(r.plan)} · ${r.planDone >= 1 ? '<b class="pos-text">выполнен</b>' : `выполнено ${pct(r.planDone)}`}${r.user.plan_bonus ? ` · бонус ${money(r.user.plan_bonus)}/мес` : ''}</div>` : ''}</td>
       <td>${int(r.shifts)}</td>
-      <td>${money(r.salary)}</td>
+      <td>${fixCell(r, 'salary', money(r.salary))}${r.user.shift_rate || r.overrides.rate || edit ? `<div class="pcat">${fixCell(r, 'rate', `по ${money(r.rate)} за выход`)}</div>` : ''}</td>
       <td>${money(r.revenue)}</td>
-      <td>${r.user.percent ? money(r.bonus) : '—'}</td>
+      <td>${r.user.percent || r.overrides.bonus ? fixCell(r, 'bonus', money(r.bonus)) : edit ? fixCell(r, 'bonus', '—') : '—'}</td>
       <td>${r.planBonus || r.extra ? `<span class="pos-text">+${money(r.planBonus + r.extra)}</span>${r.planBonus ? `<div class="pcat">за план ${money(r.planBonus)}</div>` : ''}${r.extra ? `<div class="pcat">разовые ${money(r.extra)}</div>` : ''}` : '—'}</td>
       <td class="${r.fines ? 'neg' : ''}">${r.fines ? '−' + money(r.fines) : '—'}</td>
-      <td><b>${money(r.pay)}</b></td>
+      <td>${fixCell(r, 'pay', `<b>${money(r.pay)}</b>`)}</td>
       ${edit ? `<td class="row-actions"><button type="button" class="btn small ghost" data-pay-edit="${r.user.id}">Изменить ЗП</button><button type="button" class="btn small" data-bonus-for="${r.user.id}">+ Бонус</button></td>` : ''}
     </tr>`).join('') : '<tr><td colspan="9" class="empty">Сотрудников пока нет</td></tr>';
   $('#pay-foot').innerHTML = staff.length > 1 ? `<tr><td>Итого</td><td>${int(sum('shifts'))}</td><td>${money(sum('salary'))}</td><td>${money(sum('revenue'))}</td>
@@ -230,6 +230,53 @@ $('#pay-print').addEventListener('click', printPayroll);
 salesFeed.listeners.push(() => { if (currentView === 'kpi') renderKpi(); });
 
 /* ---------- Изменение зарплаты и бонусы (право «Зарплата») ---------- */
+const FIX_NAMES = { rate: 'Ставка за выход', salary: 'За смены и оклад', bonus: '% от продаж', pay: 'К выплате' };
+
+// Сумма в ведомости: с правом «Зарплата» — кнопка для ручного исправления; исправленная помечена «вручную».
+function fixCell(r, field, html) {
+  const o = r.overrides?.[field];
+  const mark = o ? `<span class="fix-mark" title="${esc(`Исправил ${o.by}${o.reason ? ': ' + o.reason : ''}. По расчёту ${money(r.calc[field])}`)}">✎ вручную · расчёт ${money(r.calc[field])}</span>` : '';
+  if (!session.can('salary')) return html + (o ? `<div>${mark}</div>` : '');
+  return `<button type="button" class="fix-cell ${o ? 'fixed' : ''}" data-fix="${field}" data-user="${r.user.id}" title="Исправить сумму">${html}</button>${o ? `<div>${mark}</div>` : ''}`;
+}
+
+function openFix(userId, field) {
+  const r = payRow(userId);
+  const o = r.overrides[field];
+  const [from, to] = kpiPeriod();
+  const f = $('#fix-form');
+  Object.assign(f.dataset, { user: userId, field });
+  $('#fix-title').textContent = `${FIX_NAMES[field]}: ${staffName(r.user)}`;
+  $('#fix-sub').innerHTML = `Период ${new Date(from).toLocaleDateString('ru-RU')} — ${new Date(to - 1).toLocaleDateString('ru-RU')}. По расчёту: <b>${money(r.calc[field])}</b>${field === 'rate' ? ` × ${int(r.shifts)} ${plural(r.shifts, ['выход', 'выхода', 'выходов'])}` : ''}.`
+    + (field === 'pay' ? ' Итог заменяет всю сумму к выплате, включая бонусы и штрафы.' : ' Итог к выплате пересчитается.');
+  f.elements.amount.value = o ? String(o.amount).replace('.', ',') : '';
+  f.elements.amount.placeholder = String(r.calc[field]).replace('.', ',');
+  f.elements.reason.value = o?.reason || '';
+  $('#fix-reset').hidden = !o;
+  $('#fix-error').hidden = true;
+  $('#fix-dialog').showModal();
+  f.elements.amount.focus();
+}
+
+async function saveFix(amount) {
+  const f = $('#fix-form');
+  const [from, to] = kpiPeriod();
+  try {
+    await api('/api/pay-override', { method: 'PUT', body: { user_id: Number(f.dataset.user), field: f.dataset.field, from, to, amount, reason: f.elements.reason.value } });
+    $('#fix-dialog').close();
+    toast(amount === null ? 'Вернули сумму по расчёту' : 'Сумма исправлена');
+    renderKpi();
+  } catch (err) { showFormError('#fix-error', err); }
+}
+
+$('#fix-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const v = e.target.elements.amount.value.trim();
+  if (!v) return showFormError('#fix-error', new Error('Впишите сумму или нажмите «Вернуть расчёт»'));
+  saveFix(parseNum(v));
+});
+$('#fix-reset').addEventListener('click', () => saveFix(null));
+$('#fix-cancel').addEventListener('click', () => $('#fix-dialog').close());
 function renderBonuses() {
   const list = kpiView.bonuses || [];
   $('#bonus-panel').hidden = !session.can('salary') || !list.length;
@@ -273,6 +320,8 @@ $('#bonus-add').addEventListener('click', () => openBonus(null));
 $('#pay-body').addEventListener('click', (e) => {
   const edit = e.target.closest('[data-pay-edit]');
   const bonus = e.target.closest('[data-bonus-for]');
+  const fix = e.target.closest('[data-fix]');
+  if (fix) return openFix(Number(fix.dataset.user), fix.dataset.fix);
   if (edit) openPay(Number(edit.dataset.payEdit));
   if (bonus) openBonus(Number(bonus.dataset.bonusFor));
 });

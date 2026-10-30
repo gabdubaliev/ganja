@@ -240,6 +240,7 @@ const routes = [
   ['GET', '/api/bonuses', (p, url) => store.listFines({ ...range(url), kind: 'bonus' }), ['salary', 'kpi', 'fines']],
   ['POST', '/api/bonuses', (p, url, body, user) => store.addFine(body, user, 'bonus'), 'salary'],
   ['DELETE', '/api/bonuses/:id', (p) => store.deleteFine(p.id, 'bonus'), 'salary'],
+  ['PUT', '/api/pay-override', (p, url, body, user) => store.setPayOverride(body, user), 'salary'],
   ['PUT', '/api/users/:id/pay', (p, url, body, user) => {
     guardAdmin(user, store.findUser(p.id), {});
     return store.setUserPay(p.id, body);
@@ -428,6 +429,7 @@ const AUDIT_LABELS = {
   'POST /api/bonuses': 'Начислил бонус сотруднику',
   'DELETE /api/bonuses/:id': 'Отменил бонус сотруднику',
   'PUT /api/users/:id/pay': 'Изменил зарплату сотрудника',
+  'PUT /api/pay-override': 'Исправил сумму в ведомости',
   'DELETE /api/fines/:id': 'Отменил штраф',
   'POST /api/customers': 'Добавил покупателя',
   'PUT /api/customers/:id': 'Изменил покупателя',
@@ -484,6 +486,7 @@ function auditDetails(key, params, body, result) {
     case 'DELETE /api/fines/:id': return `${r.amount} сом — ${r.reason}`;
     case 'POST /api/bonuses': return `${store.findUser(body.user_id)?.name || ''}: +${r.amount} сом — ${r.reason}`;
     case 'DELETE /api/bonuses/:id': return `${r.amount} сом — ${r.reason}`;
+    case 'PUT /api/pay-override': return `${r.user}, ${({ rate: 'ставка за выход', salary: 'за смены и оклад', bonus: '% от продаж', pay: 'к выплате' })[r.field]}: ${r.amount === null ? 'возвращён расчёт' : `${r.amount} сом${r.reason ? ` — ${r.reason}` : ''}`}, период ${new Date(body.from).toLocaleDateString('ru-RU')}—${new Date(body.to - 1).toLocaleDateString('ru-RU')}`;
     case 'PUT /api/users/:id/pay': return `${r.name || r.email}: за смену ${r.shift_rate}, оклад ${r.salary}, ${r.percent}%, план ${r.plan}, бонус за план ${r.plan_bonus}`;
     case 'POST /api/customers/:id/bonus': return `${r.name || '+' + r.phone}: ${body.delta > 0 ? '+' : ''}${body.delta}${body.reason ? ` (${body.reason})` : ''}`;
     case 'PUT /api/orders/:id': return `Заказ №${params.id} ${ORDER_NAMES[body.status] || body.status}`;
