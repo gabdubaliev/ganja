@@ -9,6 +9,8 @@ const { createStore, UserError } = require('./db');
 const { seedDemo } = require('./demo');
 const crypto = require('node:crypto');
 const { createAuth, hashPassword, checkPassword } = require('./auth');
+const { ROLES, can } = require('./roles');
+const { createNotifier } = require('./notify');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -16,13 +18,14 @@ const DB_FILE = path.resolve(__dirname, process.env.DB_FILE || 'data/shop.db');
 const PUBLIC = path.join(__dirname, 'public');
 const MAX_RANGE = 800 * 864e5;
 // Без входа можно открыть только страницу входа и её стили.
-const PUBLIC_PATHS = new Set(['/login.html', '/style.css']);
+const PUBLIC_PATHS = new Set(['/login.html', '/style.css', '/manifest.webmanifest', '/icon.svg']);
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.svg': 'image/svg+xml',
+  '.webmanifest': 'application/manifest+json',
 };
 
 // Простой разбор .env: строки KEY=value, # — комментарии.
@@ -51,6 +54,7 @@ if (process.env.REQUIRE_PASSWORD === '1' && store.activeAdmins() === 0) {
   process.exit(1);
 }
 
+const notifier = createNotifier(store);
 const auth = createAuth(store, process.env.SESSION_SECRET || store.setting('session_secret', crypto.randomBytes(32).toString('base64url')));
 
 function password(value) {
@@ -87,44 +91,94 @@ function range(url) {
   return { from, to };
 }
 
-// [метод, шаблон пути, обработчик(params, url, body, user), кому можно]
-// 'all' — любому вошедшему сотруднику, 'admin' — только администратору.
-// Продавец работает на кассе и видит чеки, остальное — у администратора.
+// [метод, шаблон пути, обработчик(params, url, body, user), нужное право из roles.js]
+// 'any' — любому вошедшему сотруднику.
 const routes = [
-  ['GET', '/api/status', (p, url, body, user) => ({ empty: store.isEmpty(), auth: auth.enabled, user }), 'all'],
-  ['GET', '/api/products', (p, url) => store.listProducts({ archived: url.searchParams.get('archived') === '1' }), 'all'],
-  ['GET', '/api/sales', (p, url) => store.listSales(range(url)), 'all'],
-  ['POST', '/api/sales', (p, url, body) => store.createSale(body), 'all'],
+  ['GET', '/api/status', (p, url, body, user) => ({
+    empty: store.isEmpty(), auth: auth.enabled, user,
+    can: user ? ROLES[user.role].can : ROLES.admin.can,
+    roles: ROLES,
+    loyalty: store.loyalty(),
+  }), 'any'],
   ['PUT', '/api/me/password', (p, url, body, user) => {
     if (!user) throw new UserError('Сначала заведите сотрудников');
     if (!checkPassword(body.current, store.findUser(user.id).password_hash)) throw new UserError('Текущий пароль указан неверно');
     store.updateUser(user.id, {}, password(body.password));
     return { ok: true };
-  }, 'all'],
-  ['GET', '/api/users', () => store.listUsers()],
-  ['POST', '/api/users', (p, url, body) => store.createUser(body, password(body.password))],
-  ['PUT', '/api/users/:id', (p, url, body) => store.updateUser(p.id, body, body.password ? password(body.password) : null)],
-  ['DELETE', '/api/users/:id', (p, url, body, user) => {
-    if (user && Number(p.id) === user.id) throw new UserError('Нельзя удалить самого себя');
-    return store.deleteUser(p.id);
-  }],
+  }, 'any'],
+
+  ['GET', '/api/products', (p, url) => store.listProducts({ archived: url.searchParams.get('archived') === '1' }), 'any'],
+  ['POST', '/api/products', (p, url, body) => store.createProduct(body), 'products'],
+  ['PUT', '/api/products/:id', (p, url, body) => store.updateProduct(p.id, body), 'products'],
+  ['POST', '/api/products/import', (p, url, body) => store.importProducts(body.rows, { update: Boolean(body.update) }), 'products'],
+  ['PUT', '/api/products/:id/stock', (p, url, body) => store.setStock(p.id, body.stock), 'products'],
+  ['PUT', '/api/products/:id/photo', (p, url, body) => store.setPhoto(p.id, body), 'photos'],
+  ['DELETE', '/api/products/:id/photo', (p) => store.deletePhoto(p.id), 'photos'],
+
+  // Без права «sales» сотрудник видит только свои чеки.
+  ['GET', '/api/sales', (p, url, body, user) => store.listSales({ ...range(url), userId: can(user, 'sales') ? null : user.id }), 'pos'],
+  ['POST', '/api/sales', (p, url, body, user) => {
+    const sale = store.createSale(body, user);
+    notifier.sale(sale, user);
+    return sale;
+  }, 'pos'],
+  ['POST', '/api/sales/:id/refund', (p, url, body, user) => store.refundSale(p.id, user), 'refund'],
+  ['GET', '/api/arrivals', () => store.listArrivals(), 'arrivals'],
+  ['POST', '/api/arrivals', (p, url, body) => store.createArrival(body), 'arrivals'],
+  ['GET', '/api/analytics', (p, url) => store.analytics(range(url)), 'dashboard'],
+  ['GET', '/api/kpi', (p, url) => store.kpi(range(url)), 'kpi'],
   ['POST', '/api/demo', () => {
     if (!store.isEmpty()) throw new UserError('Пример можно загрузить только в пустую базу');
     seedDemo(store);
     return { ok: true };
-  }],
-  ['POST', '/api/products', (p, url, body) => store.createProduct(body)],
-  ['PUT', '/api/products/:id', (p, url, body) => store.updateProduct(p.id, body)],
-  ['POST', '/api/products/import', (p, url, body) => store.importProducts(body.rows, { update: Boolean(body.update) })],
-  ['PUT', '/api/products/:id/stock', (p, url, body) => store.setStock(p.id, body.stock)],
-  ['POST', '/api/sales/:id/refund', (p) => store.refundSale(p.id)],
-  ['GET', '/api/arrivals', () => store.listArrivals()],
-  ['POST', '/api/arrivals', (p, url, body) => store.createArrival(body)],
-  ['GET', '/api/analytics', (p, url) => store.analytics(range(url))],
+  }, 'settings'],
+
+  // Кассир ищет покупателя по телефону и заводит нового прямо на кассе.
+  ['GET', '/api/customers/by-phone', (p, url) => store.findCustomerByPhone(url.searchParams.get('phone')), 'pos'],
+  ['POST', '/api/customers', (p, url, body) => store.createCustomer(body), 'pos'],
+  ['GET', '/api/customers', (p, url) => store.listCustomers({ q: url.searchParams.get('q') || '' }), 'customers'],
+  ['GET', '/api/customers/:id/bonus', (p) => store.bonusHistory(p.id), 'customers'],
+  ['PUT', '/api/customers/:id', (p, url, body) => store.updateCustomer(p.id, body), 'loyalty'],
+  ['POST', '/api/customers/:id/bonus', (p, url, body, user) => store.adjustBonus(p.id, body, user), 'loyalty'],
+  ['PUT', '/api/loyalty', (p, url, body) => store.setLoyalty(body), 'loyalty'],
+
+  ['GET', '/api/users', () => store.listUsers(), 'staff'],
+  ['POST', '/api/users', (p, url, body) => store.createUser(body, password(body.password)), 'staff'],
+  ['PUT', '/api/users/:id', (p, url, body) => store.updateUser(p.id, body, body.password ? password(body.password) : null), 'staff'],
+  ['DELETE', '/api/users/:id', (p, url, body, user) => {
+    if (user && Number(p.id) === user.id) throw new UserError('Нельзя удалить самого себя');
+    return store.deleteUser(p.id);
+  }, 'staff'],
+
+  // Токен бота наружу не отдаём целиком: только признак, что он задан.
+  ['GET', '/api/settings/telegram', () => {
+    const t = notifier.telegramSettings();
+    return { enabled: t.enabled, chatId: t.chatId, hasToken: Boolean(t.token) };
+  }, 'settings'],
+  ['PUT', '/api/settings/telegram', (p, url, body) => {
+    const current = notifier.telegramSettings();
+    const next = {
+      token: body.token ? String(body.token).trim() : current.token,
+      chatId: String(body.chatId ?? current.chatId).trim(),
+      enabled: Boolean(body.enabled),
+    };
+    if (next.token && !/^\d+:[\w-]{20,}$/.test(next.token)) throw new UserError('Токен бота не похож на настоящий: он выглядит как 123456789:AAE…');
+    if (next.enabled && (!next.token || !next.chatId)) throw new UserError('Чтобы включить уведомления, укажите токен бота и ID чата');
+    store.setSetting('telegram', JSON.stringify(next));
+    return { enabled: next.enabled, chatId: next.chatId, hasToken: Boolean(next.token) };
+  }, 'settings'],
+  ['POST', '/api/settings/telegram/test', async () => {
+    try {
+      await notifier.sendTelegram('✅ Уведомления о продажах подключены');
+    } catch (err) {
+      throw new UserError(err.message);
+    }
+    return { ok: true };
+  }, 'settings'],
 ];
 
 function match(method, pathname) {
-  for (const [m, pattern, handler, access = 'admin'] of routes) {
+  for (const [m, pattern, handler, access] of routes) {
     if (m !== method) continue;
     const names = [];
     const re = new RegExp('^' + pattern.replace(/:(\w+)/g, (_, n) => (names.push(n), '([^/]+)')) + '$');
@@ -183,10 +237,22 @@ const server = http.createServer(async (req, res) => {
     }
     return serveStatic(res, pathname);
   }
+  // Фото товара отдаётся картинкой, а не JSON. Смотреть фото может любой вошедший.
+  const photo = req.method === 'GET' && url.pathname.match(/^\/api\/products\/(\d+)\/photo$/);
+  if (photo) {
+    const found = store.getPhoto(photo[1]);
+    if (!found) return sendJson(res, 404, { error: 'Фото нет' });
+    res.writeHead(200, { 'Content-Type': found.mime, 'Cache-Control': 'private, max-age=31536000, immutable' });
+    return res.end(Buffer.from(found.data));
+  }
+  if (req.method === 'GET' && url.pathname === '/api/events') {
+    if (!can(user, 'notify')) return sendJson(res, 403, { error: 'Нет доступа' });
+    return notifier.subscribe(req, res, user);
+  }
   const route = match(req.method, url.pathname);
   if (!route) return sendJson(res, 404, { error: 'Не найдено' });
   // Пока сотрудников нет, программа открыта и всё можно (работа на своём компьютере).
-  if (route.access === 'admin' && user && user.role !== 'admin') return sendJson(res, 403, { error: 'Это может только администратор' });
+  if (route.access !== 'any' && !can(user, route.access)) return sendJson(res, 403, { error: 'У вашей роли нет доступа к этому' });
   try {
     const body = req.method === 'GET' ? {} : await readBody(req);
     sendJson(res, 200, await route.handler(route.params, url, body, user && store.publicUser(user)));

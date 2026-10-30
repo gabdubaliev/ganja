@@ -1,6 +1,6 @@
 'use strict';
 
-// Сотрудники: вход по email, роли «администратор» и «продавец», смена пароля.
+// Сотрудники: вход по email, роли, оклад, процент от продаж и план.
 
 let usersList = [];
 let editingUser = null;
@@ -13,13 +13,16 @@ async function renderUsers() {
   }
   const admins = usersList.filter((u) => u.role === 'admin' && !u.disabled).length;
   $('#users-summary').textContent = `${usersList.length} ${plural(usersList.length, ['сотрудник', 'сотрудника', 'сотрудников'])} · ${admins} ${plural(admins, ['администратор', 'администратора', 'администраторов'])}`;
+  $('#roles-help').innerHTML = Object.values(session.roles).map((r) => `<li><b>${esc(r.name)}</b> — ${esc(r.about)}</li>`).join('');
   $('#users-body').innerHTML = usersList.length ? usersList.map((u) => `<tr>
       <td><div class="pname">${esc(u.name || u.email)}${session.user?.id === u.id ? ' <span class="muted">(вы)</span>' : ''}</div>${u.name ? `<div class="pcat">${esc(u.email)}</div>` : ''}</td>
-      <td><span class="role-tag">${ROLE_NAMES[u.role]}</span></td>
+      <td><span class="role-tag">${esc(session.roleName(u.role))}</span></td>
+      <td>${u.salary ? money(u.salary) : '—'}</td>
+      <td>${u.percent ? u.percent + '%' : '—'}</td>
+      <td>${u.plan ? money(u.plan) : '—'}</td>
       <td>${u.disabled ? '<span class="muted">Закрыт</span>' : 'Открыт'}</td>
-      <td>${new Date(u.created_at).toLocaleDateString('ru-RU')}</td>
       <td><button type="button" class="btn small ghost" data-user="${u.id}">Изменить</button></td>
-    </tr>`).join('') : '<tr><td colspan="5" class="empty">Сотрудников пока нет. Пока их нет, программа открывается без входа.</td></tr>';
+    </tr>`).join('') : '<tr><td colspan="7" class="empty">Сотрудников пока нет. Пока их нет, программа открывается без входа.</td></tr>';
 }
 
 function openUserDialog(user = null) {
@@ -34,24 +37,33 @@ function openUserDialog(user = null) {
   $('#user-delete').className = 'btn ghost';
   $('#user-delete').textContent = 'Удалить';
   $('#user-error').hidden = true;
+  f.elements.role.innerHTML = Object.entries(session.roles).map(([key, r]) => `<option value="${key}">${esc(r.name)}</option>`).join('');
+  f.elements.role.value = 'cashier';
   if (user) {
     f.elements.email.value = user.email;
     f.elements.name.value = user.name;
     f.elements.role.value = user.role;
     f.elements.disabled.checked = user.disabled;
+    f.elements.salary.value = user.salary || '';
+    f.elements.percent.value = user.percent || '';
+    f.elements.plan.value = user.plan || '';
   }
+  showRoleAbout();
   $('#user-dialog').showModal();
 }
 
-function showFormError(id, err) {
-  $(id).textContent = err.message;
-  $(id).hidden = false;
+function showRoleAbout() {
+  $('#uf-role-about').textContent = session.roles[$('#uf-role').value]?.about || '';
 }
+$('#uf-role').addEventListener('change', showRoleAbout);
 
 $('#user-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
-  const body = { email: f.elements.email.value, name: f.elements.name.value, role: f.elements.role.value };
+  const body = {
+    email: f.elements.email.value, name: f.elements.name.value, role: f.elements.role.value,
+    salary: parseNum(f.elements.salary.value) || 0, percent: parseNum(f.elements.percent.value) || 0, plan: parseNum(f.elements.plan.value) || 0,
+  };
   if (f.elements.password.value) body.password = f.elements.password.value;
   if (editingUser) body.disabled = f.elements.disabled.checked;
   try {
@@ -89,22 +101,4 @@ $('#users-body').addEventListener('click', (e) => {
   if (btn) openUserDialog(usersList.find((u) => u.id === Number(btn.dataset.user)));
 });
 
-/* ---------- Свой пароль ---------- */
-$('#me-password').addEventListener('click', () => {
-  $('#password-form').reset();
-  $('#password-error').hidden = true;
-  $('#password-dialog').showModal();
-});
-$('#password-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  try {
-    await api('/api/me/password', { method: 'PUT', body: { current: e.target.elements.current.value, password: e.target.elements.password.value } });
-    // Сессия подписана старым паролем и закончилась — входим заново.
-    location.replace('/login.html');
-  } catch (err) {
-    showFormError('#password-error', err);
-  }
-});
-$('#password-cancel').addEventListener('click', () => $('#password-dialog').close());
-
-views.users = { show: renderUsers };
+views.users = { show: renderUsers, right: 'staff' };

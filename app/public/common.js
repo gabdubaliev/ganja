@@ -156,38 +156,185 @@ function toast(message, kind = 'ok') {
   setTimeout(() => el.remove(), kind === 'error' ? 6000 : 3000);
 }
 
+function showFormError(id, err) {
+  $(id).textContent = err.message;
+  $(id).hidden = false;
+}
+
+// Окно кассы — отдельная страница со своими разделами.
+const IS_KASSA = location.pathname.startsWith('/kassa');
+
 /* ---------- Разделы ---------- */
+// Каждый раздел регистрируется как views.name = { show, right }: right — право из roles.js.
 const views = {};
 let currentView = null;
 
-// Разделы, открытые продавцу. Остальные видит только администратор.
-const SELLER_VIEWS = new Set(['pos', 'sales']);
-
 function route() {
-  const home = session.isAdmin ? 'home' : 'pos';
-  const name = location.hash.slice(1) || home;
-  const target = views[name] && (session.isAdmin || SELLER_VIEWS.has(name)) ? name : home;
+  const allowed = Object.keys(views).filter((name) => session.can(views[name].right));
+  if (!allowed.length) {
+    // Кассиру в общей программе делать нечего — его место в окне кассы.
+    if (session.can('pos') && !IS_KASSA) return location.replace('/kassa.html');
+    document.querySelector('main')?.insertAdjacentHTML('beforebegin', '<p class="empty">У вашей роли нет доступа к разделам. Обратитесь к администратору.</p>');
+    return;
+  }
+  const name = location.hash.slice(1);
+  const target = allowed.includes(name) ? name : allowed[0];
   currentView = target;
   for (const el of document.querySelectorAll('[data-view]')) el.hidden = el.dataset.view !== target;
-  for (const a of document.querySelectorAll('.nav a')) a.setAttribute('aria-current', a.getAttribute('href') === '#' + target ? 'page' : 'false');
+  for (const a of document.querySelectorAll('.nav a[href^="#"]')) a.setAttribute('aria-current', a.getAttribute('href') === '#' + target ? 'page' : 'false');
   views[target].show();
 }
 addEventListener('hashchange', route);
 
-// Кто вошёл. Пока сотрудников нет, программа открыта и работает как у администратора.
-const ROLE_NAMES = { admin: 'Администратор', seller: 'Продавец' };
-const session = { user: null, isAdmin: true };
+// Кто вошёл и что ему можно. Пока сотрудников нет, программа открыта и работает как у администратора.
+const session = {
+  user: null, rights: new Set(), roles: {}, loyalty: { enabled: false },
+  can(right) { return !right || this.rights.has(right); },
+  roleName(role) { return this.roles[role]?.name || role; },
+};
 session.ready = api('/api/status').then((s) => {
-  session.user = s.user;
-  session.isAdmin = !s.user || s.user.role === 'admin';
-  document.body.dataset.role = session.isAdmin ? 'admin' : 'seller';
+  Object.assign(session, { user: s.user, rights: new Set(s.can), roles: s.roles, loyalty: s.loyalty });
+  for (const el of document.querySelectorAll('[data-can]')) el.hidden = !session.can(el.dataset.can);
   $('#nav-user').hidden = !s.user;
   if (s.user) {
     $('#me-password').textContent = s.user.name || s.user.email;
-    $('#me-password').title = `${ROLE_NAMES[s.user.role]} · сменить пароль`;
+    $('#me-password').title = `${session.roleName(s.user.role)} · сменить пароль`;
   }
+  if (session.can('notify')) listenSales();
 }).catch((err) => toast(err.message, 'error'));
 $('#logout').addEventListener('click', async () => {
   await fetch('/api/logout', { method: 'POST' }).catch(() => {});
   location.replace('/login.html');
 });
+
+/* ---------- Уведомления о продажах ---------- */
+const salesFeed = { listeners: [] };
+
+function listenSales() {
+  if (!window.EventSource) return;
+  const source = new EventSource('/api/events');
+  source.addEventListener('sale', (e) => {
+    const sale = JSON.parse(e.data);
+    // Свои продажи кассир видит и так — уведомляем только о чужих.
+    if (sale.userId && sale.userId === session.user?.id) return;
+    const text = `${sale.user}: чек №${sale.id} на ${money2(sale.total)}`;
+    toast('🧾 ' + text);
+    try {
+      if (window.Notification && Notification.permission === 'granted' && document.hidden) {
+        new Notification('Новая продажа', { body: text, tag: 'sale-' + sale.id });
+      }
+    } catch { /* на некоторых телефонах уведомления из страницы запрещены */ }
+    for (const fn of salesFeed.listeners) fn(sale);
+  });
+  updateBell();
+}
+
+function updateBell() {
+  const bell = $('#bell');
+  if (!bell) return;
+  bell.hidden = !session.can('notify') || !window.Notification;
+  const on = window.Notification && Notification.permission === 'granted';
+  bell.setAttribute('aria-pressed', on);
+  bell.title = on ? 'Уведомления о продажах включены' : 'Включить уведомления о продажах на этом устройстве';
+  bell.textContent = on ? '🔔' : '🔕';
+}
+$('#bell')?.addEventListener('click', async () => {
+  if (Notification.permission === 'denied') return toast('Уведомления запрещены в настройках браузера для этого сайта', 'error');
+  if (Notification.permission === 'default') await Notification.requestPermission();
+  updateBell();
+  if (Notification.permission === 'granted') toast('Уведомления о продажах включены. Они приходят, когда окно программы свёрнуто.');
+});
+
+/* ---------- Фото товаров ---------- */
+const photoUrl = (p) => (p.photo_at ? `/api/products/${p.id}/photo?v=${p.photo_at}` : '');
+
+// Миниатюра товара с кнопками «добавить / заменить / удалить» фото.
+function photoCell(p) {
+  const url = photoUrl(p);
+  const img = url ? `<img src="${url}" alt="" loading="lazy">` : '<span aria-hidden="true">📷</span>';
+  if (!session.can('photos')) return `<span class="thumb">${img}</span>`;
+  return `<span class="thumb-wrap">
+    <button type="button" class="thumb" data-photo="${p.id}" title="${url ? 'Заменить фото' : 'Добавить фото'}" aria-label="${url ? 'Заменить фото' : 'Добавить фото'} ${esc(p.name)}">${img}</button>
+    ${url ? `<button type="button" class="thumb-del" data-photo-del="${p.id}" title="Удалить фото" aria-label="Удалить фото ${esc(p.name)}">×</button>` : ''}
+  </span>`;
+}
+
+// Обработчик кликов по миниатюрам в любом списке товаров. После изменения вызывает done().
+function handlePhotoClick(e, done) {
+  const add = e.target.closest('[data-photo]');
+  const del = e.target.closest('[data-photo-del]');
+  if (add) choosePhoto(Number(add.dataset.photo)).then((saved) => saved && done());
+  else if (del) removePhoto(Number(del.dataset.photoDel)).then((saved) => saved && done());
+  return Boolean(add || del);
+}
+
+// Уменьшает фото до 1000 px по большей стороне и сохраняет как JPEG: так база не растёт от снимков с телефона.
+function shrinkPhoto(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, 1000 / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(img.src);
+      resolve(canvas.toDataURL('image/jpeg', 0.85).split(',')[1]);
+    };
+    img.onerror = () => reject(new Error('Не получилось открыть фото. Выберите JPEG, PNG или WebP.'));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+// Открывает выбор файла (на телефоне — и камеру) и сохраняет фото товара.
+function choosePhoto(productId) {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.addEventListener('change', async () => {
+      const file = input.files[0];
+      if (!file) return resolve(null);
+      try {
+        const data = await shrinkPhoto(file);
+        const saved = await api(`/api/products/${productId}/photo`, { method: 'PUT', body: { mime: 'image/jpeg', data } });
+        toast('Фото сохранено');
+        resolve(saved);
+      } catch (err) {
+        toast(err.message, 'error');
+        resolve(null);
+      }
+    });
+    input.click();
+  });
+}
+
+async function removePhoto(productId) {
+  try {
+    const saved = await api(`/api/products/${productId}/photo`, { method: 'DELETE' });
+    toast('Фото удалено');
+    return saved;
+  } catch (err) {
+    toast(err.message, 'error');
+    return null;
+  }
+}
+
+/* ---------- Свой пароль ---------- */
+$('#me-password').addEventListener('click', () => {
+  $('#password-form').reset();
+  $('#password-error').hidden = true;
+  $('#password-dialog').showModal();
+});
+$('#password-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('/api/me/password', { method: 'PUT', body: { current: e.target.elements.current.value, password: e.target.elements.password.value } });
+    // Сессия подписана старым паролем и закончилась — входим заново.
+    location.replace('/login.html');
+  } catch (err) {
+    showFormError('#password-error', err);
+  }
+});
+$('#password-cancel').addEventListener('click', () => $('#password-dialog').close());
+

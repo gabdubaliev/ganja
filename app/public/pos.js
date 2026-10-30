@@ -6,6 +6,8 @@ const pos = {
   cart: [],          // { productId, qty, price }
   payment: 'card',
   busy: false,
+  customer: null,    // покупатель из программы лояльности
+  spend: 0,          // сколько бонусов списать
 };
 
 function renderPick() {
@@ -14,13 +16,15 @@ function renderPick() {
   $('#pos-results').innerHTML = list.length ? list.map((p) => {
     const inCart = pos.cart.find((l) => l.productId === p.id)?.qty || 0;
     const left = p.stock - inCart;
-    return `<button type="button" class="pick ${left <= 0 ? 'out' : ''}" data-id="${p.id}">
+    const photo = photoUrl(p);
+    return `<button type="button" class="pick ${left <= 0 ? 'out' : ''} ${photo ? 'has-photo' : ''}" data-id="${p.id}">
+      ${photo ? `<img class="pick-photo" src="${photo}" alt="" loading="lazy">` : ''}
       <span class="pick-name">${esc(p.name)}</span>
       <span class="pick-price num">${money2(p.price)}</span>
       <span class="pick-meta">${esc([p.code, p.category].filter(Boolean).join(' · ') || 'Без категории')}</span>
       <span class="pick-stock num ${left <= 0 ? 'neg' : ''}">${left <= 0 ? 'нет на складе' : 'осталось ' + qty(left, p.unit)}</span>
     </button>`;
-  }).join('') : `<p class="empty">${catalog.list.length ? 'Ничего не нашлось' : 'Товаров пока нет. Добавьте их в разделе <a href="#products">«Товары»</a>.'}</p>`;
+  }).join('') : `<p class="empty">${catalog.list.length ? 'Ничего не нашлось' : 'Товаров пока нет. Их добавляет администратор или кладовщик.'}</p>`;
 }
 
 function cartTotal() {
@@ -43,16 +47,95 @@ function renderCart() {
     </div>`;
   }).join('') : '<p class="empty">Выберите товары слева или отсканируйте штрихкод</p>';
   const total = cartTotal();
+  const paid = Math.round((total - bonusSpend()) * 100) / 100;
   $('#cart-total').textContent = money2(total);
+  renderCustomer();
+  $('#cart-topay').hidden = !bonusSpend();
+  $('#cart-paid').textContent = money2(paid);
   $('#checkout').disabled = !pos.cart.length || pos.busy;
   $('#cart-clear').hidden = !pos.cart.length;
   for (const b of document.querySelectorAll('#pay [data-pay]')) b.setAttribute('aria-pressed', b.dataset.pay === pos.payment);
   $('#cash-row').hidden = pos.payment !== 'cash';
   const given = parseNum($('#cash-given').value);
   $('#change').textContent = pos.payment === 'cash' && given > 0
-    ? (given >= total ? `Сдача: ${money2(given - total)}` : `Не хватает ${money2(total - given)}`)
+    ? (given >= paid ? `Сдача: ${money2(given - paid)}` : `Не хватает ${money2(paid - given)}`)
     : '';
 }
+
+/* ---------- Покупатель и бонусы ---------- */
+// Бонусами можно оплатить не больше заданного процента чека и не больше, чем есть у покупателя.
+function bonusLimit() {
+  if (!pos.customer) return 0;
+  return Math.max(0, Math.min(pos.customer.bonus, Math.floor(cartTotal() * session.loyalty.maxPay / 100)));
+}
+const bonusSpend = () => Math.min(pos.spend, bonusLimit());
+
+function renderCustomer() {
+  $('#customer-box').hidden = !session.loyalty.enabled;
+  const c = pos.customer;
+  $('#customer-find').hidden = Boolean(c) || !$('#customer-new').hidden;
+  $('#customer-card').hidden = !c;
+  if (!c) return;
+  $('#customer-title').textContent = c.name || phoneText(c.phone);
+  $('#customer-meta').textContent = ` · ${c.name ? phoneText(c.phone) + ' · ' : ''}бонусов ${qtyFmt.format(c.bonus)}`;
+  const limit = bonusLimit();
+  $('#customer-spend-row').hidden = !c.bonus;
+  $('#customer-spend-hint').textContent = limit ? `можно до ${qtyFmt.format(limit)}` : 'добавьте товары в чек';
+  const earn = Math.floor((cartTotal() - bonusSpend()) * session.loyalty.percent / 100);
+  if (pos.cart.length) $('#customer-meta').textContent += ` · за этот чек +${earn}`;
+}
+
+const phoneText = (p) => (p.length === 11 && p[0] === '7' ? `+7 ${p.slice(1, 4)} ${p.slice(4, 7)}-${p.slice(7, 9)}-${p.slice(9)}` : '+' + p);
+
+async function lookupCustomer() {
+  const phone = $('#customer-phone').value;
+  if (!phone.trim()) return;
+  try {
+    const found = await api('/api/customers/by-phone?phone=' + encodeURIComponent(phone));
+    if (found) {
+      pos.customer = found;
+      pos.spend = 0;
+      $('#customer-spend').value = '';
+    } else {
+      $('#customer-new').hidden = false;
+      $('#customer-new-name').focus();
+    }
+    renderCart();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+function clearCustomer() {
+  pos.customer = null;
+  pos.spend = 0;
+  $('#customer-phone').value = '';
+  $('#customer-spend').value = '';
+  $('#customer-new').hidden = true;
+}
+
+$('#customer-lookup').addEventListener('click', lookupCustomer);
+$('#customer-phone').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); lookupCustomer(); } });
+$('#customer-create').addEventListener('click', async () => {
+  try {
+    pos.customer = await api('/api/customers', { method: 'POST', body: { phone: $('#customer-phone').value, name: $('#customer-new-name').value } });
+    $('#customer-new').hidden = true;
+    $('#customer-new-name').value = '';
+    toast('Карта покупателя заведена');
+    renderCart();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+$('#customer-clear').addEventListener('click', () => { clearCustomer(); renderCart(); });
+$('#customer-spend').addEventListener('input', (e) => {
+  pos.spend = Math.max(0, parseNum(e.target.value) || 0);
+  if (pos.spend > bonusLimit()) {
+    pos.spend = bonusLimit();
+    e.target.value = pos.spend || '';
+  }
+  renderCart();
+});
 
 function addToCart(id, amount = 1) {
   const p = catalog.byId(id);
@@ -113,20 +196,24 @@ $('#pay').addEventListener('click', (e) => {
   if (pos.payment === 'cash') $('#cash-given').focus();
 });
 $('#cash-given').addEventListener('input', renderCart);
-$('#cart-clear').addEventListener('click', () => { pos.cart = []; $('#cash-given').value = ''; renderCart(); renderPick(); });
+$('#cart-clear').addEventListener('click', () => { pos.cart = []; $('#cash-given').value = ''; clearCustomer(); renderCart(); renderPick(); });
 
 $('#checkout').addEventListener('click', async () => {
-  const total = cartTotal();
+  const total = cartTotal() - bonusSpend();
   if (pos.payment === 'cash' && $('#cash-given').value && parseNum($('#cash-given').value) < total) {
     return toast('Получено меньше, чем сумма чека', 'error');
   }
   pos.busy = true;
   renderCart();
   try {
-    const sale = await api('/api/sales', { method: 'POST', body: { payment: pos.payment, items: pos.cart } });
-    toast(`Чек №${sale.id} на ${money2(sale.total)} пробит`);
+    const sale = await api('/api/sales', {
+      method: 'POST',
+      body: { payment: pos.payment, items: pos.cart, customerId: pos.customer?.id, bonusSpend: bonusSpend() },
+    });
+    toast(`Чек №${sale.id} на ${money2(sale.total)} пробит${sale.bonusEarned ? `, начислено ${sale.bonusEarned} бонусов` : ''}`);
     pos.cart = [];
     $('#cash-given').value = '';
+    clearCustomer();
     await catalog.load();
   } catch (err) {
     toast(err.message, 'error');
@@ -145,4 +232,5 @@ views.pos = {
     renderCart();
     $('#pos-search').focus();
   },
+  right: 'pos',
 };

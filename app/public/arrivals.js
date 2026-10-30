@@ -111,4 +111,5 @@ views.arrivals = {
     renderArrival();
     renderArrivalHistory();
   },
+  right: 'arrivals',
 };

@@ -381,5 +381,5 @@ $('#notice').addEventListener('click', async (e) => {
   }
 });
 
-views.home = { show: () => { renderPeriods(); load(); } };
+views.home = { show: () => { renderPeriods(); load(); }, right: 'dashboard' };
 setInterval(() => { if (currentView === 'home') load(); }, REFRESH_MS);

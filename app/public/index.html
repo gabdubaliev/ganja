@@ -10,12 +10,18 @@
 <nav class="nav" aria-label="Разделы">
   <div class="nav-inner">
     <span class="logo">Мой магазин</span>
-    <a href="#home" data-admin>Главная</a>
-    <a href="#pos">Касса</a>
-    <a href="#products" data-admin>Товары</a>
-    <a href="#arrivals" data-admin>Приход</a>
-    <a href="#sales">Чеки</a>
-    <a href="#users" data-admin>Сотрудники</a>
+    <a href="#home" data-can="dashboard" hidden>Главная</a>
+    <a href="#products" data-can="products" hidden>Товары</a>
+    <a href="#arrivals" data-can="arrivals" hidden>Приход</a>
+    <a href="#sales" data-can="sales" hidden>Чеки</a>
+    <a href="#kpi" data-can="kpi" hidden>Эффективность</a>
+    <a href="#loyalty" data-can="customers" hidden>Лояльность</a>
+    <a href="#users" data-can="staff" hidden>Сотрудники</a>
+    <a href="#settings" data-can="settings" hidden>Настройки</a>
+    <a href="/kassa.html" target="_blank" class="nav-kassa" data-can="pos" hidden>Касса ↗</a>
+    <span class="nav-user">
+      <button type="button" class="btn small ghost" id="bell" hidden aria-pressed="false"></button>
+    </span>
     <span class="nav-user" id="nav-user" hidden>
       <button type="button" class="btn small ghost" id="me-password" title="Сменить пароль"></button>
       <button type="button" class="btn small ghost" id="logout">Выйти</button>
@@ -87,34 +93,6 @@
   </section>
 </main>
 
-<main class="page" data-view="pos" hidden>
-  <header class="top">
-    <div class="title"><h1>Касса</h1></div>
-  </header>
-  <div class="pos">
-    <section class="panel pos-pick" aria-label="Подбор товаров">
-      <input id="pos-search" class="input big" type="search" placeholder="Название, код или штрихкод" autocomplete="off" aria-label="Найти товар">
-      <div id="pos-results" class="pick-list"></div>
-    </section>
-    <section class="panel pos-cart" aria-label="Чек">
-      <div class="panel-head"><h2>Чек</h2><button type="button" class="btn small ghost" id="cart-clear" hidden>Очистить</button></div>
-      <div id="cart" class="cart"></div>
-      <div class="cart-total"><span>Итого</span><b id="cart-total" class="num">0 ₽</b></div>
-      <div class="seg" id="pay" role="group" aria-label="Оплата">
-        <button type="button" data-pay="card" aria-pressed="true">Картой</button>
-        <button type="button" data-pay="cash" aria-pressed="false">Наличными</button>
-      </div>
-      <div class="field" id="cash-row" hidden>
-        <label for="cash-given">Получено от покупателя</label>
-        <input id="cash-given" class="input num" inputmode="decimal" placeholder="0" autocomplete="off">
-        <span id="change" class="change num"></span>
-      </div>
-      <button type="button" class="btn primary big" id="checkout" disabled>Пробить чек</button>
-      <p class="pick-meta">Чек сохраняется в программе и списывает товар со склада. Фискальный чек для налоговой по-прежнему печатает ваша онлайн-касса.</p>
-    </section>
-  </div>
-</main>
-
 <main class="page" data-view="products" hidden>
   <header class="top">
     <div class="title"><h1>Товары</h1><span class="source" id="products-summary"></span></div>
@@ -184,16 +162,122 @@
   </section>
 </main>
 
+<main class="page" data-view="kpi" hidden>
+  <header class="top">
+    <div class="title"><h1>Эффективность</h1><span class="source" id="kpi-sub"></span></div>
+    <div class="periods" id="kpi-ranges" role="group" aria-label="Период"></div>
+  </header>
+  <section class="kpis" id="kpi-cards" aria-label="Итоги по сотрудникам"></section>
+  <section class="panel">
+    <div class="panel-head">
+      <div><h2>Кто сколько продал</h2><p class="sub">Выручка без возвратов. Штрих — план продаж на этот период.</p></div>
+    </div>
+    <div id="kpi-bars" class="kpi-bars"></div>
+  </section>
+  <section class="panel">
+    <div class="panel-head">
+      <div><h2>Сотрудники и зарплата</h2><p class="sub" id="kpi-note"></p></div>
+    </div>
+    <div class="table-wrap">
+      <table class="kpi-table">
+        <thead><tr>
+          <th>Сотрудник</th><th>Чеки</th><th>Выручка</th><th>Средний чек</th><th>Прибыль</th><th>Возвраты</th>
+          <th title="Чеки, к которым привязан покупатель из программы лояльности">С картой</th><th>План</th><th>Оклад</th><th>% от продаж</th><th>К выплате</th>
+        </tr></thead>
+        <tbody id="kpi-body"></tbody>
+        <tfoot id="kpi-foot"></tfoot>
+      </table>
+    </div>
+  </section>
+</main>
+
+<main class="page" data-view="loyalty" hidden>
+  <header class="top">
+    <div class="title"><h1>Лояльность</h1><span class="source" id="loyalty-summary"></span></div>
+    <div class="tools"><button type="button" class="btn primary" id="customer-add">Добавить покупателя</button></div>
+  </header>
+  <section class="panel">
+    <form id="loyalty-form" class="loyalty-rules" novalidate>
+      <div><h2>Правила бонусов</h2><p class="sub">1 бонус = 1 ₽. Бонусы начисляются на сумму, оплаченную деньгами, и округляются вниз.</p></div>
+      <label class="check"><input type="checkbox" name="enabled"> Программа лояльности включена</label>
+      <div class="field"><label for="lf-percent">Начислять с покупки, %</label><input id="lf-percent" name="percent" class="input num" inputmode="decimal"></div>
+      <div class="field"><label for="lf-max">Оплатить бонусами можно до, % чека</label><input id="lf-max" name="maxPay" class="input num" inputmode="decimal"></div>
+      <button type="submit" class="btn primary" data-can="loyalty">Сохранить правила</button>
+    </form>
+  </section>
+  <section class="panel">
+    <div class="panel-head">
+      <input id="customers-search" class="input search" type="search" placeholder="Найти по имени или телефону" aria-label="Найти покупателя">
+    </div>
+    <div class="table-wrap">
+      <table class="customers-table">
+        <thead><tr><th>Покупатель</th><th>Телефон</th><th>Бонусы</th><th>С нами с</th><th></th></tr></thead>
+        <tbody id="customers-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<main class="page" data-view="settings" hidden>
+  <header class="top"><div class="title"><h1>Настройки</h1></div></header>
+  <section class="panel">
+    <form id="telegram-form" class="settings-form" novalidate>
+      <div>
+        <h2>Уведомления о продажах в Telegram</h2>
+        <p class="sub">О каждом чеке с кассы придёт сообщение: кассир, сумма, товары и бонусы. В открытой программе уведомления видят администратор и управляющий, а в Telegram они приходят, даже когда программа закрыта.</p>
+      </div>
+      <ol class="steps">
+        <li>В Telegram откройте <b>@BotFather</b>, отправьте <code>/newbot</code> и придумайте имя. BotFather пришлёт токен — вставьте его ниже.</li>
+        <li>Напишите своему боту любое сообщение (или добавьте его в группу, куда должны приходить уведомления).</li>
+        <li>Узнайте ID чата: например, у бота <b>@userinfobot</b> для себя. У группы ID начинается с минуса.</li>
+      </ol>
+      <div class="field"><label for="tg-token">Токен бота</label><input id="tg-token" name="token" class="input" autocomplete="off" placeholder="123456789:AAE…"></div>
+      <div class="field"><label for="tg-chat">ID чата</label><input id="tg-chat" name="chatId" class="input num" autocomplete="off" placeholder="Например, 123456789 или -1001234567890"></div>
+      <label class="check"><input type="checkbox" name="enabled"> Присылать уведомление о каждой продаже</label>
+      <p class="form-error" id="telegram-error" role="alert" hidden></p>
+      <div class="form-actions start">
+        <button type="submit" class="btn primary">Сохранить</button>
+        <button type="button" class="btn" id="telegram-test">Отправить пробное</button>
+      </div>
+    </form>
+  </section>
+</main>
+
+<dialog id="customer-dialog" class="wide" aria-labelledby="customer-dialog-title">
+  <form id="customer-form" novalidate>
+    <h2 id="customer-dialog-title">Покупатель</h2>
+    <div class="form-grid">
+      <div class="field"><label for="cf-phone">Телефон</label><input id="cf-phone" name="phone" class="input" inputmode="tel" required autocomplete="off" placeholder="+7 900 000-00-00"></div>
+      <div class="field"><label for="cf-name">Имя</label><input id="cf-name" name="name" class="input" autocomplete="off" placeholder="Необязательно"></div>
+    </div>
+    <div id="customer-bonus" hidden>
+      <p class="balance">Бонусов: <b class="num" id="customer-balance"></b></p>
+      <div class="bonus-adjust" data-can="loyalty">
+        <div class="field"><label for="cf-delta">Добавить или списать (со знаком минус)</label><input id="cf-delta" name="delta" class="input num" inputmode="decimal" autocomplete="off" placeholder="Например, 500 или −200"></div>
+        <div class="field grow"><label for="cf-reason">Причина</label><input id="cf-reason" name="reason" class="input" autocomplete="off" placeholder="Например, подарок на день рождения"></div>
+        <button type="button" class="btn" id="bonus-apply">Изменить бонусы</button>
+      </div>
+      <h3>История бонусов</h3>
+      <div id="customer-history" class="history"></div>
+    </div>
+    <p class="form-error" id="customer-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="customer-cancel">Закрыть</button>
+      <button type="submit" class="btn primary" id="customer-save">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
 <main class="page" data-view="users" hidden>
   <header class="top">
     <div class="title"><h1>Сотрудники</h1><span class="source" id="users-summary"></span></div>
     <div class="tools"><button type="button" class="btn primary" id="user-add">Добавить сотрудника</button></div>
   </header>
   <section class="panel">
-    <p class="sub" id="users-hint">Администратор видит и меняет всё. Продавец работает на кассе и видит чеки, но не может менять товары, приход, возвраты и сотрудников.</p>
+    <ul class="roles-help" id="roles-help"></ul>
     <div class="table-wrap">
       <table class="users-table">
-        <thead><tr><th>Сотрудник</th><th>Роль</th><th>Доступ</th><th>Добавлен</th><th></th></tr></thead>
+        <thead><tr><th>Сотрудник</th><th>Роль</th><th>Оклад в месяц</th><th>% от продаж</th><th>План в месяц</th><th>Доступ</th><th></th></tr></thead>
         <tbody id="users-body"></tbody>
       </table>
     </div>
@@ -207,9 +291,13 @@
       <div class="field wide"><label for="uf-email">Email для входа</label><input id="uf-email" name="email" type="email" class="input" required autocomplete="off"></div>
       <div class="field wide"><label for="uf-name">Имя</label><input id="uf-name" name="name" class="input" autocomplete="off" placeholder="Необязательно"></div>
       <div class="field"><label for="uf-role">Роль</label>
-        <select id="uf-role" name="role" class="input"><option value="seller">Продавец</option><option value="admin">Администратор</option></select>
+        <select id="uf-role" name="role" class="input"></select>
       </div>
       <div class="field"><label for="uf-password" id="uf-password-label">Пароль</label><input id="uf-password" name="password" type="password" class="input" autocomplete="new-password" minlength="8"></div>
+      <p class="sub wide" id="uf-role-about"></p>
+      <div class="field"><label for="uf-salary">Оклад в месяц, ₽</label><input id="uf-salary" name="salary" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+      <div class="field"><label for="uf-percent">Процент от продаж, %</label><input id="uf-percent" name="percent" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+      <div class="field"><label for="uf-plan">План продаж в месяц, ₽</label><input id="uf-plan" name="plan" class="input num" inputmode="decimal" autocomplete="off" placeholder="Без плана"></div>
       <label class="check wide" id="user-disabled-field"><input type="checkbox" id="uf-disabled" name="disabled"> Закрыть доступ (сотрудник не сможет войти)</label>
     </div>
     <p class="form-error" id="user-error" role="alert" hidden></p>
@@ -282,13 +370,15 @@
 
 <script src="common.js"></script>
 <script src="dashboard.js"></script>
-<script src="pos.js"></script>
 <script src="products.js"></script>
 <script src="arrivals.js"></script>
 <script src="sales.js"></script>
 <script src="xlsx.js"></script>
 <script src="import.js"></script>
+<script src="kpi.js"></script>
+<script src="loyalty.js"></script>
 <script src="users.js"></script>
+<script src="settings.js"></script>
 <script>session.ready.then(route);</script>
 </body>
 </html>

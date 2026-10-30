@@ -22,8 +22,9 @@ async function renderSales() {
     return toast(err.message, 'error');
   }
   const done = list.filter((s) => !s.refunded_at);
-  const sum = done.reduce((s, x) => s + x.total, 0);
-  const card = done.filter((s) => s.payment === 'card').reduce((s, x) => s + x.total, 0);
+  // Деньгами — без части, оплаченной бонусами.
+  const sum = done.reduce((s, x) => s + x.total - x.bonus_spent, 0);
+  const card = done.filter((s) => s.payment === 'card').reduce((s, x) => s + x.total - x.bonus_spent, 0);
   $('#sales-summary').innerHTML = `
     <span><b class="num">${done.length}</b> ${plural(done.length, ['чек', 'чека', 'чеков'])}</span>
     <span>на <b class="num">${money2(sum)}</b></span>
@@ -34,11 +35,12 @@ async function renderSales() {
       <summary>
         <span class="num">№${s.id}</span>
         <span>${dateTime(s.created_at)}</span>
-        <span class="pick-meta">${s.payment === 'card' ? 'картой' : 'наличными'}${s.refunded_at ? ' · возврат' : ''}</span>
+        <span class="pick-meta">${s.payment === 'card' ? 'картой' : 'наличными'}${s.user_name ? ' · ' + esc(s.user_name) : ''}${s.refunded_at ? ' · возврат' : ''}</span>
         <b class="num">${money2(s.total)}</b>
       </summary>
       <ul>${s.items.map((i) => `<li><span>${esc(i.name)}</span><span class="num">${qtyFmt.format(i.qty)} × ${money2(i.price)} = ${money2(i.qty * i.price)}</span></li>`).join('')}</ul>
-      ${s.refunded_at ? `<p class="pick-meta">Возврат оформлен ${dateTime(s.refunded_at)}, товар вернулся на склад.</p>` : `
+      ${s.customer_id ? `<p class="pick-meta">Покупатель: ${esc(s.customer_name || '+' + s.customer_phone)}${s.bonus_spent ? ` · оплачено бонусами ${money2(s.bonus_spent)}` : ''}${s.bonus_earned ? ` · начислено ${int(s.bonus_earned)} бонусов` : ''}</p>` : ''}
+      ${s.refunded_at ? `<p class="pick-meta">Возврат оформлен ${dateTime(s.refunded_at)}, товар вернулся на склад.</p>` : !session.can('refund') ? '' : `
         <div class="doc-actions">
           <button type="button" class="btn small ${salesView.confirm === s.id ? 'danger' : 'ghost'}" data-refund="${s.id}">
             ${salesView.confirm === s.id ? 'Нажмите ещё раз, чтобы вернуть' : 'Оформить возврат'}
@@ -73,4 +75,5 @@ $('#sales-list').addEventListener('click', async (e) => {
   renderSales();
 });
 
-views.sales = { show: () => { salesView.confirm = null; renderSales(); } };
+// В окне кассы раздел показывает свои чеки кассира, в программе — все чеки.
+views.sales = { show: () => { salesView.confirm = null; renderSales(); }, right: IS_KASSA ? 'pos' : 'sales' };

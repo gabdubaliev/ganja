@@ -24,7 +24,7 @@ async function renderProducts() {
   $('#products-body').innerHTML = rows.length ? rows.map((p) => {
     const m = markup(p);
     return `<tr>
-      <td><div class="pname">${esc(p.name)}</div>${p.category ? `<div class="pcat">${esc(p.category)}</div>` : ''}</td>
+      <td><div class="with-thumb">${photoCell(p)}<div><div class="pname">${esc(p.name)}</div>${p.category ? `<div class="pcat">${esc(p.category)}</div>` : ''}</div></div></td>
       <td class="num">${esc(p.code) || '—'}</td>
       <td class="num">${esc(p.barcode) || '—'}</td>
       <td>${money2(p.price)}</td>
@@ -105,6 +105,7 @@ $('#stock-form').addEventListener('submit', async (e) => {
 $('#stock-cancel').addEventListener('click', () => $('#stock-dialog').close());
 
 $('#products-body').addEventListener('click', async (e) => {
+  if (handlePhotoClick(e, () => { renderProducts(); })) return;
   const edit = e.target.closest('[data-edit]');
   const stock = e.target.closest('[data-stock]');
   if (edit) {
@@ -123,4 +124,4 @@ $('#product-add').addEventListener('click', () => openProductDialog(null, render
 $('#products-search').addEventListener('input', (e) => { productsView.query = e.target.value; renderProducts(); });
 $('#products-archived').addEventListener('change', (e) => { productsView.archived = e.target.checked; renderProducts(); });
 
-views.products = { show: renderProducts };
+views.products = { show: renderProducts, right: 'products' };
