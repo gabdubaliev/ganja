@@ -15,8 +15,10 @@ function eanValid(code) {
 }
 
 // SVG штрихкода EAN-13 или null, если код не EAN-13.
-// stretch — растянуть по ширине контейнера (на этикетке): полосы шире, сканер читает увереннее.
-function barcodeSvg(code, { height = 50, stretch = false } = {}) {
+// module — ширина самой узкой полосы в миллиметрах для печати. Термопринтер печатает точками
+// (203 точки на дюйм = 0,125 мм), и полоса ровно в целое число точек выходит чёткой —
+// так сканер читает код увереннее. Без module картинка подстраивается под место на экране.
+function barcodeSvg(code, { height = 50, module = 0, barsMm = 0 } = {}) {
   if (!eanValid(code)) return null;
   const d = [...code].map(Number);
   let bits = '101';
@@ -33,15 +35,17 @@ function barcodeSvg(code, { height = 50, stretch = false } = {}) {
     if (bits[i] === '1') bars += `<rect x="${i + quiet}" y="0" width="1" height="${guard.has(i) ? height + 5 : height}"/>`;
   }
   const t = (x, s) => `<text x="${x}" y="${height + 12}" font-size="10" text-anchor="middle">${s}</text>`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height + 14}"${stretch ? ' preserveAspectRatio="none"' : ''} class="barcode" role="img" aria-label="Штрихкод ${code}">
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height + 14}"${module ? ` width="${(width * module).toFixed(3)}mm" height="${barsMm}mm" preserveAspectRatio="none"` : ''} shape-rendering="crispEdges" class="barcode" role="img" aria-label="Штрихкод ${code}">
     <rect width="100%" height="100%" fill="#fff"/><g fill="#000">${bars}</g>
     <g font-family="monospace" fill="#000">${t(4, code[0])}${t(quiet + 3 + 21, code.slice(1, 7))}${t(quiet + 50 + 21, code.slice(7))}</g></svg>`;
 }
 
+// module: 3 точки термоголовки 203 dpi = 0,375 мм — штрихкод 42 мм, помещается на 58 мм с полями.
+// Для 40×30 — 2 точки (0,25 мм, код 28 мм). Для A4 (лазерный или струйный) — стандартные 0,33 мм.
 const LABEL_FORMATS = {
-  thermal: { name: 'Термопринтер 58×40 мм', page: '58mm 40mm', cols: 1, w: '58mm', h: '40mm' },
-  small: { name: 'Термопринтер 40×30 мм', page: '40mm 30mm', cols: 1, w: '40mm', h: '30mm' },
-  a4: { name: 'Лист A4, 3×8 наклеек', page: 'A4', cols: 3, w: '70mm', h: '37mm' },
+  thermal: { name: 'Термопринтер 58×40 мм (Xprinter XP-365B и похожие)', page: '58mm 40mm', cols: 1, w: '58mm', h: '40mm', module: 0.375, bars: 13 },
+  small: { name: 'Термопринтер 40×30 мм', page: '40mm 30mm', cols: 1, w: '40mm', h: '30mm', module: 0.25, bars: 9 },
+  a4: { name: 'Лист A4, 3×8 наклеек', page: 'A4', cols: 3, w: '70mm', h: '37mm', module: 0.33, bars: 14 },
 };
 
 // Окно печати этикеток. items — [{ product, count }].
@@ -49,7 +53,7 @@ function printLabels(items, format = 'thermal', { showPrice = true } = {}) {
   const f = LABEL_FORMATS[format];
   const shop = session.design?.name || '';
   const labels = items.flatMap(({ product: p, count }) => Array.from({ length: count }, () => {
-    const svg = p.barcode ? barcodeSvg(p.barcode, { stretch: true }) : null;
+    const svg = p.barcode ? barcodeSvg(p.barcode, { module: f.module, barsMm: f.bars }) : null;
     return `<div class="label">
       <div class="shop">${esc(shop)}</div>
       <div class="name">${esc(p.name)}</div>
@@ -64,16 +68,19 @@ function printLabels(items, format = 'thermal', { showPrice = true } = {}) {
     * { box-sizing: border-box; }
     body { margin: 0; font-family: system-ui, Arial, sans-serif; color: #000; }
     .sheet { display: grid; grid-template-columns: repeat(${f.cols}, ${f.w}); justify-content: center; }
-    .label { width: ${f.w}; height: ${f.h}; padding: 2mm 3mm; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; break-inside: avoid; page-break-inside: avoid; ${f.cols === 1 ? 'page-break-after: always;' : ''} }
-    .shop { font-size: 7pt; color: #444; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .label { width: ${f.w}; height: ${f.h}; padding: 1.5mm 3mm; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; break-inside: avoid; page-break-inside: avoid; ${f.cols === 1 ? 'page-break-after: always;' : ''} }
+    /* После последней этикетки разрыв не нужен, иначе принтер прогонит пустую. */
+    .label:last-child { page-break-after: auto; }
+    /* Термопринтер не печатает серый — только чёрный. */
+    .shop { font-size: 7pt; color: #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .name { font-size: ${format === 'small' ? '7pt' : '8.5pt'}; font-weight: 600; line-height: 1.15; max-height: 2.4em; overflow: hidden; }
     .price { font-size: ${format === 'small' ? '12pt' : '15pt'}; font-weight: 800; }
-    .barcode { width: 100%; height: ${format === 'small' ? '11mm' : '14mm'}; }
+    .barcode { display: block; margin: 0 auto; }
     .code { font: 9pt monospace; }
     .hint { font: 14px system-ui; padding: 12px; text-align: center; background: #fff7d6; }
     @media print { .hint { display: none; } }
   </style></head><body>
-    <p class="hint">Проверьте в окне печати размер бумаги и масштаб 100%. Нажмите «Печать», если окно не открылось само.</p>
+    <p class="hint">В окне печати выберите принтер, размер бумаги ${esc(f.name.split(' (')[0].replace(/^Термопринтер /, ''))}, поля «Нет», масштаб 100% и отключите «Верхние и нижние колонтитулы». Нажмите «Печать», если окно не открылось само.</p>
     <div class="sheet">${labels}</div>
     <script>addEventListener('load', () => setTimeout(() => print(), 300));<\/script>
   </body></html>`);
