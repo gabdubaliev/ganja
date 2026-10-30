@@ -476,7 +476,7 @@ async function loadCashDesk() {
       const cash = sh.byMethod.filter((m) => m.kind === 'cash').reduce((s, m) => s + m.sum, 0);
       const other = sh.byMethod.filter((m) => m.kind !== 'cash');
       return `<tr>
-        <td><span class="live-dot" aria-hidden="true"></span><b>${esc(sh.user_name || '—')}</b></td>
+        <td><span class="live-dot" aria-hidden="true"></span><b>${esc(sh.user_name || '—')}</b>${sh.register_name ? `<div class="pcat">${esc(sh.register_name)}</div>` : ''}</td>
         <td>${new Date(sh.opened_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}<div class="pcat">${new Date(sh.opened_at).toDateString() === new Date().toDateString() ? '' : new Date(sh.opened_at).toLocaleDateString('ru-RU') + ' · '}идёт ${durationText(Date.now() - sh.opened_at)}</div></td>
         <td>${int(sh.receipts)}</td>
         <td>${money(cash)}</td>

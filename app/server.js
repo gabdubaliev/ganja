@@ -285,7 +285,14 @@ const routes = [
     const sh = user && store.currentShift(user.id);
     return sh ? store.getShift(sh.id) : null;
   }, 'pos'],
-  ['POST', '/api/shift/open', (p, url, body, user) => store.openShift(user), 'pos'],
+  ['POST', '/api/shift/open', (p, url, body, user) => store.openShift(user, body.register_id), 'pos'],
+  ['GET', '/api/registers', (p, url) => (url.searchParams.get('overview') === '1' ? store.registersOverview() : store.listRegisters()), 'any'],
+  ['POST', '/api/registers', (p, url, body) => store.saveRegister(null, body), 'settings'],
+  ['PUT', '/api/registers/:id', (p, url, body) => store.saveRegister(p.id, body), 'settings'],
+  ['GET', '/api/accounts', (p, url) => ({ accounts: store.accounts(range(url)), ops: store.accountOps(range(url)) }), 'accounts'],
+  ['POST', '/api/accounts/ops', (p, url, body, user) => store.addAccountOp(body, user), 'accounts'],
+  ['DELETE', '/api/accounts/ops/:id', (p) => store.deleteAccountOp(p.id), 'accounts'],
+  ['PUT', '/api/accounts/:id/opening', (p, url, body) => store.setOpeningBalance(p.id, body.opening), 'accounts'],
   ['POST', '/api/shift/close', (p, url, body, user) => store.closeShift(user), 'pos'],
   ['GET', '/api/shifts', (p, url) => store.listShifts(range(url)), ['shifts', 'kpi']],
   ['POST', '/api/shifts', (p, url, body, user) => store.saveShift(null, body, user), 'shifts'],
@@ -494,6 +501,11 @@ const AUDIT_LABELS = {
   'POST /api/docs/:id/unpost': 'Отменил проведение документа',
   'DELETE /api/docs/:id': 'Удалил документ',
   'POST /api/suppliers': 'Добавил поставщика',
+  'POST /api/registers': 'Добавил кассу',
+  'PUT /api/registers/:id': 'Изменил кассу',
+  'POST /api/accounts/ops': 'Операция по счёту',
+  'DELETE /api/accounts/ops/:id': 'Удалил операцию по счёту',
+  'PUT /api/accounts/:id/opening': 'Изменил начальный остаток счёта',
   'PUT /api/suppliers/:id': 'Изменил поставщика',
   'DELETE /api/suppliers/:id': 'Удалил поставщика',
   'POST /api/demo': 'Загрузил пример магазина',
@@ -569,6 +581,11 @@ function auditDetails(key, params, body, result) {
     case 'POST /api/docs/:id/post':
     case 'POST /api/docs/:id/unpost':
     case 'DELETE /api/docs/:id': return docTitle(r);
+    case 'POST /api/registers':
+    case 'PUT /api/registers/:id': return `${r.name}${r.active === 0 ? ' (выключена)' : ''}`;
+    case 'POST /api/accounts/ops': return `${({ deposit: 'Внесение', withdraw: 'Изъятие', transfer: 'Перевод' })[r.kind]}: ${r.account}${r.to ? ` → ${r.to}` : ''}, ${r.amount} сом${body.note ? ` — ${body.note}` : ''}`;
+    case 'DELETE /api/accounts/ops/:id': return `${r.amount} сом — ${r.note}`;
+    case 'PUT /api/accounts/:id/opening': return `${r.name}: ${r.opening} сом`;
     case 'POST /api/suppliers':
     case 'PUT /api/suppliers/:id':
     case 'DELETE /api/suppliers/:id': return r.name;

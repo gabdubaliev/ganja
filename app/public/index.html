@@ -206,6 +206,28 @@
   </section>
 </main>
 
+<main class="page" data-view="accounts" hidden>
+  <header class="top">
+    <div class="title"><h1>Счета</h1><span class="source" id="acc-sub"></span></div>
+    <div class="periods" id="acc-ranges" role="group" aria-label="Период"></div>
+  </header>
+  <div class="acc-list" id="acc-list"></div>
+  <section class="panel">
+    <div class="panel-head"><div><h2>Внесения, изъятия и переводы</h2><p class="sub">Остаток счёта = начальный остаток + оплаты чеков − комиссия банка − возвраты − оплаченные закупки ± эти операции.</p></div></div>
+    <div class="table-wrap">
+      <table class="docs-table"><thead><tr><th>Когда</th><th>Счёт</th><th>Операция</th><th>Комментарий</th><th>Сумма</th><th></th></tr></thead><tbody id="acc-ops"></tbody></table>
+    </div>
+  </section>
+</main>
+
+<main class="page" data-view="registers" hidden>
+  <header class="top">
+    <div class="title"><h1>Кассы</h1><span class="source">рабочие места: смена открывается на конкретной кассе</span></div>
+    <div class="tools"><button type="button" class="btn primary" id="reg-add" hidden>Добавить кассу</button></div>
+  </header>
+  <div class="acc-list" id="reg-list"></div>
+</main>
+
 <main class="page" data-view="suppliers" hidden>
   <header class="top">
     <div class="title"><h1>Поставщики</h1></div>
@@ -1021,6 +1043,22 @@
   </form>
 </dialog>
 
+<dialog id="acc-dialog" aria-labelledby="acc-title">
+  <form id="acc-form" novalidate>
+    <h2 id="acc-title">Операция</h2>
+    <div class="form-grid">
+      <div class="field"><label for="ac-amount">Сумма, сом</label><input id="ac-amount" name="amount" class="input big num" inputmode="decimal" autocomplete="off" required></div>
+      <div class="field" id="acc-to-row" hidden><label for="ac-to">На какой счёт</label><select id="ac-to" name="to" class="input"></select></div>
+      <div class="field wide"><label for="ac-note">Комментарий</label><input id="ac-note" name="note" class="input" autocomplete="off"></div>
+    </div>
+    <p class="form-error" id="acc-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="acc-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Записать</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="supplier-dialog" aria-labelledby="supplier-title">
   <form id="supplier-form" novalidate>
     <h2 id="supplier-title">Поставщик</h2>
@@ -1171,6 +1209,7 @@
 <script src="dashboard.js"></script>
 <script src="products.js"></script>
 <script src="docs.js"></script>
+<script src="refs.js"></script>
 <script src="sales.js"></script>
 <script src="labels.js"></script>
 <script src="xlsx.js"></script>

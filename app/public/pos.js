@@ -603,19 +603,24 @@ $('#checkout').addEventListener('click', async () => {
 async function loadShift() {
   if (!session.user) return;
   try {
-    pos.shift = await api('/api/shift');
+    [pos.shift, pos.registers] = await Promise.all([api('/api/shift'), api('/api/registers')]);
   } catch {
     return;
   }
   const sh = pos.shift;
+  // Касса запоминается в этом браузере: на одном компьютере обычно одна и та же касса.
+  let saved = null;
+  try { saved = Number(localStorage.getItem('kassa.register')) || null; } catch {}
+  const regs = pos.registers;
+  const regSelect = regs.length > 1 ? `<select id="shift-register" class="input" aria-label="Касса">${regs.map((r) => `<option value="${r.id}" ${r.id === saved ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}</select>` : '';
   const bar = $('#shift-bar');
   bar.hidden = false;
   bar.className = 'shift-bar ' + (sh ? 'open' : 'closed');
   bar.innerHTML = sh
-    ? `<span>Смена открыта с <b>${new Date(sh.opened_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</b> · ${int(sh.receipts)} ${plural(sh.receipts, ['чек', 'чека', 'чеков'])} на <b>${money2(sh.revenue)}</b>${sh.byMethod.length ? ' · ' + sh.byMethod.map((m) => `${esc(m.name)} <b>${money2(m.sum)}</b>${m.commission ? ` <small>(комиссия −${money2(m.commission)})</small>` : ''}`).join(', ') : ''}</span>
+    ? `<span>${sh.register_name ? `<b>${esc(sh.register_name)}</b> · ` : ''}Смена открыта с <b>${new Date(sh.opened_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</b> · ${int(sh.receipts)} ${plural(sh.receipts, ['чек', 'чека', 'чеков'])} на <b>${money2(sh.revenue)}</b>${sh.byMethod.length ? ' · ' + sh.byMethod.map((m) => `${esc(m.name)} <b>${money2(m.sum)}</b>${m.commission ? ` <small>(комиссия −${money2(m.commission)})</small>` : ''}`).join(', ') : ''}</span>
        <button type="button" class="btn small" id="shift-close">Закрыть смену</button>`
     : `<span>Смена не открыта. Откройте её в начале рабочего дня — по сменам считается зарплата.</span>
-       <button type="button" class="btn small primary" id="shift-open">Открыть смену</button>`;
+       <span class="shift-actions">${regSelect}<button type="button" class="btn small primary" id="shift-open">Открыть смену</button></span>`;
 }
 
 $('#shift-bar').addEventListener('click', async (e) => {
@@ -628,8 +633,10 @@ $('#shift-bar').addEventListener('click', async (e) => {
     return;
   }
   try {
-    const sh = await api(open ? '/api/shift/open' : '/api/shift/close', { method: 'POST' });
-    toast(open ? 'Смена открыта. Хорошей работы!' : `Смена закрыта: ${sh.receipts} ${plural(sh.receipts, ['чек', 'чека', 'чеков'])} на ${money2(sh.revenue)}, в кассе наличными ${money2(sh.cash)}`);
+    const registerId = Number($('#shift-register')?.value) || null;
+    if (registerId) try { localStorage.setItem('kassa.register', registerId); } catch {}
+    const sh = await api(open ? '/api/shift/open' : '/api/shift/close', { method: 'POST', body: open ? { register_id: registerId } : undefined });
+    toast(open ? `Смена открыта${sh.register_name ? ` на «${sh.register_name}»` : ''}. Хорошей работы!` : `Смена закрыта: ${sh.receipts} ${plural(sh.receipts, ['чек', 'чека', 'чеков'])} на ${money2(sh.revenue)}, в кассе наличными ${money2(sh.cash)}`);
     loadShift();
   } catch (err) {
     toast(err.message, 'error');

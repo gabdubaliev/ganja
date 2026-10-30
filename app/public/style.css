@@ -1118,3 +1118,20 @@ button.inv-option:hover { border-color: var(--series); box-shadow: var(--shadow-
 .doc-table td:nth-child(n+2), .doc-table th:nth-child(n+2) { text-align: right; }
 .doc-customer { padding: 8px 0; }
 @media (max-width: 640px) { .doc-switch button { padding: 8px 12px; } }
+
+/* ---------- Счета и кассы ---------- */
+.acc-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; margin-bottom: 18px; }
+.acc-card { display: grid; gap: 10px; align-content: start; padding: 18px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow-sm); }
+.acc-card.cash { background: color-mix(in srgb, #1a9d55 6%, var(--surface)); }
+.acc-card.off { opacity: .6; }
+.acc-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.acc-head .input { font-weight: 650; }
+.acc-balance { font-size: 30px; font-weight: 800; letter-spacing: -0.03em; }
+.acc-flows { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; margin: 0; font-size: 13px; }
+.acc-flows dt { color: var(--ink-2); }
+.acc-flows dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.acc-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.acc-actions .link { margin-left: auto; font-size: 12px; }
+.reg-open { padding: 8px 10px; border-radius: 10px; background: var(--surface-2); }
+.shift-actions { display: inline-flex; gap: 6px; align-items: center; }
+.shift-actions select { width: auto; }

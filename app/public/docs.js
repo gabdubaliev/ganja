@@ -106,7 +106,7 @@ async function showDoc() {
   try {
     await catalog.load();
     const k = doc.data.kind;
-    if (['sale', 'return'].includes(k) && !doc.methods.length) doc.methods = await api('/api/payment-methods?mine=1');
+    if (['sale', 'return', 'purchase'].includes(k) && !doc.methods.length) doc.methods = await api('/api/payment-methods?mine=1');
     if (k === 'purchase') doc.suppliers = await api('/api/suppliers');
     if (k === 'transfer') doc.branches = await api('/api/branches').then((r) => r.branches.filter((b) => !b.current)).catch(() => []);
   } catch (err) { toast(err.message, 'error'); }
@@ -137,10 +137,10 @@ function renderDoc() {
       <option value="">— не указан —</option>${doc.suppliers.map((s) => `<option value="${s.id}" ${s.id === d.supplier_id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
       ${ro ? '' : '<button type="button" class="btn small" id="doc-supplier-new">+ Новый</button>'}</div></div>`);
   }
-  if (['sale', 'return'].includes(k)) {
-    fields.push(`<div class="field"><label for="doc-method">${k === 'sale' ? 'Способ оплаты' : 'Как вернули деньги'}</label><select id="doc-method" class="input" ${ro ? 'disabled' : ''}>
-      <option value="">— выберите —</option>${doc.methods.map((m) => `<option value="${m.id}" ${m.id === d.method_id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select></div>`);
-    fields.push(`<div class="field"><label for="doc-customer-phone">Покупатель (необязательно)</label>${doc.customer
+  if (['sale', 'return', 'purchase'].includes(k)) {
+    fields.push(`<div class="field"><label for="doc-method">${k === 'sale' ? 'Способ оплаты' : k === 'return' ? 'Как вернули деньги' : 'Оплачено со счёта (необязательно)'}</label><select id="doc-method" class="input" ${ro ? 'disabled' : ''}>
+      <option value="">${k === 'purchase' ? '— не оплачено / не учитывать —' : '— выберите —'}</option>${doc.methods.map((m) => `<option value="${m.id}" ${m.id === d.method_id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select></div>`);
+    if (k !== 'purchase') fields.push(`<div class="field"><label for="doc-customer-phone">Покупатель (необязательно)</label>${doc.customer
       ? `<div class="row-input"><b class="doc-customer">${esc(doc.customer.name || '')}</b>${ro ? '' : '<button type="button" class="btn small ghost" id="doc-customer-clear">Убрать</button>'}</div>`
       : ro ? '<span class="pick-meta">—</span>' : '<div class="row-input"><input id="doc-customer-phone" class="input" inputmode="tel" placeholder="Телефон" autocomplete="off"><button type="button" class="btn small" id="doc-customer-find">Найти</button></div>'}</div>`);
   }

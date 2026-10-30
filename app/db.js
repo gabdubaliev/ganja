@@ -332,6 +332,33 @@ function open(file) {
     db.prepare("INSERT INTO settings (key, value) VALUES ('docs_migrated', '1')").run();
   }
 
+  // Счета — это способы оплаты как места, где лежат деньги (касса наличных, МБАНК…):
+  // начальный остаток + оплаты чеков − комиссия − возвраты − оплаченные закупки ± ручные операции.
+  addColumns('payment_methods', [['opening_balance', 'REAL NOT NULL DEFAULT 0']]);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS account_ops (
+      id INTEGER PRIMARY KEY,
+      method_id INTEGER NOT NULL,
+      at INTEGER NOT NULL,
+      amount REAL NOT NULL,
+      kind TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      pair_id INTEGER,
+      user_name TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS account_ops_at ON account_ops(at);
+    -- Кассы (рабочие места): смена открывается на конкретной кассе.
+    CREATE TABLE IF NOT EXISTS registers (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1,
+      sort INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+  `);
+  addColumns('shifts', [['register_id', 'INTEGER']]);
+  if (!db.prepare('SELECT 1 FROM registers').get()) db.prepare("INSERT INTO registers (name, sort, created_at) VALUES ('Касса 1', 1, ?)").run(Date.now());
+
   // Задания сотрудникам: open — в работе, done — сотрудник отметил «Выполнено» и ждёт проверки,
   // approved — проверено и принято, returned — возвращено на доработку.
   db.exec(`
@@ -1385,10 +1412,13 @@ function createStore(file) {
       return db.prepare('SELECT * FROM shifts WHERE user_id = ? AND closed_at IS NULL ORDER BY opened_at DESC LIMIT 1').get(Number(userId)) || null;
     },
 
-    openShift(user) {
+    openShift(user, registerId = null) {
       if (!user) throw new UserError('Смену открывает сотрудник: сначала войдите');
       if (this.currentShift(user.id)) throw new UserError('Смена уже открыта');
-      const { lastInsertRowid } = db.prepare('INSERT INTO shifts (user_id, opened_at) VALUES (?, ?)').run(user.id, Date.now());
+      const registers = this.listRegisters();
+      const reg = registerId ? registers.find((r) => r.id === Number(registerId)) : registers.length === 1 ? registers[0] : null;
+      if (!reg) throw new UserError(registerId ? 'Касса не найдена или выключена' : 'Выберите кассу');
+      const { lastInsertRowid } = db.prepare('INSERT INTO shifts (user_id, opened_at, register_id) VALUES (?, ?, ?)').run(user.id, Date.now(), reg.id);
       return this.getShift(lastInsertRowid);
     },
 
@@ -1401,7 +1431,8 @@ function createStore(file) {
 
     // Смена с итогами: сколько чеков и на какую сумму пробито.
     getShift(id) {
-      const sh = db.prepare(`SELECT sh.*, COALESCE(u.name, u.email, '') AS user_name FROM shifts sh LEFT JOIN users u ON u.id = sh.user_id WHERE sh.id = ?`).get(Number(id));
+      const sh = db.prepare(`SELECT sh.*, COALESCE(u.name, u.email, '') AS user_name, r.name AS register_name FROM shifts sh
+        LEFT JOIN users u ON u.id = sh.user_id LEFT JOIN registers r ON r.id = sh.register_id WHERE sh.id = ?`).get(Number(id));
       if (!sh) throw new UserError('Смена не найдена');
       const inShift = `s.refunded_at IS NULL AND ((s.shift_id = ?) OR (s.shift_id IS NULL AND s.user_id = ? AND s.created_at >= ? AND s.created_at < ?))`;
       const args = [sh.id, sh.user_id, sh.opened_at, sh.closed_at || Date.now()];
@@ -1974,6 +2005,104 @@ function createStore(file) {
       return db.prepare(`SELECT i.reason, COUNT(*) AS lines, SUM(i.qty * i.cost) AS cost, SUM(i.qty * i.price) AS price
         FROM doc_items i JOIN docs d ON d.id = i.doc_id WHERE d.kind = 'writeoff' AND d.status = 'posted' AND d.doc_date >= ? AND d.doc_date < ?
         GROUP BY i.reason ORDER BY cost DESC`).all(from, to).map((r) => ({ ...r, cost: round2(r.cost), price: round2(r.price) }));
+    },
+
+    /* ---------- Кассы ---------- */
+    listRegisters({ all = false } = {}) {
+      return db.prepare(`SELECT * FROM registers ${all ? '' : 'WHERE active = 1'} ORDER BY sort, id`).all().map((r) => ({ ...r, active: Boolean(r.active) }));
+    },
+
+    // Кассы с тем, кто сейчас на них работает, и выручкой за сегодня.
+    registersOverview() {
+      const d = new Date();
+      const from = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+      return this.listRegisters({ all: true }).map((r) => {
+        const open = db.prepare('SELECT id FROM shifts WHERE register_id = ? AND closed_at IS NULL ORDER BY opened_at').all(r.id).map((x) => this.getShift(x.id));
+        const today = db.prepare(`SELECT COUNT(DISTINCT s.id) AS receipts, COALESCE(SUM(s.total), 0) AS revenue FROM sales s JOIN shifts sh ON sh.id = s.shift_id
+          WHERE sh.register_id = ? AND s.refunded_at IS NULL AND s.created_at >= ?`).get(r.id, from);
+        return { ...r, open: open.map((s) => ({ user: s.user_name, since: s.opened_at, revenue: s.revenue, cash: s.cash, card: s.card })), today: { receipts: today.receipts, revenue: round2(today.revenue) } };
+      });
+    },
+
+    saveRegister(id, input) {
+      const name = text(input.name, 'Название кассы', { required: true, max: 60 });
+      if (id) {
+        const cur = db.prepare('SELECT * FROM registers WHERE id = ?').get(Number(id));
+        if (!cur) throw new UserError('Касса не найдена');
+        const active = input.active === undefined ? cur.active : input.active ? 1 : 0;
+        if (!active && cur.active && db.prepare('SELECT COUNT(*) AS n FROM registers WHERE active = 1').get().n <= 1) throw new UserError('Должна остаться хотя бы одна касса');
+        if (!active && db.prepare('SELECT 1 FROM shifts WHERE register_id = ? AND closed_at IS NULL').get(cur.id)) throw new UserError('На этой кассе открыта смена — сначала закройте её');
+        db.prepare('UPDATE registers SET name = ?, active = ? WHERE id = ?').run(name, active, cur.id);
+        return db.prepare('SELECT * FROM registers WHERE id = ?').get(cur.id);
+      }
+      const sort = (db.prepare('SELECT MAX(sort) AS m FROM registers').get().m || 0) + 1;
+      const { lastInsertRowid } = db.prepare('INSERT INTO registers (name, sort, created_at) VALUES (?, ?, ?)').run(name, sort, Date.now());
+      return db.prepare('SELECT * FROM registers WHERE id = ?').get(lastInsertRowid);
+    },
+
+    /* ---------- Счета ---------- */
+    // Остаток каждого счёта и движение денег за период.
+    accounts({ from, to }) {
+      const sumIn = (sql, ...args) => db.prepare(sql).get(...args).v || 0;
+      const methods = this.listPaymentMethods({ all: true });
+      return methods.map((m) => {
+        const flows = (a, b) => ({
+          sales: sumIn(`SELECT SUM(sp.amount) AS v FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id WHERE sp.method_id = ? AND s.refunded_at IS NULL AND s.created_at >= ? AND s.created_at < ?`, m.id, a, b),
+          commission: sumIn(`SELECT SUM(sp.commission) AS v FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id WHERE sp.method_id = ? AND s.refunded_at IS NULL AND s.created_at >= ? AND s.created_at < ?`, m.id, a, b),
+          returns: sumIn(`SELECT SUM(total) AS v FROM docs WHERE kind = 'return' AND status = 'posted' AND method_id = ? AND doc_date >= ? AND doc_date < ?`, m.id, a, b),
+          purchases: sumIn(`SELECT SUM(total) AS v FROM docs WHERE kind = 'purchase' AND status = 'posted' AND method_id = ? AND doc_date >= ? AND doc_date < ?`, m.id, a, b),
+          ops: sumIn('SELECT SUM(amount) AS v FROM account_ops WHERE method_id = ? AND at >= ? AND at < ?', m.id, a, b),
+        });
+        const all = flows(0, 8.64e15);
+        const period = flows(from, to);
+        const net = (f) => round2(f.sales - f.commission - f.returns - f.purchases + f.ops);
+        return { id: m.id, name: m.name, kind: m.kind, active: m.active, commission: m.commission, opening: m.opening_balance,
+          balance: round2(m.opening_balance + net(all)), period: { ...Object.fromEntries(Object.entries(period).map(([k, v]) => [k, round2(v)])), net: net(period) } };
+      });
+    },
+
+    accountOps({ from, to }) {
+      return db.prepare(`SELECT o.*, m.name AS account FROM account_ops o LEFT JOIN payment_methods m ON m.id = o.method_id
+        WHERE o.at >= ? AND o.at < ? ORDER BY o.at DESC LIMIT 300`).all(from, to);
+    },
+
+    // Внесение, изъятие или перевод между счетами (например, инкассация из кассы на банковский счёт).
+    addAccountOp({ method_id: methodId, kind, amount, to_method_id: toId, note }, user = null) {
+      const m = db.prepare('SELECT * FROM payment_methods WHERE id = ?').get(Number(methodId));
+      if (!m) throw new UserError('Счёт не найден');
+      if (!['deposit', 'withdraw', 'transfer'].includes(kind)) throw new UserError('Неизвестная операция');
+      const sum = round2(number(amount, 'Сумма', { positive: true }));
+      const why = text(note, 'Комментарий', { max: 300 });
+      if (kind !== 'deposit' && !why) throw new UserError(kind === 'withdraw' ? 'Напишите, на что взяли деньги' : 'Напишите комментарий к переводу');
+      const who = user ? user.name || user.email : '';
+      const add = db.prepare('INSERT INTO account_ops (method_id, at, amount, kind, note, pair_id, user_name) VALUES (?, ?, ?, ?, ?, ?, ?)');
+      return transaction(db, () => {
+        if (kind === 'transfer') {
+          const to = db.prepare('SELECT * FROM payment_methods WHERE id = ?').get(Number(toId));
+          if (!to || to.id === m.id) throw new UserError('Выберите другой счёт, куда переводите');
+          const out = Number(add.run(m.id, Date.now(), -sum, 'transfer', `→ ${to.name}${why ? ': ' + why : ''}`, null, who).lastInsertRowid);
+          const inn = Number(add.run(to.id, Date.now(), sum, 'transfer', `← ${m.name}${why ? ': ' + why : ''}`, out, who).lastInsertRowid);
+          db.prepare('UPDATE account_ops SET pair_id = ? WHERE id = ?').run(inn, out);
+          return { account: m.name, to: to.name, amount: sum, kind };
+        }
+        add.run(m.id, Date.now(), kind === 'deposit' ? sum : -sum, kind, why, null, who);
+        return { account: m.name, amount: sum, kind };
+      });
+    },
+
+    deleteAccountOp(id) {
+      const o = db.prepare('SELECT * FROM account_ops WHERE id = ?').get(Number(id));
+      if (!o) throw new UserError('Операция не найдена');
+      // Перевод — две записи (списание и зачисление), удаляются вместе.
+      db.prepare('DELETE FROM account_ops WHERE id IN (?, ?)').run(o.id, o.pair_id ?? o.id);
+      return o;
+    },
+
+    setOpeningBalance(id, amount) {
+      const m = db.prepare('SELECT * FROM payment_methods WHERE id = ?').get(Number(id));
+      if (!m) throw new UserError('Счёт не найден');
+      db.prepare('UPDATE payment_methods SET opening_balance = ? WHERE id = ?').run(round2(number(amount, 'Начальный остаток')), m.id);
+      return { name: m.name, opening: round2(number(amount, 'Начальный остаток')) };
     },
 
     /* ---------- Поставщики ---------- */
