@@ -48,7 +48,7 @@ function createNotifier(store) {
     if (!body.ok) throw new Error(`Telegram ответил: ${body.description || res.status}`);
   }
 
-  const rub = (n) => n.toLocaleString('ru-RU', { maximumFractionDigits: 2 }) + ' ₽';
+  const rub = (n) => n.toLocaleString('ru-RU', { maximumFractionDigits: 2 }) + ' сом';
 
   // Вызывается после каждого пробитого чека.
   function sale(sale, user) {

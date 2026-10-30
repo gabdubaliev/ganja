@@ -155,7 +155,7 @@
       </table>
     </div>
     <div class="arrival-foot">
-      <span>Итого: <b id="arrival-total" class="num">0 ₽</b></span>
+      <span>Итого: <b id="arrival-total" class="num">0 сом</b></span>
       <button type="button" class="btn primary" id="arrival-save" disabled>Провести приход</button>
     </div>
     <p class="pick-meta">После проведения остатки увеличатся, а себестоимость товара пересчитается как средняя по старому и новому товару.</p>
@@ -213,7 +213,7 @@
   </header>
   <section class="panel">
     <form id="loyalty-form" class="loyalty-rules" novalidate>
-      <div><h2>Правила бонусов</h2><p class="sub">1 бонус = 1 ₽. Бонусы начисляются на сумму, оплаченную деньгами, и округляются вниз.</p></div>
+      <div><h2>Правила бонусов</h2><p class="sub">1 бонус = 1 сом. Бонусы начисляются на сумму, оплаченную деньгами, и округляются вниз.</p></div>
       <label class="check"><input type="checkbox" name="enabled"> Программа лояльности включена</label>
       <div class="field"><label for="lf-percent">Начислять с покупки, %</label><input id="lf-percent" name="percent" class="input num" inputmode="decimal"></div>
       <div class="field"><label for="lf-max">Оплатить бонусами можно до, % чека</label><input id="lf-max" name="maxPay" class="input num" inputmode="decimal"></div>
@@ -267,7 +267,7 @@
   <form id="customer-form" novalidate>
     <h2 id="customer-dialog-title">Покупатель</h2>
     <div class="form-grid">
-      <div class="field"><label for="cf-phone">Телефон</label><input id="cf-phone" name="phone" class="input" inputmode="tel" required autocomplete="off" placeholder="+7 900 000-00-00"></div>
+      <div class="field"><label for="cf-phone">Телефон</label><input id="cf-phone" name="phone" class="input" inputmode="tel" required autocomplete="off" placeholder="+996 700 123 456"></div>
       <div class="field"><label for="cf-name">Имя</label><input id="cf-name" name="name" class="input" autocomplete="off" placeholder="Необязательно"></div>
     </div>
     <div id="customer-bonus" hidden>
@@ -339,8 +339,8 @@
       <details><summary>Доставка и контакты</summary>
         <label class="check"><input type="checkbox" name="pickup"> Самовывоз</label>
         <label class="check"><input type="checkbox" name="delivery"> Доставка</label>
-        <div class="field"><label>Стоимость доставки, ₽</label><input name="deliveryPrice" class="input num" inputmode="decimal"></div>
-        <div class="field"><label>Минимальная сумма заказа, ₽</label><input name="minOrder" class="input num" inputmode="decimal"></div>
+        <div class="field"><label>Стоимость доставки, сом</label><input name="deliveryPrice" class="input num" inputmode="decimal"></div>
+        <div class="field"><label>Минимальная сумма заказа, сом</label><input name="minOrder" class="input num" inputmode="decimal"></div>
         <div class="field"><label>Телефон</label><input name="phone" class="input" inputmode="tel"></div>
         <div class="field"><label>Адрес</label><input name="address" class="input"></div>
         <div class="field"><label>Часы работы</label><input name="hours" class="input" placeholder="Ежедневно 9:00–21:00"></div>
@@ -434,9 +434,9 @@
       </div>
       <div class="field"><label for="uf-password" id="uf-password-label">Пароль</label><input id="uf-password" name="password" type="password" class="input" autocomplete="new-password" minlength="8"></div>
       <p class="sub wide" id="uf-role-about"></p>
-      <div class="field"><label for="uf-salary">Оклад в месяц, ₽</label><input id="uf-salary" name="salary" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+      <div class="field"><label for="uf-salary">Оклад в месяц, сом</label><input id="uf-salary" name="salary" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
       <div class="field"><label for="uf-percent">Процент от продаж, %</label><input id="uf-percent" name="percent" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
-      <div class="field"><label for="uf-plan">План продаж в месяц, ₽</label><input id="uf-plan" name="plan" class="input num" inputmode="decimal" autocomplete="off" placeholder="Без плана"></div>
+      <div class="field"><label for="uf-plan">План продаж в месяц, сом</label><input id="uf-plan" name="plan" class="input num" inputmode="decimal" autocomplete="off" placeholder="Без плана"></div>
       <fieldset class="rights wide" id="uf-rights">
         <legend>Права <button type="button" class="link" id="uf-rights-reset">как у роли</button></legend>
         <div id="uf-rights-list"></div>
@@ -475,8 +475,8 @@
       <div class="field wide"><label for="pf-category">Категория</label><input id="pf-category" name="category" class="input" list="categories" autocomplete="off"><datalist id="categories"></datalist></div>
       <div class="field"><label for="pf-code">Код товара</label><input id="pf-code" name="code" class="input" autocomplete="off" placeholder="Необязательно"></div>
       <div class="field"><label for="pf-barcode">Штрихкод</label><input id="pf-barcode" name="barcode" class="input" inputmode="numeric" autocomplete="off" placeholder="Можно отсканировать"></div>
-      <div class="field"><label for="pf-price">Цена продажи, ₽</label><input id="pf-price" name="price" class="input num" inputmode="decimal" required autocomplete="off"></div>
-      <div class="field"><label for="pf-cost">Себестоимость, ₽</label><input id="pf-cost" name="cost" class="input num" inputmode="decimal" autocomplete="off" placeholder="Закупочная цена"></div>
+      <div class="field"><label for="pf-price">Цена продажи, сом</label><input id="pf-price" name="price" class="input num" inputmode="decimal" required autocomplete="off"></div>
+      <div class="field"><label for="pf-cost">Себестоимость, сом</label><input id="pf-cost" name="cost" class="input num" inputmode="decimal" autocomplete="off" placeholder="Закупочная цена"></div>
       <div class="field"><label for="pf-unit">Единица</label>
         <select id="pf-unit" name="unit" class="input"><option>шт</option><option>кг</option><option>л</option><option>м</option><option>уп</option></select>
       </div>

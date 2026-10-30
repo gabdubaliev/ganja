@@ -76,16 +76,14 @@ function renderCustomer() {
   $('#customer-find').hidden = Boolean(c) || !$('#customer-new').hidden;
   $('#customer-card').hidden = !c;
   if (!c) return;
-  $('#customer-title').textContent = c.name || phoneText(c.phone);
-  $('#customer-meta').textContent = ` · ${c.name ? phoneText(c.phone) + ' · ' : ''}бонусов ${qtyFmt.format(c.bonus)}`;
+  $('#customer-title').textContent = c.name || phoneFmt(c.phone);
+  $('#customer-meta').textContent = ` · ${c.name ? phoneFmt(c.phone) + ' · ' : ''}бонусов ${qtyFmt.format(c.bonus)}`;
   const limit = bonusLimit();
   $('#customer-spend-row').hidden = !c.bonus;
   $('#customer-spend-hint').textContent = limit ? `можно до ${qtyFmt.format(limit)}` : 'добавьте товары в чек';
   const earn = Math.floor((cartTotal() - bonusSpend()) * session.loyalty.percent / 100);
   if (pos.cart.length) $('#customer-meta').textContent += ` · за этот чек +${earn}`;
 }
-
-const phoneText = (p) => (p.length === 11 && p[0] === '7' ? `+7 ${p.slice(1, 4)} ${p.slice(4, 7)}-${p.slice(7, 9)}-${p.slice(9)}` : '+' + p);
 
 async function lookupCustomer() {
   const phone = $('#customer-phone').value;

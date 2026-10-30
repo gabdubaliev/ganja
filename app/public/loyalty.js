@@ -3,7 +3,6 @@
 // Покупатели: правила бонусов, рейтинг покупателей и ручное изменение бонусов.
 
 const loyaltyView = { query: '', list: [], customer: null };
-const phoneFmt = (p) => (p.length === 11 && p[0] === '7' ? `+7 ${p.slice(1, 4)} ${p.slice(4, 7)}-${p.slice(7, 9)}-${p.slice(9)}` : '+' + p);
 
 async function renderLoyalty() {
   const f = $('#loyalty-form');

@@ -147,6 +147,10 @@ function open(file) {
   db.exec('CREATE INDEX IF NOT EXISTS sales_user ON sales(user_id)');
   // Роль «продавец» из прошлой версии стала «кассиром».
   db.exec("UPDATE users SET role = 'cashier' WHERE role = 'seller'");
+  // Прошлые версии считали номер 0700 123 456 российским и сохраняли как 70700123456.
+  // Российских номеров на 70… не бывает, так что это кыргызские: 996700123456.
+  db.exec("UPDATE OR IGNORE customers SET phone = '996' || substr(phone, 3) WHERE length(phone) = 11 AND phone LIKE '70%'");
+  db.exec("UPDATE orders SET phone = '996' || substr(phone, 3) WHERE length(phone) = 11 AND phone LIKE '70%'");
   return db;
 }
 
@@ -207,11 +211,14 @@ function rightsList(value) {
   return JSON.stringify([...new Set(value)].filter((r) => known.has(r)));
 }
 
-// Телефон покупателя: только цифры, российский номер приводится к виду 7XXXXXXXXXX.
+// Телефон покупателя: только цифры с кодом страны. Кыргызский номер приводится к виду
+// 996XXXXXXXXX: 0700 123 456 и 700 123 456 — это +996 700 123 456. Российские 8… и 9… — к 7….
 function phone(value) {
   let d = String(value ?? '').replace(/\D/g, '');
-  if (d.length === 11 && d[0] === '8') d = '7' + d.slice(1);
-  if (d.length === 10) d = '7' + d;
+  if (d.length === 10 && d[0] === '0') d = '996' + d.slice(1);
+  else if (d.length === 9) d = '996' + d;
+  else if (d.length === 11 && d[0] === '8') d = '7' + d.slice(1);
+  else if (d.length === 10) d = '7' + d;
   if (d.length < 10 || d.length > 15) throw new UserError('Телефон указан неверно');
   return d;
 }
@@ -384,7 +391,7 @@ function createStore(file) {
           }
           case 'price':
           case 'cost': {
-            // mode: set — новая цена, percent — изменить на ±%, add — прибавить ±рубли,
+            // mode: set — новая цена, percent — изменить на ±%, add — прибавить ±сомы,
             // markup — цена = себестоимость + наценка в % (только для цены).
             const n = number(value, 'Значение', { min: -Infinity });
             const calc = {
@@ -479,7 +486,7 @@ function createStore(file) {
     },
 
     // user — кто пробил чек, customerId — покупатель из программы лояльности,
-    // bonusSpend — сколько бонусов покупатель тратит (1 бонус = 1 ₽).
+    // bonusSpend — сколько бонусов покупатель тратит (1 бонус = 1 сом).
     createSale({ items, payment, at, customerId, bonusSpend = 0 }, user = null) {
       if (!Array.isArray(items) || !items.length) throw new UserError('В чеке нет товаров');
       if (!['cash', 'card'].includes(payment)) throw new UserError('Выберите способ оплаты');
@@ -499,7 +506,7 @@ function createStore(file) {
           spent = round2(number(bonusSpend || 0, 'Списать бонусов'));
           const limit = Math.floor(total * loyalty.maxPay / 100);
           if (spent > customer.bonus) throw new UserError(`У покупателя только ${customer.bonus} бонусов`);
-          if (spent > limit) throw new UserError(`Бонусами можно оплатить не больше ${loyalty.maxPay}% чека — ${limit} ₽`);
+          if (spent > limit) throw new UserError(`Бонусами можно оплатить не больше ${loyalty.maxPay}% чека — ${limit} сом`);
           earned = Math.floor((total - spent) * loyalty.percent / 100);
         }
         const { lastInsertRowid: saleId } = db.prepare(`
@@ -949,7 +956,7 @@ function createStore(file) {
       const delivery = input.delivery === 'delivery' ? 'delivery' : 'pickup';
       if (delivery === 'delivery' ? !s.delivery : !s.pickup) throw new UserError('Этот способ получения недоступен');
       const goods = round2(lines.reduce((sum, l) => sum + l.qty * l.p.price, 0));
-      if (goods < s.minOrder) throw new UserError(`Минимальная сумма заказа — ${s.minOrder} ₽`);
+      if (goods < s.minOrder) throw new UserError(`Минимальная сумма заказа — ${s.minOrder} сом`);
       const total = round2(goods + (delivery === 'delivery' ? s.deliveryPrice : 0));
       const address = text(input.address, 'Адрес', { max: 300 });
       if (delivery === 'delivery' && !address) throw new UserError('Укажите адрес доставки');

@@ -13,9 +13,11 @@ function store(key, value) {
 }
 
 /* ---------- Форматирование ---------- */
-const moneyFmt = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 });
+// Валюта — кыргызский сом. Знак пишем сами: не все браузеры знают обозначение «сом».
+const CURRENCY = 'сом';
+const moneyFmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 });
 const intFmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 });
-const money = (v) => moneyFmt.format(Math.round(v));
+const money = (v) => `${moneyFmt.format(Math.round(v))} ${CURRENCY}`;
 const int = (v) => intFmt.format(v);
 const pct = (v) => (v * 100).toLocaleString('ru-RU', { maximumFractionDigits: 1 }) + '%';
 function moneyShort(v) {
@@ -100,8 +102,16 @@ function bucketIndex(buckets, t) {
 
 
 /* ---------- Деньги с копейками, количество ---------- */
-const money2Fmt = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const money2 = (v) => money2Fmt.format(v);
+// Тыйыны показываются, только когда они есть: 150 сом, но 152,50 сом.
+const money2Fmt = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const money2 = (v) => `${Number.isInteger(Math.round(v * 100) / 100) ? moneyFmt.format(v) : money2Fmt.format(v)} ${CURRENCY}`;
+
+// Телефон для показа: +996 700 123 456 или +7 900 123-45-67.
+function phoneFmt(p) {
+  if (p.length === 12 && p.startsWith('996')) return `+996 ${p.slice(3, 6)} ${p.slice(6, 9)} ${p.slice(9)}`;
+  if (p.length === 11 && p[0] === '7') return `+7 ${p.slice(1, 4)} ${p.slice(4, 7)}-${p.slice(7, 9)}-${p.slice(9)}`;
+  return '+' + p;
+}
 const qtyFmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 3 });
 const qty = (v, unit = 'шт') => `${qtyFmt.format(v)} ${unit}`;
 const parseNum = (s) => Number(String(s ?? '').replace(/\s/g, '').replace(',', '.'));

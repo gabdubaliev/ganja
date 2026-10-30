@@ -6,7 +6,7 @@
 
 const $ = (sel) => document.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const rub = (n) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: n % 1 ? 2 : 0 }).format(n);
+const rub = (n) => `${new Intl.NumberFormat('ru-RU', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 }).format(n)} сом`;
 const qtyFmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 3 });
 const FONTS = {
   system: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',

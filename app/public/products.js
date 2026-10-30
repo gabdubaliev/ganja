@@ -85,7 +85,7 @@ function openBulk(action) {
       <div class="field wide"><label for="bf-mode">Как изменить</label>
         <select id="bf-mode" name="mode" class="input">
           <option value="percent">Изменить на процент (минус — снизить)</option>
-          <option value="add">Прибавить рубли (минус — вычесть)</option>
+          <option value="add">Прибавить сумму в сомах (минус — вычесть)</option>
           <option value="set">Поставить одну цену всем</option>
           ${action === 'price' ? '<option value="markup">Наценка от себестоимости, %</option>' : ''}
         </select></div>
