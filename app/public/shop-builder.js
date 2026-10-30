@@ -85,11 +85,19 @@ function renderOutputs() {
 function draftProducts() {
   const d = builder.draft;
   const cats = new Set(d.categories);
-  return builder.products
-    .filter((p) => p.price > 0 && (!cats.size || cats.has(p.category)) && (!d.hideOutOfStock || p.stock > 0))
-    .sort((a, b) => a.category.localeCompare(b.category, 'ru') || a.name.localeCompare(b.name, 'ru'))
-    .map((p) => ({ id: p.id, name: p.name, category: p.category, unit: p.unit, price: p.price, description: p.description || '',
-      photo_at: p.photo_at, photo: Boolean(p.photo_at), stock: d.showStock ? Math.max(0, p.stock) : p.stock > 0 ? 1 : 0 }));
+  const shown = (p) => p.price > 0 && (!d.hideOutOfStock || p.stock > 0);
+  const toShop = (p) => ({ id: p.id, name: p.name, category: p.category, unit: p.unit, price: p.price, description: p.description || '',
+    photo_at: p.photo_at, photo: Boolean(p.photo_at), parent_id: p.parent_id || null, options: p.options ? JSON.parse(p.options) : null,
+    hasVariants: catalog.isGroup(p), stock: d.showStock ? Math.max(0, p.stock) : p.stock > 0 ? 1 : 0 });
+  const out = [];
+  const bases = builder.products.filter((p) => !p.parent_id && (!cats.size || cats.has(p.category)))
+    .sort((a, b) => a.category.localeCompare(b.category, 'ru') || a.name.localeCompare(b.name, 'ru'));
+  for (const p of bases) {
+    const variants = catalog.children(p.id).filter(shown);
+    if (catalog.isGroup(p) ? !variants.length : !shown(p)) continue;
+    out.push(p, ...variants);
+  }
+  return out.map(toShop);
 }
 
 function pushPreview() {

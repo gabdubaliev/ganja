@@ -134,6 +134,8 @@ const routes = [
     return store.bulkProducts(body);
   }, 'products'],
   ['DELETE', '/api/products/:id', (p) => store.bulkProducts({ ids: [Number(p.id)], action: 'delete' }), 'products.delete'],
+  ['POST', '/api/products/:id/variants', (p, url, body) => store.createVariants(p.id, body), 'products'],
+  ['GET', '/api/barcode', () => ({ barcode: store.newBarcode() }), 'products'],
   ['PUT', '/api/products/:id/photo', (p, url, body) => store.setPhoto(p.id, body), 'photos'],
   ['DELETE', '/api/products/:id/photo', (p) => store.deletePhoto(p.id), 'photos'],
 

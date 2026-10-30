@@ -139,22 +139,37 @@ async function api(url, { method = 'GET', body } = {}) {
 }
 
 // Справочник товаров, общий для кассы, прихода и списка товаров.
+// Товар с модификациями (цвет, размер…) — это основной товар и его модификации с parent_id.
+// Продаются и приходуют модификации, основной товар — только карточка, объединяющая их.
 const catalog = {
   list: [],
+  kids: new Map(),
   async load() {
     this.list = await api('/api/products');
+    this.kids = new Map();
+    for (const p of this.list) if (p.parent_id) this.kids.set(p.parent_id, [...(this.kids.get(p.parent_id) || []), p]);
     return this.list;
   },
   byId(id) { return this.list.find((p) => p.id === Number(id)); },
+  children(id) { return this.kids.get(Number(id)) || []; },
+  isGroup(p) { return this.kids.has(p.id); },
+  // Остаток основного товара — сумма остатков модификаций.
+  stockOf(p) { return this.isGroup(p) ? this.children(p.id).reduce((s, k) => s + k.stock, 0) : p.stock; },
+  // То, что можно продать или оприходовать: всё, кроме основных товаров с модификациями.
+  sellable() { return this.list.filter((p) => !this.isGroup(p)); },
   search(q, limit = 8) {
     q = q.trim().toLowerCase();
     if (!q) return [];
+    const list = this.sellable();
     // Штрихкод бывает общим у нескольких товаров (цвета одной модели) — возвращаем все.
-    const exact = this.list.filter((p) => (p.barcode && p.barcode === q) || (p.code && p.code.toLowerCase() === q));
+    const exact = list.filter((p) => (p.barcode && p.barcode === q) || (p.code && p.code.toLowerCase() === q));
     if (exact.length) return exact;
-    return this.list.filter((p) => p.name.toLowerCase().includes(q) || p.barcode.includes(q) || p.code.toLowerCase().includes(q) || p.category.toLowerCase().includes(q)).slice(0, limit);
+    return list.filter((p) => p.name.toLowerCase().includes(q) || p.barcode.includes(q) || p.code.toLowerCase().includes(q) || p.category.toLowerCase().includes(q)).slice(0, limit);
   },
 };
+
+// Свойства модификации для показа: «Красный, M».
+const optionsText = (p) => (p.options ? Object.values(JSON.parse(p.options)).join(', ') : '');
 
 /* ---------- Уведомления ---------- */
 function toast(message, kind = 'ok') {

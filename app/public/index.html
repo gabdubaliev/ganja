@@ -116,6 +116,8 @@
       <button type="button" class="btn small" data-bulk="cost">Себестоимость</button>
       <button type="button" class="btn small" data-bulk="category">Категория</button>
       <button type="button" class="btn small" data-bulk="unit">Единица</button>
+      <button type="button" class="btn small" data-bulk="barcodes">Штрихкоды</button>
+      <button type="button" class="btn small" id="bulk-labels">Этикетки</button>
       <button type="button" class="btn small" data-bulk="archive" id="bulk-archive">Убрать из продажи</button>
       <button type="button" class="btn small" data-bulk="restore" id="bulk-restore">Вернуть в продажу</button>
       <button type="button" class="btn small danger-ghost" data-bulk="delete" data-can="products.delete" hidden>Удалить</button>
@@ -467,28 +469,79 @@
   </form>
 </dialog>
 
-<dialog id="product-dialog" aria-labelledby="product-dialog-title">
+<dialog id="product-dialog" class="product-dialog" aria-labelledby="product-dialog-title">
   <form id="product-form" novalidate>
     <h2 id="product-dialog-title">Новый товар</h2>
+    <p class="sub" id="product-variant-of" hidden></p>
     <div class="form-grid">
-      <div class="field wide"><label for="pf-name">Название</label><input id="pf-name" name="name" class="input" required autocomplete="off"></div>
-      <div class="field wide"><label for="pf-category">Категория</label><input id="pf-category" name="category" class="input" list="categories" autocomplete="off"><datalist id="categories"></datalist></div>
+      <div class="field wide" id="pf-name-field"><label for="pf-name">Название</label><input id="pf-name" name="name" class="input" required autocomplete="off"></div>
+      <div class="wide variant-options" id="pf-variant-options" hidden></div>
+      <div class="field wide" id="pf-category-field"><label for="pf-category">Категория</label><input id="pf-category" name="category" class="input" list="categories" autocomplete="off"><datalist id="categories"></datalist></div>
+
+      <fieldset class="prices wide">
+        <legend>Цена</legend>
+        <div class="field"><label for="pf-cost">Себестоимость, сом</label><input id="pf-cost" name="cost" class="input num" inputmode="decimal" autocomplete="off" placeholder="Закупочная"></div>
+        <div class="field"><label for="pf-markup">Наценка, %</label><input id="pf-markup" name="markup" class="input num" inputmode="decimal" autocomplete="off" placeholder="Например, 40"></div>
+        <div class="field"><label for="pf-price">Цена продажи, сом</label><input id="pf-price" name="price" class="input num" inputmode="decimal" required autocomplete="off"></div>
+        <p class="pick-meta price-note" id="pf-profit">Меняете наценку — пересчитывается цена, меняете цену — пересчитывается наценка.</p>
+      </fieldset>
+
       <div class="field"><label for="pf-code">Код товара</label><input id="pf-code" name="code" class="input" autocomplete="off" placeholder="Необязательно"></div>
-      <div class="field"><label for="pf-barcode">Штрихкод</label><input id="pf-barcode" name="barcode" class="input" inputmode="numeric" autocomplete="off" placeholder="Можно отсканировать"></div>
-      <div class="field"><label for="pf-price">Цена продажи, сом</label><input id="pf-price" name="price" class="input num" inputmode="decimal" required autocomplete="off"></div>
-      <div class="field"><label for="pf-cost">Себестоимость, сом</label><input id="pf-cost" name="cost" class="input num" inputmode="decimal" autocomplete="off" placeholder="Закупочная цена"></div>
-      <div class="field"><label for="pf-unit">Единица</label>
+      <div class="field"><label for="pf-barcode">Штрихкод</label>
+        <div class="input-row"><input id="pf-barcode" name="barcode" class="input" inputmode="numeric" autocomplete="off" placeholder="Отсканируйте или создайте">
+        <button type="button" class="btn" id="pf-barcode-new" title="Создать уникальный штрихкод EAN-13">Создать</button></div>
+      </div>
+      <div class="wide barcode-preview" id="pf-barcode-preview" hidden></div>
+      <div class="field" id="pf-unit-field"><label for="pf-unit">Единица</label>
         <select id="pf-unit" name="unit" class="input"><option>шт</option><option>кг</option><option>л</option><option>м</option><option>уп</option></select>
       </div>
       <div class="field" id="product-stock-field"><label for="pf-stock">Сейчас на складе</label><input id="pf-stock" name="stock" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
-      <div class="field wide"><label for="pf-description">Описание для интернет-витрины</label><textarea id="pf-description" name="description" class="input" rows="3" placeholder="Необязательно: состав, размер, особенности"></textarea></div>
+      <div class="field wide" id="pf-description-field"><label for="pf-description">Описание для интернет-витрины</label><textarea id="pf-description" name="description" class="input" rows="3" placeholder="Необязательно: состав, размер, особенности"></textarea></div>
+
+      <section class="variants wide" id="pf-variants" hidden>
+        <div class="variants-head">
+          <h3>Модификации</h3>
+          <span class="pick-meta">Цвета, размеры, объёмы — у каждой свой остаток, штрихкод и при желании своя цена.</span>
+        </div>
+        <div id="pf-variants-list"></div>
+        <details class="variant-gen" id="pf-gen">
+          <summary>Добавить модификации</summary>
+          <p class="pick-meta">Перечислите свойства и их значения через запятую — программа составит все сочетания.</p>
+          <div id="pf-gen-options"></div>
+          <button type="button" class="link" id="pf-gen-add">+ ещё свойство</button>
+          <div id="pf-gen-preview"></div>
+          <label class="check"><input type="checkbox" id="pf-gen-barcodes" checked> Создать каждой модификации свой штрихкод</label>
+        </details>
+      </section>
+
       <label class="check wide" id="product-archived-field"><input type="checkbox" id="pf-archived" name="archived"> Убрать из продажи (товар скроется из кассы и списков, история продаж сохранится)</label>
     </div>
     <p class="form-error" id="product-error" role="alert" hidden></p>
     <div class="form-actions">
       <button type="button" class="btn ghost danger-text" id="product-delete" hidden>Удалить товар</button>
+      <button type="button" class="btn ghost" id="product-labels" hidden>Этикетка</button>
       <button type="button" class="btn ghost" id="product-cancel">Отмена</button>
       <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="labels-dialog" aria-labelledby="labels-title">
+  <form id="labels-form" novalidate>
+    <h2 id="labels-title">Печать этикеток</h2>
+    <p class="sub" id="labels-sub"></p>
+    <div class="form-grid">
+      <div class="field wide"><label for="labels-format">Формат</label><select id="labels-format" name="format" class="input"></select></div>
+      <div class="field wide"><label>Сколько этикеток</label>
+        <label class="check"><input type="radio" name="count" value="fixed" checked> Одинаково на каждый товар</label>
+        <label class="check"><input type="radio" name="count" value="stock"> По остатку на складе</label>
+      </div>
+      <div class="field" id="labels-copies"><label for="labels-n">Штук на товар</label><input id="labels-n" name="copies" class="input num" inputmode="numeric" value="1"></div>
+      <label class="check wide"><input type="checkbox" name="price" checked> Печатать цену</label>
+    </div>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="labels-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Печать</button>
     </div>
   </form>
 </dialog>
@@ -518,6 +571,7 @@
 <script src="products.js"></script>
 <script src="arrivals.js"></script>
 <script src="sales.js"></script>
+<script src="labels.js"></script>
 <script src="xlsx.js"></script>
 <script src="import.js"></script>
 <script src="kpi.js"></script>

@@ -113,6 +113,9 @@ function open(file) {
   addColumns('users', [['salary', 'REAL NOT NULL DEFAULT 0'], ['percent', 'REAL NOT NULL DEFAULT 0'], ['plan', 'REAL NOT NULL DEFAULT 0']]);
   addColumns('products', [['photo_at', 'INTEGER'], ['deleted', 'INTEGER NOT NULL DEFAULT 0'], ['description', "TEXT NOT NULL DEFAULT ''"]]);
   addColumns('users', [['rights', 'TEXT']]);
+  // Модификации: parent_id — основной товар, options — {"Цвет": "Красный", "Размер": "M"}.
+  addColumns('products', [['parent_id', 'INTEGER'], ['options', "TEXT NOT NULL DEFAULT ''"]]);
+  db.exec('CREATE INDEX IF NOT EXISTS products_parent ON products(parent_id)');
   db.exec(`
     CREATE TABLE IF NOT EXISTS orders (
       id INTEGER PRIMARY KEY,
@@ -327,6 +330,42 @@ function createStore(file) {
       .run(customerId, Date.now(), delta, reason, saleId, userName);
   }
 
+  // Внутренний штрихкод EAN-13. Префикс 20–29 оставлен стандартом для товаров самого магазина,
+  // так он не совпадёт со штрихкодом от производителя.
+  function ean13(first12) {
+    const sum = [...first12].reduce((s, d, i) => s + Number(d) * (i % 2 ? 3 : 1), 0);
+    return first12 + ((10 - (sum % 10)) % 10);
+  }
+
+  function newBarcode() {
+    const taken = db.prepare('SELECT 1 FROM products WHERE barcode = ?');
+    for (let i = 0; i < 1000; i++) {
+      const body = '20' + String(Math.floor(Math.random() * 1e10)).padStart(10, '0');
+      const code = ean13(body);
+      if (!taken.get(code)) return code;
+    }
+    throw new UserError('Не получилось подобрать свободный штрихкод');
+  }
+
+  const childrenOf = (id) => db.prepare('SELECT * FROM products WHERE parent_id = ? AND deleted = 0 ORDER BY id').all(Number(id));
+
+  // Варианты модификации: { "Цвет": "Красный" }. Пустые значения отбрасываются.
+  function optionsOf(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new UserError('Укажите свойства модификации');
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      const key = text(k, 'Свойство', { max: 30 });
+      const val = text(v, `Значение «${key}»`, { max: 60 });
+      if (key && val) out[key] = val;
+    }
+    if (!Object.keys(out).length) throw new UserError('Укажите хотя бы одно свойство модификации, например цвет или размер');
+    if (Object.keys(out).length > 4) throw new UserError('У модификации может быть не больше 4 свойств');
+    return out;
+  }
+
+  const variantName = (base, opts) => `${base.name} · ${Object.values(opts).join(', ')}`;
+  const optionsKey = (opts) => JSON.stringify(Object.entries(opts).map(([k, v]) => [k.toLowerCase(), v.toLowerCase()]).sort());
+
   function getProduct(id) {
     const p = db.prepare('SELECT * FROM products WHERE id = ?').get(Number(id));
     if (!p) throw new UserError('Товар не найден');
@@ -359,7 +398,14 @@ function createStore(file) {
       if (!Array.isArray(ids) || !ids.length) throw new UserError('Выберите товары');
       if (ids.length > 10000) throw new UserError('Слишком много товаров за раз');
       return transaction(db, () => {
-        const list = ids.map(getProduct).filter((p) => !p.deleted);
+        // Действие над основным товаром касается и всех его модификаций.
+        const picked = new Map();
+        for (const p of ids.map(getProduct)) {
+          if (p.deleted) continue;
+          picked.set(p.id, p);
+          for (const k of childrenOf(p.id)) picked.set(k.id, k);
+        }
+        const list = [...picked.values()];
         const set = (sql, args) => {
           const st = db.prepare(sql);
           for (const p of list) st.run(...args(p), p.id);
@@ -376,6 +422,14 @@ function createStore(file) {
               }
             }
             break;
+          }
+          case 'barcodes': {
+            // Штрихкоды только тем, у кого их нет, и не основным товарам с модификациями: их не продают.
+            const st = db.prepare('UPDATE products SET barcode = ? WHERE id = ?');
+            const groups = new Set(list.filter((p) => p.parent_id).map((p) => p.parent_id));
+            const todo = list.filter((p) => !p.barcode && !groups.has(p.id) && !childrenOf(p.id).length);
+            for (const p of todo) st.run(newBarcode(), p.id);
+            return { count: todo.length };
           }
           case 'archive': set('UPDATE products SET archived = 1 WHERE id = ?', () => []); break;
           case 'restore': set('UPDATE products SET archived = 0 WHERE id = ?', () => []); break;
@@ -416,12 +470,67 @@ function createStore(file) {
 
     updateProduct(id, input) {
       const current = getProduct(id);
+      if (current.parent_id) return this.updateVariant(current, input);
       const f = productFields(input, current);
       const archived = input.archived === undefined ? current.archived : input.archived ? 1 : 0;
       db.prepare(`UPDATE products SET name = ?, category = ?, barcode = ?, code = ?, unit = ?, price = ?, cost = ?, description = ?, archived = ? WHERE id = ?`)
         .run(f.name, f.category, f.barcode, f.code, f.unit, f.price, f.cost, f.description, archived, current.id);
+      // Модификации живут вместе с основным товаром: имя, категория, единица, описание и «в продаже».
+      const kids = childrenOf(current.id);
+      if (kids.length) {
+        const base = getProduct(current.id);
+        const st = db.prepare('UPDATE products SET name = ?, category = ?, unit = ?, description = ?, archived = ? WHERE id = ?');
+        for (const k of kids) st.run(variantName(base, JSON.parse(k.options || '{}')), base.category, base.unit, base.description, base.archived, k.id);
+      }
       return getProduct(current.id);
     },
+
+    // Модификация: свои свойства, цены, штрихкод и код. Имя собирается из основного товара и свойств.
+    updateVariant(current, input) {
+      const base = getProduct(current.parent_id);
+      const opts = input.options === undefined ? JSON.parse(current.options || '{}') : optionsOf(input.options);
+      const clash = childrenOf(base.id).find((k) => k.id !== current.id && optionsKey(JSON.parse(k.options || '{}')) === optionsKey(opts));
+      if (clash) throw new UserError(`Такая модификация уже есть: ${clash.name}`);
+      const f = productFields({ ...input, name: variantName(base, opts), category: base.category, unit: base.unit, description: base.description }, current);
+      const archived = input.archived === undefined ? current.archived : input.archived ? 1 : 0;
+      db.prepare('UPDATE products SET name = ?, barcode = ?, code = ?, price = ?, cost = ?, options = ?, archived = ? WHERE id = ?')
+        .run(f.name, f.barcode, f.code, f.price, f.cost, JSON.stringify(opts), archived, current.id);
+      return getProduct(current.id);
+    },
+
+    // Создаёт модификации товара. variants — [{ options, price, cost, barcode, code, stock }].
+    // barcodes: true — каждой модификации без штрихкода сгенерировать свой.
+    // Остаток основного товара переходит в ноль: дальше остатки ведутся по модификациям.
+    createVariants(id, { variants, barcodes = false }) {
+      const base = getProduct(id);
+      if (base.parent_id) throw new UserError('У модификации не может быть своих модификаций');
+      if (!Array.isArray(variants) || !variants.length) throw new UserError('Добавьте хотя бы одну модификацию');
+      if (variants.length > 300) throw new UserError('Слишком много модификаций за раз: не больше 300');
+      return transaction(db, () => {
+        const seen = new Set(childrenOf(base.id).map((k) => optionsKey(JSON.parse(k.options || '{}'))));
+        // Основной товар больше не продаётся: его остаток и штрихкод переходят к модификациям.
+        if (!seen.size) db.prepare("UPDATE products SET stock = 0, barcode = '' WHERE id = ?").run(base.id);
+        const insert = db.prepare(`
+          INSERT INTO products (name, category, barcode, code, unit, price, cost, stock, description, parent_id, options, archived, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+        const created = [];
+        for (const v of variants) {
+          const opts = optionsOf(v.options);
+          const key = optionsKey(opts);
+          if (seen.has(key)) throw new UserError(`Модификация «${Object.values(opts).join(', ')}» уже есть`);
+          seen.add(key);
+          const price = round2(number(v.price ?? base.price, 'Цена продажи'));
+          const cost = round2(number(v.cost ?? base.cost, 'Себестоимость'));
+          const barcode = text(v.barcode, 'Штрихкод', { max: 64 }) || (barcodes ? newBarcode() : '');
+          const { lastInsertRowid } = insert.run(variantName(base, opts), base.category, barcode, text(v.code, 'Код товара', { max: 64 }), base.unit,
+            price, cost, number(v.stock ?? 0, 'Остаток'), base.description, base.id, JSON.stringify(opts), base.archived, Date.now());
+          created.push(getProduct(lastInsertRowid));
+        }
+        return created;
+      });
+    },
+
+    newBarcode,
 
     // Ручная корректировка остатка (инвентаризация).
     setStock(id, stock) {
@@ -494,6 +603,7 @@ function createStore(file) {
         const lines = items.map((item) => {
           const p = getProduct(item.productId);
           if (p.archived) throw new UserError(`Товар «${p.name}» убран из продажи`);
+          if (childrenOf(p.id).length) throw new UserError(`У товара «${p.name}» есть модификации — выберите нужную`);
           const qty = number(item.qty, 'Количество', { positive: true });
           const price = round2(number(item.price ?? p.price, 'Цена'));
           return { p, qty, price };
@@ -747,7 +857,8 @@ function createStore(file) {
 
     // Данные для дашборда: товары и строки продаж (без возвратов) за период.
     analytics({ from, to }) {
-      const products = db.prepare('SELECT id, name, category, code, unit, stock, price, cost FROM products WHERE archived = 0').all()
+      const products = db.prepare(`SELECT id, name, category, code, unit, stock, price, cost FROM products p WHERE archived = 0
+        AND NOT EXISTS (SELECT 1 FROM products c WHERE c.parent_id = p.id AND c.deleted = 0)`).all()
         .map((p) => ({ ...p, id: String(p.id) }));
       const sales = db.prepare(`
         SELECT s.created_at AS t, s.id AS r, si.product_id AS p, si.name AS n, si.qty AS q, si.qty * si.price AS s, si.qty * si.cost AS c
@@ -933,9 +1044,22 @@ function createStore(file) {
     shopProducts() {
       const s = this.shop();
       const cats = new Set(s.categories);
-      return db.prepare('SELECT id, name, category, unit, price, stock, description, photo_at FROM products WHERE archived = 0 AND deleted = 0 AND price > 0 ORDER BY category, name COLLATE NOCASE').all()
-        .filter((p) => (!cats.size || cats.has(p.category)) && (!s.hideOutOfStock || p.stock > 0))
-        .map((p) => ({ ...p, stock: s.showStock ? Math.max(0, p.stock) : p.stock > 0 ? 1 : 0, photo: Boolean(p.photo_at) }));
+      const all = db.prepare('SELECT id, name, category, unit, price, stock, description, photo_at, parent_id, options FROM products WHERE archived = 0 AND deleted = 0 ORDER BY category, name COLLATE NOCASE').all();
+      const kids = new Map();
+      for (const p of all) if (p.parent_id) kids.set(p.parent_id, [...(kids.get(p.parent_id) || []), p]);
+      const shown = (p) => p.price > 0 && (!s.hideOutOfStock || p.stock > 0);
+      const out = [];
+      for (const p of all) {
+        if (p.parent_id || (cats.size && !cats.has(p.category))) continue;
+        const variants = (kids.get(p.id) || []).filter(shown);
+        // Основной товар с модификациями показывается карточкой, если хоть одна модификация продаётся.
+        if (kids.has(p.id) ? !variants.length : !shown(p)) continue;
+        out.push(p, ...variants);
+      }
+      return out.map((p) => ({
+        ...p, options: p.options ? JSON.parse(p.options) : null, hasVariants: kids.has(p.id),
+        stock: s.showStock ? Math.max(0, p.stock) : p.stock > 0 ? 1 : 0, photo: Boolean(p.photo_at),
+      }));
     },
 
     shopPhotoAllowed(id) {
@@ -945,7 +1069,7 @@ function createStore(file) {
     createOrder(input) {
       const s = this.shop();
       if (!s.enabled) throw new UserError('Витрина сейчас закрыта');
-      const available = new Map(this.shopProducts().map((p) => [p.id, p]));
+      const available = new Map(this.shopProducts().filter((p) => !p.hasVariants).map((p) => [p.id, p]));
       if (!Array.isArray(input.items) || !input.items.length) throw new UserError('Корзина пуста');
       if (input.items.length > 200) throw new UserError('Слишком много позиций в заказе');
       const lines = input.items.map((i) => {

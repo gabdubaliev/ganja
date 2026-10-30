@@ -16,30 +16,46 @@ async function renderProducts() {
     return toast(err.message, 'error');
   }
   const q = productsView.query.trim().toLowerCase();
-  const rows = list.filter((p) => !q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q) || p.barcode.includes(q) || p.code.toLowerCase().includes(q));
+  const byId = new Map(list.map((p) => [p.id, p]));
+  const kids = new Map();
+  for (const p of list) if (p.parent_id) kids.set(p.parent_id, [...(kids.get(p.parent_id) || []), p]);
+  // Модификации идут сразу под своим товаром.
+  const sortKey = (p) => (p.parent_id ? `${byId.get(p.parent_id)?.name ?? ''}\u0001${p.name}` : p.name).toLowerCase();
+  const rows = list
+    .filter((p) => !q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q) || p.barcode.includes(q) || p.code.toLowerCase().includes(q))
+    .sort((a, b) => sortKey(a).localeCompare(sortKey(b), 'ru'));
   productsView.rows = rows;
   // Выбранными остаются только товары, которые есть в этом списке.
   const ids = new Set(list.map((p) => p.id));
   for (const id of productsView.selected) if (!ids.has(id)) productsView.selected.delete(id);
   const canEdit = session.can('products');
   const stockValue = list.reduce((s, p) => s + Math.max(0, p.stock) * p.cost, 0);
+  const goods = list.filter((p) => !p.parent_id).length;
   $('#products-summary').textContent = productsView.archived
     ? `Скрыто товаров: ${list.length}`
-    : `${list.length} ${plural(list.length, ['товар', 'товара', 'товаров'])} · товара на складе по себестоимости на ${money(stockValue)}`;
+    : `${goods} ${plural(goods, ['товар', 'товара', 'товаров'])}${list.length > goods ? `, ${list.length - goods} ${plural(list.length - goods, ['модификация', 'модификации', 'модификаций'])}` : ''} · товара на складе по себестоимости на ${money(stockValue)}`;
   $('#products-body').innerHTML = rows.length ? rows.map((p) => {
     const m = markup(p);
-    return `<tr class="${productsView.selected.has(p.id) ? 'selected' : ''}">
+    const children = kids.get(p.id) || [];
+    const group = children.length > 0;
+    const stock = group ? children.reduce((sum, k) => sum + k.stock, 0) : p.stock;
+    const prices = group ? children.map((k) => k.price) : [p.price];
+    const lo = Math.min(...prices), hi = Math.max(...prices);
+    const name = p.parent_id
+      ? `<div class="pname">${esc(optionsText(p))}</div><div class="pcat">${esc(byId.get(p.parent_id)?.name ?? '')}</div>`
+      : `<div class="pname">${esc(p.name)}${group ? ` <span class="role-tag">${children.length} ${plural(children.length, ['модификация', 'модификации', 'модификаций'])}</span>` : ''}</div>${p.category ? `<div class="pcat">${esc(p.category)}</div>` : ''}`;
+    return `<tr class="${productsView.selected.has(p.id) ? 'selected' : ''} ${p.parent_id ? 'variant-row' : ''}">
       ${canEdit ? `<td class="sel"><input type="checkbox" data-select="${p.id}" ${productsView.selected.has(p.id) ? 'checked' : ''} aria-label="Выбрать ${esc(p.name)}"></td>` : ''}
-      <td class="name-col"><div class="with-thumb">${photoCell(p)}<div><div class="pname">${esc(p.name)}</div>${p.category ? `<div class="pcat">${esc(p.category)}</div>` : ''}</div></div></td>
-      <td class="num">${esc(p.code) || '—'}</td>
-      <td class="num">${esc(p.barcode) || '—'}</td>
-      <td>${money2(p.price)}</td>
+      <td class="name-col"><div class="with-thumb">${photoCell(p)}<div>${name}</div></div></td>
+      <td class="num">${group ? '' : esc(p.code) || '—'}</td>
+      <td class="num">${group ? '' : esc(p.barcode) || '—'}</td>
+      <td>${lo === hi ? money2(lo) : `${money2(lo)} – ${money2(hi)}`}</td>
       <td>${p.cost ? money2(p.cost) : '—'}</td>
-      <td>${m === null ? '—' : pct(m)}</td>
-      <td class="${p.stock <= 0 ? 'neg' : ''}">${qty(p.stock, p.unit)}</td>
+      <td>${group || m === null ? '—' : pct(m)}</td>
+      <td class="${stock <= 0 ? 'neg' : ''}">${qty(stock, p.unit)}</td>
       <td><div class="actions">
         ${canEdit ? `<button type="button" class="btn small ghost" data-edit="${p.id}">Изменить</button>` : ''}
-        ${productsView.archived || !session.can('stock') ? '' : `<button type="button" class="btn small ghost" data-stock="${p.id}">Пересчитать</button>`}
+        ${productsView.archived || group || !session.can('stock') ? '' : `<button type="button" class="btn small ghost" data-stock="${p.id}">Пересчитать</button>`}
       </div></td>
     </tr>`;
   }).join('') : `<tr><td colspan="9" class="empty">${list.length ? 'Ничего не нашлось' : productsView.archived ? 'Скрытых товаров нет' : 'Товаров пока нет. Нажмите «Добавить товар» или загрузите их из Excel.'}</td></tr>`;
@@ -64,6 +80,7 @@ const BULK = {
   cost: { title: 'Изменить себестоимость', fields: 'price' },
   category: { title: 'Сменить категорию', fields: 'category' },
   unit: { title: 'Сменить единицу', fields: 'unit' },
+  barcodes: { title: 'Создать штрихкоды', confirm: 'Товарам без штрихкода будет присвоен свой уникальный штрихкод EAN-13 (начинается на 20 — так обозначают внутренние коды магазина). Существующие штрихкоды не меняются.' },
   archive: { title: 'Убрать из продажи', confirm: 'Товары скроются из кассы и витрины. История продаж сохранится, вернуть их можно в любой момент.' },
   restore: { title: 'Вернуть в продажу', confirm: 'Товары снова появятся в кассе и на витрине.' },
   delete: { title: 'Удалить товары', confirm: 'Товары пропадут из всех списков. Если по товару были продажи или приходы, история по нему останется в отчётах. Отменить удаление нельзя.', danger: true },
@@ -101,6 +118,16 @@ $('#bulk-bar').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-bulk]');
   if (btn) openBulk(btn.dataset.bulk);
 });
+$('#bulk-labels').addEventListener('click', async () => {
+  const list = productsView.archived ? await api('/api/products?archived=1') : catalog.list;
+  // Этикетки печатаются на то, что лежит на полке: основной товар заменяется его модификациями.
+  const ids = new Set();
+  for (const id of productsView.selected) {
+    const kids = list.filter((p) => p.parent_id === id);
+    if (kids.length) kids.forEach((k) => ids.add(k.id)); else ids.add(id);
+  }
+  openLabels(list.filter((p) => ids.has(p.id)));
+});
 $('#bulk-clear').addEventListener('click', () => { productsView.selected.clear(); renderProducts(); });
 $('#bulk-cancel').addEventListener('click', () => $('#bulk-dialog').close());
 $('#bulk-form').addEventListener('submit', async (e) => {
@@ -131,52 +158,237 @@ $('#products-all').addEventListener('change', (e) => {
 /* ---------- Карточка товара ---------- */
 let productDialogDone = null;
 let editingProduct = null;
+// Свойства для новых модификаций ([{ name, values }]) и введённые в таблице цены и остатки по сочетаниям.
+const gen = { options: [], edits: {} };
+
+const round0 = (n) => Math.round(n);
+const fmtNum = (n) => (Number.isFinite(n) ? String(Math.round(n * 100) / 100).replace('.', ',') : '');
+
+// Цена, себестоимость и наценка связаны: что поменяли, от того и считаем остальное.
+// Цена из наценки округляется до целого сома.
+function syncPrices(changed) {
+  const f = $('#product-form');
+  const cost = parseNum(f.elements.cost.value);
+  const price = parseNum(f.elements.price.value);
+  const mk = parseNum(f.elements.markup.value);
+  if ((changed === 'markup' || (changed === 'cost' && f.elements.markup.value)) && cost > 0 && Number.isFinite(mk) && f.elements.markup.value !== '') {
+    f.elements.price.value = fmtNum(round0(cost * (1 + mk / 100)));
+  } else if ((changed === 'price' || changed === 'cost') && cost > 0 && price > 0) {
+    f.elements.markup.value = fmtNum(((price - cost) / cost) * 100);
+  }
+  const p = parseNum(f.elements.price.value);
+  $('#pf-profit').textContent = cost > 0 && p > 0
+    ? `Прибыль с единицы: ${money2(p - cost)} · маржа ${pct((p - cost) / p)}. Цена из наценки округляется до целого сома.`
+    : 'Меняете наценку — пересчитывается цена, меняете цену — пересчитывается наценка.';
+  renderGenPreview();
+}
+
+function renderBarcodePreview() {
+  const code = $('#pf-barcode').value.trim();
+  const svg = code ? barcodeSvg(code) : null;
+  $('#pf-barcode-preview').hidden = !svg;
+  if (svg) $('#pf-barcode-preview').innerHTML = svg;
+}
 
 function openProductDialog(product = null, onSaved = null) {
   editingProduct = product;
   productDialogDone = onSaved;
   const f = $('#product-form');
   f.reset();
-  $('#product-dialog-title').textContent = product ? 'Изменить товар' : 'Новый товар';
+  const variant = Boolean(product?.parent_id);
+  const base = variant ? catalog.byId(product.parent_id) : null;
+  const group = product && catalog.isGroup(product);
+  $('#product-dialog-title').textContent = variant ? 'Модификация' : product ? 'Изменить товар' : 'Новый товар';
+  $('#product-variant-of').hidden = !variant;
+  if (variant) $('#product-variant-of').innerHTML = `Товар «${esc(base?.name || '')}». Название, категория и описание берутся у него. <button type="button" class="link" data-open-base="${product.parent_id}">Открыть товар</button>`;
+  for (const id of ['#pf-name-field', '#pf-category-field', '#pf-unit-field', '#pf-description-field']) $(id).hidden = variant;
+  $('#pf-variant-options').hidden = !variant;
+  if (variant) {
+    const opts = JSON.parse(product.options || '{}');
+    $('#pf-variant-options').innerHTML = Object.entries(opts).map(([k, v]) => `
+      <div class="field"><label>${esc(k)}</label><input class="input" data-opt="${esc(k)}" value="${esc(v)}" autocomplete="off"></div>`).join('');
+  }
   $('#product-stock-field').hidden = Boolean(product);
+  // Основной товар с модификациями не продают: штрихкод и код — у модификаций, его цена — по умолчанию для новых.
+  $('#pf-code').closest('.field').hidden = group;
+  $('#pf-barcode').closest('.field').hidden = group;
   $('#product-archived-field').hidden = !product;
   $('#product-error').hidden = true;
   $('#product-delete').hidden = !product || !session.can('products.delete');
-  $('#product-delete').textContent = 'Удалить товар';
+  $('#product-delete').textContent = group ? 'Удалить товар и модификации' : 'Удалить';
   $('#product-delete').classList.remove('danger');
+  $('#product-labels').hidden = !product || group;
   if (product) {
     for (const key of ['name', 'category', 'code', 'barcode', 'unit', 'price', 'cost', 'description']) f.elements[key].value = product[key] ?? '';
+    f.elements.price.value = fmtNum(product.price);
+    f.elements.cost.value = product.cost ? fmtNum(product.cost) : '';
+    f.elements.markup.value = product.cost > 0 ? fmtNum(((product.price - product.cost) / product.cost) * 100) : '';
     f.elements.archived.checked = Boolean(product.archived);
   }
+  gen.options = [{ name: 'Цвет', values: '' }, { name: 'Размер', values: '' }];
+  gen.edits = {};
+  $('#pf-gen').open = false;
+  $('#pf-variants').hidden = variant || !session.can('products');
+  renderVariantsList();
+  renderGenOptions();
   $('#categories').innerHTML = [...new Set(catalog.list.map((p) => p.category).filter(Boolean))].sort().map((c) => `<option value="${esc(c)}">`).join('');
+  syncPrices();
+  renderBarcodePreview();
   $('#product-dialog').showModal();
-  f.elements.name.focus();
+  (variant ? $('#pf-variant-options input') : f.elements.name)?.focus();
 }
+
+function renderVariantsList() {
+  const kids = editingProduct ? catalog.children(editingProduct.id) : [];
+  $('#pf-variants-list').innerHTML = kids.length ? `
+    <table class="variants-table">
+      <thead><tr><th>Модификация</th><th>Штрихкод</th><th>Цена</th><th>Остаток</th><th></th></tr></thead>
+      <tbody>${kids.map((k) => `<tr>
+        <td>${esc(optionsText(k))}</td>
+        <td class="num">${esc(k.barcode) || '—'}</td>
+        <td>${money2(k.price)}</td>
+        <td class="${k.stock <= 0 ? 'neg' : ''}">${qty(k.stock, k.unit)}</td>
+        <td><button type="button" class="btn small ghost" data-variant-edit="${k.id}">Изменить</button></td>
+      </tr>`).join('')}</tbody>
+    </table>` : '';
+}
+
+function renderGenOptions() {
+  $('#pf-gen-options').innerHTML = gen.options.map((o, i) => `
+    <div class="gen-row" data-i="${i}">
+      <input class="input" data-gen="name" value="${esc(o.name)}" placeholder="Свойство" aria-label="Свойство" autocomplete="off">
+      <input class="input" data-gen="values" value="${esc(o.values)}" placeholder="Значения через запятую: Красный, Синий" aria-label="Значения" autocomplete="off">
+      <button type="button" class="icon-btn" data-gen-del="${i}" aria-label="Убрать свойство">×</button>
+    </div>`).join('');
+  $('#pf-gen-add').hidden = gen.options.length >= 4;
+  renderGenPreview();
+}
+
+// Все сочетания значений: Цвет × Размер.
+function genCombos() {
+  const opts = gen.options
+    .map((o) => ({ name: o.name.trim(), values: [...new Set(o.values.split(/[,;\n]/).map((v) => v.trim()).filter(Boolean))] }))
+    .filter((o) => o.name && o.values.length);
+  if (!opts.length) return [];
+  return opts.reduce((acc, o) => acc.flatMap((combo) => o.values.map((v) => ({ ...combo, [o.name]: v }))), [{}]);
+}
+
+function renderGenPreview() {
+  const combos = genCombos();
+  const existing = new Set((editingProduct ? catalog.children(editingProduct.id) : []).map((k) => optionsText(k).toLowerCase()));
+  const fresh = combos.filter((c) => !existing.has(Object.values(c).join(', ').toLowerCase()));
+  const f = $('#product-form');
+  const price = f.elements.price.value;
+  $('#pf-gen-preview').innerHTML = !combos.length ? '' : fresh.length > 300 ? `<p class="neg">Получится ${fresh.length} сочетаний — слишком много. Не больше 300.</p>` : `
+    <p class="pick-meta">Будет создано ${fresh.length} ${plural(fresh.length, ['модификация', 'модификации', 'модификаций'])}${combos.length > fresh.length ? ` (${combos.length - fresh.length} уже есть)` : ''}. Цену и остаток можно поменять для каждой.</p>
+    <table class="variants-table gen-table">
+      <thead><tr><th>Модификация</th><th>Цена, сом</th><th>Остаток</th></tr></thead>
+      <tbody>${fresh.map((c, i) => {
+        const label = Object.values(c).join(', ');
+        const ed = gen.edits[label] || {};
+        return `<tr data-combo="${i}" data-label="${esc(label)}">
+        <td>${esc(label)}</td>
+        <td><input class="input num" data-combo="price" inputmode="decimal" value="${esc(ed.price || '')}" placeholder="${esc(price || '0')}" aria-label="Цена"></td>
+        <td><input class="input num" data-combo="stock" inputmode="decimal" value="${esc(ed.stock || '')}" placeholder="0" aria-label="Остаток"></td>
+      </tr>`;
+      }).join('')}</tbody>
+    </table>`;
+  gen.fresh = fresh;
+}
+
+function collectVariants() {
+  const f = $('#product-form');
+  return (gen.fresh || []).map((options) => {
+    const { price, stock } = gen.edits[Object.values(options).join(', ')] || {};
+    return {
+      options,
+      price: price ? parseNum(price) : parseNum(f.elements.price.value) || 0,
+      cost: parseNum(f.elements.cost.value) || 0,
+      stock: stock ? parseNum(stock) : 0,
+    };
+  });
+}
+
+$('#product-form').addEventListener('input', (e) => {
+  const name = e.target.name;
+  if (['cost', 'price', 'markup'].includes(name)) syncPrices(name);
+  if (name === 'barcode') renderBarcodePreview();
+  const combo = e.target.closest('tr[data-label]');
+  if (combo && e.target.dataset.combo) {
+    const label = combo.dataset.label;
+    gen.edits[label] = { ...gen.edits[label], [e.target.dataset.combo]: e.target.value };
+    return;
+  }
+  const g = e.target.dataset.gen;
+  if (g) {
+    gen.options[Number(e.target.closest('.gen-row').dataset.i)][g] = e.target.value;
+    renderGenPreview();
+  }
+});
+$('#product-form').addEventListener('click', (e) => {
+  const del = e.target.closest('[data-gen-del]');
+  const edit = e.target.closest('[data-variant-edit]');
+  const base = e.target.closest('[data-open-base]');
+  if (del) {
+    gen.options.splice(Number(del.dataset.genDel), 1);
+    renderGenOptions();
+  } else if (edit) {
+    openProductDialog(catalog.byId(edit.dataset.variantEdit), productDialogDone);
+  } else if (base) {
+    openProductDialog(catalog.byId(base.dataset.openBase), productDialogDone);
+  }
+});
+$('#pf-gen-add').addEventListener('click', () => {
+  gen.options.push({ name: '', values: '' });
+  renderGenOptions();
+  $('#pf-gen-options .gen-row:last-child input').focus();
+});
+$('#pf-barcode-new').addEventListener('click', async () => {
+  try {
+    $('#pf-barcode').value = (await api('/api/barcode')).barcode;
+    renderBarcodePreview();
+  } catch (err) {
+    showFormError('#product-error', err);
+  }
+});
+$('#product-labels').addEventListener('click', () => openLabels([editingProduct]));
 
 $('#product-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
+  const variant = Boolean(editingProduct?.parent_id);
   const body = {
-    name: f.elements.name.value,
-    category: f.elements.category.value,
     barcode: f.elements.barcode.value,
     code: f.elements.code.value,
-    unit: f.elements.unit.value,
     price: f.elements.price.value,
     cost: f.elements.cost.value || 0,
-    description: f.elements.description.value,
   };
+  if (variant) {
+    body.options = Object.fromEntries([...document.querySelectorAll('#pf-variant-options [data-opt]')].map((i) => [i.dataset.opt, i.value]));
+  } else {
+    Object.assign(body, { name: f.elements.name.value, category: f.elements.category.value, unit: f.elements.unit.value, description: f.elements.description.value });
+  }
   if (!editingProduct) body.stock = f.elements.stock.value || 0;
   else body.archived = f.elements.archived.checked;
+  const variants = variant ? [] : collectVariants();
+  if (variants.length > 300) return showFormError('#product-error', new Error('Слишком много модификаций за раз: не больше 300'));
+  // Первые модификации забирают остаток на себя — у основного товара он обнуляется.
+  const ownStock = editingProduct ? editingProduct.stock : parseNum(body.stock) || 0;
+  if (variants.length && !catalog.children(editingProduct?.id).length && ownStock) {
+    if (!confirm(`Остаток товара (${qtyFmt.format(ownStock)}) обнулится: дальше остатки ведутся по модификациям. Укажите остаток каждой модификации в таблице. Продолжить?`)) return;
+  }
   try {
     const saved = await api(editingProduct ? `/api/products/${editingProduct.id}` : '/api/products', { method: editingProduct ? 'PUT' : 'POST', body });
+    let made = [];
+    if (variants.length) made = await api(`/api/products/${saved.id}/variants`, { method: 'POST', body: { variants, barcodes: $('#pf-gen-barcodes').checked } });
     $('#product-dialog').close();
-    toast(editingProduct ? 'Товар сохранён' : `Товар «${saved.name}» добавлен`);
+    toast((editingProduct ? 'Сохранено' : `Товар «${saved.name}» добавлен`) + (made.length ? `, модификаций: ${made.length}` : ''));
     await catalog.load();
     productDialogDone?.(saved);
   } catch (err) {
-    $('#product-error').textContent = err.message;
-    $('#product-error').hidden = false;
+    showFormError('#product-error', err);
+    // Товар мог сохраниться, а модификации — нет: дальше правим уже его.
+    await catalog.load().catch(() => {});
   }
 });
 $('#product-cancel').addEventListener('click', () => $('#product-dialog').close());
@@ -190,7 +402,7 @@ $('#product-delete').addEventListener('click', async (e) => {
   try {
     await api(`/api/products/${editingProduct.id}`, { method: 'DELETE' });
     $('#product-dialog').close();
-    toast(`Товар «${editingProduct.name}» удалён`);
+    toast(`«${editingProduct.name}» удалён`);
     productsView.selected.delete(editingProduct.id);
     await catalog.load();
     productDialogDone?.();

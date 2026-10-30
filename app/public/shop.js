@@ -16,7 +16,7 @@ const FONTS = {
   condensed: '"Roboto Condensed", "Arial Narrow", "Segoe UI", system-ui, sans-serif',
 };
 
-const state = { settings: null, products: [], cat: '', query: '', way: 'pickup', cart: loadCart() };
+const state = { settings: null, products: [], cat: '', query: '', way: 'pickup', cart: loadCart(), open: null, sel: {} };
 
 function loadCart() {
   try { return JSON.parse(localStorage.getItem('shop.cart')) || {}; } catch { return {}; }
@@ -26,7 +26,11 @@ function saveCart() {
 }
 
 const byId = (id) => state.products.find((p) => p.id === Number(id));
-const photo = (p) => (p.photo ? `/shop/photo/${p.id}?v=${p.photo_at}` : '');
+// Модификации (цвет, размер…) приходят вместе с основным товаром: у них есть parent_id.
+const variantsOf = (p) => state.products.filter((v) => v.parent_id === p.id);
+const inStock = (p) => (p.hasVariants ? variantsOf(p).some((v) => v.stock > 0) : p.stock > 0);
+// У модификации без своего фото — фото товара.
+const photo = (p) => (p.photo ? `/shop/photo/${p.id}?v=${p.photo_at}` : p.parent_id ? photo(byId(p.parent_id) || {}) : '');
 const initial = (p) => esc((p.name.trim()[0] || '•').toUpperCase());
 
 /* ---------- Оформление ---------- */
@@ -94,10 +98,29 @@ function renderCats() {
   $('#cats').innerHTML = ['', ...cats].map((c) => `<button type="button" data-cat="${esc(c)}" aria-pressed="${state.cat === c}">${c ? esc(c) : 'Все товары'}</button>`).join('');
 }
 
+function priceHtml(p) {
+  if (!p.hasVariants) return rub(p.price);
+  const prices = variantsOf(p).map((v) => v.price);
+  const lo = Math.min(...prices);
+  return Math.max(...prices) === lo ? rub(lo) : `от ${rub(lo)}`;
+}
+
 function cardHtml(p) {
-  const inCart = state.cart[p.id] || 0;
+  const inCart = p.hasVariants ? variantsOf(p).reduce((sum, v) => sum + (state.cart[v.id] || 0), 0) : state.cart[p.id] || 0;
   const pic = photo(p);
   const s = state.settings;
+  if (p.hasVariants) {
+    return `<div class="card" role="button" tabindex="0" data-open="${p.id}">
+      <div class="pic">${pic ? `<img src="${pic}" alt="" loading="lazy">` : initial(p)}</div>
+      <div class="info">
+        <div><div class="name">${esc(p.name)}</div><div class="meta">${esc(optionNames(p).join(', '))}</div></div>
+        <div class="row">
+          <span class="price">${priceHtml(p)}</span>
+          ${inStock(p) ? `<button type="button" class="add ${inCart ? 'in' : ''}" data-open="${p.id}">${inCart ? `В корзине: ${qtyFmt.format(inCart)}` : 'Выбрать'}</button>` : '<span class="out-tag">Нет в наличии</span>'}
+        </div>
+      </div>
+    </div>`;
+  }
   return `<div class="card" role="button" tabindex="0" data-open="${p.id}">
     <div class="pic">${pic ? `<img src="${pic}" alt="" loading="lazy">` : initial(p)}</div>
     <div class="info">
@@ -115,7 +138,7 @@ function cardHtml(p) {
 
 function renderGrid() {
   const q = state.query.trim().toLowerCase();
-  const list = state.products.filter((p) => (!state.cat || p.category === state.cat) && (!q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q)));
+  const list = state.products.filter((p) => !p.parent_id && (!state.cat || p.category === state.cat) && (!q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q)));
   const grid = $('#grid');
   grid.className = 'grid ' + state.settings.cardStyle;
   if (!list.length) {
@@ -139,19 +162,52 @@ function renderGrid() {
   }
 }
 
+// Названия свойств товара с модификациями в порядке первой модификации: «Цвет», «Размер».
+function optionNames(p) {
+  const names = [];
+  for (const v of variantsOf(p)) for (const k of Object.keys(v.options || {})) if (!names.includes(k)) names.push(k);
+  return names;
+}
+
+// Модификация, подходящая под выбранные значения, или null.
+const matchVariant = (p, sel) => variantsOf(p).find((v) => Object.entries(sel).every(([k, val]) => v.options?.[k] === val)) || null;
+
 function openProduct(id) {
   const p = byId(id);
   if (!p) return;
-  const pic = photo(p);
+  if (state.open !== p.id) {
+    state.open = p.id;
+    // Сразу выбрана первая модификация в наличии — покупателю остаётся поменять, что нужно.
+    const first = variantsOf(p).find((v) => v.stock > 0) || variantsOf(p)[0];
+    state.sel = p.hasVariants && first ? { ...first.options } : {};
+  }
+  const v = p.hasVariants ? matchVariant(p, state.sel) : p;
+  const shown = v && v !== p && v.photo ? v : p;
+  const pic = photo(shown);
+  const s = state.settings;
+  const pickers = p.hasVariants ? optionNames(p).map((name) => {
+    const values = [...new Set(variantsOf(p).map((x) => x.options?.[name]).filter(Boolean))];
+    return `<div class="opt"><div class="opt-name">${esc(name)}${state.sel[name] ? `: <b>${esc(state.sel[name])}</b>` : ''}</div><div class="opt-values">
+      ${values.map((val) => {
+        // Значение недоступно, если с остальными выбранными свойствами такого товара нет в наличии.
+        const alt = matchVariant(p, { ...state.sel, [name]: val });
+        return `<button type="button" data-opt="${esc(name)}" data-val="${esc(val)}" aria-pressed="${state.sel[name] === val}" class="${alt && alt.stock > 0 ? '' : 'na'}">${esc(val)}</button>`;
+      }).join('')}
+    </div></div>`;
+  }).join('') : '';
+  const can = v && v.stock > 0;
   $('#product-body').innerHTML = `
     <h2 id="product-name">${esc(p.name)}</h2>
     <div class="product-pic">${pic ? `<img src="${pic}" alt="">` : initial(p)}</div>
     ${p.category ? `<p class="small" style="text-align:left">${esc(p.category)}</p>` : ''}
+    ${pickers}
     ${p.description ? `<p class="product-desc">${esc(p.description)}</p>` : ''}
     <div class="product-buy">
-      <span class="price">${rub(p.price)}${p.unit !== 'шт' ? ` <span class="small">за ${esc(p.unit)}</span>` : ''}</span>
-      ${p.stock > 0 ? `<button type="button" class="primary" data-add="${p.id}">${state.cart[p.id] ? `В корзине: ${qtyFmt.format(state.cart[p.id])} · ещё` : 'В корзину'}</button>` : '<span class="out-tag">Нет в наличии</span>'}
-    </div>`;
+      <span class="price">${v ? rub(v.price) : priceHtml(p)}${p.unit !== 'шт' ? ` <span class="small">за ${esc(p.unit)}</span>` : ''}</span>
+      ${can ? `<button type="button" class="primary" data-add="${v.id}">${state.cart[v.id] ? `В корзине: ${qtyFmt.format(state.cart[v.id])} · ещё` : 'В корзину'}</button>`
+        : `<span class="out-tag">${p.hasVariants && !v ? 'Такого сочетания нет' : 'Нет в наличии'}</span>`}
+    </div>
+    ${s.showStock && can ? `<p class="small" style="text-align:left">В наличии: ${qtyFmt.format(v.stock)} ${esc(p.unit)}</p>` : ''}`;
   if (!$('#product').open) $('#product').showModal();
 }
 
@@ -159,6 +215,7 @@ function openProduct(id) {
 function add(id, delta = 1) {
   const p = byId(id);
   if (!p) return;
+  if (p.hasVariants) return openProduct(p.id);
   const next = Math.max(0, (state.cart[id] || 0) + delta);
   // Если остаток показывается, больше остатка положить нельзя.
   if (state.settings.showStock && next > p.stock) return;
@@ -168,7 +225,7 @@ function add(id, delta = 1) {
 }
 
 function cartLines() {
-  return Object.entries(state.cart).map(([id, qty]) => ({ p: byId(id), qty })).filter((l) => l.p && l.p.stock > 0);
+  return Object.entries(state.cart).map(([id, qty]) => ({ p: byId(id), qty })).filter((l) => l.p && !l.p.hasVariants && l.p.stock > 0);
 }
 
 function renderCart() {
@@ -205,7 +262,7 @@ function renderCart() {
 function renderAll() {
   renderGrid();
   renderCart();
-  if ($('#product').open) openProduct($('#product-body [data-add]')?.dataset.add);
+  if ($('#product').open && state.open) openProduct(state.open);
 }
 
 /* ---------- События ---------- */
@@ -215,8 +272,16 @@ document.addEventListener('click', (e) => {
     e.stopPropagation();
     return add(addBtn.dataset.add, Number(addBtn.dataset.delta || 1));
   }
+  const opt = e.target.closest('[data-opt]');
+  if (opt) {
+    state.sel[opt.dataset.opt] = opt.dataset.val;
+    return openProduct(state.open);
+  }
   const open = e.target.closest('[data-open]');
-  if (open) return openProduct(open.dataset.open);
+  if (open) {
+    state.open = null;
+    return openProduct(open.dataset.open);
+  }
   const cat = e.target.closest('[data-cat]');
   if (cat) {
     state.cat = cat.dataset.cat;

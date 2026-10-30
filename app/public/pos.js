@@ -12,15 +12,22 @@ const pos = {
 
 function renderPick() {
   const q = $('#pos-search').value;
-  const list = q.trim() ? catalog.search(q, 40) : catalog.list;
+  // Без поиска модификации спрятаны в карточку своего товара; при поиске находятся сразу.
+  const list = q.trim() ? catalog.search(q, 40) : catalog.list.filter((p) => !p.parent_id);
   $('#pos-results').innerHTML = list.length ? list.map((p) => {
-    const inCart = pos.cart.find((l) => l.productId === p.id)?.qty || 0;
-    const left = p.stock - inCart;
-    const photo = photoUrl(p);
+    const group = catalog.isGroup(p);
+    const inCart = group
+      ? pos.cart.filter((l) => catalog.byId(l.productId)?.parent_id === p.id).reduce((s, l) => s + l.qty, 0)
+      : pos.cart.find((l) => l.productId === p.id)?.qty || 0;
+    const left = catalog.stockOf(p) - inCart;
+    // У модификации без своего фото показываем фото товара.
+    const photo = photoUrl(p) || (p.parent_id ? photoUrl(catalog.byId(p.parent_id) || {}) : '');
+    const prices = group ? catalog.children(p.id).map((k) => k.price) : [p.price];
+    const lo = Math.min(...prices);
     return `<button type="button" class="pick ${left <= 0 ? 'out' : ''} ${photo ? 'has-photo' : ''}" data-id="${p.id}">
       ${photo ? `<img class="pick-photo" src="${photo}" alt="" loading="lazy">` : ''}
-      <span class="pick-name">${esc(p.name)}</span>
-      <span class="pick-price num">${money2(p.price)}</span>
+      <span class="pick-name">${esc(p.name)}${group ? `<span class="pick-meta"> · ${catalog.children(p.id).length} вар.</span>` : ''}</span>
+      <span class="pick-price num">${group && Math.max(...prices) !== lo ? 'от ' : ''}${money2(lo)}</span>
       <span class="pick-meta">${esc([p.code, p.category].filter(Boolean).join(' · ') || 'Без категории')}</span>
       <span class="pick-stock num ${left <= 0 ? 'neg' : ''}">${left <= 0 ? 'нет на складе' : 'осталось ' + qty(left, p.unit)}</span>
     </button>`;
@@ -163,8 +170,33 @@ $('#pos-search').addEventListener('keydown', (e) => {
 });
 $('#pos-results').addEventListener('click', (e) => {
   const btn = e.target.closest('.pick');
-  if (btn) addToCart(Number(btn.dataset.id));
+  if (!btn) return;
+  const p = catalog.byId(btn.dataset.id);
+  if (catalog.isGroup(p)) openVariantPicker(p);
+  else addToCart(p.id);
 });
+
+/* ---------- Выбор модификации ---------- */
+function openVariantPicker(base) {
+  $('#variant-title').textContent = base.name;
+  $('#variant-list').innerHTML = catalog.children(base.id).map((k) => {
+    const left = k.stock - (pos.cart.find((l) => l.productId === k.id)?.qty || 0);
+    return `<button type="button" class="pick ${left <= 0 ? 'out' : ''}" data-variant="${k.id}">
+      <span class="pick-name">${esc(optionsText(k))}</span>
+      <span class="pick-price num">${money2(k.price)}</span>
+      <span class="pick-meta">${esc(k.barcode || '')}</span>
+      <span class="pick-stock num ${left <= 0 ? 'neg' : ''}">${left <= 0 ? 'нет на складе' : 'осталось ' + qty(left, k.unit)}</span>
+    </button>`;
+  }).join('');
+  $('#variant-dialog').showModal();
+}
+$('#variant-list').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-variant]');
+  if (!btn) return;
+  addToCart(Number(btn.dataset.variant));
+  $('#variant-dialog').close();
+});
+$('#variant-close').addEventListener('click', () => $('#variant-dialog').close());
 $('#cart').addEventListener('click', (e) => {
   const line = e.target.closest('.cart-line');
   if (!line) return;

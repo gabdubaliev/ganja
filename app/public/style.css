@@ -432,6 +432,33 @@ tr.selected { background: var(--series-soft) !important; }
 textarea.input { resize: vertical; font: inherit; line-height: 1.45; }
 textarea.code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; }
 
+/* Карточка товара: цены, штрихкод, модификации */
+#product-dialog { width: min(760px, calc(100vw - 24px)); }
+.prices { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px 10px; margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.prices legend { padding: 0 6px; color: var(--ink-2); font-size: 13px; }
+.prices .price-note { grid-column: 1 / -1; margin: 0; }
+#pf-markup { border-color: var(--series); }
+.input-row { display: flex; gap: 6px; }
+.input-row .input { flex: 1; min-width: 0; }
+.barcode-preview { display: flex; justify-content: center; }
+.barcode-preview svg { height: 64px; width: auto; max-width: 260px; }
+.variant-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+.variants { border-top: 1px solid var(--grid); padding-top: 10px; display: grid; gap: 8px; }
+.variants-head { display: grid; gap: 2px; }
+.variants-head h3 { margin: 0; }
+.variants-table { width: 100%; min-width: 0; border-collapse: collapse; }
+.variants-table th, .variants-table td { padding: 6px 8px; }
+.variants-table th:first-child, .variants-table td:first-child { text-align: left; padding-left: 0; }
+.gen-table .input { max-width: 120px; margin-left: auto; display: block; padding: 5px 8px; }
+.variant-gen { border: 1px dashed var(--axis); border-radius: var(--radius); padding: 8px 12px; }
+.variant-gen summary { font-weight: 600; cursor: pointer; color: var(--series); }
+.variant-gen[open] { display: grid; gap: 8px; }
+.gen-row { display: grid; grid-template-columns: 140px minmax(0, 1fr) 32px; gap: 6px; align-items: center; margin-bottom: 6px; }
+tr.variant-row td.name-col { padding-left: 34px; }
+tr.variant-row .pname { font-weight: 500; }
+.variant-picks { max-height: 60vh; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+#variant-dialog { width: min(640px, calc(100vw - 24px)); }
+
 /* Права сотрудника */
 .rights { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px 12px; margin: 0; }
 .rights legend { padding: 0 6px; color: var(--ink-2); font-size: 13px; display: flex; gap: 10px; align-items: baseline; }
@@ -524,6 +551,9 @@ input[type="range"] { width: 100%; accent-color: var(--series); }
 }
 @media (max-width: 640px) {
   #me-password { max-width: 96px; }
+  .prices { grid-template-columns: 1fr; }
+  .gen-row { grid-template-columns: minmax(0, 1fr) 32px; }
+  .gen-row [data-gen="values"] { grid-column: 1; }
   .kpi-bar { grid-template-columns: 1fr; gap: 4px; }
   .history-row { grid-template-columns: minmax(0, 1fr) auto; }
   .history-row > span:first-child { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
