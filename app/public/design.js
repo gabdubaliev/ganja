@@ -4,7 +4,8 @@
 // Изменения видны сразу, «Сохранить» применяет их для всех сотрудников.
 
 const DESIGN_PRESETS = {
-  classic: { name: 'Классика', accent: '#2a78d6', bg: '', surface: '', ink: '', font: 'system', radius: 10, theme: 'auto' },
+  classic: { name: 'Индиго', accent: '#5b5bf6', bg: '', surface: '', ink: '', font: 'system', radius: 14, theme: 'auto' },
+  ocean: { name: 'Океан', accent: '#0ea5e9', bg: '', surface: '', ink: '', font: 'system', radius: 14, theme: 'auto' },
   forest: { name: 'Лес', accent: '#2f9e44', bg: '#f3f7f1', surface: '#fbfdfa', ink: '', font: 'rounded', radius: 14, theme: 'light' },
   sunset: { name: 'Закат', accent: '#e8590c', bg: '#fbf5ef', surface: '#fffdfa', ink: '', font: 'system', radius: 12, theme: 'light' },
   grape: { name: 'Виноград', accent: '#7048e8', bg: '', surface: '', ink: '', font: 'rounded', radius: 16, theme: 'auto' },
@@ -13,13 +14,13 @@ const DESIGN_PRESETS = {
 };
 const designView = { saved: null, draft: null };
 // Цвет, которым поле показывает «по умолчанию»: у <input type=color> не бывает пустого значения.
-const DEFAULT_SWATCH = { bg: '#f4f5f2', surface: '#fcfcfb', ink: '#0b0b0b' };
+const DEFAULT_SWATCH = { bg: '#f4f5fa', surface: '#ffffff', ink: '#141625' };
 
 function renderDesign() {
   designView.saved = { ...session.design };
   designView.draft = { ...session.design };
   $('#design-presets').innerHTML = Object.entries(DESIGN_PRESETS).map(([key, p]) => `
-    <button type="button" class="template" data-preset="${key}" style="--t-bg:${p.bg || '#f4f5f2'};--t-surface:${p.surface || '#fcfcfb'};--t-accent:${p.accent};--t-ink:${p.ink || '#0b0b0b'};--t-radius:${p.radius}px">
+    <button type="button" class="template" data-preset="${key}" style="--t-bg:${p.bg || '#f4f5fa'};--t-surface:${p.surface || '#ffffff'};--t-accent:${p.accent};--t-ink:${p.ink || '#141625'};--t-radius:${p.radius}px">
       <span class="t-swatch"><i></i><i></i><i></i></span>${p.name}
     </button>`).join('');
   $('#df-font').innerHTML = Object.entries(FONT_NAMES).map(([k, n]) => `<option value="${k}">${n}</option>`).join('');
@@ -52,13 +53,13 @@ function previewDesign() {
     document.head.append(style);
   }
   const scheme = d.theme === 'auto' ? '' : `:root { color-scheme: ${d.theme}; }`;
-  style.textContent = `${scheme}\n:root { ${Object.entries(vars).map(([k, v]) => `${k}: ${v};`).join(' ')} }\n.btn.primary { background: var(--series); border-color: var(--series); }\n${d.css}`;
+  style.textContent = `${scheme}\n:root { ${Object.entries(vars).map(([k, v]) => `${k}: ${v};`).join(' ')} }\n${d.css}`;
   // Принудительная тема и палитра тёмного режима есть только в серверной теме — для них нужен «Сохранить».
   for (const el of document.querySelectorAll('.nav .logo')) el.textContent = d.name || 'Мой магазин';
 }
 
 const FONT_STACK = {
-  system: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+  system: '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
   serif: 'Georgia, "Times New Roman", "Noto Serif", serif',
   rounded: 'ui-rounded, "SF Pro Rounded", "Nunito", "Segoe UI", system-ui, sans-serif',
   mono: 'ui-monospace, "SF Mono", Menlo, Consolas, "Roboto Mono", monospace',

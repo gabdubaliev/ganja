@@ -4,18 +4,23 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Мой магазин</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="theme.css" id="theme-css">
 </head>
 <body>
 <nav class="nav" aria-label="Разделы">
   <div class="nav-inner">
-    <span class="logo">Мой магазин</span>
-    <a href="#home" data-can="dashboard" hidden>Главная</a>
-    <a href="#products" data-can="products" hidden>Товары</a>
-    <a href="#sales" data-can="sales" hidden>Продажи</a>
-    <a href="#more" id="nav-more">Ещё <span class="badge" id="orders-badge" hidden></span></a>
-    <a href="/kassa.html" target="_blank" class="nav-kassa" data-can="pos" hidden>Касса ↗</a>
+    <span class="logo" data-initial="М">Мой магазин</span>
+    <div class="nav-main">
+      <a href="#home" data-can="dashboard" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg><span>Главная</span></a>
+      <a href="#products" data-can="products" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg><span>Товары</span></a>
+      <a href="#sales" data-can="sales" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 7h6M9 11h6M9 15h4"/></svg><span>Продажи</span></a>
+      <a href="#more" id="nav-more"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg><span>Ещё</span> <span class="badge" id="orders-badge" hidden></span></a>
+      <a href="/kassa.html" target="_blank" class="nav-kassa" data-can="pos" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M7 7V4h10v3M7 12h4M7 16h2M15 12h2M15 16h2"/></svg><span>Касса</span></a>
+    </div>
     <span class="nav-user">
       <button type="button" class="btn small ghost" id="bell" hidden aria-pressed="false"></button>
     </span>

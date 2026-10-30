@@ -4,7 +4,7 @@
 // (программа) или shop.css (витрина) и переопределяет цвета, шрифт и скругления.
 
 const FONT_STACKS = {
-  system: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+  system: '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
   serif: 'Georgia, "Times New Roman", "Noto Serif", serif',
   rounded: 'ui-rounded, "SF Pro Rounded", "Nunito", "Segoe UI", system-ui, sans-serif',
   mono: 'ui-monospace, "SF Mono", Menlo, Consolas, "Roboto Mono", monospace',
@@ -13,14 +13,15 @@ const FONT_STACKS = {
 
 // Палитры программы — те же, что в style.css. Нужны, чтобы включить светлую или тёмную тему принудительно.
 const LIGHT = {
-  'color-scheme': 'light', '--bg': '#f4f5f2', '--surface': '#fcfcfb', '--ink': '#0b0b0b', '--ink-2': '#52514e', '--muted': '#7a7873',
-  '--grid': '#e1e0d9', '--axis': '#c3c2b7', '--border': 'rgba(11, 11, 11, 0.10)', '--hover': 'rgba(11, 11, 11, 0.04)', '--rest': '#d4d3cb',
-  '--good-ink': '#006300', '--critical': '#d03b3b',
+  'color-scheme': 'light', '--bg': '#f4f5fa', '--surface': '#ffffff', '--surface-2': '#f6f7fb', '--ink': '#141625', '--ink-2': '#4a4f66', '--muted': '#8a8fa6',
+  '--grid': '#eceef5', '--axis': '#d3d6e3', '--border': 'rgba(20, 22, 37, 0.08)', '--hover': 'rgba(91, 91, 246, 0.06)', '--rest': '#d9dbe7',
+  '--good-ink': '#15803d', '--critical': '#e11d48',
 };
 const DARK = {
-  'color-scheme': 'dark', '--bg': '#0d0d0d', '--surface': '#1a1a19', '--ink': '#f0efec', '--ink-2': '#c3c2b7', '--muted': '#8f8d87',
-  '--grid': '#2c2c2a', '--axis': '#383835', '--border': 'rgba(255, 255, 255, 0.10)', '--hover': 'rgba(255, 255, 255, 0.05)', '--rest': '#4a4a46',
-  '--good-ink': '#0ca30c', '--critical': '#e05555',
+  'color-scheme': 'dark', '--bg': '#0e1018', '--surface': '#171a26', '--surface-2': '#1d2130', '--ink': '#eef0f8', '--ink-2': '#b9bdd2', '--muted': '#7f849c',
+  '--grid': '#252a3b', '--axis': '#333a50', '--border': 'rgba(255, 255, 255, 0.08)', '--hover': 'rgba(129, 129, 255, 0.10)', '--rest': '#3a4058',
+  '--good-ink': '#4ade80', '--critical': '#fb7185',
+  '--shadow': '0 2px 4px rgba(0, 0, 0, 0.25), 0 8px 24px rgba(0, 0, 0, 0.35)', '--shadow-sm': '0 1px 2px rgba(0, 0, 0, 0.3)',
 };
 
 const block = (vars) => Object.entries(vars).filter(([, v]) => v !== '' && v != null).map(([k, v]) => `  ${k}: ${v};`).join('\n');
@@ -48,7 +49,6 @@ function themeCss(d) {
   if (d.theme === 'auto' && (d.bg || d.surface || d.ink)) {
     parts.push(`@media (prefers-color-scheme: dark) {\n:root {\n${block({ '--bg': d.bg, '--surface': d.surface, '--ink': d.ink })}\n}\n}`);
   }
-  parts.push('.btn.primary { background: var(--series); border-color: var(--series); }');
   if (d.css) parts.push(`/* Свой CSS */\n${d.css}`);
   return parts.join('\n\n') + '\n';
 }

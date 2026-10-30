@@ -301,7 +301,7 @@ function daysToBirthday(bday, now = Date.now()) {
 }
 
 // Оформление программы. Цвета — #rrggbb, остальное проверяется в setDesign.
-const DESIGN_DEFAULTS = { name: 'Мой магазин', accent: '#2a78d6', bg: '', surface: '', ink: '', font: 'system', radius: 10, theme: 'auto', css: '' };
+const DESIGN_DEFAULTS = { name: 'Мой магазин', accent: '#5b5bf6', bg: '', surface: '', ink: '', font: 'system', radius: 14, theme: 'auto', css: '' };
 
 // Интернет-витрина: всё, что меняется в конструкторе.
 const SHOP_DEFAULTS = {
@@ -1193,7 +1193,7 @@ function createStore(file) {
     },
 
     setDesign(input) {
-      const radius = number(input.radius ?? 10, 'Скругление');
+      const radius = number(input.radius ?? 14, 'Скругление');
       const next = {
         name: text(input.name, 'Название', { max: 60 }) || DESIGN_DEFAULTS.name,
         accent: color(input.accent, 'Основной'),

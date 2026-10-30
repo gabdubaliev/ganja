@@ -6,17 +6,22 @@
 <title>Касса — Мой магазин</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#2a78d6">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="theme.css" id="theme-css">
 </head>
 <body class="kassa">
 <nav class="nav" aria-label="Разделы кассы">
   <div class="nav-inner">
-    <span class="logo">Касса</span>
-    <a href="#pos">Продажа</a>
-    <a href="#sales">Мои чеки</a>
-    <a href="#orders" data-can="orders" hidden>Заказы <span class="badge" id="orders-badge" hidden></span></a>
-    <a href="#photos" data-can="photos" hidden>Фото товаров</a>
+    <span class="logo" data-initial="К">Касса</span>
+    <div class="nav-main">
+      <a href="#pos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h2l2.4 10.2a1 1 0 0 0 1 .8h8.9a1 1 0 0 0 1-.8L20 7H6.2"/><circle cx="9" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/></svg><span>Продажа</span></a>
+      <a href="#sales"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 7h6M9 11h6M9 15h4"/></svg><span>Мои чеки</span></a>
+      <a href="#orders" data-can="orders" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8h14l-1 13H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg><span>Заказы</span> <span class="badge" id="orders-badge" hidden></span></a>
+      <a href="#photos" data-can="photos" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><span>Фото</span></a>
+    </div>
     <span class="nav-user" id="nav-user" hidden>
       <button type="button" class="btn small ghost" id="me-password" title="Сменить пароль"></button>
       <button type="button" class="btn small ghost" id="logout">Выйти</button>

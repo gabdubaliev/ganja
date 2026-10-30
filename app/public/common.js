@@ -242,7 +242,10 @@ $('#logout').addEventListener('click', async () => {
 
 // Название магазина из раздела «Оформление».
 function applyBrand(name) {
-  for (const el of document.querySelectorAll('.nav .logo')) if (!IS_KASSA) el.textContent = name;
+  for (const el of document.querySelectorAll('.nav .logo')) {
+    if (!IS_KASSA) el.textContent = name;
+    el.dataset.initial = (name.trim()[0] || 'М').toUpperCase();
+  }
   document.title = IS_KASSA ? `Касса — ${name}` : name;
 }
 
