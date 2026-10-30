@@ -245,9 +245,9 @@ async function renderBranchSwitch() {
   const host = $('#nav-user');
   const el = document.createElement('span');
   el.className = 'branch-switch';
-  if (session.user.owner) {
-    const { branches } = await api('/api/branches');
-    el.innerHTML = `<select aria-label="Магазин" title="Магазин, в котором вы сейчас работаете">${branches.map((x) => `<option value="${x.id}" ${x.current ? 'selected' : ''}>🏬 ${esc(x.name)}</option>`).join('')}</select>`;
+  // Список — у тех, кому открыто несколько магазинов (владелец — все); остальные видят свой магазин.
+  if (b.allowed?.length > 1) {
+    el.innerHTML = `<select aria-label="Магазин" title="Магазин, в котором вы сейчас работаете">${b.allowed.map((x) => `<option value="${x.id}" ${x.id === b.id ? 'selected' : ''}>🏬 ${esc(x.name)}</option>`).join('')}</select>`;
     el.querySelector('select').addEventListener('change', (e) => switchBranch(Number(e.target.value)));
   } else {
     el.innerHTML = `<span class="branch-chip" title="Ваш магазин">🏬 ${esc(b.name)}</span>`;

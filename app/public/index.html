@@ -991,10 +991,11 @@
     <div class="tools"><button type="button" class="btn primary" id="user-add">Добавить сотрудника</button></div>
   </header>
   <section class="panel">
+    <div class="chips users-branches" id="users-branches" hidden></div>
     <ul class="roles-help" id="roles-help"></ul>
     <div class="table-wrap">
       <table class="users-table">
-        <thead><tr><th>Сотрудник</th><th>Роль</th><th>За смену</th><th>% от продаж</th><th>План в месяц</th><th>Доступ</th><th></th></tr></thead>
+        <thead><tr><th>Сотрудник</th><th class="users-branch-col" hidden>Магазин</th><th>Роль</th><th>За смену</th><th>% от продаж</th><th>План в месяц</th><th>Доступ</th><th></th></tr></thead>
         <tbody id="users-body"></tbody>
       </table>
     </div>
@@ -1020,6 +1021,14 @@
       <div class="field"><label for="uf-plan">План продаж в месяц, сом</label><input id="uf-plan" name="plan" class="input num" inputmode="decimal" autocomplete="off" placeholder="Без плана"></div>
       <div class="field"><label for="uf-plan-bonus">Бонус за выполнение плана, сом</label><input id="uf-plan-bonus" name="plan_bonus" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
       <div class="field"><label for="uf-maxdisc">Скидка на кассе — не больше, % от чека</label><input id="uf-maxdisc" name="max_discount" class="input num" inputmode="decimal" autocomplete="off" placeholder="Без ограничения"></div>
+      <fieldset class="rights wide" id="uf-branch" hidden>
+        <legend>Магазин</legend>
+        <div class="form-grid">
+          <div class="field"><label for="uf-home">Работает в магазине</label><select id="uf-home" name="home" class="input"></select></div>
+          <div class="field"><span class="label">Может работать также в</span><div id="uf-stores" class="pm-checks"></div></div>
+        </div>
+        <p class="sub" id="uf-branch-note">Сменить магазин — перевести сотрудника: в старом магазине он закроется (история продаж и смен останется), в новом — откроется с теми же ролью, правами и ставкой. «Также в» — сотрудник сможет переключаться в эти магазины списком 🏬 вверху и работать там со своей ролью.</p>
+      </fieldset>
       <fieldset class="rights wide" id="uf-methods">
         <legend>Способы оплаты на кассе <button type="button" class="link" id="uf-methods-all">все</button></legend>
         <div id="uf-methods-list" class="pm-checks"></div>

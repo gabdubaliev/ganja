@@ -136,28 +136,73 @@ const staffDirectory = {
     for (const b of branchList()) {
       const ctx = contextOf(b.id);
       const u = ctx?.store.findUserByEmail(email);
-      if (u && !u.owner_shadow) return { ...u, branch: ctx.id };
+      if (u && !u.owner_shadow && !u.moved_to) return { ...u, branch: ctx.id };
     }
     return null;
   },
 };
 const auth = createAuth(staffDirectory, process.env.SESSION_SECRET || mainStore.setting('session_secret', crypto.randomBytes(32).toString('base64url')));
 const isOwner = (u) => u && (u.branch || 1) === 1 && u.role === 'admin';
+// В каких магазинах сотрудник может работать: владелец — во всех, остальные — в своём и отмеченных в карточке.
+function allowedBranches(u) {
+  const all = branchList().map((b) => b.id);
+  if (!u) return [1];
+  if (isOwner(u)) return all;
+  const extra = u.stores ? JSON.parse(u.stores) : [];
+  return [...new Set([u.branch || 1, ...extra])].filter((id) => all.includes(id));
+}
 
 // Магазин запроса: сотрудник филиала работает в своём, владелец — в выбранном (cookie shop_branch).
 function branchCookie(req) {
   const m = String(req.headers.cookie || '').match(/(?:^|;\s*)shop_branch=(\d+)/);
-  return m ? Number(m[1]) : 1;
+  return m ? Number(m[1]) : null;
 }
 function resolveContext(req, user) {
   if (!user) return { ctx: contexts.get(1), user: null, owner: null };
   if (isOwner(user)) {
-    const ctx = contextOf(branchCookie(req)) || contexts.get(1);
+    const ctx = contextOf(branchCookie(req) || 1) || contexts.get(1);
     if (ctx.id === 1) return { ctx, user, owner: user };
     const shadow = ctx.store.ownerShadow(user);
     return { ctx, user: { ...shadow, branch: ctx.id }, owner: user };
   }
+  // Сотрудник с доступом в другой магазин работает там под своей записью-копией (роль и права — из своего магазина).
+  const want = branchCookie(req);
+  if (want && want !== user.branch && allowedBranches(user).includes(want)) {
+    const ctx = contextOf(want);
+    try {
+      return { ctx, user: { ...ctx.store.shadowOf(user), branch: ctx.id }, owner: null };
+    } catch { /* в том магазине уже есть сотрудник с таким email — работает в своём */ }
+  }
   return { ctx: contextOf(user.branch) || contexts.get(1), user, owner: null };
+}
+
+// Действие над сотрудником другого магазина (?branch=N) — только у владельца.
+function inBranch(url, user, fn) {
+  const b = Number(url.searchParams.get('branch')) || current().id;
+  if (b === current().id) return fn();
+  if (auth.enabled && !user?.owner) throw new UserError('Сотрудников других магазинов меняет владелец');
+  const ctx = contextOf(b);
+  if (!ctx) throw new UserError('Магазин не найден');
+  return als.run(ctx, fn);
+}
+
+// Перевод в другой магазин и доступ к магазинам — только владелец.
+function setEmployeeBranch(id, { home, stores }, user) {
+  if (auth.enabled && !user?.owner) throw new UserError('Магазин сотрудника меняет владелец');
+  const from = current();
+  const all = branchList().map((b) => b.id);
+  const to = Number(home) || from.id;
+  if (!all.includes(to)) throw new UserError('Магазин не найден');
+  const extra = (stores || []).map(Number).filter((b) => all.includes(b) && b !== to);
+  if (to === from.id) return store.setUserStores(id, extra);
+  const src = from.store.findUser(id);
+  if (!src) throw new UserError('Сотрудник не найден');
+  for (const b of branchList()) {
+    const other = b.id !== from.id && contextOf(b.id).store.findUserByEmail(src.email);
+    if (other && b.id === to && !other.owner_shadow && !other.moved_to) throw new UserError(`В магазине «${b.name}» уже есть сотрудник с этим email`);
+  }
+  from.store.moveOut(id, to);
+  return contextOf(to).store.moveIn({ ...src, stores: extra.length ? JSON.stringify(extra) : null });
 }
 
 // Сотрудник с правом «Сотрудники», но не администратор, не может назначать
@@ -307,7 +352,12 @@ function range(url) {
 const routes = [
   ['GET', '/api/status', (p, url, body, user) => ({
     empty: store.isEmpty(), auth: auth.enabled, user,
-    branch: (() => { const b = branchList().find((x) => x.id === current().id); return { id: b.id, name: b.name, count: branchList().length }; })(),
+    branch: (() => {
+      const b = branchList().find((x) => x.id === current().id);
+      const home = user ? staffDirectory.findUserByEmail(user.email) : null;
+      const allowed = home ? allowedBranches(home) : [1];
+      return { id: b.id, name: b.name, count: branchList().length, allowed: branchList().filter((x) => allowed.includes(x.id)).map((x) => ({ id: x.id, name: x.name })) };
+    })(),
     can: rightsOf(user),
     roles: ROLES,
     rights: RIGHTS,
@@ -514,30 +564,37 @@ const routes = [
   ['POST', '/api/customers/:id/bonus', (p, url, body, user) => store.adjustBonus(p.id, body, user), 'loyalty'],
   ['PUT', '/api/loyalty', (p, url, body) => store.setLoyalty(body), 'loyalty'],
 
-  ['GET', '/api/users', () => store.listUsers(), 'staff'],
-  ['POST', '/api/users', (p, url, body, user) => {
+  // Сотрудники: владелец может смотреть все магазины сразу (all=1) или любой магазин (?branch=N).
+  ['GET', '/api/users', (p, url, body, user) => {
+    const names = Object.fromEntries(branchList().map((b) => [b.id, b.name]));
+    const tag = (list, id) => list.map((u) => ({ ...u, branch: id, branchName: names[id] }));
+    if (url.searchParams.get('all') === '1' && (user?.owner || !auth.enabled)) return branchList().flatMap((b) => tag(contextOf(b.id).store.listUsers(), b.id));
+    return inBranch(url, user, () => tag(store.listUsers(), current().id));
+  }, 'staff'],
+  ['POST', '/api/users/:id/branch', (p, url, body, user) => inBranch(url, user, () => setEmployeeBranch(p.id, body, user)), 'staff'],
+  ['POST', '/api/users', (p, url, body, user) => inBranch(url, user, () => {
     guardAdmin(user, null, body);
     // Email входа один на все магазины: по нему программа понимает, в какой магазин пустить.
     const email = String(body.email || '').trim().toLowerCase();
     for (const b of branchList()) {
       const other = b.id !== current().id && contextOf(b.id)?.store.findUserByEmail(email);
-      if (other && !other.owner_shadow) throw new UserError(`Email ${email} уже занят сотрудником магазина «${b.name}»`);
+      if (other && !other.owner_shadow && !other.moved_to) throw new UserError(`Email ${email} уже занят сотрудником магазина «${b.name}»`);
     }
     const pin = body.pin ? pinHash(body.pin) : null;
     const made = store.createUser(body, password(body.password));
     return pin ? store.setUserPin(made.id, pin) : made;
-  }, 'staff'],
-  ['PUT', '/api/users/:id', (p, url, body, user) => {
+  }), 'staff'],
+  ['PUT', '/api/users/:id', (p, url, body, user) => inBranch(url, user, () => {
     guardAdmin(user, store.findUser(p.id), body);
     const pin = body.clearPin ? null : body.pin ? pinHash(body.pin) : undefined;
     const saved = store.updateUser(p.id, body, body.password ? password(body.password) : null);
     return pin === undefined ? saved : store.setUserPin(p.id, pin);
-  }, 'staff'],
-  ['DELETE', '/api/users/:id', (p, url, body, user) => {
+  }), 'staff'],
+  ['DELETE', '/api/users/:id', (p, url, body, user) => inBranch(url, user, () => {
     if (user && Number(p.id) === user.id) throw new UserError('Нельзя удалить самого себя');
     guardAdmin(user, store.findUser(p.id), {});
     return store.deleteUser(p.id);
-  }, 'staff'],
+  }), 'staff'],
 
   ['PUT', '/api/design', (p, url, body) => store.setDesign(body), 'design'],
   ['POST', '/api/images', (p, url, body) => store.addImage(body), 'shop'],
@@ -610,6 +667,7 @@ function device(req) {
 
 // Что записать в журнал о каждом изменении. Ключ — «метод путь» маршрута.
 const AUDIT_LABELS = {
+  'POST /api/users/:id/branch': 'Изменил магазин сотрудника',
   'PUT /api/me/password': 'Сменил свой пароль',
   'PUT /api/me/pin': 'Сменил свой PIN-код для кассы',
   'POST /api/products': 'Добавил товар',
@@ -735,6 +793,7 @@ function auditDetails(key, params, body, result) {
     case 'PUT /api/tasks/:id/review': return `«${r.title}» (${r.assignee_name}) — ${r.status === 'approved' ? 'принято' : 'возвращено на доработку'}${r.check_comment ? `: ${r.check_comment}` : ''}`;
     case 'DELETE /api/tasks/:id': return `«${r.title}» (${r.assignee_name})`;
     case 'PUT /api/pay-override': return `${r.user}, ${({ rate: 'ставка за выход', salary: 'за смены и оклад', bonus: '% от продаж', pay: 'к выплате' })[r.field]}: ${r.amount === null ? 'возвращён расчёт' : `${r.amount} сом${r.reason ? ` — ${r.reason}` : ''}`}, период ${new Date(body.from).toLocaleDateString('ru-RU')}—${new Date(body.to - 1).toLocaleDateString('ru-RU')}`;
+    case 'POST /api/users/:id/branch': return `${r.name || r.email}: ${branchList().find((b) => b.id === Number(body.home))?.name || ''}${(body.stores || []).length ? `, также ${(body.stores || []).map((id) => branchList().find((b) => b.id === Number(id))?.name).filter(Boolean).join(', ')}` : ''}`;
     case 'PUT /api/users/:id/pay': return `${r.name || r.email}: за смену ${r.shift_rate}, оклад ${r.salary}, ${r.percent}%, план ${r.plan}, бонус за план ${r.plan_bonus}`;
     case 'POST /api/customers/:id/bonus': return `${r.name || '+' + r.phone}: ${body.delta > 0 ? '+' : ''}${body.delta}${body.reason ? ` (${body.reason})` : ''}`;
     case 'PUT /api/orders/:id': return `Заказ №${params.id} ${ORDER_NAMES[body.status] || body.status}`;
@@ -780,10 +839,11 @@ async function handleAuth(req, res, url) {
   // Владелец переключается между магазинами: выбор хранится в cookie shop_branch.
   if (url.pathname === '/api/branch/switch' && req.method === 'POST') {
     const me = auth.currentUser(req);
-    if (!isOwner(me)) return sendJson(res, 403, { error: 'Переключать магазины может владелец — администратор основного магазина' });
+    if (!me) return sendJson(res, 401, { error: 'Нужно войти' });
     const body = await readBody(req);
     const ctx = contextOf(body.id);
     if (!ctx) return sendJson(res, 400, { error: 'Магазин не найден' });
+    if (!allowedBranches(me).includes(ctx.id)) return sendJson(res, 403, { error: 'У вас нет доступа к этому магазину. Его открывает владелец в карточке сотрудника.' });
     res.setHeader('Set-Cookie', `shop_branch=${ctx.id}; Path=/; SameSite=Lax; Max-Age=${365 * 86400}`);
     mainStore.audit({ kind: 'change', user: me, ip: clientIp(req), device: device(req), action: 'Перешёл в магазин', details: branchList().find((b) => b.id === ctx.id)?.name || '' });
     return sendJson(res, 200, { ok: true, id: ctx.id });

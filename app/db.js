@@ -177,6 +177,8 @@ function open(file) {
   addColumns('users', [['pin_hash', 'TEXT']]);
   // owner_shadow — запись владельца в базе филиала: владелец входит один раз и работает в любом магазине.
   addColumns('users', [['owner_shadow', 'INTEGER NOT NULL DEFAULT 0']]);
+  // stores — в каких ещё магазинах (id филиалов, JSON) может работать сотрудник; moved_to — переведён в другой магазин.
+  addColumns('users', [['stores', 'TEXT'], ['moved_to', 'INTEGER']]);
   // Штрафы и бонусы сотрудникам — одна таблица: kind 'fine' уменьшает зарплату, 'bonus' увеличивает.
   // Ручные исправления ведомости за конкретный период: field — 'salary' (за смены и оклад),
   // 'bonus' (% от продаж) или 'pay' (итог к выплате). Действуют, когда отчёт открыт ровно за этот период.
@@ -506,7 +508,7 @@ const DOC_KINDS = {
 };
 
 const publicUser = ({ password_hash, pin_hash, ...u }) => ({ ...u, hasPin: Boolean(pin_hash), disabled: Boolean(u.disabled), rights: u.rights ? JSON.parse(u.rights) : null,
-  payment_methods: u.payment_methods ? JSON.parse(u.payment_methods) : null });
+  payment_methods: u.payment_methods ? JSON.parse(u.payment_methods) : null, stores: u.stores ? JSON.parse(u.stores) : [] });
 
 function rightsList(value) {
   if (value === null) return null;
@@ -2170,13 +2172,17 @@ function createStore(file) {
       return db.prepare('SELECT * FROM users WHERE email = ?').get(String(value ?? '').trim()) || null;
     },
 
+    // Сотрудники магазина. Записи владельца и сотрудников других магазинов и переведённые — не показываются.
     listUsers() {
-      return db.prepare('SELECT * FROM users ORDER BY role, email').all().map(publicUser);
+      return db.prepare('SELECT * FROM users WHERE owner_shadow = 0 AND moved_to IS NULL ORDER BY role, email').all().map(publicUser);
     },
 
     createUser(input, passwordHash) {
       const e = email(input.email);
-      if (this.findUserByEmail(e)) throw new UserError('Сотрудник с таким email уже есть');
+      const ex = this.findUserByEmail(e);
+      // Старая запись того, кто отсюда переведён или приходил из другого магазина, освобождает email.
+      if (ex && (ex.moved_to || ex.owner_shadow)) db.prepare('UPDATE users SET email = ?, disabled = 1 WHERE id = ?').run(`${e}#old-${ex.id}`, ex.id);
+      else if (ex) throw new UserError('Сотрудник с таким email уже есть');
       const pay = payFields(input);
       const { lastInsertRowid } = db.prepare('INSERT INTO users (email, name, role, password_hash, created_at, salary, percent, plan, rights, shift_rate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         .run(e, text(input.name, 'Имя', { max: 80 }), role(input.role || 'cashier'), passwordHash, Date.now(), pay.salary, pay.percent, pay.plan, rightsList(input.rights ?? null), pay.shift_rate);
@@ -2255,17 +2261,54 @@ function createStore(file) {
       return publicUser(this.findUser(u.id));
     },
 
-    // Владелец (администратор основного магазина) в базе филиала: заводится и обновляется сам.
-    ownerShadow(owner) {
-      const cur = db.prepare('SELECT * FROM users WHERE email = ?').get(owner.email);
-      if (cur && !cur.owner_shadow) throw new UserError(`В этом магазине уже есть сотрудник с email ${owner.email}`);
+    // Запись сотрудника из другого магазина в этой базе: владелец (как администратор) или сотрудник,
+    // которому открыт доступ сюда (с ролью и правами из своего магазина). Заводится и обновляется сама.
+    shadowOf(src, { owner = false } = {}) {
+      const cur = db.prepare('SELECT * FROM users WHERE email = ?').get(src.email);
+      if (cur && !cur.owner_shadow && !cur.moved_to) throw new UserError(`В этом магазине уже есть сотрудник с email ${src.email}`);
+      const f = owner ? { role: 'admin', rights: null, max_discount: null } : { role: src.role, rights: src.rights, max_discount: src.max_discount };
       if (cur) {
-        db.prepare("UPDATE users SET name = ?, password_hash = ?, role = 'admin', disabled = 0 WHERE id = ?").run(owner.name, owner.password_hash, cur.id);
+        db.prepare('UPDATE users SET name = ?, password_hash = ?, pin_hash = ?, role = ?, rights = ?, max_discount = ?, disabled = 0, owner_shadow = 1, moved_to = NULL WHERE id = ?')
+          .run(src.name, src.password_hash, src.pin_hash ?? null, f.role, f.rights, f.max_discount, cur.id);
         return this.findUser(cur.id);
       }
-      const { lastInsertRowid } = db.prepare("INSERT INTO users (email, name, role, password_hash, created_at, owner_shadow) VALUES (?, ?, 'admin', ?, ?, 1)")
-        .run(owner.email, owner.name, owner.password_hash, Date.now());
+      const { lastInsertRowid } = db.prepare('INSERT INTO users (email, name, role, password_hash, pin_hash, rights, max_discount, created_at, owner_shadow) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)')
+        .run(src.email, src.name, f.role, src.password_hash, src.pin_hash ?? null, f.rights, f.max_discount, Date.now());
       return this.findUser(lastInsertRowid);
+    },
+
+    ownerShadow(owner) { return this.shadowOf(owner, { owner: true }); },
+
+    // Перевод сотрудника в этот магазин: запись создаётся (или оживает, если он здесь уже работал) со всеми условиями.
+    moveIn(src) {
+      const cur = db.prepare('SELECT * FROM users WHERE email = ?').get(src.email);
+      const fields = [src.name, src.role, src.password_hash, src.pin_hash ?? null, src.rights, src.salary, src.percent, src.plan, src.plan_bonus ?? 0, src.shift_rate, src.max_discount, src.stores];
+      if (cur) {
+        db.prepare(`UPDATE users SET name = ?, role = ?, password_hash = ?, pin_hash = ?, rights = ?, salary = ?, percent = ?, plan = ?, plan_bonus = ?, shift_rate = ?, max_discount = ?, stores = ?,
+          disabled = 0, owner_shadow = 0, moved_to = NULL, payment_methods = NULL WHERE id = ?`).run(...fields, cur.id);
+        return publicUser(this.findUser(cur.id));
+      }
+      const { lastInsertRowid } = db.prepare(`INSERT INTO users (email, name, role, password_hash, pin_hash, rights, salary, percent, plan, plan_bonus, shift_rate, max_discount, stores, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(src.email, ...fields, Date.now());
+      return publicUser(this.findUser(lastInsertRowid));
+    },
+
+    // Сотрудник ушёл в другой магазин: здесь он закрыт, история его продаж и смен остаётся.
+    moveOut(id, to) {
+      const u = this.findUser(id);
+      if (!u) throw new UserError('Сотрудник не найден');
+      if (this.currentShift(u.id)) throw new UserError('У сотрудника открыта смена — сначала закройте её');
+      if (u.role === 'admin' && !u.disabled && this.activeAdmins() <= 1) throw new UserError('Это единственный администратор магазина. Сначала назначьте другого.');
+      db.prepare('UPDATE users SET disabled = 1, moved_to = ? WHERE id = ?').run(to, u.id);
+      return u;
+    },
+
+    setUserStores(id, stores) {
+      const u = this.findUser(id);
+      if (!u) throw new UserError('Сотрудник не найден');
+      const list = [...new Set((stores || []).map(Number).filter(Boolean))];
+      db.prepare('UPDATE users SET stores = ? WHERE id = ?').run(list.length ? JSON.stringify(list) : null, u.id);
+      return publicUser(this.findUser(u.id));
     },
 
     // Кто может работать на кассе — для кнопки «Сменить кассира».
