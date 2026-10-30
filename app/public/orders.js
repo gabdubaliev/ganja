@@ -6,12 +6,14 @@ const ORDER_STATUS = {
   new: 'Новые',
   confirmed: 'Подтверждены',
   ready: 'Собраны',
+  shipped: 'У курьера',
   done: 'Выданы',
   cancelled: 'Отменены',
 };
-const ORDER_ONE = { new: 'Новый', confirmed: 'Подтверждён', ready: 'Собран', done: 'Выдан', cancelled: 'Отменён' };
-const ORDER_NEXT = { new: 'confirmed', confirmed: 'ready', ready: 'done' };
-const ORDER_NEXT_LABEL = { confirmed: 'Подтвердить', ready: 'Собран', done: 'Выдать и пробить чек' };
+const ORDER_ONE = { new: 'Новый', confirmed: 'Подтверждён', ready: 'Собран', shipped: 'Передан курьеру', done: 'Выдан', cancelled: 'Отменён' };
+// Доставку после сборки передают курьеру, самовывоз сразу выдают.
+const orderNext = (o) => ({ new: 'confirmed', confirmed: 'ready', ready: o.delivery === 'delivery' ? 'shipped' : 'done', shipped: 'done' })[o.status];
+const ORDER_NEXT_LABEL = { confirmed: 'Подтвердить', ready: 'Собран', shipped: 'Передать курьеру', done: 'Выдать и пробить чек' };
 const ordersView = { status: 'new', list: [], confirmCancel: null };
 
 async function renderOrders() {
@@ -26,7 +28,7 @@ async function renderOrders() {
   if (ordersView.status === 'new') setOrdersBadge(list.length);
   $('#orders-summary').textContent = `${list.length} ${plural(list.length, ['заказ', 'заказа', 'заказов'])}`;
   $('#orders-list').innerHTML = list.length ? list.map((o) => {
-    const next = ORDER_NEXT[o.status];
+    const next = orderNext(o);
     const open = o.status !== 'done' && o.status !== 'cancelled';
     return `<article class="order ${o.status}">
       <header>

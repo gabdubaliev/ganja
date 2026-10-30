@@ -10,6 +10,8 @@ async function renderLoyalty() {
   f.elements.enabled.checked = rules.enabled;
   f.elements.percent.value = rules.percent;
   f.elements.maxPay.value = rules.maxPay;
+  f.elements.birthdayDiscount.value = rules.birthdayDiscount || '';
+  f.elements.birthdayDays.value = rules.birthdayDays || '';
   // Управляющий видит правила, но менять их может только администратор.
   for (const el of f.elements) el.disabled = !session.can('loyalty');
   await renderCustomers();
@@ -25,6 +27,8 @@ const SEGMENTS = [
   ['growing', 'Возвращаются', '2–4 покупки, недавно'],
   ['none', 'Без покупок', 'Карта заведена, покупок нет'],
 ];
+// Отдельная подборка, не сегмент: день рождения в ближайшие 14 дней.
+const BIRTHDAY_SOON = 14;
 const RATING_SORT = {
   spent: ['Сумма покупок', (c) => c.spent],
   purchases: ['Покупок', (c) => c.purchases],
@@ -63,7 +67,9 @@ async function renderCustomers() {
   const vipFrom = buyers.length >= 10 ? buyers[Math.floor(buyers.length * 0.1) - 1] : Infinity;
   for (const c of all) c.segment = segmentOf(c, vipFrom);
   const counts = Object.fromEntries(SEGMENTS.map(([k]) => [k, all.filter((c) => c.segment === k).length]));
-  $('#segments').innerHTML = [['all', 'Все', ''], ...SEGMENTS].map(([key, label, hint]) =>
+  const soon = (c) => c.birthdayIn !== null && c.birthdayIn >= 0 && c.birthdayIn <= BIRTHDAY_SOON;
+  counts.birthday = all.filter(soon).length;
+  $('#segments').innerHTML = [['all', 'Все', ''], ...SEGMENTS, ['birthday', '🎂 ДР скоро', `День рождения в ближайшие ${BIRTHDAY_SOON} дней`]].map(([key, label, hint]) =>
     `<button type="button" class="chip" data-segment="${key}" aria-pressed="${loyaltyView.segment === key}" title="${esc(hint)}">${label} <span class="count">${key === 'all' ? all.length : counts[key]}</span></button>`).join('');
 
   const q = loyaltyView.query.trim().toLowerCase();
@@ -72,7 +78,7 @@ async function renderCustomers() {
   // Место в рейтинге — по сумме покупок среди всех покупателей.
   const place = new Map([...all].sort((x, y) => y.spent - x.spent).map((c, i) => [c.id, c.purchases ? i + 1 : null]));
   const list = all
-    .filter((c) => loyaltyView.segment === 'all' || c.segment === loyaltyView.segment)
+    .filter((c) => loyaltyView.segment === 'all' || (loyaltyView.segment === 'birthday' ? soon(c) : c.segment === loyaltyView.segment))
     .filter((c) => !q || c.name.toLowerCase().includes(q) || (digits && c.phone.includes(digits)))
     .sort((x, y) => sortBy(y) - sortBy(x));
   loyaltyView.list = list;
@@ -84,7 +90,7 @@ async function renderCustomers() {
     '<th>Первая покупка</th><th>Группа</th><th></th>';
   $('#customers-body').innerHTML = list.length ? list.slice(0, loyaltyView.shown).map((c) => `<tr>
       <td>${place.get(c.id) ? `<b>${place.get(c.id)}</b>` : '—'}</td>
-      <td><div class="pname">${esc(c.name || 'Без имени')}</div><div class="pcat">${phoneFmt(c.phone)}</div></td>
+      <td><div class="pname">${esc(c.name || 'Без имени')}${c.birthdayDiscount ? ' <span title="Действует скидка именинника">🎂</span>' : ''}</div><div class="pcat">${phoneFmt(c.phone)}${c.birthday ? ` · ДР ${birthdayText(c)}` : ''}</div></td>
       <td>${money(c.spent)}</td>
       <td>${int(c.purchases)}</td>
       <td>${c.purchases ? money(c.avg) : '—'}</td>
@@ -112,6 +118,17 @@ $('#customers-head').addEventListener('click', (e) => {
 });
 $('#customers-more-btn').addEventListener('click', () => { loyaltyView.shown += 100; renderCustomers(); });
 
+// «15 марта», «15 марта, через 3 дня», «15 марта, сегодня».
+function birthdayText(c) {
+  if (!c.birthday) return '';
+  const [y, m, d] = c.birthday.split('-').map(Number);
+  const when = c.birthdayIn === 0 ? ', сегодня' : c.birthdayIn > 0 && c.birthdayIn <= BIRTHDAY_SOON ? `, через ${c.birthdayIn} ${plural(c.birthdayIn, ['день', 'дня', 'дней'])}` : '';
+  return `${d} ${['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'][m - 1]}${y ? ' ' + y : ''}${when}`;
+}
+
+// 'ГГГГ-ММ-ДД' → 'ДД.ММ.ГГГГ' для поля ввода (год 0000 — без года).
+const birthdayInput = (b) => { if (!b) return ''; const [y, m, d] = b.split('-'); return `${d}.${m}${y !== '0000' ? '.' + y : ''}`; };
+
 async function openCustomer(customer) {
   loyaltyView.customer = customer;
   const f = $('#customer-form');
@@ -120,11 +137,12 @@ async function openCustomer(customer) {
   $('#customer-error').hidden = true;
   $('#customer-bonus').hidden = !customer;
   const editable = !customer || session.can('loyalty');
-  f.elements.phone.disabled = f.elements.name.disabled = !editable;
+  f.elements.phone.disabled = f.elements.name.disabled = f.elements.birthday.disabled = !editable;
   $('#customer-save').hidden = !editable;
   if (customer) {
     f.elements.phone.value = phoneFmt(customer.phone);
     f.elements.name.value = customer.name;
+    f.elements.birthday.value = birthdayInput(customer.birthday);
     $('#customer-balance').textContent = int(customer.bonus);
     $('#customer-history').innerHTML = '<p class="empty">Загрузка…</p>';
   }
@@ -147,7 +165,10 @@ $('#loyalty-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
   try {
-    session.loyalty = await api('/api/loyalty', { method: 'PUT', body: { enabled: f.elements.enabled.checked, percent: parseNum(f.elements.percent.value), maxPay: parseNum(f.elements.maxPay.value) } });
+    session.loyalty = await api('/api/loyalty', { method: 'PUT', body: {
+      enabled: f.elements.enabled.checked, percent: parseNum(f.elements.percent.value), maxPay: parseNum(f.elements.maxPay.value),
+      birthdayDiscount: parseNum(f.elements.birthdayDiscount.value) || 0, birthdayDays: parseNum(f.elements.birthdayDays.value) || 0,
+    } });
     toast('Правила бонусов сохранены');
   } catch (err) {
     toast(err.message, 'error');
@@ -159,7 +180,7 @@ $('#customer-form').addEventListener('submit', async (e) => {
   const f = e.target;
   const c = loyaltyView.customer;
   try {
-    const body = { phone: f.elements.phone.value, name: f.elements.name.value };
+    const body = { phone: f.elements.phone.value, name: f.elements.name.value, birthday: f.elements.birthday.value };
     await api(c ? `/api/customers/${c.id}` : '/api/customers', { method: c ? 'PUT' : 'POST', body });
     $('#customer-dialog').close();
     toast(c ? 'Покупатель сохранён' : 'Покупатель добавлен');

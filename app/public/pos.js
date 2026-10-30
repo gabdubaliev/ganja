@@ -8,7 +8,14 @@ const pos = {
   busy: false,
   customer: null,    // покупатель из программы лояльности
   spend: 0,          // сколько бонусов списать
+  birthday: true,    // применить скидку именинника, если она действует
+  shift: null,       // открытая смена кассира
 };
+
+// Скидка именинника в %, если она действует и кассир её не снял.
+const birthdayRate = () => (pos.customer?.birthdayDiscount && pos.birthday ? pos.customer.birthdayDiscount : 0);
+// Цена строки со скидкой — так же, как считает сервер: скидка к цене, округление до тыйына.
+const linePrice = (l) => Math.round(l.price * (1 - birthdayRate() / 100) * 100) / 100;
 
 function renderPick() {
   const q = $('#pos-search').value;
@@ -35,8 +42,10 @@ function renderPick() {
 }
 
 function cartTotal() {
-  return Math.round(pos.cart.reduce((s, l) => s + l.qty * l.price, 0) * 100) / 100;
+  return Math.round(pos.cart.reduce((s, l) => s + l.qty * linePrice(l), 0) * 100) / 100;
 }
+
+const cartFull = () => Math.round(pos.cart.reduce((s, l) => s + l.qty * l.price, 0) * 100) / 100;
 
 function renderCart() {
   $('#cart').innerHTML = pos.cart.length ? pos.cart.map((l, i) => {
@@ -55,7 +64,7 @@ function renderCart() {
   }).join('') : '<p class="empty">Выберите товары слева или отсканируйте штрихкод</p>';
   const total = cartTotal();
   const paid = Math.round((total - bonusSpend()) * 100) / 100;
-  $('#cart-total').textContent = money2(total);
+  $('#cart-total').innerHTML = total < cartFull() ? `<s class="old-price">${money2(cartFull())}</s> ${money2(total)}` : money2(total);
   renderCustomer();
   $('#cart-topay').hidden = !bonusSpend();
   $('#cart-paid').textContent = money2(paid);
@@ -83,6 +92,12 @@ function renderCustomer() {
   $('#customer-find').hidden = Boolean(c) || !$('#customer-new').hidden;
   $('#customer-card').hidden = !c;
   if (!c) return;
+  $('#customer-bday-row').hidden = !c.birthdayDiscount;
+  if (c.birthdayDiscount) {
+    const off = cartFull() - cartTotal();
+    $('#customer-bday').checked = pos.birthday;
+    $('#customer-bday-text').textContent = `🎂 ${c.birthdayIn === 0 ? 'Сегодня день рождения' : 'Скоро день рождения'} — скидка ${c.birthdayDiscount}%${off > 0 ? ` (−${money2(off)})` : ''}`;
+  }
   $('#customer-title').textContent = c.name || phoneFmt(c.phone);
   $('#customer-meta').textContent = ` · ${c.name ? phoneFmt(c.phone) + ' · ' : ''}бонусов ${qtyFmt.format(c.bonus)}`;
   const limit = bonusLimit();
@@ -114,6 +129,8 @@ async function lookupCustomer() {
 function clearCustomer() {
   pos.customer = null;
   pos.spend = 0;
+  pos.birthday = true;
+  $('#customer-new-bday').value = '';
   $('#customer-phone').value = '';
   $('#customer-spend').value = '';
   $('#customer-new').hidden = true;
@@ -123,7 +140,7 @@ $('#customer-lookup').addEventListener('click', lookupCustomer);
 $('#customer-phone').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); lookupCustomer(); } });
 $('#customer-create').addEventListener('click', async () => {
   try {
-    pos.customer = await api('/api/customers', { method: 'POST', body: { phone: $('#customer-phone').value, name: $('#customer-new-name').value } });
+    pos.customer = await api('/api/customers', { method: 'POST', body: { phone: $('#customer-phone').value, name: $('#customer-new-name').value, birthday: $('#customer-new-bday').value } });
     $('#customer-new').hidden = true;
     $('#customer-new-name').value = '';
     toast('Карта покупателя заведена');
@@ -132,6 +149,7 @@ $('#customer-create').addEventListener('click', async () => {
     toast(err.message, 'error');
   }
 });
+$('#customer-bday').addEventListener('change', (e) => { pos.birthday = e.target.checked; renderCart(); });
 $('#customer-clear').addEventListener('click', () => { clearCustomer(); renderCart(); });
 $('#customer-spend').addEventListener('input', (e) => {
   pos.spend = Math.max(0, parseNum(e.target.value) || 0);
@@ -238,9 +256,10 @@ $('#checkout').addEventListener('click', async () => {
   try {
     const sale = await api('/api/sales', {
       method: 'POST',
-      body: { payment: pos.payment, items: pos.cart, customerId: pos.customer?.id, bonusSpend: bonusSpend() },
+      body: { payment: pos.payment, items: pos.cart, customerId: pos.customer?.id, bonusSpend: bonusSpend(), birthday: birthdayRate() > 0 },
     });
-    toast(`Чек №${sale.id} на ${money2(sale.total)} пробит${sale.bonusEarned ? `, начислено ${sale.bonusEarned} бонусов` : ''}`);
+    toast(`Чек №${sale.id} на ${money2(sale.total)} пробит${sale.discount ? `, скидка ${money2(sale.discount)}` : ''}${sale.bonusEarned ? `, начислено ${sale.bonusEarned} бонусов` : ''}`);
+    loadShift();
     pos.cart = [];
     $('#cash-given').value = '';
     clearCustomer();
@@ -255,11 +274,49 @@ $('#checkout').addEventListener('click', async () => {
   }
 });
 
+/* ---------- Смена ---------- */
+async function loadShift() {
+  if (!session.user) return;
+  try {
+    pos.shift = await api('/api/shift');
+  } catch {
+    return;
+  }
+  const sh = pos.shift;
+  const bar = $('#shift-bar');
+  bar.hidden = false;
+  bar.className = 'shift-bar ' + (sh ? 'open' : 'closed');
+  bar.innerHTML = sh
+    ? `<span>Смена открыта с <b>${new Date(sh.opened_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</b> · ${int(sh.receipts)} ${plural(sh.receipts, ['чек', 'чека', 'чеков'])} на <b>${money2(sh.revenue)}</b> · наличными ${money2(sh.cash)}, картой ${money2(sh.card)}</span>
+       <button type="button" class="btn small" id="shift-close">Закрыть смену</button>`
+    : `<span>Смена не открыта. Откройте её в начале рабочего дня — по сменам считается зарплата.</span>
+       <button type="button" class="btn small primary" id="shift-open">Открыть смену</button>`;
+}
+
+$('#shift-bar').addEventListener('click', async (e) => {
+  const open = e.target.closest('#shift-open');
+  const close = e.target.closest('#shift-close');
+  if (!open && !close) return;
+  if (close && !close.classList.contains('danger')) {
+    close.classList.add('danger');
+    close.textContent = 'Нажмите ещё раз, чтобы закрыть';
+    return;
+  }
+  try {
+    const sh = await api(open ? '/api/shift/open' : '/api/shift/close', { method: 'POST' });
+    toast(open ? 'Смена открыта. Хорошей работы!' : `Смена закрыта: ${sh.receipts} ${plural(sh.receipts, ['чек', 'чека', 'чеков'])} на ${money2(sh.revenue)}, в кассе наличными ${money2(sh.cash)}`);
+    loadShift();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+
 views.pos = {
   async show() {
     try { await catalog.load(); } catch (err) { toast(err.message, 'error'); }
     renderPick();
     renderCart();
+    loadShift();
     $('#pos-search').focus();
   },
   right: 'pos',

@@ -39,6 +39,7 @@ async function renderSales() {
         <b class="num">${money2(s.total)}</b>
       </summary>
       <ul>${s.items.map((i) => `<li><span>${esc(i.name)}</span><span class="num">${qtyFmt.format(i.qty)} × ${money2(i.price)} = ${money2(i.qty * i.price)}</span></li>`).join('')}</ul>
+      ${s.discount ? `<p class="pick-meta">Скидка ${money2(s.discount)}${s.discount_reason ? ` · ${esc(s.discount_reason)}` : ''}</p>` : ''}
       ${s.customer_id ? `<p class="pick-meta">Покупатель: ${esc(s.customer_name || '+' + s.customer_phone)}${s.bonus_spent ? ` · оплачено бонусами ${money2(s.bonus_spent)}` : ''}${s.bonus_earned ? ` · начислено ${int(s.bonus_earned)} бонусов` : ''}</p>` : ''}
       ${s.refunded_at ? `<p class="pick-meta">Возврат оформлен ${dateTime(s.refunded_at)}, товар вернулся на склад.</p>` : !session.can('refund') ? '' : `
         <div class="doc-actions">

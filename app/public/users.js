@@ -17,7 +17,7 @@ async function renderUsers() {
   $('#users-body').innerHTML = usersList.length ? usersList.map((u) => `<tr>
       <td><div class="pname">${esc(u.name || u.email)}${session.user?.id === u.id ? ' <span class="muted">(вы)</span>' : ''}</div>${u.name ? `<div class="pcat">${esc(u.email)}</div>` : ''}</td>
       <td><span class="role-tag">${esc(session.roleName(u.role))}</span>${u.rights && u.role !== 'admin' ? '<div class="pcat">свои права</div>' : ''}</td>
-      <td>${u.salary ? money(u.salary) : '—'}</td>
+      <td>${u.shift_rate ? money(u.shift_rate) : '—'}${u.salary ? `<div class="pcat">+ ${money(u.salary)} в месяц</div>` : ''}</td>
       <td>${u.percent ? u.percent + '%' : '—'}</td>
       <td>${u.plan ? money(u.plan) : '—'}</td>
       <td>${u.disabled ? '<span class="muted">Закрыт</span>' : 'Открыт'}</td>
@@ -45,6 +45,7 @@ function openUserDialog(user = null) {
     f.elements.role.value = user.role;
     f.elements.disabled.checked = user.disabled;
     f.elements.salary.value = user.salary || '';
+    f.elements.shift_rate.value = user.shift_rate || '';
     f.elements.percent.value = user.percent || '';
     f.elements.plan.value = user.plan || '';
   }
@@ -109,7 +110,7 @@ $('#user-form').addEventListener('submit', async (e) => {
   const f = e.target;
   const body = {
     email: f.elements.email.value, name: f.elements.name.value, role: f.elements.role.value,
-    salary: parseNum(f.elements.salary.value) || 0, percent: parseNum(f.elements.percent.value) || 0, plan: parseNum(f.elements.plan.value) || 0,
+    shift_rate: parseNum(f.elements.shift_rate.value) || 0, salary: parseNum(f.elements.salary.value) || 0, percent: parseNum(f.elements.percent.value) || 0, plan: parseNum(f.elements.plan.value) || 0,
     rights: rightsForSave(),
   };
   if (f.elements.password.value) body.password = f.elements.password.value;

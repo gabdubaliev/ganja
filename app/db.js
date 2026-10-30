@@ -147,6 +147,43 @@ function open(file) {
     );
   `);
   addColumns('orders', [['sale_id', 'INTEGER']]);
+  // Дни рождения и скидка в день рождения, оплата за смену.
+  addColumns('customers', [['birthday', "TEXT NOT NULL DEFAULT ''"], ['birthday_used', 'INTEGER']]);
+  addColumns('sales', [['discount', 'REAL NOT NULL DEFAULT 0'], ['discount_reason', "TEXT NOT NULL DEFAULT ''"], ['shift_id', 'INTEGER']]);
+  addColumns('users', [['shift_rate', 'REAL NOT NULL DEFAULT 0']]);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS shifts (
+      id INTEGER PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      opened_at INTEGER NOT NULL,
+      closed_at INTEGER,
+      note TEXT NOT NULL DEFAULT '',
+      edited_by TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS shifts_user ON shifts(user_id, opened_at);
+    CREATE TABLE IF NOT EXISTS fines (
+      id INTEGER PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      at INTEGER NOT NULL,
+      amount REAL NOT NULL,
+      reason TEXT NOT NULL,
+      created_by TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS fines_at ON fines(at);
+    CREATE TABLE IF NOT EXISTS audit (
+      id INTEGER PRIMARY KEY,
+      at INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      user_id INTEGER,
+      user_name TEXT NOT NULL DEFAULT '',
+      ip TEXT NOT NULL DEFAULT '',
+      device TEXT NOT NULL DEFAULT '',
+      action TEXT NOT NULL,
+      details TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS audit_at ON audit(at);
+  `);
   db.exec('CREATE INDEX IF NOT EXISTS sales_user ON sales(user_id)');
   // Роль «продавец» из прошлой версии стала «кассиром».
   db.exec("UPDATE users SET role = 'cashier' WHERE role = 'seller'");
@@ -226,7 +263,42 @@ function phone(value) {
   return d;
 }
 
-const LOYALTY_DEFAULTS = { enabled: true, percent: 5, maxPay: 30 };
+// birthdayDiscount — скидка в % в день рождения, birthdayDays — сколько дней до и после он действует.
+// Скидка даётся один раз в год.
+const LOYALTY_DEFAULTS = { enabled: true, percent: 5, maxPay: 30, birthdayDiscount: 10, birthdayDays: 3 };
+
+// Дата рождения как ДД.ММ.ГГГГ, ДД.ММ или ГГГГ-ММ-ДД → 'ГГГГ-ММ-ДД' (год 0000, если не указан).
+function birthday(value) {
+  const s = String(value ?? '').trim();
+  if (!s) return '';
+  let d, m, y;
+  let mt = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (mt) [, y, m, d] = mt;
+  else if ((mt = s.match(/^(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?$/))) [, d, m, y] = mt;
+  else throw new UserError('Дата рождения указана неверно. Пример: 15.03.1990');
+  d = Number(d); m = Number(m); y = y ? Number(y.length === 2 ? (Number(y) > 30 ? '19' : '20') + y : y) : 0;
+  const days = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (m < 1 || m > 12 || d < 1 || d > days[m - 1]) throw new UserError('Такой даты не бывает');
+  if (y && (y < 1900 || y > new Date().getFullYear())) throw new UserError('Год рождения указан неверно');
+  return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+// Сколько дней до ближайшего дня рождения (отрицательное — уже прошёл, в пределах полугода).
+function daysToBirthday(bday, now = Date.now()) {
+  if (!bday) return null;
+  const [, m, d] = bday.split('-').map(Number);
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  let best = null;
+  for (const year of [today.getFullYear() - 1, today.getFullYear(), today.getFullYear() + 1]) {
+    // 29 февраля в невисокосный год празднуют 28-го.
+    const day = new Date(year, m - 1, d);
+    if (day.getMonth() !== m - 1) day.setDate(0);
+    const diff = Math.round((day - today) / 864e5);
+    if (best === null || Math.abs(diff) < Math.abs(best)) best = diff;
+  }
+  return best;
+}
 
 // Оформление программы. Цвета — #rrggbb, остальное проверяется в setDesign.
 const DESIGN_DEFAULTS = { name: 'Мой магазин', accent: '#2a78d6', bg: '', surface: '', ink: '', font: 'system', radius: 10, theme: 'auto', css: '' };
@@ -312,6 +384,7 @@ function createStore(file) {
     const percent = number(input.percent ?? current.percent ?? 0, 'Процент от продаж');
     if (percent > 100) throw new UserError('Процент от продаж не может быть больше 100');
     return {
+      shift_rate: round2(number(input.shift_rate ?? current.shift_rate ?? 0, 'Оплата за смену')),
       salary: round2(number(input.salary ?? current.salary ?? 0, 'Оклад')),
       percent,
       plan: round2(number(input.plan ?? current.plan ?? 0, 'План продаж')),
@@ -596,7 +669,8 @@ function createStore(file) {
 
     // user — кто пробил чек, customerId — покупатель из программы лояльности,
     // bonusSpend — сколько бонусов покупатель тратит (1 бонус = 1 сом).
-    createSale({ items, payment, at, customerId, bonusSpend = 0 }, user = null) {
+    // birthday: true — применить скидку именинника (если она сейчас действует).
+    createSale({ items, payment, at, customerId, bonusSpend = 0, birthday: useBirthday = false }, user = null) {
       if (!Array.isArray(items) || !items.length) throw new UserError('В чеке нет товаров');
       if (!['cash', 'card'].includes(payment)) throw new UserError('Выберите способ оплаты');
       return transaction(db, () => {
@@ -608,8 +682,19 @@ function createStore(file) {
           const price = round2(number(item.price ?? p.price, 'Цена'));
           return { p, qty, price };
         });
+        const customer = customerId ? this.findCustomer(customerId) : null;
+        if (customerId && !customer) throw new UserError('Покупатель не найден');
+        // Скидка именинника уменьшает цену каждой строки: так выручка и прибыль в отчётах сходятся с чеком.
+        let discount = 0;
+        let discountReason = '';
+        if (useBirthday && customer?.birthdayDiscount) {
+          const full = round2(lines.reduce((s, l) => s + l.qty * l.price, 0));
+          for (const l of lines) l.price = round2(l.price * (1 - customer.birthdayDiscount / 100));
+          discount = round2(full - lines.reduce((s, l) => s + l.qty * l.price, 0));
+          discountReason = `День рождения, ${customer.birthdayDiscount}%`;
+          db.prepare('UPDATE customers SET birthday_used = ? WHERE id = ?').run(new Date().getFullYear(), customer.id);
+        }
         const total = round2(lines.reduce((s, l) => s + l.qty * l.price, 0));
-        const customer = customerId ? getCustomer(customerId) : null;
         const loyalty = this.loyalty();
         let spent = 0, earned = 0;
         if (customer && loyalty.enabled) {
@@ -620,9 +705,10 @@ function createStore(file) {
           earned = Math.floor((total - spent) * loyalty.percent / 100);
         }
         const { lastInsertRowid: saleId } = db.prepare(`
-          INSERT INTO sales (created_at, payment, total, user_id, user_name, customer_id, bonus_spent, bonus_earned)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-          .run(at || Date.now(), payment, total, user?.id ?? null, user ? user.name || user.email : '', customer?.id ?? null, spent, earned);
+          INSERT INTO sales (created_at, payment, total, user_id, user_name, customer_id, bonus_spent, bonus_earned, discount, discount_reason, shift_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(at || Date.now(), payment, total, user?.id ?? null, user ? user.name || user.email : '', customer?.id ?? null, spent, earned,
+            discount, discountReason, user ? this.currentShift(user.id)?.id ?? null : null);
         const addItem = db.prepare('INSERT INTO sale_items (sale_id, product_id, name, qty, price, cost) VALUES (?, ?, ?, ?, ?, ?)');
         const takeStock = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?');
         for (const l of lines) {
@@ -632,7 +718,7 @@ function createStore(file) {
         const who = user ? user.name || user.email : '';
         if (spent) changeBonus(customer.id, -spent, `Оплата чека №${saleId}`, who, saleId);
         if (earned) changeBonus(customer.id, earned, `Начислено за чек №${saleId}`, who, saleId);
-        return { id: Number(saleId), total, paid: round2(total - spent), bonusSpent: spent, bonusEarned: earned,
+        return { id: Number(saleId), total, paid: round2(total - spent), bonusSpent: spent, bonusEarned: earned, discount, discountReason,
           items: lines.map((l) => ({ name: l.p.name, qty: l.qty, price: l.price })), customer: customer && this.findCustomer(customer.id) };
       });
     },
@@ -690,17 +776,29 @@ function createStore(file) {
         SELECT s.user_id AS id, s.created_at AS t, s.total FROM sales s
         WHERE s.refunded_at IS NULL AND s.created_at >= ? AND s.created_at < ?`).all(from, to);
       const stats = new Map(rows.map((r) => [r.id, r]));
+      // Выход на смену считается по дням: две смены в один день — один выход.
+      const shiftDays = new Map();
+      for (const sh of db.prepare('SELECT user_id, opened_at FROM shifts WHERE opened_at >= ? AND opened_at < ?').all(from, to)) {
+        const d = new Date(sh.opened_at);
+        const days = shiftDays.get(sh.user_id) || new Set();
+        days.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
+        shiftDays.set(sh.user_id, days);
+      }
+      const fines = new Map(db.prepare('SELECT user_id, SUM(amount) AS sum, COUNT(*) AS n FROM fines WHERE at >= ? AND at < ? GROUP BY user_id').all(from, to).map((r) => [r.user_id, r]));
       const users = db.prepare('SELECT * FROM users ORDER BY name, email').all();
       const result = users
-        .filter((u) => stats.has(u.id) || (!u.disabled && can(u, 'pos')))
+        .filter((u) => stats.has(u.id) || shiftDays.has(u.id) || fines.has(u.id) || (!u.disabled && (can(u, 'pos') || u.shift_rate > 0 || u.salary > 0)))
         .map((u) => ({ user: publicUser(u), ...stats.get(u.id) }));
       if (stats.has(null)) result.push({ user: null, ...stats.get(null) });
       return {
         from, to, months,
         staff: result.map((r) => {
           const revenue = r.revenue || 0;
-          const salary = r.user ? round2(r.user.salary * months) : 0;
+          const shifts = r.user ? shiftDays.get(r.user.id)?.size || 0 : 0;
+          // Оклад: ставка за выход × число выходов, плюс месячный оклад (если есть) за долю месяца.
+          const salary = r.user ? round2(r.user.shift_rate * shifts + r.user.salary * months) : 0;
           const bonus = r.user ? round2(revenue * r.user.percent / 100) : 0;
+          const fine = r.user ? round2(fines.get(r.user.id)?.sum || 0) : 0;
           const plan = r.user ? round2(r.user.plan * months) : 0;
           const p = profit.get(r.user?.id ?? null);
           return {
@@ -715,13 +813,132 @@ function createStore(file) {
             loyaltyReceipts: r.loyalty_receipts || 0,
             plan,
             planDone: plan ? revenue / plan : null,
+            shifts,
             salary,
             bonus,
-            pay: round2(salary + bonus),
+            fines: fine,
+            finesCount: r.user ? fines.get(r.user.id)?.n || 0 : 0,
+            pay: round2(salary + bonus - fine),
           };
         }),
         sales: byDay.map((x) => ({ u: x.id, t: x.t, s: x.total })),
       };
+    },
+
+    // Хиты товаров за период: сколько продано, выручка и прибыль по каждому товару.
+    reportProducts({ from, to }) {
+      return db.prepare(`
+        SELECT si.product_id AS id, MAX(si.name) AS name, p.category, p.unit, p.parent_id,
+          SUM(si.qty) AS qty, SUM(si.qty * si.price) AS revenue, SUM(si.qty * (si.price - si.cost)) AS profit, COUNT(DISTINCT s.id) AS receipts
+        FROM sales s JOIN sale_items si ON si.sale_id = s.id LEFT JOIN products p ON p.id = si.product_id
+        WHERE s.refunded_at IS NULL AND s.created_at >= ? AND s.created_at < ?
+        GROUP BY si.product_id ORDER BY revenue DESC`).all(from, to)
+        .map((r) => ({ ...r, revenue: round2(r.revenue), profit: round2(r.profit) }));
+    },
+
+    /* ---------- Смены ---------- */
+
+    currentShift(userId) {
+      return db.prepare('SELECT * FROM shifts WHERE user_id = ? AND closed_at IS NULL ORDER BY opened_at DESC LIMIT 1').get(Number(userId)) || null;
+    },
+
+    openShift(user) {
+      if (!user) throw new UserError('Смену открывает сотрудник: сначала войдите');
+      if (this.currentShift(user.id)) throw new UserError('Смена уже открыта');
+      const { lastInsertRowid } = db.prepare('INSERT INTO shifts (user_id, opened_at) VALUES (?, ?)').run(user.id, Date.now());
+      return this.getShift(lastInsertRowid);
+    },
+
+    closeShift(user) {
+      const sh = user && this.currentShift(user.id);
+      if (!sh) throw new UserError('Открытой смены нет');
+      db.prepare('UPDATE shifts SET closed_at = ? WHERE id = ?').run(Date.now(), sh.id);
+      return this.getShift(sh.id);
+    },
+
+    // Смена с итогами: сколько чеков и на какую сумму пробито.
+    getShift(id) {
+      const sh = db.prepare(`SELECT sh.*, COALESCE(u.name, u.email, '') AS user_name FROM shifts sh LEFT JOIN users u ON u.id = sh.user_id WHERE sh.id = ?`).get(Number(id));
+      if (!sh) throw new UserError('Смена не найдена');
+      const t = db.prepare(`SELECT COUNT(*) AS receipts, COALESCE(SUM(total), 0) AS revenue,
+        COALESCE(SUM(CASE WHEN payment = 'cash' THEN total - bonus_spent END), 0) AS cash,
+        COALESCE(SUM(CASE WHEN payment = 'card' THEN total - bonus_spent END), 0) AS card
+        FROM sales WHERE refunded_at IS NULL AND ((shift_id = ?) OR (shift_id IS NULL AND user_id = ? AND created_at >= ? AND created_at < ?))`)
+        .get(sh.id, sh.user_id, sh.opened_at, sh.closed_at || Date.now());
+      return { ...sh, receipts: t.receipts, revenue: round2(t.revenue), cash: round2(t.cash), card: round2(t.card) };
+    },
+
+    listShifts({ from, to }) {
+      return db.prepare('SELECT id FROM shifts WHERE opened_at >= ? AND opened_at < ? ORDER BY opened_at DESC LIMIT 1000').all(from, to).map((r) => this.getShift(r.id));
+    },
+
+    // Смена, внесённая или исправленная вручную (забыли открыть или закрыть).
+    saveShift(id, input, by) {
+      const opened = number(input.opened_at, 'Начало смены', { positive: true });
+      const closed = input.closed_at ? number(input.closed_at, 'Конец смены', { positive: true }) : null;
+      if (closed && closed <= opened) throw new UserError('Конец смены должен быть позже начала');
+      if (opened > Date.now() + 864e5) throw new UserError('Смена не может начинаться в будущем');
+      const who = by ? by.name || by.email : '';
+      if (id) {
+        const cur = this.getShift(id);
+        db.prepare('UPDATE shifts SET opened_at = ?, closed_at = ?, note = ?, edited_by = ? WHERE id = ?').run(opened, closed, text(input.note, 'Комментарий'), who, cur.id);
+        return this.getShift(cur.id);
+      }
+      const u = this.findUser(input.user_id);
+      if (!u) throw new UserError('Выберите сотрудника');
+      const { lastInsertRowid } = db.prepare('INSERT INTO shifts (user_id, opened_at, closed_at, note, edited_by) VALUES (?, ?, ?, ?, ?)')
+        .run(u.id, opened, closed, text(input.note, 'Комментарий'), who);
+      return this.getShift(lastInsertRowid);
+    },
+
+    deleteShift(id) {
+      const sh = this.getShift(id);
+      db.prepare('UPDATE sales SET shift_id = NULL WHERE shift_id = ?').run(sh.id);
+      db.prepare('DELETE FROM shifts WHERE id = ?').run(sh.id);
+      return { ok: true };
+    },
+
+    /* ---------- Штрафы ---------- */
+
+    listFines({ from, to }) {
+      return db.prepare(`SELECT f.*, COALESCE(NULLIF(u.name, ''), u.email) AS user_name FROM fines f LEFT JOIN users u ON u.id = f.user_id
+        WHERE f.at >= ? AND f.at < ? ORDER BY f.at DESC`).all(from, to);
+    },
+
+    addFine(input, by) {
+      const u = this.findUser(input.user_id);
+      if (!u) throw new UserError('Выберите сотрудника');
+      const amount = round2(number(input.amount, 'Сумма штрафа', { positive: true }));
+      const reason = text(input.reason, 'Причина', { required: true, max: 300 });
+      const at = input.at ? number(input.at, 'Дата', { positive: true }) : Date.now();
+      const { lastInsertRowid } = db.prepare('INSERT INTO fines (user_id, at, amount, reason, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(u.id, at, amount, reason, by ? by.name || by.email : '', Date.now());
+      return db.prepare('SELECT * FROM fines WHERE id = ?').get(lastInsertRowid);
+    },
+
+    deleteFine(id) {
+      const f = db.prepare('SELECT * FROM fines WHERE id = ?').get(Number(id));
+      if (!f) throw new UserError('Штраф не найден');
+      db.prepare('DELETE FROM fines WHERE id = ?').run(f.id);
+      return f;
+    },
+
+    /* ---------- Журнал действий ---------- */
+
+    // kind: login — вход, login_failed — неудачная попытка, logout — выход, change — изменение.
+    audit(entry) {
+      db.prepare('INSERT INTO audit (at, kind, user_id, user_name, ip, device, action, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(Date.now(), entry.kind, entry.user?.id ?? null, entry.user ? entry.user.name || entry.user.email : entry.userName || '',
+          String(entry.ip || '').slice(0, 64), String(entry.device || '').slice(0, 120), String(entry.action).slice(0, 200), String(entry.details || '').slice(0, 1000));
+      // Журнал хранит последние 100 000 записей.
+      if (Math.random() < 0.01) db.prepare('DELETE FROM audit WHERE id <= (SELECT MAX(id) - 100000 FROM audit)').run();
+    },
+
+    listAudit({ from, to, kind = '', q = '', limit = 500 }) {
+      const like = `%${String(q).trim()}%`;
+      return db.prepare(`SELECT * FROM audit WHERE at >= ? AND at < ? AND (? = '' OR kind = ?)
+        AND (? = '%%' OR user_name LIKE ? OR action LIKE ? OR details LIKE ? OR ip LIKE ?)
+        ORDER BY at DESC, id DESC LIMIT ?`).all(from, to, kind, kind, like, like, like, like, like, limit);
     },
 
     /* ---------- Покупатели и бонусы ---------- */
@@ -736,8 +953,11 @@ function createStore(file) {
         enabled: Boolean(input.enabled),
         percent: number(input.percent, 'Начислять, %'),
         maxPay: number(input.maxPay, 'Оплата бонусами, %'),
+        birthdayDiscount: number(input.birthdayDiscount ?? 0, 'Скидка в день рождения, %'),
+        birthdayDays: Math.round(number(input.birthdayDays ?? 0, 'Дней до и после дня рождения')),
       };
-      if (next.percent > 100 || next.maxPay > 100) throw new UserError('Процент не может быть больше 100');
+      if (next.percent > 100 || next.maxPay > 100 || next.birthdayDiscount > 100) throw new UserError('Процент не может быть больше 100');
+      if (next.birthdayDays > 30) throw new UserError('Скидка может действовать не больше 30 дней до и после дня рождения');
       this.setSetting('loyalty', JSON.stringify(next));
       return next;
     },
@@ -756,22 +976,33 @@ function createStore(file) {
           MIN(s.created_at) AS first_at, MAX(s.created_at) AS last_at
         FROM customers c LEFT JOIN sales s ON s.customer_id = c.id AND s.refunded_at IS NULL
         GROUP BY c.id ORDER BY spent DESC, c.created_at DESC LIMIT 5000`).all()
-        .map((c) => ({ ...c, spent: round2(c.spent), avg: c.purchases ? round2(c.spent / c.purchases) : 0 }));
+        .map((c) => ({ ...this.withBirthday(c), spent: round2(c.spent), avg: c.purchases ? round2(c.spent / c.purchases) : 0 }));
     },
 
     findCustomer(id) {
-      return db.prepare('SELECT * FROM customers WHERE id = ?').get(Number(id)) || null;
+      const c = db.prepare('SELECT * FROM customers WHERE id = ?').get(Number(id));
+      return c ? this.withBirthday(c) : null;
+    },
+
+    // Добавляет к покупателю: дней до дня рождения и действует ли сейчас скидка именинника.
+    withBirthday(c) {
+      const l = this.loyalty();
+      const days = daysToBirthday(c.birthday);
+      const thisYear = new Date().getFullYear();
+      const active = Boolean(l.birthdayDiscount > 0 && days !== null && Math.abs(days) <= l.birthdayDays && c.birthday_used !== thisYear);
+      return { ...c, birthdayIn: days, birthdayDiscount: active ? l.birthdayDiscount : 0 };
     },
 
     findCustomerByPhone(value) {
-      return db.prepare('SELECT * FROM customers WHERE phone = ?').get(phone(value)) || null;
+      const c = db.prepare('SELECT * FROM customers WHERE phone = ?').get(phone(value));
+      return c ? this.withBirthday(c) : null;
     },
 
     createCustomer(input) {
       const p = phone(input.phone);
       if (db.prepare('SELECT 1 FROM customers WHERE phone = ?').get(p)) throw new UserError('Покупатель с таким телефоном уже есть');
-      const { lastInsertRowid } = db.prepare('INSERT INTO customers (phone, name, created_at) VALUES (?, ?, ?)')
-        .run(p, text(input.name, 'Имя', { max: 80 }), Date.now());
+      const { lastInsertRowid } = db.prepare('INSERT INTO customers (phone, name, birthday, created_at) VALUES (?, ?, ?, ?)')
+        .run(p, text(input.name, 'Имя', { max: 80 }), birthday(input.birthday), Date.now());
       return this.findCustomer(lastInsertRowid);
     },
 
@@ -780,7 +1011,8 @@ function createStore(file) {
       const p = input.phone === undefined ? c.phone : phone(input.phone);
       const other = db.prepare('SELECT id FROM customers WHERE phone = ?').get(p);
       if (other && other.id !== c.id) throw new UserError('Покупатель с таким телефоном уже есть');
-      db.prepare('UPDATE customers SET phone = ?, name = ? WHERE id = ?').run(p, input.name === undefined ? c.name : text(input.name, 'Имя', { max: 80 }), c.id);
+      db.prepare('UPDATE customers SET phone = ?, name = ?, birthday = ? WHERE id = ?')
+        .run(p, input.name === undefined ? c.name : text(input.name, 'Имя', { max: 80 }), input.birthday === undefined ? c.birthday : birthday(input.birthday), c.id);
       return this.findCustomer(c.id);
     },
 
@@ -892,8 +1124,8 @@ function createStore(file) {
       const e = email(input.email);
       if (this.findUserByEmail(e)) throw new UserError('Сотрудник с таким email уже есть');
       const pay = payFields(input);
-      const { lastInsertRowid } = db.prepare('INSERT INTO users (email, name, role, password_hash, created_at, salary, percent, plan, rights) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(e, text(input.name, 'Имя', { max: 80 }), role(input.role || 'cashier'), passwordHash, Date.now(), pay.salary, pay.percent, pay.plan, rightsList(input.rights ?? null));
+      const { lastInsertRowid } = db.prepare('INSERT INTO users (email, name, role, password_hash, created_at, salary, percent, plan, rights, shift_rate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(e, text(input.name, 'Имя', { max: 80 }), role(input.role || 'cashier'), passwordHash, Date.now(), pay.salary, pay.percent, pay.plan, rightsList(input.rights ?? null), pay.shift_rate);
       return publicUser(this.findUser(lastInsertRowid));
     },
 
@@ -915,8 +1147,8 @@ function createStore(file) {
         throw new UserError('Это единственный администратор. Сначала назначьте другого.');
       }
       const rights = input.rights === undefined ? current.rights : rightsList(input.rights);
-      db.prepare('UPDATE users SET email = ?, name = ?, role = ?, disabled = ?, password_hash = ?, salary = ?, percent = ?, plan = ?, rights = ? WHERE id = ?')
-        .run(next.email, next.name, next.role, next.disabled, passwordHash || current.password_hash, pay.salary, pay.percent, pay.plan, rights, current.id);
+      db.prepare('UPDATE users SET email = ?, name = ?, role = ?, disabled = ?, password_hash = ?, salary = ?, percent = ?, plan = ?, rights = ?, shift_rate = ? WHERE id = ?')
+        .run(next.email, next.name, next.role, next.disabled, passwordHash || current.password_hash, pay.salary, pay.percent, pay.plan, rights, pay.shift_rate, current.id);
       return publicUser(this.findUser(current.id));
     },
 
@@ -1104,11 +1336,12 @@ function createStore(file) {
       return rows.map((r) => this.getOrder(r.id));
     },
 
-    // Статусы: new — новый, confirmed — подтверждён, ready — собран, done — выдан, cancelled — отменён.
+    // Статусы: new — новый, confirmed — подтверждён, ready — собран, shipped — передан курьеру,
+    // done — выдан (доставлен), cancelled — отменён.
     // При выдаче заказ пробивается чеком: товар списывается, выручка идёт тому, кто выдал.
     setOrderStatus(id, { status, payment }, user = null) {
       const o = this.getOrder(id);
-      if (!['new', 'confirmed', 'ready', 'done', 'cancelled'].includes(status)) throw new UserError('Неизвестный статус');
+      if (!['new', 'confirmed', 'ready', 'shipped', 'done', 'cancelled'].includes(status)) throw new UserError('Неизвестный статус');
       if (o.status === 'done' || o.status === 'cancelled') throw new UserError('Заказ уже закрыт');
       return transaction(db, () => {
         let saleId = null;

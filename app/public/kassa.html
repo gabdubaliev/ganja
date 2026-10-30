@@ -15,6 +15,7 @@
     <span class="logo">Касса</span>
     <a href="#pos">Продажа</a>
     <a href="#sales">Мои чеки</a>
+    <a href="#orders" data-can="orders" hidden>Заказы <span class="badge" id="orders-badge" hidden></span></a>
     <a href="#photos" data-can="photos" hidden>Фото товаров</a>
     <span class="nav-user" id="nav-user" hidden>
       <button type="button" class="btn small ghost" id="me-password" title="Сменить пароль"></button>
@@ -24,6 +25,7 @@
 </nav>
 
 <main class="page" data-view="pos" hidden>
+  <div class="shift-bar" id="shift-bar" hidden></div>
   <div class="pos">
     <section class="panel pos-pick" aria-label="Подбор товаров">
       <input id="pos-search" class="input big" type="search" placeholder="Название, код или штрихкод" autocomplete="off" aria-label="Найти товар">
@@ -40,11 +42,13 @@
         <div class="customer-new" id="customer-new" hidden>
           <span class="pick-meta">Такого покупателя ещё нет.</span>
           <input id="customer-new-name" class="input" placeholder="Имя (необязательно)" autocomplete="off" aria-label="Имя нового покупателя">
+          <input id="customer-new-bday" class="input" inputmode="numeric" placeholder="Дата рождения: ДД.ММ.ГГГГ" autocomplete="off" aria-label="Дата рождения нового покупателя">
           <button type="button" class="btn primary" id="customer-create">Завести карту</button>
         </div>
         <div class="customer-card" id="customer-card" hidden>
           <div><b id="customer-title"></b><span class="pick-meta" id="customer-meta"></span></div>
           <button type="button" class="icon-btn" id="customer-clear" aria-label="Убрать покупателя из чека">×</button>
+          <label class="check birthday-offer" id="customer-bday-row" hidden><input type="checkbox" id="customer-bday"> <span id="customer-bday-text"></span></label>
           <label class="field customer-spend" id="customer-spend-row">
             <span>Списать бонусов</span>
             <input id="customer-spend" class="input num" inputmode="decimal" placeholder="0" autocomplete="off">
@@ -67,6 +71,14 @@
       <p class="pick-meta">Чек сохраняется в программе и списывает товар со склада. Фискальный чек для налоговой по-прежнему печатает ваша онлайн-касса.</p>
     </section>
   </div>
+</main>
+
+<main class="page" data-view="orders" hidden>
+  <header class="top">
+    <div class="title"><h1>Онлайн-заказы</h1><span class="source" id="orders-summary"></span></div>
+    <div class="periods" id="orders-filter" role="group" aria-label="Статус"></div>
+  </header>
+  <section class="panel"><div id="orders-list" class="orders"></div></section>
 </main>
 
 <main class="page" data-view="sales" hidden>
@@ -121,6 +133,7 @@
 <script src="pos.js"></script>
 <script src="sales.js"></script>
 <script src="photos.js"></script>
+<script src="orders.js"></script>
 <script>session.ready.then(route);</script>
 </body>
 </html>

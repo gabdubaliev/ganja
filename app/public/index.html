@@ -13,15 +13,8 @@
     <span class="logo">Мой магазин</span>
     <a href="#home" data-can="dashboard" hidden>Главная</a>
     <a href="#products" data-can="products" hidden>Товары</a>
-    <a href="#arrivals" data-can="arrivals" hidden>Приход</a>
-    <a href="#sales" data-can="sales" hidden>Чеки</a>
-    <a href="#kpi" data-can="kpi" hidden>Эффективность</a>
-    <a href="#loyalty" data-can="customers" hidden>Покупатели</a>
-    <a href="#orders" data-can="orders" hidden>Заказы <span class="badge" id="orders-badge" hidden></span></a>
-    <a href="#shop" data-can="shop" hidden>Витрина</a>
-    <a href="#design" data-can="design" hidden>Оформление</a>
-    <a href="#users" data-can="staff" hidden>Сотрудники</a>
-    <a href="#settings" data-can="settings" hidden>Настройки</a>
+    <a href="#sales" data-can="sales" hidden>Продажи</a>
+    <a href="#more" id="nav-more">Ещё <span class="badge" id="orders-badge" hidden></span></a>
     <a href="/kassa.html" target="_blank" class="nav-kassa" data-can="pos" hidden>Касса ↗</a>
     <span class="nav-user">
       <button type="button" class="btn small ghost" id="bell" hidden aria-pressed="false"></button>
@@ -170,7 +163,7 @@
 
 <main class="page" data-view="sales" hidden>
   <header class="top">
-    <div class="title"><h1>Чеки</h1></div>
+    <div class="title"><h1>Журнал продаж</h1></div>
     <div class="periods" id="sales-ranges" role="group" aria-label="Период"></div>
   </header>
   <section class="panel">
@@ -179,34 +172,170 @@
   </section>
 </main>
 
+<main class="page" data-view="more" hidden>
+  <header class="top"><div class="title"><h1>Ещё</h1></div></header>
+  <div class="more-groups" id="more-groups"></div>
+</main>
+
 <main class="page" data-view="kpi" hidden>
   <header class="top">
-    <div class="title"><h1>Эффективность</h1><span class="source" id="kpi-sub"></span></div>
-    <div class="periods" id="kpi-ranges" role="group" aria-label="Период"></div>
-  </header>
-  <section class="kpis" id="kpi-cards" aria-label="Итоги по сотрудникам"></section>
-  <section class="panel">
-    <div class="panel-head">
-      <div><h2>Кто сколько продал</h2><p class="sub">Выручка без возвратов. Штрих — план продаж на этот период.</p></div>
+    <div class="title"><h1>Отчёты</h1><span class="source" id="kpi-sub"></span></div>
+    <div class="seg tabs" id="report-tabs" role="tablist" aria-label="Отчёт">
+      <button type="button" data-tab="pay" aria-pressed="true">Зарплата</button>
+      <button type="button" data-tab="sellers" aria-pressed="false">Топ продавцов</button>
+      <button type="button" data-tab="products" aria-pressed="false">Хиты товаров</button>
     </div>
-    <div id="kpi-bars" class="kpi-bars"></div>
+  </header>
+  <section class="panel period-bar">
+    <div class="periods" id="kpi-ranges" role="group" aria-label="Период"></div>
+    <div class="period-custom">
+      <select id="kpi-halves" class="input" aria-label="Выплатный период"></select>
+      <label class="period-dates"><input type="date" id="kpi-from" class="input" aria-label="С"> — <input type="date" id="kpi-to" class="input" aria-label="По"></label>
+    </div>
+  </section>
+  <section class="kpis" id="kpi-cards" aria-label="Итоги"></section>
+
+  <div data-report="pay">
+    <section class="panel">
+      <div class="panel-head">
+        <div><h2>Зарплата за период</h2><p class="sub" id="kpi-note"></p></div>
+        <button type="button" class="btn" id="pay-print">Распечатать ведомость</button>
+      </div>
+      <div class="table-wrap">
+        <table class="kpi-table pay-table">
+          <thead><tr><th>Сотрудник</th><th>Выходов</th><th>За смены</th><th>Выручка</th><th>% от продаж</th><th>Штрафы</th><th>К выплате</th></tr></thead>
+          <tbody id="pay-body"></tbody>
+          <tfoot id="pay-foot"></tfoot>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div data-report="sellers" hidden>
+    <section class="panel">
+      <div class="panel-head"><div><h2>Кто сколько продал</h2><p class="sub">Выручка без возвратов. Штрих — план продаж на этот период.</p></div></div>
+      <div id="kpi-bars" class="kpi-bars"></div>
+    </section>
+    <section class="panel">
+      <div class="table-wrap">
+        <table class="kpi-table">
+          <thead><tr>
+            <th>Место</th><th>Сотрудник</th><th>Чеки</th><th>Выручка</th><th>Средний чек</th><th>Прибыль</th><th>Возвраты</th>
+            <th title="Чеки, к которым привязан покупатель из программы лояльности">С картой</th><th>План</th>
+          </tr></thead>
+          <tbody id="kpi-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div data-report="products" hidden>
+    <section class="panel">
+      <div class="panel-head">
+        <div class="chips" id="hits-sort"></div>
+        <input id="hits-search" class="input search" type="search" placeholder="Найти товар" aria-label="Найти товар">
+      </div>
+      <div class="table-wrap">
+        <table class="hits-table">
+          <thead><tr><th>Место</th><th>Товар</th><th>Продано</th><th>Чеков</th><th>Выручка</th><th>Прибыль</th><th>Доля выручки</th></tr></thead>
+          <tbody id="hits-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</main>
+
+<main class="page" data-view="shifts" hidden>
+  <header class="top">
+    <div class="title"><h1>Смены</h1><span class="source" id="shifts-sub"></span></div>
+    <div class="tools"><button type="button" class="btn primary" id="shift-add" data-can="shifts" hidden>Добавить смену</button></div>
+  </header>
+  <section class="panel period-bar">
+    <div class="periods" id="shifts-ranges" role="group" aria-label="Период"></div>
   </section>
   <section class="panel">
-    <div class="panel-head">
-      <div><h2>Сотрудники и зарплата</h2><p class="sub" id="kpi-note"></p></div>
-    </div>
+    <p class="sub">Кассир открывает и закрывает смену в окне кассы. Каждый день со сменой — один выход, за него начисляется ставка из карточки сотрудника. Забыли открыть или закрыть — исправьте здесь.</p>
     <div class="table-wrap">
-      <table class="kpi-table">
-        <thead><tr>
-          <th>Сотрудник</th><th>Чеки</th><th>Выручка</th><th>Средний чек</th><th>Прибыль</th><th>Возвраты</th>
-          <th title="Чеки, к которым привязан покупатель из программы лояльности">С картой</th><th>План</th><th>Оклад</th><th>% от продаж</th><th>К выплате</th>
-        </tr></thead>
-        <tbody id="kpi-body"></tbody>
-        <tfoot id="kpi-foot"></tfoot>
+      <table class="shifts-table">
+        <thead><tr><th>Сотрудник</th><th>Начало</th><th>Конец</th><th>Длительность</th><th>Чеков</th><th>Выручка</th><th>Наличные / карта</th><th></th></tr></thead>
+        <tbody id="shifts-body"></tbody>
       </table>
     </div>
   </section>
 </main>
+
+<main class="page" data-view="fines" hidden>
+  <header class="top">
+    <div class="title"><h1>Штрафы</h1><span class="source" id="fines-sub"></span></div>
+    <div class="tools"><button type="button" class="btn primary" id="fine-add" data-can="fines" hidden>Выписать штраф</button></div>
+  </header>
+  <section class="panel period-bar">
+    <div class="periods" id="fines-ranges" role="group" aria-label="Период"></div>
+  </section>
+  <section class="panel">
+    <div class="table-wrap">
+      <table class="fines-table">
+        <thead><tr><th>Дата</th><th>Сотрудник</th><th>Причина</th><th>Сумма</th><th>Выписал</th><th></th></tr></thead>
+        <tbody id="fines-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<main class="page" data-view="audit" hidden>
+  <header class="top">
+    <div class="title"><h1>Журнал действий</h1><span class="source" id="audit-sub"></span></div>
+  </header>
+  <section class="panel period-bar">
+    <div class="periods" id="audit-ranges" role="group" aria-label="Период"></div>
+    <div class="chips" id="audit-kinds"></div>
+    <input id="audit-search" class="input search" type="search" placeholder="Сотрудник, действие, IP" aria-label="Поиск по журналу">
+  </section>
+  <section class="panel">
+    <div class="table-wrap">
+      <table class="audit-table">
+        <thead><tr><th>Время</th><th>Кто</th><th>Что сделал</th><th>Подробности</th><th>IP-адрес</th><th>Устройство</th></tr></thead>
+        <tbody id="audit-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<dialog id="shift-dialog" aria-labelledby="shift-title">
+  <form id="shift-form" novalidate>
+    <h2 id="shift-title">Смена</h2>
+    <div class="form-grid">
+      <div class="field wide"><label for="sh-user">Сотрудник</label><select id="sh-user" name="user_id" class="input"></select></div>
+      <div class="field"><label for="sh-open">Начало</label><input id="sh-open" name="opened" type="datetime-local" class="input" required></div>
+      <div class="field"><label for="sh-close">Конец (пусто — смена ещё идёт)</label><input id="sh-close" name="closed" type="datetime-local" class="input"></div>
+      <div class="field wide"><label for="sh-note">Комментарий</label><input id="sh-note" name="note" class="input" autocomplete="off" placeholder="Например, забыла закрыть смену"></div>
+    </div>
+    <p class="form-error" id="shift-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost danger-text" id="shift-delete" hidden>Удалить</button>
+      <button type="button" class="btn ghost" id="shift-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="fine-dialog" aria-labelledby="fine-title">
+  <form id="fine-form" novalidate>
+    <h2 id="fine-title">Выписать штраф</h2>
+    <div class="form-grid">
+      <div class="field wide"><label for="fn-user">Сотрудник</label><select id="fn-user" name="user_id" class="input"></select></div>
+      <div class="field"><label for="fn-amount">Сумма, сом</label><input id="fn-amount" name="amount" class="input num" inputmode="decimal" autocomplete="off" required></div>
+      <div class="field"><label for="fn-date">Дата</label><input id="fn-date" name="date" type="date" class="input" required></div>
+      <div class="field wide"><label for="fn-reason">Причина</label><textarea id="fn-reason" name="reason" class="input" rows="2" required placeholder="Например, опоздание на 30 минут"></textarea></div>
+    </div>
+    <p class="sub">Штраф вычитается из зарплаты за выплатный период, в который попадает дата.</p>
+    <p class="form-error" id="fine-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="fine-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Выписать</button>
+    </div>
+  </form>
+</dialog>
 
 <main class="page" data-view="loyalty" hidden>
   <header class="top">
@@ -215,10 +344,12 @@
   </header>
   <section class="panel">
     <form id="loyalty-form" class="loyalty-rules" novalidate>
-      <div><h2>Правила бонусов</h2><p class="sub">1 бонус = 1 сом. Бонусы начисляются на сумму, оплаченную деньгами, и округляются вниз.</p></div>
+      <div><h2>Правила бонусов</h2><p class="sub">1 бонус = 1 сом. Бонусы начисляются на сумму, оплаченную деньгами, и округляются вниз. Скидка именинника даётся на кассе один раз в год, если у покупателя указана дата рождения.</p></div>
       <label class="check"><input type="checkbox" name="enabled"> Программа лояльности включена</label>
       <div class="field"><label for="lf-percent">Начислять с покупки, %</label><input id="lf-percent" name="percent" class="input num" inputmode="decimal"></div>
       <div class="field"><label for="lf-max">Оплатить бонусами можно до, % чека</label><input id="lf-max" name="maxPay" class="input num" inputmode="decimal"></div>
+      <div class="field"><label for="lf-bday">Скидка в день рождения, %</label><input id="lf-bday" name="birthdayDiscount" class="input num" inputmode="decimal" placeholder="0 — без скидки"></div>
+      <div class="field"><label for="lf-bdays">Действует дней до и после</label><input id="lf-bdays" name="birthdayDays" class="input num" inputmode="numeric" placeholder="0 — только в сам день"></div>
       <button type="submit" class="btn primary" data-can="loyalty">Сохранить правила</button>
     </form>
   </section>
@@ -271,6 +402,7 @@
     <div class="form-grid">
       <div class="field"><label for="cf-phone">Телефон</label><input id="cf-phone" name="phone" class="input" inputmode="tel" required autocomplete="off" placeholder="+996 700 123 456"></div>
       <div class="field"><label for="cf-name">Имя</label><input id="cf-name" name="name" class="input" autocomplete="off" placeholder="Необязательно"></div>
+      <div class="field"><label for="cf-bday">Дата рождения</label><input id="cf-bday" name="birthday" class="input" inputmode="numeric" autocomplete="off" placeholder="ДД.ММ.ГГГГ"></div>
     </div>
     <div id="customer-bonus" hidden>
       <p class="balance">Бонусов: <b class="num" id="customer-balance"></b></p>
@@ -418,7 +550,7 @@
     <ul class="roles-help" id="roles-help"></ul>
     <div class="table-wrap">
       <table class="users-table">
-        <thead><tr><th>Сотрудник</th><th>Роль</th><th>Оклад в месяц</th><th>% от продаж</th><th>План в месяц</th><th>Доступ</th><th></th></tr></thead>
+        <thead><tr><th>Сотрудник</th><th>Роль</th><th>За смену</th><th>% от продаж</th><th>План в месяц</th><th>Доступ</th><th></th></tr></thead>
         <tbody id="users-body"></tbody>
       </table>
     </div>
@@ -436,7 +568,8 @@
       </div>
       <div class="field"><label for="uf-password" id="uf-password-label">Пароль</label><input id="uf-password" name="password" type="password" class="input" autocomplete="new-password" minlength="8"></div>
       <p class="sub wide" id="uf-role-about"></p>
-      <div class="field"><label for="uf-salary">Оклад в месяц, сом</label><input id="uf-salary" name="salary" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+      <div class="field"><label for="uf-rate">Оплата за выход на смену, сом</label><input id="uf-rate" name="shift_rate" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+      <div class="field"><label for="uf-salary">Оклад в месяц, сом (если есть)</label><input id="uf-salary" name="salary" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
       <div class="field"><label for="uf-percent">Процент от продаж, %</label><input id="uf-percent" name="percent" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
       <div class="field"><label for="uf-plan">План продаж в месяц, сом</label><input id="uf-plan" name="plan" class="input num" inputmode="decimal" autocomplete="off" placeholder="Без плана"></div>
       <fieldset class="rights wide" id="uf-rights">
@@ -574,7 +707,10 @@
 <script src="labels.js"></script>
 <script src="xlsx.js"></script>
 <script src="import.js"></script>
+<script src="more.js"></script>
 <script src="kpi.js"></script>
+<script src="staff-time.js"></script>
+<script src="audit.js"></script>
 <script src="loyalty.js"></script>
 <script src="users.js"></script>
 <script src="settings.js"></script>

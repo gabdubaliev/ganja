@@ -5,6 +5,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 loadEnv(path.join(__dirname, '.env'));
+// Дни, смены и выплатные периоды считаются по времени Бишкека, даже если сервер живёт в UTC.
+process.env.TZ ||= 'Asia/Bishkek';
 const { createStore, UserError } = require('./db');
 const { seedDemo } = require('./demo');
 const crypto = require('node:crypto');
@@ -151,6 +153,25 @@ const routes = [
   ['POST', '/api/arrivals', (p, url, body) => store.createArrival(body), 'arrivals'],
   ['GET', '/api/analytics', (p, url) => store.analytics(range(url)), 'dashboard'],
   ['GET', '/api/kpi', (p, url) => store.kpi(range(url)), 'kpi'],
+  ['GET', '/api/reports/products', (p, url) => store.reportProducts(range(url)), 'kpi'],
+
+  // Своя смена — у любого, кто работает на кассе; чужие смены — у права «Смены».
+  ['GET', '/api/shift', (p, url, body, user) => {
+    const sh = user && store.currentShift(user.id);
+    return sh ? store.getShift(sh.id) : null;
+  }, 'pos'],
+  ['POST', '/api/shift/open', (p, url, body, user) => store.openShift(user), 'pos'],
+  ['POST', '/api/shift/close', (p, url, body, user) => store.closeShift(user), 'pos'],
+  ['GET', '/api/shifts', (p, url) => store.listShifts(range(url)), ['shifts', 'kpi']],
+  ['POST', '/api/shifts', (p, url, body, user) => store.saveShift(null, body, user), 'shifts'],
+  ['PUT', '/api/shifts/:id', (p, url, body, user) => store.saveShift(p.id, body, user), 'shifts'],
+  ['DELETE', '/api/shifts/:id', (p) => store.deleteShift(p.id), 'shifts'],
+  ['GET', '/api/fines', (p, url) => store.listFines(range(url)), ['fines', 'kpi']],
+  ['POST', '/api/fines', (p, url, body, user) => store.addFine(body, user), 'fines'],
+  ['DELETE', '/api/fines/:id', (p) => store.deleteFine(p.id), 'fines'],
+  // Короткий список сотрудников для выбора в сменах и штрафах.
+  ['GET', '/api/staff-list', () => store.listUsers().map((u) => ({ id: u.id, name: u.name || u.email, role: u.role, disabled: u.disabled })), ['shifts', 'fines', 'kpi', 'staff']],
+  ['GET', '/api/audit', (p, url) => store.listAudit({ ...range(url), kind: url.searchParams.get('kind') || '', q: url.searchParams.get('q') || '' }), 'audit'],
   ['POST', '/api/demo', () => {
     if (!store.isEmpty()) throw new UserError('Пример можно загрузить только в пустую базу');
     seedDemo(store);
@@ -226,7 +247,7 @@ function match(method, pathname) {
     const names = [];
     const re = new RegExp('^' + pattern.replace(/:(\w+)/g, (_, n) => (names.push(n), '([^/]+)')) + '$');
     const found = pathname.match(re);
-    if (found) return { handler, access, params: Object.fromEntries(names.map((n, i) => [n, found[i + 1]])) };
+    if (found) return { handler, access, pattern, params: Object.fromEntries(names.map((n, i) => [n, found[i + 1]])) };
   }
   return null;
 }
@@ -241,15 +262,95 @@ function serveStatic(res, pathname) {
   fs.createReadStream(file).pipe(res);
 }
 
+// Устройство из заголовка браузера: «Android · Chrome», «Windows · Edge».
+function device(req) {
+  const ua = String(req.headers['user-agent'] || '');
+  const os = /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iPhone/iPad' : /Windows/.test(ua) ? 'Windows'
+    : /Mac OS X/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : '';
+  const browser = /SamsungBrowser/.test(ua) ? 'Samsung Internet' : /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera'
+    : /YaBrowser/.test(ua) ? 'Яндекс Браузер' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : '';
+  return [os, browser].filter(Boolean).join(' · ') || ua.slice(0, 60) || 'неизвестно';
+}
+
+// Что записать в журнал о каждом изменении. Ключ — «метод путь» маршрута.
+const AUDIT_LABELS = {
+  'PUT /api/me/password': 'Сменил свой пароль',
+  'POST /api/products': 'Добавил товар',
+  'PUT /api/products/:id': 'Изменил товар',
+  'DELETE /api/products/:id': 'Удалил товар',
+  'POST /api/products/import': 'Загрузил товары из Excel',
+  'PUT /api/products/:id/stock': 'Пересчитал остаток',
+  'PUT /api/products/:id/photo': 'Поменял фото товара',
+  'DELETE /api/products/:id/photo': 'Удалил фото товара',
+  'POST /api/products/bulk': 'Групповое изменение товаров',
+  'POST /api/products/:id/variants': 'Добавил модификации',
+  'POST /api/sales': 'Пробил чек',
+  'POST /api/sales/:id/refund': 'Оформил возврат',
+  'POST /api/arrivals': 'Провёл приход',
+  'POST /api/demo': 'Загрузил пример магазина',
+  'POST /api/shift/open': 'Открыл смену',
+  'POST /api/shift/close': 'Закрыл смену',
+  'POST /api/shifts': 'Добавил смену вручную',
+  'PUT /api/shifts/:id': 'Исправил смену',
+  'DELETE /api/shifts/:id': 'Удалил смену',
+  'POST /api/fines': 'Выписал штраф',
+  'DELETE /api/fines/:id': 'Отменил штраф',
+  'POST /api/customers': 'Добавил покупателя',
+  'PUT /api/customers/:id': 'Изменил покупателя',
+  'POST /api/customers/:id/bonus': 'Изменил бонусы покупателя',
+  'PUT /api/loyalty': 'Изменил правила бонусов и скидок',
+  'POST /api/users': 'Добавил сотрудника',
+  'PUT /api/users/:id': 'Изменил сотрудника',
+  'DELETE /api/users/:id': 'Удалил сотрудника',
+  'PUT /api/design': 'Изменил оформление',
+  'POST /api/images': 'Загрузил картинку для витрины',
+  'PUT /api/shop': 'Изменил витрину',
+  'PUT /api/orders/:id': 'Изменил статус заказа',
+  'PUT /api/settings/telegram': 'Изменил уведомления в Telegram',
+  'POST /api/settings/telegram/test': 'Отправил пробное уведомление',
+};
+const ORDER_NAMES = { confirmed: 'подтверждён', ready: 'собран', shipped: 'передан курьеру', done: 'выдан', cancelled: 'отменён' };
+
+// Подробности для журнала: о чём именно речь. Пароли и токены сюда не попадают.
+function auditDetails(key, params, body, result) {
+  const r = result && typeof result === 'object' ? result : {};
+  switch (key) {
+    case 'POST /api/sales': return `Чек №${r.id} на ${r.total} сом${r.discount ? `, скидка ${r.discount} сом (${r.discountReason})` : ''}`;
+    case 'POST /api/sales/:id/refund': return `Чек №${params.id}`;
+    case 'POST /api/products/bulk': return `${{ delete: 'удаление', archive: 'убрать из продажи', restore: 'вернуть в продажу', price: 'цена', cost: 'себестоимость', category: 'категория', unit: 'единица', barcodes: 'штрихкоды' }[body.action] || body.action}${body.value !== undefined ? ` (${body.mode ? body.mode + ' ' : ''}${body.value})` : ''}, товаров: ${r.count ?? body.ids?.length}`;
+    case 'POST /api/products/import': return `создано ${r.created}, обновлено ${r.updated}, пропущено ${r.skipped?.length ?? 0}`;
+    case 'PUT /api/products/:id/stock': return `${r.name}: остаток ${r.stock}`;
+    case 'PUT /api/products/:id': return `${r.name}: цена ${r.price}, себестоимость ${r.cost}`;
+    case 'POST /api/products/:id/variants': return `${Array.isArray(r) ? r.length : 0} шт.`;
+    case 'POST /api/arrivals': return `Приход №${r.id} на ${r.total} сом${body.supplier ? `, ${body.supplier}` : ''}`;
+    case 'POST /api/fines': return `${store.findUser(body.user_id)?.name || ''}: ${r.amount} сом — ${r.reason}`;
+    case 'DELETE /api/fines/:id': return `${r.amount} сом — ${r.reason}`;
+    case 'POST /api/customers/:id/bonus': return `${r.name || '+' + r.phone}: ${body.delta > 0 ? '+' : ''}${body.delta}${body.reason ? ` (${body.reason})` : ''}`;
+    case 'PUT /api/orders/:id': return `Заказ №${params.id} ${ORDER_NAMES[body.status] || body.status}`;
+    case 'PUT /api/users/:id': return `${r.name || r.email}${body.password ? ', новый пароль' : ''}${body.rights !== undefined ? ', права' : ''}`;
+    case 'POST /api/shift/close': return `чеков ${r.receipts} на ${r.revenue} сом`;
+    case 'PUT /api/shifts/:id':
+    case 'POST /api/shifts': return `${r.user_name}: ${new Date(r.opened_at).toLocaleString('ru-RU')}${r.closed_at ? ' — ' + new Date(r.closed_at).toLocaleString('ru-RU') : ''}`;
+    default: return r.name || r.email || r.title || (params.id ? `№${params.id}` : '');
+  }
+}
+
 async function handleAuth(req, res, url) {
   if (url.pathname === '/api/login' && req.method === 'POST') {
     const body = await readBody(req);
     const result = auth.login(req, body.email || '', body.password || '');
-    if (!result.ok) return sendJson(res, result.status, { error: result.error });
+    const who = { ip: clientIp(req), device: device(req) };
+    if (!result.ok) {
+      store.audit({ ...who, kind: 'login_failed', userName: String(body.email || '').slice(0, 120), action: 'Неудачная попытка входа', details: result.error });
+      return sendJson(res, result.status, { error: result.error });
+    }
+    store.audit({ ...who, kind: 'login', user: result.user, action: 'Вход в программу' });
     res.setHeader('Set-Cookie', result.cookie);
     return sendJson(res, 200, { ok: true, user: store.publicUser(result.user) });
   }
   if (url.pathname === '/api/logout' && req.method === 'POST') {
+    const user = auth.currentUser(req);
+    if (user) store.audit({ kind: 'logout', user, ip: clientIp(req), device: device(req), action: 'Выход из программы' });
     res.setHeader('Set-Cookie', auth.logoutCookie(req));
     return sendJson(res, 200, { ok: true });
   }
@@ -312,6 +413,7 @@ async function handlePublic(req, res, url, user) {
       recent.push(now);
       orderLog.set(ip, recent);
       notifier.order(order);
+      store.audit({ kind: 'change', userName: `Покупатель: ${order.name}`, ip, device: device(req), action: 'Новый заказ с витрины', details: `Заказ №${order.id} на ${order.total} сом` });
       return sendJson(res, 200, { ok: true, id: order.id, total: order.total });
     } catch (err) {
       if (err instanceof UserError) return sendJson(res, 400, { error: err.message });
@@ -368,10 +470,24 @@ const server = http.createServer(async (req, res) => {
   const route = match(req.method, url.pathname);
   if (!route) return sendJson(res, 404, { error: 'Не найдено' });
   // Пока сотрудников нет, программа открыта и всё можно (работа на своём компьютере).
-  if (route.access !== 'any' && !can(user, route.access)) return sendJson(res, 403, { error: 'У вашей роли нет доступа к этому' });
+  // access — право или список прав, из которых хватит любого.
+  const allowed = route.access === 'any' || [route.access].flat().some((r) => can(user, r));
+  if (!allowed) {
+    if (req.method !== 'GET') store.audit({ kind: 'denied', user, ip: clientIp(req), device: device(req), action: 'Попытка действия без права', details: `${req.method} ${url.pathname}` });
+    return sendJson(res, 403, { error: 'У вашей роли нет доступа к этому' });
+  }
   try {
     const body = req.method === 'GET' ? {} : await readBody(req);
-    sendJson(res, 200, await route.handler(route.params, url, body, user && store.publicUser(user)));
+    const result = await route.handler(route.params, url, body, user && store.publicUser(user));
+    const key = `${req.method} ${route.pattern}`;
+    if (AUDIT_LABELS[key]) {
+      try {
+        store.audit({ kind: 'change', user, ip: clientIp(req), device: device(req), action: AUDIT_LABELS[key], details: auditDetails(key, route.params, body, result) });
+      } catch (err) {
+        console.error('Журнал действий:', err.message);
+      }
+    }
+    sendJson(res, 200, result);
   } catch (err) {
     if (err instanceof UserError) return sendJson(res, 400, { error: err.message });
     console.error(err);

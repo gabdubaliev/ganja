@@ -188,6 +188,8 @@ function showFormError(id, err) {
 
 // Окно кассы — отдельная страница со своими разделами.
 const IS_KASSA = location.pathname.startsWith('/kassa');
+// Разделы основной программы, которые есть и в окне кассы.
+const KASSA_TOO = new Set(['orders']);
 
 /* ---------- Разделы ---------- */
 // Каждый раздел регистрируется как views.name = { show, right }: right — право из roles.js.
@@ -195,18 +197,22 @@ const views = {};
 let currentView = null;
 
 function route() {
-  const allowed = Object.keys(views).filter((name) => session.can(views[name].right));
-  if (!allowed.length) {
+  const allowed = Object.keys(views).filter((name) => [views[name].right].flat().some((r) => session.can(r)));
+  // Если всё доступное сотруднику есть и в окне кассы (заказы), ему туда: «Ещё» не в счёт.
+  const ownWork = allowed.filter((name) => name !== 'more' && (IS_KASSA || !KASSA_TOO.has(name)));
+  if (!ownWork.length) {
     // Кассиру в общей программе делать нечего — его место в окне кассы.
     if (session.can('pos') && !IS_KASSA) return location.replace('/kassa.html');
     document.querySelector('main')?.insertAdjacentHTML('beforebegin', '<p class="empty">У вашей роли нет доступа к разделам. Обратитесь к администратору.</p>');
     return;
   }
   const name = location.hash.slice(1);
-  const target = allowed.includes(name) ? name : allowed[0];
+  const target = allowed.includes(name) ? name : ownWork[0] || allowed[0];
   currentView = target;
   for (const el of document.querySelectorAll('[data-view]')) el.hidden = el.dataset.view !== target;
-  for (const a of document.querySelectorAll('.nav a[href^="#"]')) a.setAttribute('aria-current', a.getAttribute('href') === '#' + target ? 'page' : 'false');
+  // Разделы из «Ещё» подсвечивают пункт «Ещё».
+  const navTarget = document.querySelector(`.nav a[href="#${target}"]`) ? target : 'more';
+  for (const a of document.querySelectorAll('.nav a[href^="#"]')) a.setAttribute('aria-current', a.getAttribute('href') === '#' + navTarget ? 'page' : 'false');
   views[target].show();
 }
 addEventListener('hashchange', route);
@@ -241,11 +247,49 @@ function applyBrand(name) {
 }
 
 function setOrdersBadge(n) {
-  const badge = $('#orders-badge');
-  if (!badge) return;
-  badge.hidden = !n;
-  badge.textContent = n;
+  session.newOrders = n;
+  for (const badge of document.querySelectorAll('#orders-badge, [data-orders-badge]')) {
+    badge.hidden = !n;
+    badge.textContent = n;
+  }
 }
+
+/* ---------- Периоды для отчётов, смен, штрафов и журнала ---------- */
+// Зарплату платят 1-го и 15-го: выплатные периоды — с 1 по 15 и с 16 по конец месяца.
+function halfOf(t) {
+  const d = new Date(t);
+  const y = d.getFullYear(), m = d.getMonth();
+  return d.getDate() <= 15
+    ? [new Date(y, m, 1).getTime(), new Date(y, m, 16).getTime()]
+    : [new Date(y, m, 16).getTime(), new Date(y, m + 1, 1).getTime()];
+}
+
+const halfLabel = ([from, to]) => {
+  const a = new Date(from), b = new Date(to - 1);
+  return `${a.getDate()}–${b.getDate()} ${MONTHS[b.getMonth()]}${b.getFullYear() !== new Date().getFullYear() ? ' ' + b.getFullYear() : ''}`;
+};
+
+const RANGES = {
+  today: ['Сегодня', () => { const t = dayStart(Date.now()).getTime(); return [t, addDays(t, 1)]; }],
+  yesterday: ['Вчера', () => { const t = dayStart(Date.now()).getTime(); return [addDays(t, -1), t]; }],
+  week: ['7 дней', () => { const t = dayStart(Date.now()).getTime(); return [addDays(t, -6), addDays(t, 1)]; }],
+  half: ['Этот период', () => halfOf(Date.now())],
+  prevHalf: ['Прошлый период', () => halfOf(halfOf(Date.now())[0] - 1)],
+  month: ['Этот месяц', () => { const d = new Date(); return [new Date(d.getFullYear(), d.getMonth(), 1).getTime(), new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime()]; }],
+  prevMonth: ['Прошлый месяц', () => { const d = new Date(); return [new Date(d.getFullYear(), d.getMonth() - 1, 1).getTime(), new Date(d.getFullYear(), d.getMonth(), 1).getTime()]; }],
+};
+
+// Кнопки периодов. keys — какие показать. Возвращает [from, to] выбранного.
+function renderRanges(el, keys, current) {
+  el.innerHTML = keys.map((k) => {
+    const [label, get] = RANGES[k];
+    const title = k === 'half' || k === 'prevHalf' ? ` title="${halfLabel(get())}"` : '';
+    return `<button type="button" data-range="${k}" aria-pressed="${k === current}"${title}>${k === 'half' || k === 'prevHalf' ? halfLabel(get()) : label}</button>`;
+  }).join('');
+}
+
+const dateInput = (t) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const fromDateInput = (v) => { const [y, m, d] = v.split('-').map(Number); return new Date(y, m - 1, d).getTime(); };
 
 /* ---------- Уведомления о продажах ---------- */
 const salesFeed = { listeners: [], orderListeners: [] };

@@ -527,6 +527,42 @@ tr.variant-row .pname { font-weight: 500; }
 .cat-list { display: grid; gap: 4px; max-height: 180px; overflow-y: auto; }
 input[type="range"] { width: 100%; accent-color: var(--series); }
 
+/* «Ещё» */
+.more-groups { display: grid; gap: 20px; }
+.more-group h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 8px; }
+.more-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.more-tile { display: flex; gap: 12px; align-items: center; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--ink); text-decoration: none; }
+.more-tile:hover { border-color: var(--series); background: var(--series-soft); }
+.more-icon { font-size: 26px; width: 40px; text-align: center; flex: none; }
+.more-text { display: grid; gap: 2px; min-width: 0; }
+.more-text span { color: var(--ink-2); font-size: 13px; }
+
+/* Периоды и вкладки отчётов */
+.period-bar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+.period-bar .search { flex: 1 1 220px; }
+.period-custom { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-left: auto; }
+.period-custom select { width: auto; }
+.period-dates { display: flex; gap: 6px; align-items: center; color: var(--ink-2); }
+.period-dates input { width: auto; }
+.tabs { grid-template-columns: repeat(3, auto); }
+.tabs button { padding: 7px 14px; }
+.pay-table, .shifts-table, .fines-table, .hits-table { min-width: 760px; }
+.pay-table tfoot td { font-weight: 600; border-bottom: 0; }
+.hits-table th:nth-child(2), .hits-table td:nth-child(2) { text-align: left; }
+.fines-table .reason { text-align: left; max-width: 360px; white-space: normal; }
+.audit-table { min-width: 980px; }
+.audit-table td.details { text-align: left; max-width: 380px; white-space: normal; color: var(--ink-2); }
+.audit-table th:nth-child(2), .audit-table td:nth-child(2), .audit-table th:nth-child(3), .audit-table td:nth-child(3) { text-align: left; }
+.shifts-table th:first-child, .fines-table th:nth-child(2), .fines-table td:nth-child(2) { text-align: left; }
+tr.audit-login_failed, tr.audit-denied { background: rgba(208, 59, 59, 0.06); }
+
+/* Смена и скидка на кассе */
+.shift-bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; padding: 10px 16px; border-radius: var(--radius); margin-bottom: 12px; border: 1px solid var(--border); }
+.shift-bar.open { background: rgba(12, 163, 12, 0.08); border-color: rgba(12, 163, 12, 0.3); }
+.shift-bar.closed { background: #fff6e0; border-color: #f2c35a; color: #5b4100; }
+.birthday-offer { grid-column: 1 / -1; color: var(--ink); font-weight: 600; background: #fff1c2; padding: 6px 10px; border-radius: 8px; }
+.old-price { color: var(--muted); font-size: 0.6em; font-weight: 500; }
+
 /* Уведомления */
 .toasts {
   position: fixed; z-index: 30; display: grid; gap: 8px; justify-items: end;
@@ -551,6 +587,8 @@ input[type="range"] { width: 100%; accent-color: var(--series); }
 }
 @media (max-width: 640px) {
   #me-password { max-width: 96px; }
+  .period-custom { margin-left: 0; }
+  .tabs { grid-template-columns: repeat(3, 1fr); width: 100%; }
   .prices { grid-template-columns: 1fr; }
   .gen-row { grid-template-columns: minmax(0, 1fr) 32px; }
   .gen-row [data-gen="values"] { grid-column: 1; }
