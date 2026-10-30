@@ -501,8 +501,28 @@ textarea.code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size
 .gen-row { display: grid; grid-template-columns: 140px minmax(0, 1fr) 32px; gap: 6px; align-items: center; margin-bottom: 6px; }
 tr.variant-row td.name-col { padding-left: 34px; }
 tr.variant-row .pname { font-weight: 500; }
-.variant-picks { max-height: 60vh; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
-#variant-dialog { width: min(640px, calc(100vw - 24px)); }
+/* Выбор модификации на кассе */
+#variant-dialog { width: min(600px, calc(100vw - 24px)); display: none; }
+#variant-dialog[open] { display: grid; gap: 16px; }
+.variant-head { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 14px; align-items: center; }
+.variant-head h2 { margin: 0; }
+.variant-photo { width: 64px; height: 64px; border-radius: 14px; overflow: hidden; display: grid; place-items: center; background: var(--series-soft); color: var(--series); font-size: 26px; font-weight: 800; }
+.variant-photo img { width: 100%; height: 100%; object-fit: cover; }
+.picker-options { display: grid; gap: 14px; }
+.variant-opt-name { color: var(--ink-2); font-size: 13.5px; margin-bottom: 6px; }
+.variant-opt-name b { color: var(--ink); }
+.variant-values { display: flex; flex-wrap: wrap; gap: 8px; }
+.variant-values button { min-width: 56px; padding: 11px 16px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); font-weight: 650; font-size: 15px; box-shadow: var(--shadow-sm); transition: border-color 0.12s, background 0.12s; }
+.variant-values button:hover { border-color: var(--series); }
+.variant-values button[aria-pressed="true"] { border-color: var(--series); background: var(--series-soft); color: var(--series); box-shadow: inset 0 0 0 1px var(--series); }
+.variant-values button.out { color: var(--muted); text-decoration: line-through; }
+.variant-values button.none { opacity: 0.35; }
+.variant-result { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; align-items: center; padding: 12px 14px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--border); }
+.variant-result .pick-stock { grid-column: 1 / -1; text-align: left; }
+.variant-price { font-size: 22px; font-weight: 800; }
+.variant-buy { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: center; }
+.variant-buy .stepper button { width: 40px; font-size: 18px; }
+.variant-buy .stepper input { width: 64px; font-size: 16px; }
 
 /* Права сотрудника */
 .rights { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px 12px; margin: 0; }

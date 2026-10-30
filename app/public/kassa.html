@@ -115,11 +115,22 @@
   </section>
 </main>
 
-<dialog id="variant-dialog" class="wide" aria-labelledby="variant-title">
-  <h2 id="variant-title"></h2>
-  <p class="sub">Выберите модификацию</p>
-  <div id="variant-list" class="pick-list variant-picks"></div>
-  <div class="form-actions"><button type="button" class="btn ghost" id="variant-close">Закрыть</button></div>
+<dialog id="variant-dialog" class="variant-dialog" aria-labelledby="variant-title">
+  <div class="variant-head">
+    <div class="variant-photo" id="variant-photo"></div>
+    <div><h2 id="variant-title"></h2><p class="sub" id="variant-sub"></p></div>
+    <button type="button" class="icon-btn" id="variant-close" aria-label="Закрыть">×</button>
+  </div>
+  <div id="variant-options" class="picker-options"></div>
+  <div class="variant-result" id="variant-result"></div>
+  <div class="variant-buy">
+    <div class="stepper" id="variant-qty">
+      <button type="button" data-vq="-1" aria-label="Меньше">−</button>
+      <input class="num" inputmode="decimal" value="1" aria-label="Количество">
+      <button type="button" data-vq="1" aria-label="Больше">+</button>
+    </div>
+    <button type="button" class="btn primary big" id="variant-add" disabled>Добавить в чек</button>
+  </div>
 </dialog>
 
 <dialog id="password-dialog" aria-labelledby="password-dialog-title">

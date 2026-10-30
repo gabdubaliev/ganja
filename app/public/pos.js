@@ -23,7 +23,7 @@ function renderPick() {
   const q = $('#pos-search').value;
   // Без поиска модификации спрятаны в карточку своего товара; при поиске находятся сразу.
   // Поиск ищет по всем товарам; без поиска — товары выбранной категории.
-  const list = q.trim() ? catalog.search(q, 40) : catalog.list.filter((p) => !p.parent_id && (!pos.cat || p.category === pos.cat));
+  const list = q.trim() ? groupVariants(catalog.search(q, 40), q) : catalog.list.filter((p) => !p.parent_id && (!pos.cat || p.category === pos.cat));
   renderPosCats(Boolean(q.trim()));
   $('#pos-results').innerHTML = list.length ? list.map((p) => {
     const group = catalog.isGroup(p);
@@ -179,6 +179,12 @@ $('#pos-search').addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
   e.preventDefault();
   const found = catalog.search(e.target.value, 2);
+  // Все найденные — модификации одного товара: открываем выбор цвета и размера.
+  const bases = new Set(found.map((p) => p.parent_id || p.id));
+  if (found.length > 1 && bases.size === 1 && found[0].parent_id) {
+    openVariantPicker(catalog.byId(found[0].parent_id));
+    return;
+  }
   // Сканер штрихкодов вводит код и нажимает Enter.
   if (found.length === 1) {
     addToCart(found[0].id);
@@ -198,25 +204,109 @@ $('#pos-results').addEventListener('click', (e) => {
   else addToCart(p.id);
 });
 
-/* ---------- Выбор модификации ---------- */
+// В поиске модификации собираются в карточку своего товара: «Кеды» — одна карточка, а не шесть.
+// Точное совпадение по штрихкоду или коду остаётся модификацией — её можно сразу положить в чек.
+function groupVariants(found, q) {
+  const key = q.trim().toLowerCase();
+  const out = [];
+  const seen = new Set();
+  for (const p of found) {
+    const exact = (p.barcode && p.barcode === key) || (p.code && p.code.toLowerCase() === key);
+    const item = p.parent_id && !exact ? catalog.byId(p.parent_id) || p : p;
+    if (!seen.has(item.id)) { seen.add(item.id); out.push(item); }
+  }
+  return out;
+}
+
+/* ---------- Выбор модификации: сначала цвет, потом размер ---------- */
+const picker = { base: null, sel: {}, qty: 1 };
+const leftOf = (k) => k.stock - (pos.cart.find((l) => l.productId === k.id)?.qty || 0);
+const optsOf = (k) => (k.options ? JSON.parse(k.options) : {});
+
+// Свойства товара в порядке модификаций: «Цвет», «Размер».
+function optionNames(base) {
+  const names = [];
+  for (const k of catalog.children(base.id)) for (const n of Object.keys(optsOf(k))) if (!names.includes(n)) names.push(n);
+  return names;
+}
+
+const matchVariant = (base, sel) => catalog.children(base.id).find((k) => {
+  const o = optsOf(k);
+  return Object.entries(sel).every(([n, v]) => o[n] === v);
+});
+
 function openVariantPicker(base) {
+  picker.base = base;
+  picker.qty = 1;
+  // Сразу выбрана первая модификация в наличии.
+  const kids = catalog.children(base.id);
+  const first = kids.find((k) => leftOf(k) > 0) || kids[0];
+  picker.sel = first ? optsOf(first) : {};
+  const photo = photoUrl(base);
+  $('#variant-photo').innerHTML = photo ? `<img src="${photo}" alt="">` : esc(base.name.trim()[0] || '•');
   $('#variant-title').textContent = base.name;
-  $('#variant-list').innerHTML = catalog.children(base.id).map((k) => {
-    const left = k.stock - (pos.cart.find((l) => l.productId === k.id)?.qty || 0);
-    return `<button type="button" class="pick ${left <= 0 ? 'out' : ''}" data-variant="${k.id}">
-      <span class="pick-name">${esc(optionsText(k))}</span>
-      <span class="pick-price num">${money2(k.price)}</span>
-      <span class="pick-meta">${esc(k.barcode || '')}</span>
-      <span class="pick-stock num ${left <= 0 ? 'neg' : ''}">${left <= 0 ? 'нет на складе' : 'осталось ' + qty(left, k.unit)}</span>
-    </button>`;
-  }).join('');
+  const total = kids.reduce((s, k) => s + Math.max(0, k.stock), 0);
+  $('#variant-sub').textContent = `${kids.length} ${plural(kids.length, ['модификация', 'модификации', 'модификаций'])} · всего на складе ${qty(total, base.unit)}`;
+  renderVariantPicker();
   $('#variant-dialog').showModal();
 }
-$('#variant-list').addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-variant]');
-  if (!btn) return;
-  addToCart(Number(btn.dataset.variant));
+
+function renderVariantPicker() {
+  const base = picker.base;
+  const names = optionNames(base);
+  const kids = catalog.children(base.id);
+  $('#variant-options').innerHTML = names.map((name) => {
+    const values = [...new Set(kids.map((k) => optsOf(k)[name]).filter(Boolean))];
+    return `<div class="variant-opt">
+      <div class="variant-opt-name">${esc(name)}${picker.sel[name] ? `: <b>${esc(picker.sel[name])}</b>` : ''}</div>
+      <div class="variant-values">${values.map((v) => {
+        // Значение «нет», если с остальными выбранными свойствами такой модификации нет на складе.
+        const alt = matchVariant(base, { ...picker.sel, [name]: v });
+        const stock = alt ? leftOf(alt) : 0;
+        return `<button type="button" data-opt="${esc(name)}" data-val="${esc(v)}" aria-pressed="${picker.sel[name] === v}" class="${!alt ? 'none' : stock <= 0 ? 'out' : ''}" title="${!alt ? 'Такого сочетания нет' : stock <= 0 ? 'Нет на складе' : `Осталось ${qtyFmt.format(stock)}`}">${esc(v)}</button>`;
+      }).join('')}</div>
+    </div>`;
+  }).join('');
+  const k = matchVariant(base, picker.sel);
+  const left = k ? leftOf(k) : 0;
+  $('#variant-result').innerHTML = k ? `
+    <div><b>${esc(optionsText(k))}</b><div class="pick-meta">${esc(k.barcode || k.code || '')}</div></div>
+    <div class="variant-price num">${money2(k.price)}</div>
+    <div class="pick-stock num ${left <= 0 ? 'neg' : ''}">${left <= 0 ? 'нет на складе — продажа уйдёт в минус' : 'осталось ' + qty(left, k.unit)}</div>`
+    : '<p class="pick-meta">Такого сочетания нет — выберите другое</p>';
+  $('#variant-qty input').value = qtyFmt.format(picker.qty);
+  $('#variant-add').disabled = !k;
+  $('#variant-add').textContent = k ? `Добавить в чек · ${money2(k.price * picker.qty)}` : 'Добавить в чек';
+}
+
+$('#variant-options').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-opt]');
+  if (!b) return;
+  picker.sel[b.dataset.opt] = b.dataset.val;
+  // Если такого сочетания нет, берём ближайшее, где выбранное значение есть.
+  if (!matchVariant(picker.base, picker.sel)) {
+    const alt = catalog.children(picker.base.id).find((k) => optsOf(k)[b.dataset.opt] === b.dataset.val && leftOf(k) > 0)
+      || catalog.children(picker.base.id).find((k) => optsOf(k)[b.dataset.opt] === b.dataset.val);
+    if (alt) picker.sel = optsOf(alt);
+  }
+  renderVariantPicker();
+});
+$('#variant-qty').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-vq]');
+  if (!b) return;
+  picker.qty = Math.max(1, picker.qty + Number(b.dataset.vq));
+  renderVariantPicker();
+});
+$('#variant-qty input').addEventListener('change', (e) => {
+  picker.qty = Math.max(0.001, parseNum(e.target.value) || 1);
+  renderVariantPicker();
+});
+$('#variant-add').addEventListener('click', () => {
+  const k = matchVariant(picker.base, picker.sel);
+  if (!k) return;
+  addToCart(k.id, picker.qty);
   $('#variant-dialog').close();
+  toast(`${k.name} — в чеке`);
 });
 $('#variant-close').addEventListener('click', () => $('#variant-dialog').close());
 $('#cart').addEventListener('click', (e) => {
