@@ -452,7 +452,7 @@ function auditDetails(key, params, body, result) {
   const r = result && typeof result === 'object' ? result : {};
   switch (key) {
     case 'PUT /api/payment-methods/:id': return `${r.name}${r.active ? '' : ' (выключен)'}`;
-    case 'POST /api/sales': return `Чек №${r.id} на ${r.total} сом, ${r.method}${r.discount ? `, скидка ${r.discount} сом (${r.discountReason})` : ''}`;
+    case 'POST /api/sales': return `Чек №${r.id} на ${r.total} сом, ${r.payments?.length > 1 ? r.payments.map((x) => `${x.name} ${x.amount}`).join(' + ') : r.method}${r.discount ? `, скидка ${r.discount} сом (${r.discountReason})` : ''}`;
     case 'POST /api/sales/:id/refund': return `Чек №${params.id}`;
     case 'POST /api/customers/:id/password': return `+${r.phone}`;
     case 'PUT /api/customers/:id/login': return `${r.name || '+' + r.phone}: вход ${r.login_disabled ? 'закрыт' : 'открыт'}`;

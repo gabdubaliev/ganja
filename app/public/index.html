@@ -269,7 +269,7 @@
       <div id="pay-bars" class="kpi-bars"></div>
       <div class="table-wrap">
         <table class="hits-table">
-          <thead><tr><th>Способ оплаты</th><th>Тип</th><th>Чеков</th><th>Деньгами</th><th>Сумма чеков</th><th>Доля</th></tr></thead>
+          <thead><tr><th>Способ оплаты</th><th>Тип</th><th>Чеков</th><th>Получено</th><th>Комиссия</th><th>К зачислению</th><th>Доля</th></tr></thead>
           <tbody id="pay-report-body"></tbody>
         </table>
       </div>
@@ -537,11 +537,12 @@
     <div class="settings-form">
       <div>
         <h2>Способы оплаты</h2>
-        <p class="sub">Кнопки оплаты на кассе: наличные, банки (МБАНК, Оптима, Элсом…), QR, переводы — что угодно. Тип «Наличные» включает на кассе расчёт сдачи. Выключенный способ пропадает с кассы, но остаётся в отчётах. Каким способом может принимать оплату каждый сотрудник — в его карточке («Сотрудники»).</p>
+        <p class="sub">Кнопки оплаты на кассе: наличные, банки (МБАНК, Оптима, Элсом…), QR, переводы — что угодно. Тип «Наличные» включает на кассе расчёт сдачи. Комиссия, % — сколько удерживает банк (например, М-Банк): касса и отчёты покажут сумму комиссии и сколько придёт на счёт. Выключенный способ пропадает с кассы, но остаётся в отчётах. Каким способом может принимать оплату каждый сотрудник — в его карточке («Сотрудники»).</p>
       </div>
       <form id="pm-add" class="pm-add" novalidate>
         <input name="name" class="input" placeholder="Например, МБАНК" autocomplete="off" aria-label="Название способа оплаты">
         <select name="kind" class="input" aria-label="Тип"></select>
+        <input name="commission" class="input num" inputmode="decimal" placeholder="Комиссия, %" autocomplete="off" aria-label="Комиссия банка, %">
         <button type="submit" class="btn primary">Добавить</button>
       </form>
       <div id="pm-list" class="pm-list"></div>
@@ -803,6 +804,7 @@
       <div class="field"><label for="uf-salary">Оклад в месяц, сом (если есть)</label><input id="uf-salary" name="salary" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
       <div class="field"><label for="uf-percent">Процент от продаж, %</label><input id="uf-percent" name="percent" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
       <div class="field"><label for="uf-plan">План продаж в месяц, сом</label><input id="uf-plan" name="plan" class="input num" inputmode="decimal" autocomplete="off" placeholder="Без плана"></div>
+      <div class="field"><label for="uf-maxdisc">Скидка на кассе — не больше, % от чека</label><input id="uf-maxdisc" name="max_discount" class="input num" inputmode="decimal" autocomplete="off" placeholder="Без ограничения"></div>
       <fieldset class="rights wide" id="uf-methods">
         <legend>Способы оплаты на кассе <button type="button" class="link" id="uf-methods-all">все</button></legend>
         <div id="uf-methods-list" class="pm-checks"></div>

@@ -39,15 +39,20 @@ async function renderSales() {
   // Деньгами — без части, оплаченной бонусами.
   const sum = done.reduce((s, x) => s + x.total - x.bonus_spent, 0);
   // Сколько пришло каждым способом оплаты: «Наличные 12 000 · МБАНК 8 500 · Оптима 3 200».
+  // Смешанный чек делится по частям оплаты; комиссия банков — отдельно.
   const byMethod = new Map();
+  let fees = 0;
   for (const x of done) {
-    const name = methodName(x);
-    byMethod.set(name, (byMethod.get(name) || 0) + x.total - x.bonus_spent);
+    for (const p of x.payments?.length ? x.payments : [{ name: methodName(x), amount: x.total - x.bonus_spent, commission: 0 }]) {
+      byMethod.set(p.name, (byMethod.get(p.name) || 0) + p.amount);
+      fees += p.commission;
+    }
   }
   $('#sales-summary').innerHTML = `
     <span><b class="num">${done.length}</b> ${plural(done.length, ['чек', 'чека', 'чеков'])}</span>
     <span>на <b class="num">${money2(sum)}</b></span>
     <span class="pay-split">${[...byMethod].sort((a, b) => b[1] - a[1]).map(([n, v]) => `<span class="pay-chip">${esc(n)} <b class="num">${money2(v)}</b></span>`).join('')}</span>
+    ${fees ? `<span class="pick-meta">комиссия банков −${money2(fees)} · к зачислению ${money2(sum - fees)}</span>` : ''}
     ${list.length >= 200 ? '<span class="pick-meta">показаны последние 200</span>' : ''}`;
   $('#sales-list').innerHTML = list.length ? list.map((s) => `
     <div class="sale-row ${del ? 'with-select' : ''} ${salesView.selected.has(s.id) ? 'selected' : ''}">
@@ -56,10 +61,11 @@ async function renderSales() {
       <summary>
         <span class="num">№${s.id}</span>
         <span>${dateTime(s.created_at)}</span>
-        <span class="pick-meta">${esc(methodName(s))}${s.user_name ? ' · ' + esc(s.user_name) : ''}${s.refunded_at ? ' · возврат' : ''}</span>
+        <span class="pick-meta">${s.payments?.length > 1 ? s.payments.map((p) => `${esc(p.name)} ${money2(p.amount)}`).join(' + ') : esc(methodName(s))}${s.discount ? ` · скидка ${money2(s.discount)}` : ''}${s.user_name ? ' · ' + esc(s.user_name) : ''}${s.refunded_at ? ' · возврат' : ''}</span>
         <b class="num">${money2(s.total)}</b>
       </summary>
       <ul>${s.items.map((i) => `<li><span>${esc(i.name)}</span><span class="num">${qtyFmt.format(i.qty)} × ${money2(i.price)} = ${money2(i.qty * i.price)}</span></li>`).join('')}</ul>
+      ${s.payments?.length > 1 || s.payments?.some((p) => p.commission) ? `<p class="pick-meta">Оплата: ${s.payments.map((p) => `${esc(p.name)} ${money2(p.amount)}${p.commission ? ` (комиссия −${money2(p.commission)})` : ''}`).join(' + ')}</p>` : ''}
       ${s.discount ? `<p class="pick-meta">Скидка ${money2(s.discount)}${s.discount_reason ? ` · ${esc(s.discount_reason)}` : ''}</p>` : ''}
       ${s.customer_id ? `<p class="pick-meta">Покупатель: ${esc(s.customer_name || '+' + s.customer_phone)}${s.bonus_spent ? ` · оплачено бонусами ${money2(s.bonus_spent)}` : ''}${s.bonus_earned ? ` · начислено ${int(s.bonus_earned)} бонусов` : ''}</p>` : ''}
       ${s.refunded_at ? `<p class="pick-meta">Возврат оформлен ${dateTime(s.refunded_at)}, товар вернулся на склад.</p>` : !session.can('refund') ? '' : `

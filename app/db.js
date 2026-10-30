@@ -169,7 +169,28 @@ function open(file) {
     if (m) db.prepare('UPDATE sales SET method_id = ?, method_name = ? WHERE method_id IS NULL AND payment = ?').run(m.id, m.name, payment);
   }
   // Личный список способов оплаты сотрудника (JSON id) или NULL — все включённые.
-  addColumns('users', [['payment_methods', 'TEXT']]);
+  // max_discount — сколько процентов скидки на чек может дать сотрудник (NULL — без ограничения).
+  addColumns('users', [['payment_methods', 'TEXT'], ['max_discount', 'REAL']]);
+  // Комиссия банка в процентах для способа оплаты (М-Банк, эквайринг…).
+  addColumns('payment_methods', [['commission', 'REAL NOT NULL DEFAULT 0']]);
+  // Оплата чека частями: наличные + карта и т.д. У каждой части — способ, сумма и удержанная комиссия.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sale_payments (
+      id INTEGER PRIMARY KEY,
+      sale_id INTEGER NOT NULL REFERENCES sales(id),
+      method_id INTEGER,
+      method_name TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'card',
+      amount REAL NOT NULL,
+      commission REAL NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS sale_payments_sale ON sale_payments(sale_id);
+  `);
+  // Чеки до смешанной оплаты: одна часть на всю сумму, оплаченную деньгами.
+  db.exec(`INSERT INTO sale_payments (sale_id, method_id, method_name, kind, amount)
+    SELECT s.id, s.method_id, COALESCE(NULLIF(s.method_name, ''), CASE s.payment WHEN 'cash' THEN 'Наличные' ELSE 'Карта' END),
+      CASE s.payment WHEN 'cash' THEN 'cash' ELSE 'card' END, s.total - s.bonus_spent
+    FROM sales s WHERE NOT EXISTS (SELECT 1 FROM sale_payments sp WHERE sp.sale_id = s.id)`);
 
   // Справочник категорий. Товар хранит название категории, справочник — картинку и порядок на витрине.
   db.exec(`
@@ -549,11 +570,15 @@ function createStore(file) {
         if (!active && db.prepare('SELECT COUNT(*) AS n FROM payment_methods WHERE active = 1 AND id <> ?').get(cur.id).n === 0) {
           throw new UserError('Должен остаться хотя бы один включённый способ оплаты');
         }
-        db.prepare('UPDATE payment_methods SET name = ?, kind = ?, active = ? WHERE id = ?').run(name, kind, active, cur.id);
+        const commission = input.commission === undefined ? cur.commission : number(input.commission || 0, 'Комиссия, %');
+        if (commission > 50) throw new UserError('Комиссия больше 50% — проверьте число');
+        db.prepare('UPDATE payment_methods SET name = ?, kind = ?, active = ?, commission = ? WHERE id = ?').run(name, kind, active, commission, cur.id);
         return db.prepare('SELECT * FROM payment_methods WHERE id = ?').get(cur.id);
       }
       const sort = (db.prepare('SELECT MAX(sort) AS m FROM payment_methods').get().m ?? 0) + 1;
-      const { lastInsertRowid } = db.prepare('INSERT INTO payment_methods (name, kind, sort, created_at) VALUES (?, ?, ?, ?)').run(name, kind, sort, Date.now());
+      const commission = number(input.commission || 0, 'Комиссия, %');
+      if (commission > 50) throw new UserError('Комиссия больше 50% — проверьте число');
+      const { lastInsertRowid } = db.prepare('INSERT INTO payment_methods (name, kind, sort, created_at, commission) VALUES (?, ?, ?, ?, ?)').run(name, kind, sort, Date.now(), commission);
       return db.prepare('SELECT * FROM payment_methods WHERE id = ?').get(lastInsertRowid);
     },
 
@@ -568,13 +593,12 @@ function createStore(file) {
     // money — деньгами (без части, оплаченной бонусами), total — сумма чеков.
     reportPayments({ from, to }) {
       return db.prepare(`
-        SELECT s.method_id AS id, COALESCE(NULLIF(s.method_name, ''), CASE s.payment WHEN 'cash' THEN 'Наличные' ELSE 'Карта' END) AS name,
-          m.kind, COUNT(*) AS receipts, SUM(s.total - s.bonus_spent) AS money, SUM(s.total) AS total,
-          SUM(CASE WHEN s.refunded_at IS NOT NULL THEN 1 ELSE 0 END) AS refunds
-        FROM sales s LEFT JOIN payment_methods m ON m.id = s.method_id
+        SELECT sp.method_id AS id, sp.method_name AS name, sp.kind, COUNT(DISTINCT s.id) AS receipts,
+          SUM(sp.amount) AS money, SUM(sp.commission) AS commission, COALESCE(m.commission, 0) AS rate
+        FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id LEFT JOIN payment_methods m ON m.id = sp.method_id
         WHERE s.created_at >= ? AND s.created_at < ? AND s.refunded_at IS NULL
-        GROUP BY s.method_id, name ORDER BY money DESC`).all(from, to)
-        .map((r) => ({ ...r, money: round2(r.money), total: round2(r.total) }));
+        GROUP BY sp.method_id, sp.method_name ORDER BY money DESC`).all(from, to)
+        .map((r) => ({ ...r, money: round2(r.money), commission: round2(r.commission), net: round2(r.money - r.commission) }));
     },
 
     /* ---------- Категории ---------- */
@@ -862,35 +886,79 @@ function createStore(file) {
       });
     },
 
-    // user — кто пробил чек, customerId — покупатель из программы лояльности,
-    // bonusSpend — сколько бонусов покупатель тратит (1 бонус = 1 сом).
-    // birthday: true — применить скидку именинника (если она сейчас действует).
-    // methodId — способ оплаты из справочника; payment ('cash' | 'card') — по-старому, для совместимости.
-    createSale({ items, payment, methodId, at, customerId, bonusSpend = 0, birthday: useBirthday = false }, user = null) {
+    // Продажа.
+    //   items — [{ productId, qty, discount: { type: 'pct' | 'sum', value } }] — скидка на строку;
+    //   checkDiscount — { type, value } — скидка на весь чек (делится по строкам пропорционально);
+    //   payments — [{ methodId, amount }] — оплата частями (наличные + карта); без неё — methodId на всю сумму;
+    //   customerId, bonusSpend, birthday — программа лояльности.
+    // Цены берёт сервер: из справочника, а при выдаче заказа — из заказа (trustPrices).
+    // Скидки кассира требуют права «Скидки на кассе» и не больше max_discount % от чека.
+    createSale({ items, payment, methodId, payments, at, customerId, bonusSpend = 0, birthday: useBirthday = false, checkDiscount }, user = null, { trustPrices = false } = {}) {
       if (!Array.isArray(items) || !items.length) throw new UserError('В чеке нет товаров');
-      const method = this.paymentMethodFor(methodId, payment, user);
+      const staff = user ? this.findUser(user.id) : null;
       return transaction(db, () => {
         const lines = items.map((item) => {
           const p = getProduct(item.productId);
           if (p.archived) throw new UserError(`Товар «${p.name}» убран из продажи`);
           if (childrenOf(p.id).length) throw new UserError(`У товара «${p.name}» есть модификации — выберите нужную`);
           const qty = number(item.qty, 'Количество', { positive: true });
-          const price = round2(number(item.price ?? p.price, 'Цена'));
-          return { p, qty, price };
+          const price = round2(trustPrices ? number(item.price ?? p.price, 'Цена') : p.price);
+          return { p, qty, price, full: price, discount: item.discount };
         });
+        const sum = () => round2(lines.reduce((s, l) => s + l.qty * l.price, 0));
+        // Цена со скидкой хранится с 4 знаками: 3 шт. со скидкой 100 сом дают ровно 2900, а не 2900,01.
+        const r4 = (v) => Math.round(v * 1e4) / 1e4;
+        const full = sum();
         const customer = customerId ? this.findCustomer(customerId) : null;
         if (customerId && !customer) throw new UserError('Покупатель не найден');
+        const reasons = [];
         // Скидка именинника уменьшает цену каждой строки: так выручка и прибыль в отчётах сходятся с чеком.
-        let discount = 0;
-        let discountReason = '';
         if (useBirthday && customer?.birthdayDiscount) {
-          const full = round2(lines.reduce((s, l) => s + l.qty * l.price, 0));
-          for (const l of lines) l.price = round2(l.price * (1 - customer.birthdayDiscount / 100));
-          discount = round2(full - lines.reduce((s, l) => s + l.qty * l.price, 0));
-          discountReason = `День рождения, ${customer.birthdayDiscount}%`;
+          for (const l of lines) l.price = r4(l.price * (1 - customer.birthdayDiscount / 100));
+          reasons.push(`день рождения ${customer.birthdayDiscount}%`);
           db.prepare('UPDATE customers SET birthday_used = ? WHERE id = ?').run(new Date().getFullYear(), customer.id);
         }
-        const total = round2(lines.reduce((s, l) => s + l.qty * l.price, 0));
+        const afterBirthday = sum();
+        // Скидки кассира: сначала на строки, потом на весь чек.
+        const discountOf = (d, base, what) => {
+          if (!d || !Number(d.value)) return 0;
+          const v = number(d.value, `Скидка на ${what}`);
+          if (d.type === 'pct') {
+            if (v > 100) throw new UserError('Скидка не может быть больше 100%');
+            return base * v / 100;
+          }
+          if (v > base) throw new UserError(`Скидка на ${what} больше его суммы`);
+          return v;
+        };
+        for (const l of lines) {
+          // type 'price' — кассир указал новую цену за единицу.
+          const d = l.discount?.type === 'price' && l.discount.value !== '' && l.discount.value != null
+            ? { type: 'sum', value: round2((l.price - number(l.discount.value, `Цена «${l.p.name}»`, { min: 0 })) * l.qty) } : l.discount;
+          if (d?.type === 'sum' && d.value < 0) throw new UserError(`Новая цена «${l.p.name}» выше обычной — поднимать цену на кассе нельзя`);
+          const off = discountOf(d, l.qty * l.price, `«${l.p.name}»`);
+          if (off) {
+            reasons.push(`${l.p.name}: ${l.discount.type === 'price' ? `цена ${round2(l.discount.value)} вместо ${round2(l.price)}` : `−${d.type === 'pct' ? `${d.value}%` : `${round2(off)} сом`}`}`);
+            l.price = r4((l.qty * l.price - off) / l.qty);
+          }
+        }
+        const sub = sum();
+        const checkOff = discountOf(checkDiscount, sub, 'чек');
+        if (checkOff && sub > 0) {
+          const k = (sub - checkOff) / sub;
+          for (const l of lines) l.price = r4(l.price * k);
+          reasons.push(`на чек −${checkDiscount.type === 'pct' ? `${checkDiscount.value}%` : `${round2(checkOff)} сом`}`);
+        }
+        const total = sum();
+        const manual = round2(afterBirthday - total);
+        if (manual > 0.009) {
+          if (!can(staff, 'discount')) throw new UserError('У вас нет права давать скидку');
+          const limit = staff?.max_discount;
+          if (limit != null && manual > afterBirthday * limit / 100 + 0.01) {
+            throw new UserError(`Скидка больше разрешённой: можно не больше ${limit}% от чека — ${round2(afterBirthday * limit / 100)} сом`);
+          }
+        }
+        const discount = round2(full - total);
+
         const loyalty = this.loyalty();
         let spent = 0, earned = 0;
         if (customer && loyalty.enabled) {
@@ -900,11 +968,36 @@ function createStore(file) {
           if (spent > limit) throw new UserError(`Бонусами можно оплатить не больше ${loyalty.maxPay}% чека — ${limit} сом`);
           earned = Math.floor((total - spent) * loyalty.percent / 100);
         }
+        const paid = round2(total - spent);
+
+        // Оплата: частями или одним способом на всю сумму. Части должны сойтись с суммой к оплате.
+        // Часть без суммы (amount пустой) получает остаток — так копейки округления не мешают пробить чек.
+        let parts = [{ method: this.paymentMethodFor(methodId, payment, user), amount: paid }];
+        if (Array.isArray(payments) && payments.length) {
+          parts = payments.map((x) => ({ method: this.paymentMethodFor(x.methodId, null, user),
+            amount: x.amount === null || x.amount === undefined || x.amount === '' ? null : round2(number(x.amount, 'Сумма оплаты', { min: 0 })) }));
+          const open = parts.filter((x) => x.amount === null);
+          if (open.length > 1) throw new UserError('Укажите сумму для всех способов, кроме одного');
+          if (open.length) {
+            open[0].amount = round2(paid - parts.reduce((s, x) => s + (x.amount || 0), 0));
+            if (open[0].amount < 0) throw new UserError(`Части оплаты больше суммы к оплате (${paid} сом)`);
+          }
+          parts = parts.filter((x) => x.amount > 0);
+        }
+        if (!parts.length) parts.push({ method: this.paymentMethodFor(methodId, payment, user), amount: 0 });
+        const given = round2(parts.reduce((s, x) => s + x.amount, 0));
+        if (Math.abs(given - paid) > 0.01) throw new UserError(`Части оплаты (${given} сом) не сходятся с суммой к оплате (${paid} сом)`);
+        for (const x of parts) x.commission = round2(x.amount * (x.method.commission || 0) / 100);
+        const main = parts.reduce((a, x) => (x.amount > a.amount ? x : a), parts[0]);
+        const names = [...new Set(parts.map((x) => x.method.name))].join(' + ');
+
         const { lastInsertRowid: saleId } = db.prepare(`
           INSERT INTO sales (created_at, payment, total, user_id, user_name, customer_id, bonus_spent, bonus_earned, discount, discount_reason, shift_id, method_id, method_name)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-          .run(at || Date.now(), method.kind === 'cash' ? 'cash' : 'card', total, user?.id ?? null, user ? user.name || user.email : '', customer?.id ?? null, spent, earned,
-            discount, discountReason, user ? this.currentShift(user.id)?.id ?? null : null, method.id, method.name);
+          .run(at || Date.now(), parts.every((x) => x.method.kind === 'cash') ? 'cash' : 'card', total, user?.id ?? null, user ? user.name || user.email : '',
+            customer?.id ?? null, spent, earned, discount, reasons.join('; '), user ? this.currentShift(user.id)?.id ?? null : null, main.method.id, names);
+        const addPart = db.prepare('INSERT INTO sale_payments (sale_id, method_id, method_name, kind, amount, commission) VALUES (?, ?, ?, ?, ?, ?)');
+        for (const x of parts) addPart.run(saleId, x.method.id, x.method.name, x.method.kind, x.amount, x.commission);
         const addItem = db.prepare('INSERT INTO sale_items (sale_id, product_id, name, qty, price, cost) VALUES (?, ?, ?, ?, ?, ?)');
         const takeStock = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?');
         for (const l of lines) {
@@ -914,7 +1007,8 @@ function createStore(file) {
         const who = user ? user.name || user.email : '';
         if (spent) changeBonus(customer.id, -spent, `Оплата чека №${saleId}`, who, saleId);
         if (earned) changeBonus(customer.id, earned, `Начислено за чек №${saleId}`, who, saleId);
-        return { id: Number(saleId), method: method.name, total, paid: round2(total - spent), bonusSpent: spent, bonusEarned: earned, discount, discountReason,
+        return { id: Number(saleId), method: names, total, paid, bonusSpent: spent, bonusEarned: earned, discount, discountReason: reasons.join('; '),
+          payments: parts.map((x) => ({ name: x.method.name, amount: x.amount, commission: x.commission })),
           items: lines.map((l) => ({ name: l.p.name, qty: l.qty, price: l.price })), customer: customer && this.findCustomer(customer.id) };
       });
     },
@@ -962,6 +1056,7 @@ function createStore(file) {
         const back = db.prepare(`UPDATE products SET stock = stock + (SELECT COALESCE(SUM(qty), 0) FROM sale_items WHERE sale_id = ? AND product_id = products.id)
           WHERE id IN (SELECT product_id FROM sale_items WHERE sale_id = ?)`);
         const delItems = db.prepare('DELETE FROM sale_items WHERE sale_id = ?');
+        const delParts = db.prepare('DELETE FROM sale_payments WHERE sale_id = ?');
         const delSale = db.prepare('DELETE FROM sales WHERE id = ?');
         const unlinkOrder = db.prepare('UPDATE orders SET sale_id = NULL WHERE sale_id = ?');
         for (const sale of rows) {
@@ -974,6 +1069,7 @@ function createStore(file) {
             }
           }
           delItems.run(sale.id);
+          delParts.run(sale.id);
           unlinkOrder.run(sale.id);
           delSale.run(sale.id);
         }
@@ -988,7 +1084,8 @@ function createStore(file) {
         WHERE s.created_at >= ? AND s.created_at < ? AND (? IS NULL OR s.user_id = ?)
         ORDER BY s.created_at DESC LIMIT ?`).all(from, to, userId, userId, limit);
       const items = db.prepare('SELECT product_id, name, qty, price FROM sale_items WHERE sale_id = ?');
-      return sales.map((s) => ({ ...s, items: items.all(s.id) }));
+      const parts = db.prepare('SELECT method_name AS name, kind, amount, commission FROM sale_payments WHERE sale_id = ?');
+      return sales.map((s) => ({ ...s, items: items.all(s.id), payments: parts.all(s.id) }));
     },
 
     getSale(id) {
@@ -1099,15 +1196,17 @@ function createStore(file) {
     getShift(id) {
       const sh = db.prepare(`SELECT sh.*, COALESCE(u.name, u.email, '') AS user_name FROM shifts sh LEFT JOIN users u ON u.id = sh.user_id WHERE sh.id = ?`).get(Number(id));
       if (!sh) throw new UserError('Смена не найдена');
-      const t = db.prepare(`SELECT COUNT(*) AS receipts, COALESCE(SUM(total), 0) AS revenue,
-        COALESCE(SUM(CASE WHEN payment = 'cash' THEN total - bonus_spent END), 0) AS cash,
-        COALESCE(SUM(CASE WHEN payment = 'card' THEN total - bonus_spent END), 0) AS card
-        FROM sales WHERE refunded_at IS NULL AND ((shift_id = ?) OR (shift_id IS NULL AND user_id = ? AND created_at >= ? AND created_at < ?))`)
-        .get(sh.id, sh.user_id, sh.opened_at, sh.closed_at || Date.now());
-      const byMethod = db.prepare(`SELECT method_name AS name, COUNT(*) AS receipts, COALESCE(SUM(total - bonus_spent), 0) AS sum FROM sales
-        WHERE refunded_at IS NULL AND ((shift_id = ?) OR (shift_id IS NULL AND user_id = ? AND created_at >= ? AND created_at < ?))
-        GROUP BY method_id, method_name ORDER BY sum DESC`).all(sh.id, sh.user_id, sh.opened_at, sh.closed_at || Date.now())
-        .map((r) => ({ ...r, sum: round2(r.sum) }));
+      const inShift = `s.refunded_at IS NULL AND ((s.shift_id = ?) OR (s.shift_id IS NULL AND s.user_id = ? AND s.created_at >= ? AND s.created_at < ?))`;
+      const args = [sh.id, sh.user_id, sh.opened_at, sh.closed_at || Date.now()];
+      const t = db.prepare(`SELECT COUNT(*) AS receipts, COALESCE(SUM(total), 0) AS revenue FROM sales s WHERE ${inShift}`).get(...args);
+      // Деньги смены по способам оплаты — из частей оплаты, поэтому смешанный чек делится правильно.
+      const byMethod = db.prepare(`SELECT sp.method_name AS name, sp.kind, COUNT(DISTINCT s.id) AS receipts, SUM(sp.amount) AS sum, SUM(sp.commission) AS commission
+        FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id WHERE ${inShift}
+        GROUP BY sp.method_id, sp.method_name ORDER BY sum DESC`).all(...args)
+        .map((r) => ({ ...r, sum: round2(r.sum), commission: round2(r.commission) }));
+      const cashSum = byMethod.filter((m) => m.kind === 'cash').reduce((a, m) => a + m.sum, 0);
+      t.cash = cashSum;
+      t.card = byMethod.reduce((a, m) => a + m.sum, 0) - cashSum;
       return { ...sh, receipts: t.receipts, revenue: round2(t.revenue), cash: round2(t.cash), card: round2(t.card), byMethod };
     },
 
@@ -1371,6 +1470,9 @@ function createStore(file) {
       const pay = payFields(input);
       const { lastInsertRowid } = db.prepare('INSERT INTO users (email, name, role, password_hash, created_at, salary, percent, plan, rights, shift_rate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         .run(e, text(input.name, 'Имя', { max: 80 }), role(input.role || 'cashier'), passwordHash, Date.now(), pay.salary, pay.percent, pay.plan, rightsList(input.rights ?? null), pay.shift_rate);
+      if (input.max_discount !== undefined && input.max_discount !== null && input.max_discount !== '') {
+        db.prepare('UPDATE users SET max_discount = ? WHERE id = ?').run(Math.min(100, number(input.max_discount, 'Максимальная скидка')), lastInsertRowid);
+      }
       if (Array.isArray(input.payment_methods)) {
         db.prepare('UPDATE users SET payment_methods = ? WHERE id = ?').run(JSON.stringify([...new Set(input.payment_methods.map(Number))]), lastInsertRowid);
       }
@@ -1395,10 +1497,12 @@ function createStore(file) {
         throw new UserError('Это единственный администратор. Сначала назначьте другого.');
       }
       const rights = input.rights === undefined ? current.rights : rightsList(input.rights);
+      const maxDiscount = input.max_discount === undefined ? current.max_discount
+        : input.max_discount === null || input.max_discount === '' ? null : Math.min(100, number(input.max_discount, 'Максимальная скидка'));
       const methods = input.payment_methods === undefined ? current.payment_methods
         : input.payment_methods === null ? null : JSON.stringify([...new Set(input.payment_methods.map(Number))]);
-      db.prepare('UPDATE users SET email = ?, name = ?, role = ?, disabled = ?, password_hash = ?, salary = ?, percent = ?, plan = ?, rights = ?, shift_rate = ?, payment_methods = ? WHERE id = ?')
-        .run(next.email, next.name, next.role, next.disabled, passwordHash || current.password_hash, pay.salary, pay.percent, pay.plan, rights, pay.shift_rate, methods, current.id);
+      db.prepare('UPDATE users SET email = ?, name = ?, role = ?, disabled = ?, password_hash = ?, salary = ?, percent = ?, plan = ?, rights = ?, shift_rate = ?, payment_methods = ?, max_discount = ? WHERE id = ?')
+        .run(next.email, next.name, next.role, next.disabled, passwordHash || current.password_hash, pay.salary, pay.percent, pay.plan, rights, pay.shift_rate, methods, maxDiscount, current.id);
       return publicUser(this.findUser(current.id));
     },
 
@@ -1609,7 +1713,7 @@ function createStore(file) {
         if (status === 'done') {
           // Покупатель с витрины попадает в программу лояльности по телефону: так его покупки видны в рейтинге.
           const customer = this.findCustomerByPhone(o.phone) || this.createCustomer({ phone: o.phone, name: o.name });
-          saleId = this.createSale({ methodId, payment: payment === 'cash' ? 'cash' : 'card', customerId: customer.id, items: o.items.map((i) => ({ productId: i.product_id, qty: i.qty, price: i.price })) }, user).id;
+          saleId = this.createSale({ methodId, payment: payment === 'cash' ? 'cash' : 'card', customerId: customer.id, items: o.items.map((i) => ({ productId: i.product_id, qty: i.qty, price: i.price })) }, user, { trustPrices: true }).id;
         }
         db.prepare('UPDATE orders SET status = ?, updated_at = ?, updated_by = ?, sale_id = COALESCE(?, sale_id) WHERE id = ?')
           .run(status, Date.now(), user ? user.name || user.email : '', saleId, o.id);

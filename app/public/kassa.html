@@ -62,11 +62,18 @@
           </label>
         </div>
       </div>
+      <div class="discount-bar" id="discount-bar" hidden>
+        <button type="button" class="btn small" id="discount-open">% Скидка</button>
+        <button type="button" class="btn small ghost" id="discount-select-all">Выбрать все</button>
+        <span class="pick-meta" id="discount-info"></span>
+      </div>
       <div class="cart-total"><span>Итого</span><b id="cart-total" class="num">0 сом</b></div>
       <div class="cart-topay" id="cart-topay" hidden><span>К оплате деньгами</span><b id="cart-paid" class="num"></b></div>
+      <div class="pay-head"><span>Оплата</span><button type="button" class="btn small ghost" id="split-toggle" hidden>Разделить оплату</button></div>
       <div class="pay-methods" id="pay" role="group" aria-label="Способ оплаты"></div>
+      <p class="pick-meta pay-fee" id="pay-fee" hidden></p>
       <div class="field" id="cash-row" hidden>
-        <label for="cash-given">Получено от покупателя</label>
+        <label for="cash-given" id="cash-label">Получено от покупателя</label>
         <input id="cash-given" class="input num" inputmode="decimal" placeholder="0" autocomplete="off">
         <span id="change" class="change num"></span>
       </div>
@@ -128,6 +135,29 @@
     </div>
     <button type="button" class="btn primary big" id="variant-add" disabled>Добавить в чек</button>
   </div>
+</dialog>
+
+<dialog id="discount-dialog" class="discount-dialog" aria-labelledby="discount-title">
+  <form id="discount-form" novalidate>
+    <h2 id="discount-title">Скидка</h2>
+    <p class="sub" id="discount-sub"></p>
+    <div class="seg" id="discount-scope" role="group" aria-label="На что скидка">
+      <button type="button" data-target="check">Весь чек</button>
+      <button type="button" data-target="lines">Выбранные</button>
+    </div>
+    <div class="seg" id="discount-types" role="group" aria-label="Как считать">
+      <button type="button" data-type="pct">В %</button>
+      <button type="button" data-type="sum">В сомах</button>
+      <button type="button" data-type="price">Новая цена</button>
+    </div>
+    <input id="discount-value" class="input big num" inputmode="decimal" autocomplete="off" aria-label="Размер скидки">
+    <p class="pick-meta" id="discount-limit"></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="discount-remove">Убрать скидку</button>
+      <button type="button" class="btn ghost" id="discount-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Применить</button>
+    </div>
+  </form>
 </dialog>
 
 <dialog id="password-dialog" aria-labelledby="password-dialog-title">

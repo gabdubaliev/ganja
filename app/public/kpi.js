@@ -118,6 +118,7 @@ function renderPayments() {
     tile('Всего деньгами', money(total), `${int(rows.reduce((s, r) => s + r.receipts, 0))} чеков`),
     tile('Наличными', money(cash), total ? pct(cash / total) : ''),
     tile('Безналичными', money(total - cash), total ? pct((total - cash) / total) : ''),
+    tile('Комиссия банков', money(rows.reduce((s, r) => s + r.commission, 0)), `к зачислению ${money(rows.reduce((s, r) => s + r.net, 0))}`),
     tile('Больше всего через', top ? esc(top.name) : '—', top ? money(top.money) : ''),
   ].join('');
   const max = Math.max(1, ...rows.map((r) => r.money));
@@ -129,8 +130,8 @@ function renderPayments() {
     </div>`).join('') : '<p class="empty">За этот период оплат нет</p>';
   $('#pay-report-body').innerHTML = rows.map((r) => `<tr>
       <td><div class="pname">${esc(r.name)}</div></td><td>${PAY_KIND[r.kind] || '—'}</td><td>${int(r.receipts)}</td>
-      <td><b>${money(r.money)}</b></td><td>${money(r.total)}</td><td>${total ? pct(r.money / total) : '—'}</td>
-    </tr>`).join('') || '<tr><td colspan="6" class="empty">Оплат нет</td></tr>';
+      <td><b>${money(r.money)}</b></td><td>${r.commission ? `<span class="neg">−${money(r.commission)}</span>${r.rate ? `<div class="pcat">сейчас ${r.rate}%</div>` : ''}` : '—'}</td><td>${money(r.net)}</td><td>${total ? pct(r.money / total) : '—'}</td>
+    </tr>`).join('') || '<tr><td colspan="7" class="empty">Оплат нет</td></tr>';
 }
 
 const HITS_SORT = { revenue: 'По выручке', qty: 'По количеству', profit: 'По прибыли', receipts: 'По числу чеков' };

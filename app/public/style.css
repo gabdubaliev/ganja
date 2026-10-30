@@ -689,9 +689,9 @@ input[type="range"] { width: 100%; accent-color: var(--series); }
 .pay-split { display: flex; flex-wrap: wrap; gap: 6px; }
 .pay-chip { padding: 3px 10px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); font-size: 13px; color: var(--ink-2); }
 .pay-chip b { color: var(--ink); }
-.pm-add { display: grid; grid-template-columns: minmax(0, 1fr) 160px auto; gap: 8px; }
+.pm-add { display: grid; grid-template-columns: minmax(0, 1fr) 160px 120px auto; gap: 8px; }
 .pm-list { display: grid; gap: 8px; }
-.pm-row { display: grid; grid-template-columns: minmax(0, 1fr) 160px auto auto; gap: 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.pm-row { display: grid; grid-template-columns: minmax(0, 1fr) 140px auto auto auto; gap: 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
 .pm-row.off { opacity: 0.55; }
 .pm-checks { display: flex; flex-wrap: wrap; gap: 8px 18px; }
 @media (max-width: 640px) { .pm-add, .pm-row { grid-template-columns: 1fr; } }
@@ -866,3 +866,40 @@ tr.audit-login_failed, tr.audit-denied { background: rgba(208, 59, 59, 0.06); }
 }
 .login-card h1 { font-size: 26px; }
 .login-card .sub { font-size: 14px; }
+
+/* ---------- Скидки кассира и смешанная оплата ---------- */
+.cart-line.with-sel { grid-template-columns: auto minmax(0, 1fr) auto auto auto; }
+.cart-line.selected { background: color-mix(in srgb, var(--series) 7%, transparent); border-radius: 10px; }
+.line-sel { width: 20px; height: 20px; accent-color: var(--series); }
+.cart-line.with-sel .cart-name { cursor: pointer; }
+.disc-tag { color: var(--pos, #1a9d55); font-weight: 650; }
+.discount-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 0; }
+.discount-dialog form { display: grid; gap: 12px; }
+.seg { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
+.seg button { flex: 1; padding: 9px 6px; border: 0; border-radius: 9px; background: none; font-weight: 650; color: var(--ink-2); }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--series); box-shadow: var(--shadow-sm), inset 0 0 0 1.5px var(--series); }
+.seg button:disabled { opacity: .45; }
+.pay-head { display: flex; justify-content: space-between; align-items: center; font-weight: 650; }
+.pay-methods.split { grid-template-columns: 1fr; }
+.split-row { display: grid; grid-template-columns: minmax(110px, 1fr) minmax(90px, 140px); gap: 6px 8px; align-items: center; }
+.split-row .input { text-align: right; }
+.split-rest { text-align: right; font-size: 17px; display: grid; }
+.split-rest small { font-size: 11px; font-weight: 500; color: var(--muted); }
+.split-fee { grid-column: 1 / -1; text-align: right; margin-top: -4px; }
+.pay-fee { margin: 0; }
+.pm-row .pm-fee { display: flex; align-items: center; gap: 4px; }
+.pm-row .pm-fee .input { width: 76px; text-align: right; }
+.discount-dialog { width: min(420px, calc(100vw - 24px)); }
+.discount-dialog form { min-width: 0; }
+.discount-dialog .form-actions { flex-wrap: wrap; margin-top: 0; }
+.discount-dialog .form-actions .btn { flex: 1 1 auto; }
+.discount-dialog h2 { margin-bottom: 0; }
+@media (max-width: 640px) {
+  .cart-line { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "name name name" "step sum rm"; }
+  .cart-line.with-sel { grid-template-columns: auto minmax(0, 1fr) auto auto; grid-template-areas: "sel name name name" "sel step sum rm"; }
+  .cart-line > .line-sel { grid-area: sel; }
+  .cart-line > .cart-name { grid-area: name; }
+  .cart-line > .stepper { grid-area: step; justify-self: start; }
+  .cart-line > .cart-sum { grid-area: sum; }
+  .cart-line > .icon-btn { grid-area: rm; }
+}

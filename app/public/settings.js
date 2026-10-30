@@ -194,6 +194,7 @@ async function renderPaymentMethods() {
     <div class="pm-row ${m.active ? '' : 'off'}" data-pm="${m.id}">
       <input class="input" value="${esc(m.name)}" data-pm-name aria-label="Название">
       <select class="input" data-pm-kind aria-label="Тип">${kindOptions(m.kind)}</select>
+      <label class="pm-fee" title="Сколько процентов удерживает банк">Комиссия <input class="input num" inputmode="decimal" value="${m.commission ? String(m.commission).replace('.', ',') : ''}" placeholder="0" data-pm-fee aria-label="Комиссия, %"> %</label>
       <label class="check"><input type="checkbox" data-pm-active ${m.active ? 'checked' : ''}> Включён</label>
       <span class="cat-actions">
         <button type="button" class="icon-btn" data-pm-move="-1" ${i === 0 ? 'disabled' : ''} aria-label="Выше">↑</button>
@@ -206,7 +207,8 @@ $('#pm-add').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
   try {
-    await api('/api/payment-methods', { method: 'POST', body: { name: f.elements.name.value, kind: f.elements.kind.value } });
+    await api('/api/payment-methods', { method: 'POST', body: { name: f.elements.name.value, kind: f.elements.kind.value, commission: parseNum(f.elements.commission.value) || 0 } });
+    f.elements.commission.value = '';
     f.elements.name.value = '';
     toast('Способ оплаты добавлен');
     renderPaymentMethods();
@@ -215,7 +217,8 @@ $('#pm-add').addEventListener('submit', async (e) => {
 $('#pm-list').addEventListener('change', async (e) => {
   const row = e.target.closest('[data-pm]');
   if (!row) return;
-  const body = { name: row.querySelector('[data-pm-name]').value, kind: row.querySelector('[data-pm-kind]').value, active: row.querySelector('[data-pm-active]').checked };
+  const body = { name: row.querySelector('[data-pm-name]').value, kind: row.querySelector('[data-pm-kind]').value, active: row.querySelector('[data-pm-active]').checked,
+    commission: parseNum(row.querySelector('[data-pm-fee]').value) || 0 };
   try {
     await api(`/api/payment-methods/${row.dataset.pm}`, { method: 'PUT', body });
     toast('Сохранено');

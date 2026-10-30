@@ -3,7 +3,9 @@
 // Касса: подбор товаров в чек и продажа.
 
 const pos = {
-  cart: [],          // { productId, qty, price }
+  cart: [],          // { productId, qty, price, discount?: { type: 'pct' | 'sum' | 'price', value }, sel? }
+  checkDiscount: null, // скидка на весь чек { type: 'pct' | 'sum', value }
+  split: null,       // смешанная оплата: { [methodId]: 'сумма' }; остаток идёт на pos.methodId
   methods: [],       // способы оплаты, доступные кассиру
   methodId: null,    // выбранный способ
   busy: false,
@@ -14,11 +16,6 @@ const pos = {
   cats: [],          // справочник категорий с фото
   shift: null,       // открытая смена кассира
 };
-
-// Скидка именинника в %, если она действует и кассир её не снял.
-const birthdayRate = () => (pos.customer?.birthdayDiscount && pos.birthday ? pos.customer.birthdayDiscount : 0);
-// Цена строки со скидкой — так же, как считает сервер: скидка к цене, округление до тыйына.
-const linePrice = (l) => Math.round(l.price * (1 - birthdayRate() / 100) * 100) / 100;
 
 function renderPick() {
   const q = $('#pos-search').value;
@@ -46,43 +43,178 @@ function renderPick() {
   }).join('') : `<p class="empty">${catalog.list.length ? 'Ничего не нашлось' : 'Товаров пока нет. Их добавляет администратор или кладовщик.'}</p>`;
 }
 
-function cartTotal() {
-  return Math.round(pos.cart.reduce((s, l) => s + l.qty * linePrice(l), 0) * 100) / 100;
-}
 
-const cartFull = () => Math.round(pos.cart.reduce((s, l) => s + l.qty * l.price, 0) * 100) / 100;
+// Скидка именинника в %, если она действует и кассир её не снял.
+const birthdayRate = () => (pos.customer?.birthdayDiscount && pos.birthday ? pos.customer.birthdayDiscount : 0);
+const r2 = (v) => Math.round(v * 100) / 100;
+const r4 = (v) => Math.round(v * 1e4) / 1e4;
+
+// Считает чек так же, как сервер: скидка именинника → скидки на строки → скидка на чек.
+function calcCart() {
+  const lines = pos.cart.map((l) => ({ ...l, final: l.price }));
+  const bday = birthdayRate();
+  if (bday) for (const l of lines) l.final = r4(l.final * (1 - bday / 100));
+  const sum = () => r2(lines.reduce((s, l) => s + l.qty * l.final, 0));
+  const afterBirthday = sum();
+  for (const l of lines) {
+    const d = l.discount;
+    if (!d || d.value === '' || d.value == null) continue;
+    const base = l.qty * l.final;
+    const off = d.type === 'pct' ? base * Math.min(100, d.value) / 100
+      : d.type === 'price' ? Math.max(0, r2((l.final - d.value) * l.qty)) : Math.min(base, d.value);
+    if (off > 0) l.final = r4((base - off) / l.qty);
+  }
+  const sub = sum();
+  const cd = pos.checkDiscount;
+  const checkOff = !cd || !sub ? 0 : cd.type === 'pct' ? sub * Math.min(100, cd.value) / 100 : Math.min(sub, cd.value);
+  if (checkOff) for (const l of lines) l.final = r4(l.final * (sub - checkOff) / sub);
+  const total = sum();
+  return { lines, full: r2(pos.cart.reduce((s, l) => s + l.qty * l.price, 0)), total, manual: r2(afterBirthday - total), afterBirthday };
+}
+const cartTotal = () => calcCart().total;
+const cartFull = () => calcCart().full;
 
 function renderCart() {
+  const calc = calcCart();
+  const canDiscount = session.can('discount');
   $('#cart').innerHTML = pos.cart.length ? pos.cart.map((l, i) => {
     const p = catalog.byId(l.productId);
     const over = l.qty > p.stock;
-    return `<div class="cart-line" data-i="${i}">
-      <div class="cart-name">${esc(p.name)}<span class="pick-meta num">${money2(l.price)} за ${esc(p.unit)}</span>${over ? `<span class="neg">На складе ${qty(p.stock, p.unit)}, остаток уйдёт в минус</span>` : ''}</div>
+    const c = calc.lines[i];
+    const changed = Math.abs(c.final - l.price) > 0.00001;
+    return `<div class="cart-line ${canDiscount ? 'with-sel' : ''} ${l.sel ? 'selected' : ''}" data-i="${i}">
+      ${canDiscount ? `<input type="checkbox" class="line-sel" data-sel ${l.sel ? 'checked' : ''} aria-label="Выбрать ${esc(p.name)} для скидки">` : ''}
+      <div class="cart-name">${esc(p.name)}<span class="pick-meta num">${changed ? `<s>${money2(l.price)}</s> <b class="disc-tag">${money2(c.final)}</b>` : money2(l.price)} за ${esc(p.unit)}${l.discount ? ` · <span class="disc-tag">${discountLabel(l.discount)}</span>` : ''}</span>${over ? `<span class="neg">На складе ${qty(p.stock, p.unit)}, остаток уйдёт в минус</span>` : ''}</div>
       <div class="stepper">
         <button type="button" data-step="-1" aria-label="Меньше">−</button>
         <input class="num" inputmode="decimal" value="${qtyFmt.format(l.qty)}" aria-label="Количество ${esc(p.name)}">
         <button type="button" data-step="1" aria-label="Больше">+</button>
       </div>
-      <div class="cart-sum num">${money2(l.qty * l.price)}</div>
+      <div class="cart-sum num">${money2(l.qty * c.final)}</div>
       <button type="button" class="icon-btn" data-remove aria-label="Убрать ${esc(p.name)} из чека">×</button>
     </div>`;
   }).join('') : '<p class="empty">Выберите товары слева или отсканируйте штрихкод</p>';
-  const total = cartTotal();
-  const paid = Math.round((total - bonusSpend()) * 100) / 100;
-  $('#cart-total').innerHTML = total < cartFull() ? `<s class="old-price">${money2(cartFull())}</s> ${money2(total)}` : money2(total);
+  const total = calc.total;
+  const paid = r2(total - bonusSpend());
+  $('#cart-total').innerHTML = total < calc.full ? `<s class="old-price">${money2(calc.full)}</s> ${money2(total)}` : money2(total);
+  renderDiscountBar(calc);
   renderCustomer();
   $('#cart-topay').hidden = !bonusSpend();
   $('#cart-paid').textContent = money2(paid);
   $('#checkout').disabled = !pos.cart.length || pos.busy;
   $('#cart-clear').hidden = !pos.cart.length;
-  renderPayMethods();
-  const cash = isCash();
-  $('#cash-row').hidden = !cash;
+  renderPayMethods(paid);
+  // Сдача считается с наличной части: при смешанной оплате — с той суммы, что идёт наличными.
+  const cashPart = cashAmount(paid);
+  $('#cash-row').hidden = cashPart === null;
+  $('#cash-label').textContent = pos.split ? `Получено наличными (к оплате ${money2(cashPart || 0)})` : 'Получено от покупателя';
   const given = parseNum($('#cash-given').value);
-  $('#change').textContent = cash && given > 0
-    ? (given >= paid ? `Сдача: ${money2(given - paid)}` : `Не хватает ${money2(paid - given)}`)
+  $('#change').textContent = cashPart !== null && given > 0
+    ? (given >= cashPart ? `Сдача: ${money2(given - cashPart)}` : `Не хватает ${money2(cashPart - given)}`)
     : '';
 }
+
+/* ---------- Скидки кассира ---------- */
+const discountLabel = (d) => (d.type === 'pct' ? `−${qtyFmt.format(d.value)}%` : d.type === 'price' ? `цена ${money2(d.value)}` : `−${money2(d.value)}`);
+
+function renderDiscountBar(calc) {
+  const bar = $('#discount-bar');
+  bar.hidden = !session.can('discount') || !pos.cart.length;
+  if (bar.hidden) return;
+  const selected = pos.cart.filter((l) => l.sel).length;
+  const limit = session.user?.max_discount;
+  $('#discount-open').textContent = selected ? `% Скидка на выбранные (${selected})` : '% Скидка';
+  $('#discount-info').innerHTML = [
+    pos.checkDiscount ? `на чек <b>${discountLabel(pos.checkDiscount)}</b>` : '',
+    calc.manual > 0 ? `скидка кассира <b class="num">${money2(calc.manual)}</b>` : '',
+    limit != null && calc.manual > calc.afterBirthday * limit / 100 + 0.01 ? `<span class="neg">больше вашего предела ${qtyFmt.format(limit)}%</span>` : '',
+  ].filter(Boolean).join(' · ');
+  $('#discount-select-all').textContent = selected === pos.cart.length ? 'Снять выбор' : 'Выбрать все';
+}
+
+// Окно скидки: target — 'check' (весь чек), 'lines' (выбранные строки) или номер строки.
+const disc = { target: 'check', type: 'pct' };
+
+function openDiscount(target) {
+  disc.target = target;
+  const lines = typeof target === 'number' ? [pos.cart[target]] : pos.cart.filter((l) => l.sel);
+  const current = target === 'check' ? pos.checkDiscount : lines.length === 1 ? lines[0].discount : null;
+  disc.type = current?.type || 'pct';
+  $('#discount-value').value = current ? String(current.value).replace('.', ',') : '';
+  const names = lines.map((l) => catalog.byId(l.productId).name);
+  $('#discount-title').textContent = target === 'check' ? 'Скидка на весь чек' : names.length === 1 ? `Скидка: ${names[0]}` : `Скидка на ${names.length} ${plural(names.length, ['товар', 'товара', 'товаров'])}`;
+  $('#discount-sub').textContent = target === 'check' ? 'Делится между всеми товарами чека' : names.length > 1 ? 'Проценты — каждому товару; сумма в сомах делится между ними по стоимости' : '';
+  $('#discount-scope').hidden = typeof target === 'number';
+  for (const b of $('#discount-scope').querySelectorAll('[data-target]')) {
+    b.setAttribute('aria-pressed', String(b.dataset.target === (target === 'check' ? 'check' : 'lines')));
+    if (b.dataset.target === 'lines') { b.disabled = !pos.cart.some((l) => l.sel); b.textContent = `Выбранные (${pos.cart.filter((l) => l.sel).length})`; }
+  }
+  const limit = session.user?.max_discount;
+  $('#discount-limit').textContent = limit != null ? `Ваш предел — ${qtyFmt.format(limit)}% от чека` : '';
+  renderDiscountTypes();
+  $('#discount-dialog').showModal();
+  $('#discount-value').focus();
+}
+
+function renderDiscountTypes() {
+  const single = typeof disc.target === 'number';
+  if (disc.type === 'price' && !single) disc.type = 'sum';
+  for (const b of $('#discount-types').querySelectorAll('[data-type]')) {
+    b.hidden = b.dataset.type === 'price' && !single;
+    b.setAttribute('aria-pressed', String(b.dataset.type === disc.type));
+  }
+  $('#discount-value').placeholder = disc.type === 'pct' ? 'Например, 10' : disc.type === 'price' ? 'Новая цена за единицу' : 'Сумма скидки, сом';
+}
+
+function applyDiscount(value) {
+  const d = value === null ? null : { type: disc.type, value };
+  if (disc.target === 'check') pos.checkDiscount = d && d.type !== 'price' ? d : null;
+  else {
+    const lines = typeof disc.target === 'number' ? [pos.cart[disc.target]] : pos.cart.filter((l) => l.sel);
+    if (d?.type === 'sum' && lines.length > 1) {
+      // Сумма на группу делится пропорционально стоимости строк, остаток копеек — последней строке.
+      const base = lines.reduce((s, l) => s + l.qty * l.price, 0);
+      let left = d.value;
+      lines.forEach((l, k) => {
+        const part = k === lines.length - 1 ? r2(left) : r2(d.value * l.qty * l.price / base);
+        left -= part;
+        l.discount = { type: 'sum', value: part };
+      });
+    } else for (const l of lines) l.discount = d && { ...d };
+    for (const l of pos.cart) l.sel = false;
+  }
+  $('#discount-dialog').close();
+  renderCart();
+}
+
+$('#discount-open').addEventListener('click', () => openDiscount(pos.cart.some((l) => l.sel) ? 'lines' : 'check'));
+$('#discount-select-all').addEventListener('click', () => {
+  const all = pos.cart.every((l) => l.sel);
+  for (const l of pos.cart) l.sel = !all;
+  renderCart();
+});
+$('#discount-scope').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-target]');
+  if (!b || b.disabled) return;
+  disc.target = b.dataset.target;
+  openDiscount(disc.target);
+});
+$('#discount-types').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-type]');
+  if (!b) return;
+  disc.type = b.dataset.type;
+  renderDiscountTypes();
+  $('#discount-value').focus();
+});
+$('#discount-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const v = parseNum($('#discount-value').value);
+  if (!(v >= 0) || (disc.type !== 'price' && !v)) return toast('Введите размер скидки', 'error');
+  if (disc.type === 'pct' && v > 100) return toast('Скидка не может быть больше 100%', 'error');
+  applyDiscount(v);
+});
+$('#discount-remove').addEventListener('click', () => applyDiscount(null));
+$('#discount-cancel').addEventListener('click', () => $('#discount-dialog').close());
 
 /* ---------- Способы оплаты ---------- */
 const PAY_ICON = { cash: '💵', card: '💳', transfer: '🏦', qr: '📱', other: '•' };
@@ -94,11 +226,57 @@ async function loadPayMethods() {
   if (!pos.methods.some((m) => m.id === pos.methodId)) pos.methodId = pos.methods[0]?.id ?? null;
 }
 
-function renderPayMethods() {
+// Части оплаты: введённые суммы и остаток на выбранный способ.
+function payParts(paid) {
+  if (!pos.split) return [{ method: currentMethod(), amount: paid }];
+  const parts = pos.methods.map((m) => ({ method: m, amount: m.id === pos.methodId ? null : parseNum(pos.split[m.id] || '') || 0 }));
+  const rest = r2(paid - parts.reduce((s, x) => s + (x.amount || 0), 0));
+  for (const x of parts) if (x.amount === null) x.amount = rest;
+  return parts;
+}
+// Сколько платят наличными; null — наличных в чеке нет.
+function cashAmount(paid) {
+  const cash = payParts(paid).filter((x) => x.method?.kind === 'cash' && x.amount > 0);
+  return cash.length ? r2(cash.reduce((s, x) => s + x.amount, 0)) : null;
+}
+const fee = (m, amount) => (m?.commission ? r2(amount * m.commission / 100) : 0);
+
+function renderPayMethods(paid = 0) {
   const el = $('#pay');
-  el.innerHTML = pos.methods.length ? pos.methods.map((m) => `
-    <button type="button" data-method="${m.id}" aria-pressed="${m.id === pos.methodId}"><span aria-hidden="true">${PAY_ICON[m.kind] || '•'}</span>${esc(m.name)}</button>`).join('')
-    : '<p class="neg">Вам не открыт ни один способ оплаты — обратитесь к администратору.</p>';
+  el.classList.toggle('split', Boolean(pos.split));
+  $('#split-toggle').hidden = pos.methods.length < 2;
+  $('#split-toggle').textContent = pos.split ? 'Одним способом' : 'Разделить оплату';
+  if (!pos.methods.length) {
+    el.innerHTML = '<p class="neg">Вам не открыт ни один способ оплаты — обратитесь к администратору.</p>';
+    return;
+  }
+  if (!pos.split) {
+    const m = currentMethod();
+    el.innerHTML = pos.methods.map((x) => `
+      <button type="button" data-method="${x.id}" aria-pressed="${x.id === pos.methodId}"><span aria-hidden="true">${PAY_ICON[x.kind] || '•'}</span>${esc(x.name)}</button>`).join('');
+    $('#pay-fee').hidden = !fee(m, paid);
+    $('#pay-fee').innerHTML = `Комиссия ${esc(m?.name || '')} ${qtyFmt.format(m?.commission || 0)}%: <b class="num">−${money2(fee(m, paid))}</b> · к зачислению <b class="num">${money2(paid - fee(m, paid))}</b>`;
+    return;
+  }
+  // Смешанная оплата: суммы вводятся во все поля, кроме одного — туда идёт остаток.
+  const parts = payParts(paid);
+  const active = document.activeElement?.dataset?.splitAmount;
+  el.innerHTML = parts.map(({ method: m, amount }) => {
+    const rest = m.id === pos.methodId;
+    return `<div class="split-row ${rest ? 'rest' : ''}">
+      <button type="button" data-method="${m.id}" aria-pressed="${rest}" title="Остаток чека — на этот способ"><span aria-hidden="true">${PAY_ICON[m.kind] || '•'}</span>${esc(m.name)}</button>
+      ${rest ? `<b class="num split-rest ${amount < 0 ? 'neg' : ''}">${amount < 0 ? `перебор ${money2(-amount)}` : money2(amount)}<small>остаток</small></b>`
+        : `<input class="input num" inputmode="decimal" placeholder="0" data-split-amount="${m.id}" value="${esc(pos.split[m.id] || '')}" aria-label="Сумма: ${esc(m.name)}">`}
+      ${m.commission && amount > 0 ? `<span class="pick-meta split-fee">комиссия −${money2(fee(m, amount))}</span>` : ''}
+    </div>`;
+  }).join('');
+  if (active) {
+    const input = el.querySelector(`[data-split-amount="${active}"]`);
+    if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+  }
+  const total = parts.reduce((s, x) => s + fee(x.method, Math.max(0, x.amount)), 0);
+  $('#pay-fee').hidden = !total;
+  $('#pay-fee').innerHTML = `Комиссия банков: <b class="num">−${money2(total)}</b> · к зачислению <b class="num">${money2(paid - total)}</b>`;
 }
 
 /* ---------- Покупатель и бонусы ---------- */
@@ -332,6 +510,8 @@ $('#cart').addEventListener('click', (e) => {
   const line = e.target.closest('.cart-line');
   if (!line) return;
   const l = pos.cart[Number(line.dataset.i)];
+  if (e.target.closest('[data-sel]')) { l.sel = e.target.checked; return renderCart(); }
+  if (e.target.closest('.cart-name') && session.can('discount')) return openDiscount(Number(line.dataset.i));
   if (e.target.closest('[data-remove]')) pos.cart.splice(Number(line.dataset.i), 1);
   else if (e.target.closest('[data-step]')) {
     l.qty = Math.max(0, l.qty + Number(e.target.closest('[data-step]').dataset.step));
@@ -342,7 +522,7 @@ $('#cart').addEventListener('click', (e) => {
 });
 $('#cart').addEventListener('change', (e) => {
   const line = e.target.closest('.cart-line');
-  if (!line || e.target.tagName !== 'INPUT') return;
+  if (!line || e.target.tagName !== 'INPUT' || e.target.dataset.sel !== undefined) return;
   const value = parseNum(e.target.value);
   if (value > 0) pos.cart[Number(line.dataset.i)].qty = value;
   else pos.cart.splice(Number(line.dataset.i), 1);
@@ -352,31 +532,60 @@ $('#cart').addEventListener('change', (e) => {
 $('#pay').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-method]');
   if (!btn) return;
+  if (pos.split) delete pos.split[btn.dataset.method];
   pos.methodId = Number(btn.dataset.method);
   renderCart();
-  if (isCash()) $('#cash-given').focus();
+  if (!pos.split && isCash()) $('#cash-given').focus();
+});
+$('#pay').addEventListener('input', (e) => {
+  const id = e.target.dataset.splitAmount;
+  if (!id) return;
+  pos.split[id] = e.target.value;
+  renderCart();
+});
+$('#split-toggle').addEventListener('click', () => {
+  pos.split = pos.split ? null : {};
+  renderCart();
+  if (pos.split) $('#pay').querySelector('[data-split-amount]')?.focus();
 });
 $('#cash-given').addEventListener('input', renderCart);
-$('#cart-clear').addEventListener('click', () => { pos.cart = []; $('#cash-given').value = ''; clearCustomer(); renderCart(); renderPick(); });
+$('#cart-clear').addEventListener('click', () => { resetCheck(); renderCart(); renderPick(); });
+
+function resetCheck() {
+  pos.cart = [];
+  pos.checkDiscount = null;
+  pos.split = null;
+  $('#cash-given').value = '';
+  clearCustomer();
+}
 
 $('#checkout').addEventListener('click', async () => {
-  const total = cartTotal() - bonusSpend();
+  const paid = r2(cartTotal() - bonusSpend());
   if (!currentMethod()) return toast('Выберите способ оплаты', 'error');
-  if (isCash() && $('#cash-given').value && parseNum($('#cash-given').value) < total) {
-    return toast('Получено меньше, чем сумма чека', 'error');
+  const parts = payParts(paid);
+  if (pos.split && parts.some((x) => x.amount < 0)) return toast('Суммы частей больше суммы чека', 'error');
+  const cash = cashAmount(paid);
+  if (cash !== null && $('#cash-given').value && parseNum($('#cash-given').value) < cash) {
+    return toast('Получено меньше, чем нужно наличными', 'error');
   }
   pos.busy = true;
   renderCart();
   try {
     const sale = await api('/api/sales', {
       method: 'POST',
-      body: { methodId: pos.methodId, items: pos.cart, customerId: pos.customer?.id, bonusSpend: bonusSpend(), birthday: birthdayRate() > 0 },
+      body: {
+        methodId: pos.methodId,
+        // Остаток (способ pos.methodId) уходит без суммы — его досчитает сервер.
+        payments: pos.split ? parts.filter((x) => x.method.id === pos.methodId || x.amount > 0).map((x) => ({ methodId: x.method.id, amount: x.method.id === pos.methodId ? null : x.amount })) : undefined,
+        items: pos.cart.map((l) => ({ productId: l.productId, qty: l.qty, discount: l.discount || undefined })),
+        checkDiscount: pos.checkDiscount || undefined,
+        customerId: pos.customer?.id, bonusSpend: bonusSpend(), birthday: birthdayRate() > 0,
+      },
     });
-    toast(`Чек №${sale.id} на ${money2(sale.total)} (${sale.method}) пробит${sale.discount ? `, скидка ${money2(sale.discount)}` : ''}${sale.bonusEarned ? `, начислено ${sale.bonusEarned} бонусов` : ''}`);
+    const how = sale.payments.length > 1 ? sale.payments.map((x) => `${x.name} ${money2(x.amount)}`).join(' + ') : sale.method;
+    toast(`Чек №${sale.id} на ${money2(sale.total)} (${how}) пробит${sale.discount ? `, скидка ${money2(sale.discount)}` : ''}${sale.bonusEarned ? `, начислено ${sale.bonusEarned} бонусов` : ''}`);
     loadShift();
-    pos.cart = [];
-    $('#cash-given').value = '';
-    clearCustomer();
+    resetCheck();
     await catalog.load();
   } catch (err) {
     toast(err.message, 'error');
@@ -401,7 +610,7 @@ async function loadShift() {
   bar.hidden = false;
   bar.className = 'shift-bar ' + (sh ? 'open' : 'closed');
   bar.innerHTML = sh
-    ? `<span>Смена открыта с <b>${new Date(sh.opened_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</b> · ${int(sh.receipts)} ${plural(sh.receipts, ['чек', 'чека', 'чеков'])} на <b>${money2(sh.revenue)}</b>${sh.byMethod.length ? ' · ' + sh.byMethod.map((m) => `${esc(m.name)} <b>${money2(m.sum)}</b>`).join(', ') : ''}</span>
+    ? `<span>Смена открыта с <b>${new Date(sh.opened_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</b> · ${int(sh.receipts)} ${plural(sh.receipts, ['чек', 'чека', 'чеков'])} на <b>${money2(sh.revenue)}</b>${sh.byMethod.length ? ' · ' + sh.byMethod.map((m) => `${esc(m.name)} <b>${money2(m.sum)}</b>${m.commission ? ` <small>(комиссия −${money2(m.commission)})</small>` : ''}`).join(', ') : ''}</span>
        <button type="button" class="btn small" id="shift-close">Закрыть смену</button>`
     : `<span>Смена не открыта. Откройте её в начале рабочего дня — по сменам считается зарплата.</span>
        <button type="button" class="btn small primary" id="shift-open">Открыть смену</button>`;

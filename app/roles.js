@@ -13,6 +13,7 @@ const RIGHTS = [
   { key: 'pos', group: 'Касса', label: 'Продавать на кассе и заводить покупателей' },
   { key: 'sales', group: 'Касса', label: 'Видеть все чеки (без этого — только свои)' },
   { key: 'refund', group: 'Касса', label: 'Оформлять возвраты' },
+  { key: 'discount', group: 'Касса', label: 'Давать скидку на кассе (на товар и на чек; предел — в карточке сотрудника)' },
   { key: 'sales.delete', group: 'Касса', label: 'Удалять продажи: по одной, выбранные и все сразу' },
   { key: 'products', group: 'Товары', label: 'Заводить и менять товары, цены, групповое изменение' },
   { key: 'products.delete', group: 'Товары', label: 'Удалять товары' },
@@ -45,12 +46,12 @@ const ROLES = {
   manager: {
     name: 'Управляющий',
     about: 'Видит всё и ведёт магазин, выписывает штрафы и правит смены. По умолчанию не меняет сотрудников, бонусы, оформление, настройки и не видит журнал действий.',
-    can: ['dashboard', 'kpi', 'pos', 'sales', 'refund', 'products', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'notify', 'shifts', 'fines'],
+    can: ['dashboard', 'kpi', 'pos', 'sales', 'refund', 'discount', 'products', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'notify', 'shifts', 'fines'],
   },
   cashier: {
     name: 'Кассир',
     about: 'Работает в окне кассы: открывает смену, продаёт, видит свои чеки, отправляет онлайн-заказы, меняет фото товаров.',
-    can: ['pos', 'photos', 'orders'],
+    can: ['pos', 'photos', 'orders', 'discount'],
   },
   storekeeper: {
     name: 'Кладовщик',
