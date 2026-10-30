@@ -281,6 +281,7 @@ const RANGES = {
   prevHalf: ['Прошлый период', () => halfOf(halfOf(Date.now())[0] - 1)],
   month: ['Этот месяц', () => { const d = new Date(); return [new Date(d.getFullYear(), d.getMonth(), 1).getTime(), new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime()]; }],
   prevMonth: ['Прошлый месяц', () => { const d = new Date(); return [new Date(d.getFullYear(), d.getMonth() - 1, 1).getTime(), new Date(d.getFullYear(), d.getMonth(), 1).getTime()]; }],
+  year: ['Год', () => { const t = dayStart(Date.now()).getTime(); return [addDays(t, -364), addDays(t, 1)]; }],
 };
 
 // Кнопки периодов. keys — какие показать. Возвращает [from, to] выбранного.

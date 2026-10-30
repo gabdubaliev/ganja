@@ -12,7 +12,7 @@ const RIGHTS = [
   { key: 'kpi', group: 'Отчёты', label: 'Отчёты: хиты товаров, топ продавцов, зарплата' },
   { key: 'pos', group: 'Касса', label: 'Продавать на кассе и заводить покупателей' },
   { key: 'sales', group: 'Касса', label: 'Видеть все чеки (без этого — только свои)' },
-  { key: 'refund', group: 'Касса', label: 'Оформлять возвраты' },
+  { key: 'refund', group: 'Касса', label: 'Оформлять возвраты: по чеку и документом «Возврат продажи»' },
   { key: 'discount', group: 'Касса', label: 'Давать скидку на кассе (на товар и на чек; предел — в карточке сотрудника)' },
   { key: 'sales.delete', group: 'Касса', label: 'Удалять продажи: по одной, выбранные и все сразу' },
   { key: 'products', group: 'Товары', label: 'Заводить и менять товары, цены, групповое изменение' },
@@ -20,9 +20,12 @@ const RIGHTS = [
   { key: 'import', group: 'Товары', label: 'Импорт товаров из Excel' },
   { key: 'stock.view', group: 'Товары', label: 'Видеть остатки товаров (на кассе, в товарах, на главной)' },
   { key: 'photos', group: 'Товары', label: 'Добавлять, менять и удалять фото товаров' },
-  { key: 'arrivals', group: 'Склад', label: 'Приход товара от поставщика' },
-  { key: 'stock', group: 'Склад', label: 'Инвентаризация: пересчитывать остатки по факту' },
-  { key: 'writeoff', group: 'Склад', label: 'Списывать товар: брак, просрочка, порча' },
+  { key: 'docs.sale', group: 'Документы', label: 'Продажа через админ-панель (документ «Продажа»)' },
+  { key: 'arrivals', group: 'Документы', label: 'Закупка и оприходование товара, поставщики' },
+  { key: 'transfer', group: 'Документы', label: 'Перемещение товара между магазинами' },
+  { key: 'docs.unpost', group: 'Документы', label: 'Отменять проведение документов («Не проведён»)' },
+  { key: 'stock', group: 'Документы', label: 'Инвентаризация: пересчитывать остатки по факту' },
+  { key: 'writeoff', group: 'Документы', label: 'Списание: брак, просрочка, порча' },
   { key: 'crm', group: 'Покупатели', label: 'CRM: сделки, переписка с клиентами, задачи' },
   { key: 'customers', group: 'Покупатели', label: 'Список покупателей, рейтинг и история бонусов' },
   { key: 'customers.accounts', group: 'Покупатели', label: 'Аккаунты покупателей на витрине: коды подтверждения, сброс пароля, блокировка' },
@@ -51,7 +54,7 @@ const ROLES = {
   manager: {
     name: 'Управляющий',
     about: 'Видит всё и ведёт магазин, выписывает штрафы, правит смены, ведёт табель, даёт и проверяет задания. По умолчанию не меняет сотрудников, бонусы, оформление, настройки и не видит журнал действий.',
-    can: ['dashboard', 'kpi', 'pos', 'sales', 'refund', 'discount', 'products', 'stock.view', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'notify', 'shifts', 'fines', 'timesheet', 'tasks', 'writeoff'],
+    can: ['dashboard', 'kpi', 'pos', 'sales', 'refund', 'discount', 'products', 'stock.view', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'notify', 'shifts', 'fines', 'timesheet', 'tasks', 'writeoff', 'docs.sale', 'transfer', 'docs.unpost'],
   },
   cashier: {
     name: 'Кассир',
@@ -61,7 +64,7 @@ const ROLES = {
   storekeeper: {
     name: 'Кладовщик',
     about: 'Товары, фото, приход и остатки. Не видит продажи и деньги.',
-    can: ['products', 'stock.view', 'stock', 'writeoff', 'photos', 'arrivals'],
+    can: ['products', 'stock.view', 'stock', 'writeoff', 'photos', 'arrivals', 'transfer'],
   },
 };
 

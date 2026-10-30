@@ -4,10 +4,20 @@
 // Видны только те, на которые у сотрудника есть право.
 
 const MORE_GROUPS = [
-  ['Склад', [
-    ['arrivals', 'arrivals', '📦', 'Приход товара', 'Поступления от поставщиков, себестоимость'],
-    ['inventory', 'stock', '📋', 'Инвентаризация', 'Пересчёт товара по факту: недостача и излишек'],
-    ['writeoff', 'writeoff', '🗑️', 'Списание', 'Брак, просрочка, порча — потери по себестоимости'],
+  // Документы: каждый вид открывает общий список документов с этим фильтром (docs:вид).
+  ['Документы', [
+    ['docs:sale', 'docs.sale', '🧾', 'Продажа через админ-панель', 'Чек без кассы: оптовый клиент, предзаказ'],
+    ['docs:purchase', 'arrivals', '📦', 'Закупка', 'Товар от поставщика, себестоимость'],
+    ['docs:return', 'refund', '↩️', 'Возврат продажи', 'Покупатель вернул товар и деньги'],
+    ['docs:receipt', 'arrivals', '➕', 'Оприходование', 'Товар без поставщика: найденный, подарок'],
+    ['docs:writeoff', 'writeoff', '🗑️', 'Списание', 'Брак, просрочка, порча'],
+    ['docs:inventory', 'stock', '📋', 'Инвентаризация', 'Пересчёт по факту: недостача и излишек'],
+    ['docs:transfer', 'transfer', '🚚', 'Перемещение', 'Товар между магазинами (филиалами)'],
+  ]],
+  ['Прочее', [
+    ['loyalty', 'customers', '⭐', 'Клиенты', 'Покупатели, рейтинг, бонусы и скидки'],
+    ['suppliers', ['arrivals', 'transfer', 'stock', 'writeoff'], '🏭', 'Поставщики', 'Контакты, ИНН, закупки по каждому'],
+    ['users', 'staff', '👥', 'Сотрудники', 'Роли, права, ставка за смену, процент'],
   ]],
   ['Онлайн', [
     ['orders', 'orders', '🛒', 'Заказы с витрины', 'Подтвердить, собрать, отправить, выдать'],
@@ -15,10 +25,8 @@ const MORE_GROUPS = [
   ]],
   ['Покупатели', [
     ['crm', 'crm', '🤝', 'CRM — сделки', 'Заявки из Instagram, WhatsApp, витрины; переписка и задачи'],
-    ['loyalty', 'customers', '⭐', 'Покупатели и бонусы', 'Рейтинг, дни рождения, бонусы и скидки'],
   ]],
   ['Персонал', [
-    ['users', 'staff', '👥', 'Сотрудники', 'Роли, права, ставка за смену, процент'],
     ['shifts', ['shifts', 'kpi'], '🕘', 'Смены', 'Кто когда работал, выходы на смену'],
     ['fines', ['fines', 'kpi'], '⚠️', 'Штрафы', 'Причина, сумма, кто выписал'],
     ['timesheet', 'timesheet', '🗓️', 'Табель', 'Кто в какой день работал и сколько заработал, по 15 дней'],
@@ -43,7 +51,7 @@ function renderMore() {
     return `<section class="more-group">
       <h2>${group}</h2>
       <div class="more-tiles">${visible.map(([view, , icon, title, about]) => `
-        <a class="more-tile" href="#${view}">
+        <a class="more-tile" href="#${view.split(':')[0]}" ${view.includes(':') ? `data-doc-kind="${view.split(':')[1]}"` : ''}>
           <span class="more-icon" aria-hidden="true">${icon}</span>
           <span class="more-text"><b>${title}${view === 'orders' ? ' <span class="badge" data-orders-badge hidden></span>' : view === 'tasks' ? ' <span class="badge" data-task-badge hidden></span>' : ''}</b><span>${about}</span></span>
         </a>`).join('')}
@@ -53,6 +61,12 @@ function renderMore() {
   setOrdersBadge(session.newOrders || 0);
   if (typeof updateTaskBadge === 'function') updateTaskBadge();
 }
+
+// Плитка вида документа открывает список документов с этим фильтром.
+$('#more-groups').addEventListener('click', (e) => {
+  const a = e.target.closest('[data-doc-kind]');
+  if (a) docsView.kind = a.dataset.docKind;
+});
 
 // Раздел открыт, если есть хоть одно право на что-то внутри.
 views.more = { show: renderMore, right: null };

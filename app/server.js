@@ -121,6 +121,14 @@ const whatsappPublic = (s) => ({ enabled: s.enabled, verifyToken: s.verifyToken,
 
 const hideStock = (user, list) => (can(user, 'stock.view') ? list : list.map((p) => ({ ...p, stock: null })));
 
+// Право на вид документа: продажа, закупка, списание… — у каждого своё (см. DOC_KINDS в db.js).
+function docRight(user, kind) {
+  const k = store.docKinds[kind];
+  if (!k) throw new UserError('Неизвестный вид документа');
+  if (!can(user, k.right)) throw new UserError(`У вас нет права на документы «${k.many}»`);
+  return true;
+}
+
 function guardAdmin(user, target, body) {
   if (!user || user.role === 'admin') return;
   if (target?.role === 'admin' || body.role === 'admin') throw new UserError('Администраторов назначает и меняет только администратор');
@@ -202,7 +210,7 @@ const routes = [
   ['POST', '/api/products', (p, url, body) => store.createProduct(body), 'products'],
   ['PUT', '/api/products/:id', (p, url, body) => store.updateProduct(p.id, body), 'products'],
   ['POST', '/api/products/import', (p, url, body) => store.importProducts(body.rows, { update: Boolean(body.update) }), 'import'],
-  ['PUT', '/api/products/:id/stock', (p, url, body) => store.setStock(p.id, body.stock), 'stock'],
+  ['PUT', '/api/products/:id/stock', (p, url, body, user) => store.setStock(p.id, body.stock, user), 'stock'],
   // Групповое изменение: удаление требует отдельного права.
   ['POST', '/api/products/bulk', (p, url, body, user) => {
     if (body.action === 'delete' && !can(user, 'products.delete')) throw new UserError('У вас нет права удалять товары');
@@ -238,12 +246,32 @@ const routes = [
   }, 'pos'],
   ['POST', '/api/sales/:id/refund', (p, url, body, user) => store.refundSale(p.id, user), 'refund'],
   ['POST', '/api/sales/delete', (p, url, body, user) => store.deleteSales(body, user), 'sales.delete'],
-  ['GET', '/api/inventory', (p, url) => store.listStockDocs({ kind: 'inventory', ...range(url) }), 'stock'],
-  ['POST', '/api/inventory', (p, url, body, user) => store.createInventory(body, user), 'stock'],
-  ['GET', '/api/writeoffs', (p, url) => ({ docs: store.listStockDocs({ kind: 'writeoff', ...range(url) }), summary: store.writeoffSummary(range(url)) }), 'writeoff'],
-  ['POST', '/api/writeoffs', (p, url, body, user) => store.createWriteoff(body, user), 'writeoff'],
-  ['GET', '/api/arrivals', () => store.listArrivals(), 'arrivals'],
-  ['POST', '/api/arrivals', (p, url, body) => store.createArrival(body), 'arrivals'],
+  // Документы: право на вид документа проверяется внутри — у каждого вида своё.
+  ['GET', '/api/docs', (p, url, body, user) => {
+    const kind = url.searchParams.get('kind') || '';
+    if (kind) docRight(user, kind);
+    const kinds = Object.keys(store.docKinds).filter((k) => can(user, store.docKinds[k].right));
+    return store.listDocs({ ...range(url), kind, status: url.searchParams.get('status') || '' }).filter((d) => kinds.includes(d.kind));
+  }, ['docs.sale', 'arrivals', 'refund', 'writeoff', 'stock', 'transfer']],
+  ['GET', '/api/docs/:id', (p, url, body, user) => docRight(user, store.getDoc(p.id).kind) && store.getDoc(p.id), ['docs.sale', 'arrivals', 'refund', 'writeoff', 'stock', 'transfer']],
+  ['POST', '/api/docs', (p, url, body, user) => {
+    docRight(user, body.kind);
+    const doc = store.saveDoc(null, body, user);
+    return body.post ? store.postDoc(doc.id, user) : doc;
+  }, ['docs.sale', 'arrivals', 'refund', 'writeoff', 'stock', 'transfer']],
+  ['PUT', '/api/docs/:id', (p, url, body, user) => {
+    docRight(user, store.getDoc(p.id).kind);
+    const doc = store.saveDoc(p.id, body, user);
+    return body.post ? store.postDoc(doc.id, user) : doc;
+  }, ['docs.sale', 'arrivals', 'refund', 'writeoff', 'stock', 'transfer']],
+  ['POST', '/api/docs/:id/post', (p, url, body, user) => docRight(user, store.getDoc(p.id).kind) && store.postDoc(p.id, user), ['docs.sale', 'arrivals', 'refund', 'writeoff', 'stock', 'transfer']],
+  ['POST', '/api/docs/:id/unpost', (p, url, body, user) => docRight(user, store.getDoc(p.id).kind) && store.unpostDoc(p.id, user), 'docs.unpost'],
+  ['DELETE', '/api/docs/:id', (p, url, body, user) => docRight(user, store.getDoc(p.id).kind) && store.deleteDoc(p.id), ['docs.sale', 'arrivals', 'refund', 'writeoff', 'stock', 'transfer']],
+  ['GET', '/api/docs-writeoff-summary', (p, url) => store.writeoffSummary(range(url)), 'writeoff'],
+  ['GET', '/api/suppliers', () => store.listSuppliers(), ['arrivals', 'transfer', 'stock', 'writeoff']],
+  ['POST', '/api/suppliers', (p, url, body) => store.saveSupplier(null, body), 'arrivals'],
+  ['PUT', '/api/suppliers/:id', (p, url, body) => store.saveSupplier(p.id, body), 'arrivals'],
+  ['DELETE', '/api/suppliers/:id', (p) => store.deleteSupplier(p.id), 'arrivals'],
   ['GET', '/api/cash-desk', () => store.cashDesk(), ['dashboard', 'shifts']],
   ['GET', '/api/analytics', (p, url, body, user) => {
     const a = store.analytics(range(url));
@@ -334,7 +362,7 @@ const routes = [
   }, 'settings'],
 
   // Кассир ищет покупателя по телефону и заводит нового прямо на кассе.
-  ['GET', '/api/customers/by-phone', (p, url) => store.findCustomerByPhone(url.searchParams.get('phone')), 'pos'],
+  ['GET', '/api/customers/by-phone', (p, url) => store.findCustomerByPhone(url.searchParams.get('phone')), ['pos', 'docs.sale', 'refund']],
   ['POST', '/api/customers', (p, url, body) => store.createCustomer(body), 'pos'],
   ['GET', '/api/customers', (p, url) => store.listCustomers({ q: url.searchParams.get('q') || '' }), 'customers'],
   ['GET', '/api/customers/rating', () => store.customerRating(), 'customers'],
@@ -460,9 +488,14 @@ const AUDIT_LABELS = {
   'POST /api/sales': 'Пробил чек',
   'POST /api/sales/:id/refund': 'Оформил возврат',
   'POST /api/sales/delete': 'Удалил продажи',
-  'POST /api/arrivals': 'Провёл приход',
-  'POST /api/inventory': 'Провёл инвентаризацию',
-  'POST /api/writeoffs': 'Списал товар',
+  'POST /api/docs': 'Создал документ',
+  'PUT /api/docs/:id': 'Изменил документ',
+  'POST /api/docs/:id/post': 'Провёл документ',
+  'POST /api/docs/:id/unpost': 'Отменил проведение документа',
+  'DELETE /api/docs/:id': 'Удалил документ',
+  'POST /api/suppliers': 'Добавил поставщика',
+  'PUT /api/suppliers/:id': 'Изменил поставщика',
+  'DELETE /api/suppliers/:id': 'Удалил поставщика',
   'POST /api/demo': 'Загрузил пример магазина',
   'POST /api/shift/open': 'Открыл смену',
   'POST /api/shift/close': 'Закрыл смену',
@@ -508,6 +541,8 @@ const AUDIT_LABELS = {
 const ORDER_NAMES = { confirmed: 'подтверждён', ready: 'собран', shipped: 'передан курьеру', done: 'выдан', cancelled: 'отменён' };
 
 // Подробности для журнала: о чём именно речь. Пароли и токены сюда не попадают.
+const docTitle = (d) => `${store.docKinds[d.kind]?.name || d.kind} №${d.number}${d.direction === 'in' ? ' (входящее)' : ''} — ${d.status === 'posted' ? 'проведён' : 'не проведён'}, ${d.items?.length ?? ''} поз., ${d.kind === 'inventory' ? `недостача ${d.shortage_cost}, излишек ${d.surplus_cost}` : `${d.total} сом`}`;
+
 function auditDetails(key, params, body, result) {
   const r = result && typeof result === 'object' ? result : {};
   switch (key) {
@@ -529,9 +564,14 @@ function auditDetails(key, params, body, result) {
     case 'PUT /api/products/:id': return `${r.name}: цена ${r.price}, себестоимость ${r.cost}`;
     case 'DELETE /api/categories/:id': return `товаров перенесено: ${r.moved}${r.to ? ` в «${r.to}»` : ', остались без категории'}`;
     case 'POST /api/products/:id/variants': return `${Array.isArray(r) ? r.length : 0} шт.`;
-    case 'POST /api/inventory': return `№${r.id}: ${r.items.length} поз., недостача ${r.shortage_cost} сом, излишек ${r.surplus_cost} сом`;
-    case 'POST /api/writeoffs': return `№${r.id}: ${r.items.map((i) => `${i.name} ${i.qty} ${i.unit} (${i.reason})`).join(', ')} — ${r.total_cost} сом по себестоимости`;
-    case 'POST /api/arrivals': return `Приход №${r.id} на ${r.total} сом${body.supplier ? `, ${body.supplier}` : ''}`;
+    case 'POST /api/docs':
+    case 'PUT /api/docs/:id':
+    case 'POST /api/docs/:id/post':
+    case 'POST /api/docs/:id/unpost':
+    case 'DELETE /api/docs/:id': return docTitle(r);
+    case 'POST /api/suppliers':
+    case 'PUT /api/suppliers/:id':
+    case 'DELETE /api/suppliers/:id': return r.name;
     case 'POST /api/fines': return `${store.findUser(body.user_id)?.name || ''}: ${r.amount} сом — ${r.reason}`;
     case 'DELETE /api/fines/:id': return `${r.amount} сом — ${r.reason}`;
     case 'POST /api/bonuses': return `${store.findUser(body.user_id)?.name || ''}: +${r.amount} сом — ${r.reason}`;

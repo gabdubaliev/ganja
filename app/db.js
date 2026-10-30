@@ -246,6 +246,92 @@ function open(file) {
     CREATE INDEX IF NOT EXISTS stock_doc_items_doc ON stock_doc_items(doc_id);
   `);
 
+  // Документы — все движения товара. status: 'draft' — не проведён (остатки не меняются),
+  // 'posted' — проведён. kind: sale (продажа через админ-панель), purchase (закупка), return (возврат продажи),
+  // receipt (оприходование), writeoff (списание), inventory (инвентаризация), transfer (перемещение между магазинами).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS docs (
+      id INTEGER PRIMARY KEY,
+      kind TEXT NOT NULL,
+      number INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft',
+      doc_date INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      created_by TEXT NOT NULL DEFAULT '',
+      user_id INTEGER,
+      posted_at INTEGER,
+      posted_by TEXT NOT NULL DEFAULT '',
+      supplier_id INTEGER,
+      supplier_name TEXT NOT NULL DEFAULT '',
+      customer_id INTEGER,
+      method_id INTEGER,
+      branch_to INTEGER,
+      branch_from INTEGER,
+      direction TEXT NOT NULL DEFAULT '',
+      link_doc_id INTEGER,
+      sale_id INTEGER,
+      note TEXT NOT NULL DEFAULT '',
+      total REAL NOT NULL DEFAULT 0,
+      total_cost REAL NOT NULL DEFAULT 0,
+      shortage_cost REAL NOT NULL DEFAULT 0,
+      surplus_cost REAL NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS docs_kind ON docs(kind, doc_date);
+    CREATE TABLE IF NOT EXISTS doc_items (
+      id INTEGER PRIMARY KEY,
+      doc_id INTEGER NOT NULL REFERENCES docs(id),
+      product_id INTEGER,
+      name TEXT NOT NULL,
+      unit TEXT NOT NULL DEFAULT 'шт',
+      qty REAL NOT NULL DEFAULT 0,
+      price REAL NOT NULL DEFAULT 0,
+      cost REAL NOT NULL DEFAULT 0,
+      expected REAL,
+      actual REAL,
+      prev_cost REAL,
+      reason TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS doc_items_doc ON doc_items(doc_id);
+    CREATE TABLE IF NOT EXISTS suppliers (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      phone TEXT NOT NULL DEFAULT '',
+      contact TEXT NOT NULL DEFAULT '',
+      inn TEXT NOT NULL DEFAULT '',
+      address TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL
+    );
+  `);
+  // Приходы и складские документы прошлых версий переезжают в документы как проведённые — один раз.
+  if (!db.prepare("SELECT 1 FROM settings WHERE key = 'docs_migrated'").get()) {
+    const supplierIds = new Map();
+    const supplierOf = (name) => {
+      if (!name) return null;
+      const key = name.toLowerCase();
+      if (!supplierIds.has(key)) supplierIds.set(key, Number(db.prepare('INSERT INTO suppliers (name, created_at) VALUES (?, ?)').run(name, Date.now()).lastInsertRowid));
+      return supplierIds.get(key);
+    };
+    const addDoc = db.prepare(`INSERT INTO docs (kind, number, status, doc_date, created_at, posted_at, created_by, posted_by, supplier_id, supplier_name, note, total, total_cost, shortage_cost, surplus_cost)
+      VALUES (?, ?, 'posted', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    const addItem = db.prepare('INSERT INTO doc_items (doc_id, product_id, name, unit, qty, price, cost, expected, actual, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const numbers = {};
+    const next = (kind) => (numbers[kind] = (numbers[kind] || 0) + 1);
+    for (const a of db.prepare('SELECT * FROM arrivals ORDER BY created_at').all()) {
+      const { lastInsertRowid } = addDoc.run('purchase', next('purchase'), a.created_at, a.created_at, a.created_at, '', '', supplierOf(a.supplier), a.supplier || '', '', a.total, a.total, 0, 0);
+      for (const i of db.prepare('SELECT ai.*, p.name, p.unit, p.price FROM arrival_items ai LEFT JOIN products p ON p.id = ai.product_id WHERE ai.arrival_id = ?').all(a.id)) {
+        addItem.run(lastInsertRowid, i.product_id, i.name || 'Товар', i.unit || 'шт', i.qty, i.price || 0, i.cost, null, null, '');
+      }
+    }
+    for (const d of db.prepare('SELECT * FROM stock_docs ORDER BY created_at').all()) {
+      const { lastInsertRowid } = addDoc.run(d.kind, next(d.kind), d.created_at, d.created_at, d.created_at, d.user_name, d.user_name, null, '', d.note, d.total_price, d.total_cost, d.shortage_cost, d.surplus_cost);
+      for (const i of db.prepare('SELECT * FROM stock_doc_items WHERE doc_id = ?').all(d.id)) {
+        addItem.run(lastInsertRowid, i.product_id, i.name, i.unit, i.qty, i.price, i.cost, i.expected, i.actual, i.reason);
+      }
+    }
+    db.prepare("INSERT INTO settings (key, value) VALUES ('docs_migrated', '1')").run();
+  }
+
   // Задания сотрудникам: open — в работе, done — сотрудник отметил «Выполнено» и ждёт проверки,
   // approved — проверено и принято, returned — возвращено на доработку.
   db.exec(`
@@ -378,6 +464,17 @@ const SALE_FEE = '(SELECT COALESCE(SUM(sp.commission), 0) FROM sale_payments sp 
 const LINE_FEE = `(CASE WHEN s.total > 0 THEN si.qty * si.price * ${SALE_FEE} / s.total ELSE 0 END)`;
 
 // Хеши пароля и PIN-кода в браузер не уходят; вместо PIN — признак hasPin.
+// Виды документов: название и право, нужное, чтобы их создавать и проводить.
+const DOC_KINDS = {
+  sale: { name: 'Продажа', many: 'Продажи через админ-панель', right: 'docs.sale' },
+  purchase: { name: 'Закупка', many: 'Закупки', right: 'arrivals' },
+  return: { name: 'Возврат продажи', many: 'Возвраты продаж', right: 'refund' },
+  receipt: { name: 'Оприходование', many: 'Оприходования', right: 'arrivals' },
+  writeoff: { name: 'Списание', many: 'Списания', right: 'writeoff' },
+  inventory: { name: 'Инвентаризация', many: 'Инвентаризации', right: 'stock' },
+  transfer: { name: 'Перемещение', many: 'Перемещения', right: 'transfer' },
+};
+
 const publicUser = ({ password_hash, pin_hash, ...u }) => ({ ...u, hasPin: Boolean(pin_hash), disabled: Boolean(u.disabled), rights: u.rights ? JSON.parse(u.rights) : null,
   payment_methods: u.payment_methods ? JSON.parse(u.payment_methods) : null });
 
@@ -506,6 +603,7 @@ function monthsBetween(from, to) {
 
 function createStore(file) {
   const db = open(file);
+  let branchLink = null; // связь с другими магазинами (перемещения), задаёт сервер
 
   // Категория по названию без учёта регистра. Сравниваем здесь, а не в SQLite: его NOCASE не знает кириллицу.
   const findCategory = (name) => {
@@ -907,9 +1005,11 @@ function createStore(file) {
     newBarcode,
 
     // Ручная корректировка остатка (инвентаризация).
-    setStock(id, stock) {
+    // Пересчёт остатка одного товара — тоже документ: проведённая инвентаризация из одной строки.
+    setStock(id, stock, user = null) {
       const p = getProduct(id);
-      db.prepare('UPDATE products SET stock = ? WHERE id = ?').run(number(stock, 'Остаток'), p.id);
+      const doc = this.saveDoc(null, { kind: 'inventory', note: 'Пересчёт остатка из списка товаров', items: [{ productId: p.id, actual: number(stock, 'Остаток', { min: 0 }) }] }, user);
+      this.postDoc(doc.id, user);
       return getProduct(p.id);
     },
 
@@ -1139,6 +1239,8 @@ function createStore(file) {
           WHERE id IN (SELECT product_id FROM sale_items WHERE sale_id = ?)`);
         const delItems = db.prepare('DELETE FROM sale_items WHERE sale_id = ?');
         const delParts = db.prepare('DELETE FROM sale_payments WHERE sale_id = ?');
+        // Документ «Продажа», чей чек удалён, становится непроведённым.
+        const unlinkDoc = db.prepare("UPDATE docs SET status = 'draft', posted_at = NULL, posted_by = '', sale_id = NULL WHERE sale_id = ?");
         const delSale = db.prepare('DELETE FROM sales WHERE id = ?');
         const unlinkOrder = db.prepare('UPDATE orders SET sale_id = NULL WHERE sale_id = ?');
         for (const sale of rows) {
@@ -1152,6 +1254,7 @@ function createStore(file) {
           }
           delItems.run(sale.id);
           delParts.run(sale.id);
+          unlinkDoc.run(sale.id);
           unlinkOrder.run(sale.id);
           delSale.run(sale.id);
         }
@@ -1662,101 +1765,245 @@ function createStore(file) {
     },
 
     // Приход: увеличивает остаток и пересчитывает себестоимость как средневзвешенную.
-    createArrival({ supplier, items, at }) {
-      if (!Array.isArray(items) || !items.length) throw new UserError('В приходе нет товаров');
-      return transaction(db, () => {
-        const lines = items.map((item) => ({
-          p: getProduct(item.productId),
-          qty: number(item.qty, 'Количество', { positive: true }),
-          cost: round2(number(item.cost, 'Закупочная цена')),
-        }));
-        const total = round2(lines.reduce((s, l) => s + l.qty * l.cost, 0));
-        const { lastInsertRowid: arrivalId } = db.prepare('INSERT INTO arrivals (created_at, supplier, total) VALUES (?, ?, ?)')
-          .run(at || Date.now(), text(supplier, 'Поставщик'), total);
-        const addItem = db.prepare('INSERT INTO arrival_items (arrival_id, product_id, qty, cost) VALUES (?, ?, ?, ?)');
-        const update = db.prepare('UPDATE products SET stock = ?, cost = ? WHERE id = ?');
-        for (const l of lines) {
-          const p = getProduct(l.p.id);
-          const oldStock = Math.max(0, p.stock);
-          const cost = oldStock > 0 ? round2((oldStock * p.cost + l.qty * l.cost) / (oldStock + l.qty)) : l.cost;
-          addItem.run(arrivalId, p.id, l.qty, l.cost);
-          update.run(p.stock + l.qty, cost, p.id);
-        }
-        return { id: Number(arrivalId), total };
-      });
+    /* ---------- Документы ---------- */
+    docKinds: DOC_KINDS,
+
+    listDocs({ kind, from, to, status }) {
+      const where = ['d.doc_date >= ?', 'd.doc_date < ?'], args = [from, to];
+      if (kind) { where.push('d.kind = ?'); args.push(kind); }
+      if (status) { where.push('d.status = ?'); args.push(status); }
+      return db.prepare(`SELECT d.*, (SELECT COUNT(*) FROM doc_items i WHERE i.doc_id = d.id) AS lines,
+          COALESCE(s.name, d.supplier_name) AS supplier, COALESCE(NULLIF(c.name, ''), c.phone) AS customer, m.name AS method
+        FROM docs d LEFT JOIN suppliers s ON s.id = d.supplier_id LEFT JOIN customers c ON c.id = d.customer_id LEFT JOIN payment_methods m ON m.id = d.method_id
+        WHERE ${where.join(' AND ')} ORDER BY d.doc_date DESC, d.id DESC LIMIT 500`).all(...args);
     },
 
-    /* ---------- Инвентаризация и списание ---------- */
-    // Инвентаризация: items — [{ productId, actual }] — сколько товара по факту. Остаток становится фактом,
-    // разница (излишек или недостача) сохраняется в документе по себестоимости и цене.
-    createInventory({ items, note }, user = null) {
-      if (!Array.isArray(items) || !items.length) throw new UserError('Не посчитано ни одного товара');
-      return transaction(db, () => {
-        const lines = items.map((item) => {
-          const p = getProduct(item.productId);
-          if (childrenOf(p.id).length) throw new UserError(`«${p.name}» считается по модификациям`);
-          const actual = number(item.actual, `Факт «${p.name}»`, { min: 0 });
-          return { p, expected: p.stock, actual, qty: round2(actual - p.stock) };
-        });
-        const shortage = round2(lines.filter((l) => l.qty < 0).reduce((s, l) => s - l.qty * l.p.cost, 0));
-        const surplus = round2(lines.filter((l) => l.qty > 0).reduce((s, l) => s + l.qty * l.p.cost, 0));
-        const docId = this.addStockDoc('inventory', user, note, { shortage_cost: shortage, surplus_cost: surplus,
-          total_cost: round2(surplus - shortage), total_price: round2(lines.reduce((s, l) => s + l.qty * l.p.price, 0)) }, lines);
-        const set = db.prepare('UPDATE products SET stock = ? WHERE id = ?');
-        for (const l of lines) set.run(l.actual, l.p.id);
-        return this.getStockDoc(docId);
-      });
-    },
-
-    // Списание: items — [{ productId, qty, reason }]. Остаток уменьшается, потери — по себестоимости.
-    createWriteoff({ items, note }, user = null) {
-      if (!Array.isArray(items) || !items.length) throw new UserError('В списании нет товаров');
-      return transaction(db, () => {
-        const lines = items.map((item) => {
-          const p = getProduct(item.productId);
-          if (childrenOf(p.id).length) throw new UserError(`У «${p.name}» есть модификации — выберите нужную`);
-          const qty = number(item.qty, `Количество «${p.name}»`, { positive: true });
-          return { p, expected: p.stock, actual: round2(p.stock - qty), qty, reason: text(item.reason, 'Причина', { required: true, max: 100 }) };
-        });
-        const docId = this.addStockDoc('writeoff', user, note, {
-          total_cost: round2(lines.reduce((s, l) => s + l.qty * l.p.cost, 0)), total_price: round2(lines.reduce((s, l) => s + l.qty * l.p.price, 0)) }, lines);
-        const take = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?');
-        for (const l of lines) take.run(l.qty, l.p.id);
-        return this.getStockDoc(docId);
-      });
-    },
-
-    addStockDoc(kind, user, note, totals, lines) {
-      const { lastInsertRowid } = db.prepare(`INSERT INTO stock_docs (kind, created_at, user_id, user_name, note, shortage_cost, surplus_cost, total_cost, total_price)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(kind, Date.now(), user?.id ?? null, user ? user.name || user.email : '', text(note, 'Комментарий', { max: 500 }),
-        totals.shortage_cost || 0, totals.surplus_cost || 0, totals.total_cost || 0, totals.total_price || 0);
-      const add = db.prepare('INSERT INTO stock_doc_items (doc_id, product_id, name, unit, expected, actual, qty, cost, price, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-      for (const l of lines) add.run(lastInsertRowid, l.p.id, l.p.name, l.p.unit, l.expected, l.actual, l.qty, l.p.cost, l.p.price, l.reason || '');
-      return Number(lastInsertRowid);
-    },
-
-    getStockDoc(id) {
-      const d = db.prepare('SELECT * FROM stock_docs WHERE id = ?').get(Number(id));
+    getDoc(id) {
+      const d = db.prepare(`SELECT d.*, COALESCE(s.name, d.supplier_name) AS supplier, COALESCE(NULLIF(c.name, ''), c.phone) AS customer, m.name AS method
+        FROM docs d LEFT JOIN suppliers s ON s.id = d.supplier_id LEFT JOIN customers c ON c.id = d.customer_id LEFT JOIN payment_methods m ON m.id = d.method_id
+        WHERE d.id = ?`).get(Number(id));
       if (!d) throw new UserError('Документ не найден');
-      return { ...d, items: db.prepare('SELECT * FROM stock_doc_items WHERE doc_id = ? ORDER BY id').all(d.id) };
+      return { ...d, items: db.prepare('SELECT * FROM doc_items WHERE doc_id = ? ORDER BY id').all(d.id) };
     },
 
-    listStockDocs({ kind, from = 0, to = Date.now() + 864e5 }) {
-      return db.prepare('SELECT id FROM stock_docs WHERE kind = ? AND created_at >= ? AND created_at < ? ORDER BY created_at DESC LIMIT 200')
-        .all(kind, from, to).map((r) => this.getStockDoc(r.id));
+    // Черновик: шапка и строки. Проведённый документ менять нельзя — сначала отменить проведение.
+    saveDoc(id, input, user = null) {
+      const cur = id ? this.getDoc(id) : null;
+      if (cur && cur.status === 'posted') throw new UserError('Документ проведён. Чтобы изменить, сначала отметьте «Не проведён»');
+      if (cur?.direction === 'in') throw new UserError('Входящее перемещение меняет магазин-отправитель');
+      const kind = cur ? cur.kind : input.kind;
+      if (!DOC_KINDS[kind]) throw new UserError('Неизвестный вид документа');
+      const lines = (Array.isArray(input.items) ? input.items : []).map((item) => {
+        const p = getProduct(item.productId);
+        if (childrenOf(p.id).length) throw new UserError(`У «${p.name}» есть модификации — выберите нужную`);
+        const line = { p, qty: 0, price: p.price, cost: p.cost, actual: null, reason: '' };
+        if (kind === 'inventory') {
+          line.actual = item.actual === null || item.actual === undefined || item.actual === '' ? null : number(item.actual, `Факт «${p.name}»`, { min: 0 });
+        } else {
+          line.qty = number(item.qty ?? 0, `Количество «${p.name}»`, { min: 0 });
+        }
+        if (['sale', 'return'].includes(kind) && item.price !== undefined) line.price = round2(number(item.price, `Цена «${p.name}»`, { min: 0 }));
+        if (['purchase', 'receipt'].includes(kind) && item.cost !== undefined) line.cost = round2(number(item.cost, `Себестоимость «${p.name}»`, { min: 0 }));
+        if (kind === 'writeoff') line.reason = text(item.reason, 'Причина', { max: 100 });
+        return line;
+      });
+      const when = input.doc_date ? number(input.doc_date, 'Дата', { positive: true }) : cur?.doc_date || Date.now();
+      const supplierId = input.supplier_id ? Number(input.supplier_id) : null;
+      if (supplierId && !db.prepare('SELECT 1 FROM suppliers WHERE id = ?').get(supplierId)) throw new UserError('Поставщик не найден');
+      const customerId = input.customer_id ? Number(input.customer_id) : null;
+      if (customerId && !this.findCustomer(customerId)) throw new UserError('Покупатель не найден');
+      const methodId = input.method_id ? Number(input.method_id) : null;
+      const branchTo = input.branch_to ? Number(input.branch_to) : null;
+      const amount = (l) => l.qty * (['sale', 'return'].includes(kind) ? l.price : l.cost);
+      const total = round2(lines.reduce((s, l) => s + amount(l), 0));
+      const totalCost = round2(lines.reduce((s, l) => s + l.qty * l.cost, 0));
+      const note = text(input.note, 'Комментарий', { max: 500 });
+      return transaction(db, () => {
+        let docId = cur?.id;
+        if (cur) {
+          db.prepare('UPDATE docs SET doc_date = ?, supplier_id = ?, customer_id = ?, method_id = ?, branch_to = ?, note = ?, total = ?, total_cost = ? WHERE id = ?')
+            .run(when, supplierId, customerId, methodId, branchTo, note, total, totalCost, docId);
+          db.prepare('DELETE FROM doc_items WHERE doc_id = ?').run(docId);
+        } else {
+          const num = (db.prepare('SELECT MAX(number) AS n FROM docs WHERE kind = ?').get(kind).n || 0) + 1;
+          docId = Number(db.prepare(`INSERT INTO docs (kind, number, status, doc_date, created_at, created_by, user_id, supplier_id, customer_id, method_id, branch_to, note, total, total_cost)
+            VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(kind, num, when, Date.now(), user ? user.name || user.email : '', user?.id ?? null,
+            supplierId, customerId, methodId, branchTo, note, total, totalCost).lastInsertRowid);
+        }
+        const add = db.prepare('INSERT INTO doc_items (doc_id, product_id, name, unit, qty, price, cost, actual, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        for (const l of lines) add.run(docId, l.p.id, l.p.name, l.p.unit, l.qty, l.price, l.cost, l.actual, l.reason);
+        return this.getDoc(docId);
+      });
     },
 
-    // Потери от списаний за период по причинам.
+    // Проведение: остатки (и для продажи — чек) меняются. Отмена проведения возвращает всё как было.
+    postDoc(id, user = null) {
+      const d = this.getDoc(id);
+      if (d.status === 'posted') throw new UserError('Документ уже проведён');
+      const who = user ? user.name || user.email : '';
+      const items = d.kind === 'inventory' ? d.items.filter((i) => i.actual !== null) : d.items.filter((i) => i.qty > 0);
+      if (!items.length) throw new UserError(d.kind === 'inventory' ? 'Не посчитано ни одного товара' : 'В документе нет товаров с количеством');
+      if (d.kind === 'transfer' && !d.branch_to) throw new UserError('Выберите магазин, куда перемещаете товар');
+      if (d.kind === 'return' && !d.method_id) throw new UserError('Выберите, как вернули деньги');
+      return transaction(db, () => {
+        const extra = {};
+        const exists = (pid) => getProduct(pid).id;
+        if (d.kind === 'sale') {
+          const sale = this.createSale({ items: items.map((i) => ({ productId: i.product_id, qty: i.qty, price: i.price })), methodId: d.method_id, customerId: d.customer_id, at: d.doc_date },
+            user, { trustPrices: true });
+          extra.sale_id = sale.id;
+        } else if (d.kind === 'purchase') {
+          for (const i of items) {
+            const p = getProduct(i.product_id);
+            const old = Math.max(0, p.stock);
+            const cost = old > 0 ? round2((old * p.cost + i.qty * i.cost) / (old + i.qty)) : i.cost;
+            db.prepare('UPDATE doc_items SET prev_cost = ? WHERE id = ?').run(p.cost, i.id);
+            db.prepare('UPDATE products SET stock = stock + ?, cost = ? WHERE id = ?').run(i.qty, cost, p.id);
+          }
+        } else if (['receipt', 'return'].includes(d.kind)) {
+          for (const i of items) db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?').run(i.qty, exists(i.product_id));
+        } else if (['writeoff', 'transfer'].includes(d.kind)) {
+          for (const i of items) db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?').run(i.qty, exists(i.product_id));
+          if (d.kind === 'transfer') {
+            if (!branchLink) throw new UserError('Перемещение возможно, когда есть второй магазин');
+            extra.link_doc_id = branchLink.send(d.branch_to, { fromDoc: d.id, number: d.number, note: d.note, items: items.map((i) => {
+              const p = getProduct(i.product_id);
+              return { qty: i.qty, product: { name: p.name, barcode: p.barcode, code: p.code, unit: p.unit, price: p.price, cost: p.cost, category: p.category } };
+            }) }, user);
+          }
+        } else if (d.kind === 'inventory') {
+          let shortage = 0, surplus = 0;
+          for (const i of items) {
+            const p = getProduct(i.product_id);
+            const diff = round2(i.actual - p.stock);
+            db.prepare('UPDATE doc_items SET expected = ?, qty = ?, cost = ?, price = ? WHERE id = ?').run(p.stock, diff, p.cost, p.price, i.id);
+            db.prepare('UPDATE products SET stock = ? WHERE id = ?').run(i.actual, p.id);
+            if (diff < 0) shortage -= diff * p.cost; else surplus += diff * p.cost;
+          }
+          Object.assign(extra, { shortage_cost: round2(shortage), surplus_cost: round2(surplus), total_cost: round2(surplus - shortage) });
+        }
+        const sets = Object.keys(extra).map((k) => `${k} = ?`);
+        db.prepare(`UPDATE docs SET status = 'posted', posted_at = ?, posted_by = ?${sets.length ? ', ' + sets.join(', ') : ''} WHERE id = ?`)
+          .run(Date.now(), who, ...Object.values(extra), d.id);
+        return this.getDoc(d.id);
+      });
+    },
+
+    unpostDoc(id, user = null) {
+      const d = this.getDoc(id);
+      if (d.status !== 'posted') throw new UserError('Документ и так не проведён');
+      if (d.direction === 'in') throw new UserError('Входящее перемещение отменяет магазин-отправитель');
+      return transaction(db, () => {
+        const add = db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?');
+        const exists = (pid) => db.prepare('SELECT id FROM products WHERE id = ?').get(pid);
+        if (d.kind === 'sale') {
+          if (d.sale_id && db.prepare('SELECT 1 FROM sales WHERE id = ?').get(d.sale_id)) this.deleteSales({ ids: [d.sale_id], restock: true }, user);
+        } else if (d.kind === 'purchase') {
+          for (const i of d.items) {
+            if (!exists(i.product_id) || !(i.qty > 0)) continue;
+            add.run(-i.qty, i.product_id);
+            // Себестоимость возвращается, только если после этой закупки товар больше не закупали.
+            const later = db.prepare(`SELECT 1 FROM docs dd JOIN doc_items ii ON ii.doc_id = dd.id WHERE dd.kind = 'purchase' AND dd.status = 'posted' AND dd.posted_at > ? AND ii.product_id = ?`).get(d.posted_at || 0, i.product_id);
+            if (!later && i.prev_cost !== null) db.prepare('UPDATE products SET cost = ? WHERE id = ?').run(i.prev_cost, i.product_id);
+          }
+        } else if (['receipt', 'return'].includes(d.kind)) {
+          for (const i of d.items) if (exists(i.product_id) && i.qty > 0) add.run(-i.qty, i.product_id);
+        } else if (['writeoff', 'transfer'].includes(d.kind)) {
+          for (const i of d.items) if (exists(i.product_id) && i.qty > 0) add.run(i.qty, i.product_id);
+          if (d.kind === 'transfer' && d.link_doc_id && branchLink) branchLink.cancel(d.branch_to, d.link_doc_id);
+        } else if (d.kind === 'inventory') {
+          for (const i of d.items) if (exists(i.product_id) && i.actual !== null) add.run(-i.qty, i.product_id);
+        }
+        db.prepare("UPDATE docs SET status = 'draft', posted_at = NULL, posted_by = '', sale_id = NULL, link_doc_id = NULL WHERE id = ?").run(d.id);
+        return this.getDoc(d.id);
+      });
+    },
+
+    deleteDoc(id) {
+      const d = this.getDoc(id);
+      if (d.status === 'posted') throw new UserError('Проведённый документ не удаляется — сначала отметьте «Не проведён»');
+      db.prepare('DELETE FROM doc_items WHERE doc_id = ?').run(d.id);
+      db.prepare('DELETE FROM docs WHERE id = ?').run(d.id);
+      return d;
+    },
+
+    // Перемещение из другого магазина: товар находится по штрихкоду, коду или названию, а если его нет — заводится.
+    receiveTransfer({ fromBranch, fromName, fromDoc, number: num, note, items }, user = null) {
+      return transaction(db, () => {
+        const find = (p) => (p.barcode && db.prepare('SELECT * FROM products WHERE barcode = ? AND deleted = 0').get(p.barcode))
+          || (p.code && db.prepare('SELECT * FROM products WHERE code = ? AND deleted = 0').get(p.code))
+          || db.prepare('SELECT * FROM products WHERE name = ? AND deleted = 0').get(p.name);
+        const lines = items.map((i) => {
+          let p = find(i.product);
+          if (!p) {
+            const made = this.createProduct({ name: i.product.name, price: i.product.price, cost: i.product.cost, unit: i.product.unit, barcode: i.product.barcode, code: i.product.code, category: i.product.category, stock: 0 });
+            p = getProduct(made.id);
+          }
+          return { p, qty: i.qty };
+        });
+        const num2 = (db.prepare("SELECT MAX(number) AS n FROM docs WHERE kind = 'transfer'").get().n || 0) + 1;
+        const who = user ? user.name || user.email : '';
+        const docId = Number(db.prepare(`INSERT INTO docs (kind, number, status, doc_date, created_at, created_by, posted_at, posted_by, branch_from, direction, link_doc_id, note, total, total_cost)
+          VALUES ('transfer', ?, 'posted', ?, ?, ?, ?, ?, ?, 'in', ?, ?, ?, ?)`).run(num2, Date.now(), Date.now(), who, Date.now(), who, fromBranch, fromDoc,
+          `Из «${fromName}», перемещение №${num}${note ? ' · ' + note : ''}`,
+          round2(lines.reduce((s, l) => s + l.qty * l.p.price, 0)), round2(lines.reduce((s, l) => s + l.qty * l.p.cost, 0))).lastInsertRowid);
+        const add = db.prepare('INSERT INTO doc_items (doc_id, product_id, name, unit, qty, price, cost) VALUES (?, ?, ?, ?, ?, ?, ?)');
+        for (const l of lines) {
+          add.run(docId, l.p.id, l.p.name, l.p.unit, l.qty, l.p.price, l.p.cost);
+          db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?').run(l.qty, l.p.id);
+        }
+        return docId;
+      });
+    },
+
+    cancelTransfer(docId) {
+      const d = db.prepare("SELECT * FROM docs WHERE id = ? AND direction = 'in'").get(Number(docId));
+      if (!d) return;
+      transaction(db, () => {
+        for (const i of db.prepare('SELECT * FROM doc_items WHERE doc_id = ?').all(d.id)) db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?').run(i.qty, i.product_id);
+        db.prepare('DELETE FROM doc_items WHERE doc_id = ?').run(d.id);
+        db.prepare('DELETE FROM docs WHERE id = ?').run(d.id);
+      });
+    },
+
+    // Связь с другими магазинами для перемещений; задаёт сервер, когда магазинов больше одного.
+    setBranchLink(link) { branchLink = link; },
+
+    // Потери от списаний за период по причинам (только проведённые).
     writeoffSummary({ from, to }) {
       return db.prepare(`SELECT i.reason, COUNT(*) AS lines, SUM(i.qty * i.cost) AS cost, SUM(i.qty * i.price) AS price
-        FROM stock_doc_items i JOIN stock_docs d ON d.id = i.doc_id WHERE d.kind = 'writeoff' AND d.created_at >= ? AND d.created_at < ?
+        FROM doc_items i JOIN docs d ON d.id = i.doc_id WHERE d.kind = 'writeoff' AND d.status = 'posted' AND d.doc_date >= ? AND d.doc_date < ?
         GROUP BY i.reason ORDER BY cost DESC`).all(from, to).map((r) => ({ ...r, cost: round2(r.cost), price: round2(r.price) }));
     },
 
-    listArrivals({ limit = 100 } = {}) {
-      const arrivals = db.prepare('SELECT * FROM arrivals ORDER BY created_at DESC LIMIT ?').all(limit);
-      const items = db.prepare(`SELECT ai.qty, ai.cost, p.name, p.unit FROM arrival_items ai JOIN products p ON p.id = ai.product_id WHERE ai.arrival_id = ?`);
-      return arrivals.map((a) => ({ ...a, items: items.all(a.id) }));
+    /* ---------- Поставщики ---------- */
+    listSuppliers() {
+      return db.prepare(`SELECT s.*, COUNT(d.id) AS docs, COALESCE(SUM(d.total), 0) AS total, MAX(d.doc_date) AS last_at FROM suppliers s
+        LEFT JOIN docs d ON d.supplier_id = s.id AND d.kind = 'purchase' AND d.status = 'posted' GROUP BY s.id ORDER BY s.name`).all();
+    },
+
+    saveSupplier(id, input) {
+      const name = text(input.name, 'Название', { required: true, max: 120 });
+      const clash = db.prepare('SELECT id, name FROM suppliers').all().find((s) => s.id !== Number(id) && s.name.toLowerCase() === name.toLowerCase());
+      if (clash) throw new UserError(`Поставщик «${clash.name}» уже есть`);
+      const f = { phone: text(input.phone, 'Телефон', { max: 40 }), contact: text(input.contact, 'Контактное лицо', { max: 120 }), inn: text(input.inn, 'ИНН', { max: 20 }),
+        address: text(input.address, 'Адрес', { max: 300 }), note: text(input.note, 'Заметка', { max: 1000 }) };
+      if (id) {
+        if (!db.prepare('SELECT 1 FROM suppliers WHERE id = ?').get(Number(id))) throw new UserError('Поставщик не найден');
+        db.prepare('UPDATE suppliers SET name = ?, phone = ?, contact = ?, inn = ?, address = ?, note = ? WHERE id = ?').run(name, f.phone, f.contact, f.inn, f.address, f.note, Number(id));
+        return db.prepare('SELECT * FROM suppliers WHERE id = ?').get(Number(id));
+      }
+      const { lastInsertRowid } = db.prepare('INSERT INTO suppliers (name, phone, contact, inn, address, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(name, f.phone, f.contact, f.inn, f.address, f.note, Date.now());
+      return db.prepare('SELECT * FROM suppliers WHERE id = ?').get(lastInsertRowid);
+    },
+
+    deleteSupplier(id) {
+      const s = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(Number(id));
+      if (!s) throw new UserError('Поставщик не найден');
+      if (db.prepare('SELECT 1 FROM docs WHERE supplier_id = ?').get(s.id)) throw new UserError('По этому поставщику есть документы — его нельзя удалить');
+      db.prepare('DELETE FROM suppliers WHERE id = ?').run(s.id);
+      return s;
     },
 
     // Данные для дашборда: товары и строки продаж (без возвратов) за период.

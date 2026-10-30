@@ -146,117 +146,78 @@
   </section>
 </main>
 
-<main class="page" data-view="inventory" hidden>
+<main class="page" data-view="docs" hidden>
   <header class="top">
-    <div class="title"><h1>Инвентаризация</h1><span class="source">пересчёт товара по факту</span></div>
+    <div class="title"><h1>Документы</h1><span class="source" id="docs-sub"></span></div>
+    <div class="tools docs-new" id="docs-new"></div>
   </header>
-  <section class="panel inv-start" id="inv-start">
-    <h2>Начать инвентаризацию</h2>
-    <p class="sub">Выберите, что будете считать. Посчитанное сохраняется в этом браузере — можно прерваться и продолжить позже.</p>
-    <div class="inv-options">
-      <button type="button" class="inv-option" data-inv-scope="all"><b>📦 Все товары</b><span>Полная инвентаризация магазина</span></button>
-      <div class="inv-option"><b>🗂️ Одна категория</b><select id="inv-cat" class="input" aria-label="Категория"></select><button type="button" class="btn small primary" data-inv-scope="cat">Начать</button></div>
-      <button type="button" class="inv-option" data-inv-scope="pick"><b>🔎 Выборочно</b><span>Сканируйте или ищите товары по одному</span></button>
+  <section class="panel period-bar docs-bar">
+    <div class="chips" id="docs-kinds"></div>
+    <div class="docs-bar-row">
+      <div class="periods" id="docs-status" role="group" aria-label="Статус"></div>
+      <div class="periods" id="docs-ranges" role="group" aria-label="Период"></div>
     </div>
-  </section>
-  <section class="panel" id="inv-editor" hidden>
-    <div class="panel-head">
-      <div><h2 id="inv-title"></h2><p class="sub" id="inv-started"></p></div>
-      <button type="button" class="btn ghost" id="inv-cancel">Отменить инвентаризацию</button>
-    </div>
-    <div class="stock-totals" id="inv-stats"></div>
-    <div class="inv-scan">
-      <input id="inv-scan" class="input big" placeholder="Сканируйте штрихкод — каждый скан +1 к факту" autocomplete="off" aria-label="Штрихкод или название">
-      <button type="button" class="btn" id="inv-scan-btn">Добавить</button>
-    </div>
-    <div class="panel-head inv-tools">
-      <div class="chips" id="inv-filter"></div>
-      <input id="inv-find" class="input search" type="search" placeholder="Найти в списке" aria-label="Найти в списке">
-    </div>
-    <div class="table-wrap">
-      <table class="inv-table">
-        <thead><tr id="inv-head"></tr></thead>
-        <tbody id="inv-lines"></tbody>
-      </table>
-    </div>
-    <div class="inv-foot">
-      <input id="inv-note" class="input" placeholder="Комментарий (необязательно)" autocomplete="off" aria-label="Комментарий">
-      <label class="check" id="inv-zero-row"><input type="checkbox" id="inv-zero"> Непосчитанных товаров нет — поставить им 0</label>
-      <button type="button" class="btn primary" id="inv-save" disabled>Провести инвентаризацию</button>
-    </div>
-    <p class="pick-meta">После проведения остатки посчитанных товаров станут равны факту. Недостача и излишек сохранятся в документе по себестоимости. Enter в поле «Факт» — переход к следующему товару.</p>
   </section>
   <section class="panel">
-    <div class="panel-head"><h2>Проведённые инвентаризации</h2><span class="pick-meta">за год · недостача / излишек</span></div>
-    <div id="inv-history" class="docs"></div>
+    <div class="table-wrap">
+      <table class="docs-table">
+        <thead><tr><th>Документ</th><th>Дата</th><th>Статус</th><th>Контрагент / комментарий</th><th>Строк</th><th>Сумма</th></tr></thead>
+        <tbody id="docs-body"></tbody>
+      </table>
+    </div>
   </section>
 </main>
 
-<main class="page" data-view="writeoff" hidden>
+<main class="page" data-view="doc" hidden>
   <header class="top">
-    <div class="title"><h1>Списание</h1><span class="source">брак, просрочка, порча</span></div>
+    <div class="title"><button type="button" class="btn small ghost" id="doc-back">← Документы</button><h1 id="doc-title"></h1></div>
+    <div class="doc-switch" id="doc-switch" role="group" aria-label="Статус документа"></div>
   </header>
+  <p class="doc-posted-note" id="doc-posted-note"></p>
   <section class="panel">
-    <div class="field grow">
-      <label for="wo-search">Добавить товар</label>
-      <div class="suggest-wrap">
-        <input id="wo-search" class="input" type="search" placeholder="Название или штрихкод" autocomplete="off">
-        <div id="wo-results" class="suggest-list" hidden></div>
+    <p class="sub" id="doc-about"></p>
+    <div class="doc-head" id="doc-head"></div>
+  </section>
+  <section class="panel">
+    <div class="doc-add" id="doc-add">
+      <div class="suggest-wrap grow">
+        <input id="doc-search" class="input big" type="search" placeholder="Сканируйте штрихкод (каждый скан +1) или найдите товар" autocomplete="off" aria-label="Добавить товар">
+        <div id="doc-results" class="suggest-list" hidden></div>
       </div>
     </div>
+    <div class="doc-fill" id="doc-fill" hidden>
+      <button type="button" class="btn small" data-fill="all">+ Все товары</button>
+      <select id="doc-fill-cat" class="input" aria-label="Категория"></select>
+      <button type="button" class="btn small" data-fill="cat">+ Категорию</button>
+      <div class="chips" id="doc-filter" hidden></div>
+    </div>
     <div class="table-wrap">
-      <table class="arrival-table">
-        <thead><tr><th>Товар</th><th>Количество</th><th>Причина</th><th>По себестоимости</th><th></th></tr></thead>
-        <tbody id="wo-lines"></tbody>
+      <table class="doc-table">
+        <thead><tr id="doc-cols"></tr></thead>
+        <tbody id="doc-lines"></tbody>
       </table>
     </div>
     <div class="inv-foot">
-      <input id="wo-note" class="input" placeholder="Комментарий (необязательно), например: акт №5" autocomplete="off" aria-label="Комментарий">
-      <span>Итого: <b id="wo-total" class="num">0 сом</b></span>
-      <button type="button" class="btn primary" id="wo-save" disabled>Списать</button>
+      <span id="doc-total"></span>
+      <button type="button" class="btn ghost" id="doc-delete" hidden>Удалить</button>
+      <button type="button" class="btn" id="doc-save">Сохранить черновик</button>
     </div>
-    <p class="pick-meta">Списанный товар уходит с остатка. Потери считаются по себестоимости и видны ниже по причинам.</p>
-  </section>
-  <section class="panel">
-    <div class="panel-head"><h2>Списания</h2><div class="periods" id="wo-ranges" role="group" aria-label="Период"></div></div>
-    <div class="stock-totals" id="wo-summary"></div>
-    <div id="wo-history" class="docs"></div>
+    <p class="pick-meta">Enter в поле количества — переход к следующей строке. Пока документ «Не проведён», остатки не меняются; отметьте «✓ Проведён» вверху, чтобы провести.</p>
   </section>
 </main>
 
-<main class="page" data-view="arrivals" hidden>
+<main class="page" data-view="suppliers" hidden>
   <header class="top">
-    <div class="title"><h1>Приход товара</h1></div>
+    <div class="title"><h1>Поставщики</h1></div>
+    <div class="tools"><button type="button" class="btn primary" id="suppliers-add" hidden>Добавить поставщика</button></div>
   </header>
   <section class="panel">
-    <div class="arrival-head">
-      <div class="field">
-        <label for="arrival-supplier">Поставщик</label>
-        <input id="arrival-supplier" class="input" placeholder="Например, ООО «Молочный двор»" autocomplete="off">
-      </div>
-      <div class="field grow">
-        <label for="arrival-search">Добавить товар</label>
-        <div class="suggest-wrap">
-          <input id="arrival-search" class="input" type="search" placeholder="Название или штрихкод" autocomplete="off">
-          <div id="arrival-results" class="suggest-list" hidden></div>
-        </div>
-      </div>
-    </div>
     <div class="table-wrap">
-      <table class="arrival-table">
-        <thead><tr><th>Товар</th><th>Количество</th><th>Закупочная цена</th><th>Сумма</th><th></th></tr></thead>
-        <tbody id="arrival-lines"></tbody>
+      <table class="docs-table">
+        <thead><tr><th>Поставщик</th><th>Телефон</th><th>ИНН</th><th>Закупок</th><th>На сумму</th><th>Последняя</th></tr></thead>
+        <tbody id="suppliers-body"></tbody>
       </table>
     </div>
-    <div class="arrival-foot">
-      <span>Итого: <b id="arrival-total" class="num">0 сом</b></span>
-      <button type="button" class="btn primary" id="arrival-save" disabled>Провести приход</button>
-    </div>
-    <p class="pick-meta">После проведения остатки увеличатся, а себестоимость товара пересчитается как средняя по старому и новому товару.</p>
-  </section>
-  <section class="panel">
-    <div class="panel-head"><h2>Последние приходы</h2></div>
-    <div id="arrival-history" class="docs"></div>
   </section>
 </main>
 
@@ -1060,6 +1021,26 @@
   </form>
 </dialog>
 
+<dialog id="supplier-dialog" aria-labelledby="supplier-title">
+  <form id="supplier-form" novalidate>
+    <h2 id="supplier-title">Поставщик</h2>
+    <div class="form-grid">
+      <div class="field wide"><label for="sp-name">Название</label><input id="sp-name" name="name" class="input" required autocomplete="off" placeholder="Например, ОсОО «Молочный двор»"></div>
+      <div class="field"><label for="sp-phone">Телефон</label><input id="sp-phone" name="phone" class="input" inputmode="tel" autocomplete="off"></div>
+      <div class="field"><label for="sp-contact">Контактное лицо</label><input id="sp-contact" name="contact" class="input" autocomplete="off"></div>
+      <div class="field"><label for="sp-inn">ИНН</label><input id="sp-inn" name="inn" class="input num" inputmode="numeric" autocomplete="off"></div>
+      <div class="field"><label for="sp-address">Адрес</label><input id="sp-address" name="address" class="input" autocomplete="off"></div>
+      <div class="field wide"><label for="sp-note">Заметка</label><textarea id="sp-note" name="note" class="input" rows="2"></textarea></div>
+    </div>
+    <p class="form-error" id="supplier-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="supplier-delete" hidden>Удалить</button>
+      <button type="button" class="btn ghost" id="supplier-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="product-card" class="product-card" aria-labelledby="pc-title">
   <div class="pc-head">
     <div class="pc-photo" id="pc-photo"></div>
@@ -1189,8 +1170,7 @@
 <script src="common.js"></script>
 <script src="dashboard.js"></script>
 <script src="products.js"></script>
-<script src="arrivals.js"></script>
-<script src="stockdocs.js"></script>
+<script src="docs.js"></script>
 <script src="sales.js"></script>
 <script src="labels.js"></script>
 <script src="xlsx.js"></script>
