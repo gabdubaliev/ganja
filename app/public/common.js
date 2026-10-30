@@ -193,22 +193,37 @@ const session = {
   roleName(role) { return this.roles[role]?.name || role; },
 };
 session.ready = api('/api/status').then((s) => {
-  Object.assign(session, { user: s.user, rights: new Set(s.can), roles: s.roles, loyalty: s.loyalty });
+  Object.assign(session, { user: s.user, rights: new Set(s.can), roles: s.roles, rightsList: s.rights, loyalty: s.loyalty, design: s.design, shop: s.shop });
+  applyBrand(s.design.name);
+  setOrdersBadge(s.newOrders);
   for (const el of document.querySelectorAll('[data-can]')) el.hidden = !session.can(el.dataset.can);
   $('#nav-user').hidden = !s.user;
   if (s.user) {
     $('#me-password').textContent = s.user.name || s.user.email;
     $('#me-password').title = `${session.roleName(s.user.role)} · сменить пароль`;
   }
-  if (session.can('notify')) listenSales();
+  if (session.can('notify') || session.can('orders')) listenSales();
 }).catch((err) => toast(err.message, 'error'));
 $('#logout').addEventListener('click', async () => {
   await fetch('/api/logout', { method: 'POST' }).catch(() => {});
   location.replace('/login.html');
 });
 
+// Название магазина из раздела «Оформление».
+function applyBrand(name) {
+  for (const el of document.querySelectorAll('.nav .logo')) if (!IS_KASSA) el.textContent = name;
+  document.title = IS_KASSA ? `Касса — ${name}` : name;
+}
+
+function setOrdersBadge(n) {
+  const badge = $('#orders-badge');
+  if (!badge) return;
+  badge.hidden = !n;
+  badge.textContent = n;
+}
+
 /* ---------- Уведомления о продажах ---------- */
-const salesFeed = { listeners: [] };
+const salesFeed = { listeners: [], orderListeners: [] };
 
 function listenSales() {
   if (!window.EventSource) return;
@@ -225,6 +240,15 @@ function listenSales() {
       }
     } catch { /* на некоторых телефонах уведомления из страницы запрещены */ }
     for (const fn of salesFeed.listeners) fn(sale);
+  });
+  source.addEventListener('order', (e) => {
+    const order = JSON.parse(e.data);
+    const text = `Новый заказ №${order.id} с витрины на ${money2(order.total)} — ${order.name}`;
+    toast('🛒 ' + text);
+    try {
+      if (window.Notification && Notification.permission === 'granted' && document.hidden) new Notification('Новый заказ', { body: text, tag: 'order-' + order.id });
+    } catch { /* см. выше */ }
+    for (const fn of salesFeed.orderListeners) fn(order);
   });
   updateBell();
 }
@@ -268,45 +292,49 @@ function handlePhotoClick(e, done) {
   return Boolean(add || del);
 }
 
-// Уменьшает фото до 1000 px по большей стороне и сохраняет как JPEG: так база не растёт от снимков с телефона.
-function shrinkPhoto(file) {
+// Уменьшает картинку до max px по большей стороне: так база не растёт от снимков с телефона.
+// PNG сохраняет прозрачность (для логотипа), JPEG легче (для фото).
+function shrinkPhoto(file, max = 1000, type = 'image/jpeg') {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
-      const scale = Math.min(1, 1000 / Math.max(img.width, img.height));
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
       const canvas = document.createElement('canvas');
       canvas.width = Math.round(img.width * scale);
       canvas.height = Math.round(img.height * scale);
       canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
       URL.revokeObjectURL(img.src);
-      resolve(canvas.toDataURL('image/jpeg', 0.85).split(',')[1]);
+      resolve(canvas.toDataURL(type, 0.85).split(',')[1]);
     };
-    img.onerror = () => reject(new Error('Не получилось открыть фото. Выберите JPEG, PNG или WebP.'));
+    img.onerror = () => reject(new Error('Не получилось открыть картинку. Выберите JPEG, PNG или WebP.'));
     img.src = URL.createObjectURL(file);
   });
 }
 
-// Открывает выбор файла (на телефоне — и камеру) и сохраняет фото товара.
-function choosePhoto(productId) {
+// Выбор файла картинки (на телефоне — и камера). Возвращает File или null.
+function pickFile() {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*';
-    input.addEventListener('change', async () => {
-      const file = input.files[0];
-      if (!file) return resolve(null);
-      try {
-        const data = await shrinkPhoto(file);
-        const saved = await api(`/api/products/${productId}/photo`, { method: 'PUT', body: { mime: 'image/jpeg', data } });
-        toast('Фото сохранено');
-        resolve(saved);
-      } catch (err) {
-        toast(err.message, 'error');
-        resolve(null);
-      }
-    });
+    input.addEventListener('change', () => resolve(input.files[0] || null));
     input.click();
   });
+}
+
+// Открывает выбор файла и сохраняет фото товара.
+async function choosePhoto(productId) {
+  const file = await pickFile();
+  if (!file) return null;
+  try {
+    const data = await shrinkPhoto(file);
+    const saved = await api(`/api/products/${productId}/photo`, { method: 'PUT', body: { mime: 'image/jpeg', data } });
+    toast('Фото сохранено');
+    return saved;
+  } catch (err) {
+    toast(err.message, 'error');
+    return null;
+  }
 }
 
 async function removePhoto(productId) {

@@ -9,7 +9,8 @@ const { createStore, UserError } = require('./db');
 const { seedDemo } = require('./demo');
 const crypto = require('node:crypto');
 const { createAuth, hashPassword, checkPassword } = require('./auth');
-const { ROLES, can } = require('./roles');
+const { RIGHTS, ROLES, rightsOf, can } = require('./roles');
+const { themeCss, shopCss } = require('./theme');
 const { createNotifier } = require('./notify');
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -18,7 +19,9 @@ const DB_FILE = path.resolve(__dirname, process.env.DB_FILE || 'data/shop.db');
 const PUBLIC = path.join(__dirname, 'public');
 const MAX_RANGE = 800 * 864e5;
 // Без входа можно открыть только страницу входа и её стили.
-const PUBLIC_PATHS = new Set(['/login.html', '/style.css', '/manifest.webmanifest', '/icon.svg']);
+const PUBLIC_PATHS = new Set(['/login.html', '/style.css', '/manifest.webmanifest', '/icon.svg', '/shop.css', '/shop.js']);
+const ORDER_LIMIT = 5; // заказов с одного адреса за 10 минут — защита от спама
+const orderLog = new Map(); // ip -> [время заказа]
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -56,6 +59,14 @@ if (process.env.REQUIRE_PASSWORD === '1' && store.activeAdmins() === 0) {
 
 const notifier = createNotifier(store);
 const auth = createAuth(store, process.env.SESSION_SECRET || store.setting('session_secret', crypto.randomBytes(32).toString('base64url')));
+
+// Сотрудник с правом «Сотрудники», но не администратор, не может назначать
+// администраторов и менять их: иначе он выдал бы себе все права.
+function guardAdmin(user, target, body) {
+  if (!user || user.role === 'admin') return;
+  if (target?.role === 'admin' || body.role === 'admin') throw new UserError('Администраторов назначает и меняет только администратор');
+  if (target && target.id === user.id && body.rights !== undefined) throw new UserError('Свои права может поменять только администратор');
+}
 
 function password(value) {
   const s = String(value ?? '');
@@ -96,9 +107,13 @@ function range(url) {
 const routes = [
   ['GET', '/api/status', (p, url, body, user) => ({
     empty: store.isEmpty(), auth: auth.enabled, user,
-    can: user ? ROLES[user.role].can : ROLES.admin.can,
+    can: rightsOf(user),
     roles: ROLES,
+    rights: RIGHTS,
     loyalty: store.loyalty(),
+    design: store.design(),
+    shop: { enabled: store.shop().enabled },
+    newOrders: can(user, 'orders') ? store.countNewOrders() : 0,
   }), 'any'],
   ['PUT', '/api/me/password', (p, url, body, user) => {
     if (!user) throw new UserError('Сначала заведите сотрудников');
@@ -110,8 +125,14 @@ const routes = [
   ['GET', '/api/products', (p, url) => store.listProducts({ archived: url.searchParams.get('archived') === '1' }), 'any'],
   ['POST', '/api/products', (p, url, body) => store.createProduct(body), 'products'],
   ['PUT', '/api/products/:id', (p, url, body) => store.updateProduct(p.id, body), 'products'],
-  ['POST', '/api/products/import', (p, url, body) => store.importProducts(body.rows, { update: Boolean(body.update) }), 'products'],
-  ['PUT', '/api/products/:id/stock', (p, url, body) => store.setStock(p.id, body.stock), 'products'],
+  ['POST', '/api/products/import', (p, url, body) => store.importProducts(body.rows, { update: Boolean(body.update) }), 'import'],
+  ['PUT', '/api/products/:id/stock', (p, url, body) => store.setStock(p.id, body.stock), 'stock'],
+  // Групповое изменение: удаление требует отдельного права.
+  ['POST', '/api/products/bulk', (p, url, body, user) => {
+    if (body.action === 'delete' && !can(user, 'products.delete')) throw new UserError('У вас нет права удалять товары');
+    return store.bulkProducts(body);
+  }, 'products'],
+  ['DELETE', '/api/products/:id', (p) => store.bulkProducts({ ids: [Number(p.id)], action: 'delete' }), 'products.delete'],
   ['PUT', '/api/products/:id/photo', (p, url, body) => store.setPhoto(p.id, body), 'photos'],
   ['DELETE', '/api/products/:id/photo', (p) => store.deletePhoto(p.id), 'photos'],
 
@@ -137,18 +158,37 @@ const routes = [
   ['GET', '/api/customers/by-phone', (p, url) => store.findCustomerByPhone(url.searchParams.get('phone')), 'pos'],
   ['POST', '/api/customers', (p, url, body) => store.createCustomer(body), 'pos'],
   ['GET', '/api/customers', (p, url) => store.listCustomers({ q: url.searchParams.get('q') || '' }), 'customers'],
+  ['GET', '/api/customers/rating', () => store.customerRating(), 'customers'],
   ['GET', '/api/customers/:id/bonus', (p) => store.bonusHistory(p.id), 'customers'],
   ['PUT', '/api/customers/:id', (p, url, body) => store.updateCustomer(p.id, body), 'loyalty'],
   ['POST', '/api/customers/:id/bonus', (p, url, body, user) => store.adjustBonus(p.id, body, user), 'loyalty'],
   ['PUT', '/api/loyalty', (p, url, body) => store.setLoyalty(body), 'loyalty'],
 
   ['GET', '/api/users', () => store.listUsers(), 'staff'],
-  ['POST', '/api/users', (p, url, body) => store.createUser(body, password(body.password)), 'staff'],
-  ['PUT', '/api/users/:id', (p, url, body) => store.updateUser(p.id, body, body.password ? password(body.password) : null), 'staff'],
+  ['POST', '/api/users', (p, url, body, user) => {
+    guardAdmin(user, null, body);
+    return store.createUser(body, password(body.password));
+  }, 'staff'],
+  ['PUT', '/api/users/:id', (p, url, body, user) => {
+    guardAdmin(user, store.findUser(p.id), body);
+    return store.updateUser(p.id, body, body.password ? password(body.password) : null);
+  }, 'staff'],
   ['DELETE', '/api/users/:id', (p, url, body, user) => {
     if (user && Number(p.id) === user.id) throw new UserError('Нельзя удалить самого себя');
+    guardAdmin(user, store.findUser(p.id), {});
     return store.deleteUser(p.id);
   }, 'staff'],
+
+  ['PUT', '/api/design', (p, url, body) => store.setDesign(body), 'design'],
+  ['POST', '/api/images', (p, url, body) => store.addImage(body), 'shop'],
+  ['GET', '/api/shop', () => store.shop(), 'shop'],
+  ['PUT', '/api/shop', (p, url, body) => store.setShop(body), 'shop'],
+  ['GET', '/api/orders', (p, url) => store.listOrders({ status: url.searchParams.get('status') || '' }), 'orders'],
+  ['PUT', '/api/orders/:id', (p, url, body, user) => {
+    const order = store.setOrderStatus(p.id, body, user);
+    if (body.status === 'done' && order.sale_id) notifier.sale({ ...store.getSale(order.sale_id), items: order.items, paid: order.total }, user);
+    return order;
+  }, 'orders'],
 
   // Токен бота наружу не отдаём целиком: только признак, что он задан.
   ['GET', '/api/settings/telegram', () => {
@@ -213,9 +253,76 @@ async function handleAuth(req, res, url) {
   return false;
 }
 
+function sendBytes(res, type, data, cache = 'no-cache') {
+  res.writeHead(200, { 'Content-Type': type, 'Cache-Control': cache });
+  res.end(data);
+}
+
+const clientIp = (req) => String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '';
+
+// Страницы и запросы без входа: оформление, интернет-витрина и её заказы.
+async function handlePublic(req, res, url, user) {
+  const { pathname } = url;
+  if (req.method === 'GET' && pathname === '/theme.css') return sendBytes(res, 'text/css; charset=utf-8', themeCss(store.design()));
+  if (req.method === 'GET' && pathname === '/api/brand') return sendJson(res, 200, { name: store.design().name });
+  const image = req.method === 'GET' && pathname.match(/^\/img\/(\d+)$/);
+  if (image) {
+    const found = store.getImage(image[1]);
+    if (!found) return sendJson(res, 404, { error: 'Картинки нет' });
+    return sendBytes(res, found.mime, Buffer.from(found.data), 'public, max-age=31536000, immutable');
+  }
+  if (!pathname.startsWith('/shop')) return false;
+
+  // Сотрудник с правом «Витрина» видит её и до открытия — чтобы настроить.
+  const shop = store.shop();
+  const preview = (auth.enabled ? Boolean(user) : true) && can(user, 'shop');
+  const open = shop.enabled || preview;
+  if (req.method === 'GET' && (pathname === '/shop' || pathname === '/shop/')) {
+    if (!open) {
+      res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+      return res.end('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Магазин закрыт</title><p style="font:16px system-ui;text-align:center;margin-top:20vh">Интернет-магазин пока закрыт.</p>');
+    }
+    return serveStatic(res, '/shop.html');
+  }
+  if (req.method === 'GET' && pathname === '/shop/theme.css') return sendBytes(res, 'text/css; charset=utf-8', shopCss(shop));
+  if (req.method === 'GET' && pathname === '/shop/data') {
+    if (!open) return sendJson(res, 404, { error: 'Витрина закрыта' });
+    const { css, ...publicSettings } = shop;
+    return sendJson(res, 200, { settings: { ...publicSettings, preview: !shop.enabled }, products: store.shopProducts() });
+  }
+  const photo = req.method === 'GET' && pathname.match(/^\/shop\/photo\/(\d+)$/);
+  if (photo) {
+    if (!open || !store.shopPhotoAllowed(photo[1])) return sendJson(res, 404, { error: 'Фото нет' });
+    const found = store.getPhoto(photo[1]);
+    return sendBytes(res, found.mime, Buffer.from(found.data), 'public, max-age=86400');
+  }
+  if (req.method === 'POST' && pathname === '/shop/order') {
+    const ip = clientIp(req);
+    const now = Date.now();
+    const recent = (orderLog.get(ip) || []).filter((t) => now - t < 10 * 60_000);
+    if (recent.length >= ORDER_LIMIT) return sendJson(res, 429, { error: 'Слишком много заказов подряд. Попробуйте через несколько минут или позвоните нам.' });
+    try {
+      const body = await readBody(req);
+      // Скрытое поле: люди его не видят и не заполняют, а боты заполняют.
+      if (body.website) return sendJson(res, 200, { ok: true, id: 0 });
+      const order = store.createOrder(body);
+      recent.push(now);
+      orderLog.set(ip, recent);
+      notifier.order(order);
+      return sendJson(res, 200, { ok: true, id: order.id, total: order.total });
+    } catch (err) {
+      if (err instanceof UserError) return sendJson(res, 400, { error: err.message });
+      console.error(err);
+      return sendJson(res, 500, { error: 'Не получилось оформить заказ. Попробуйте ещё раз или позвоните нам.' });
+    }
+  }
+  return false;
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  res.setHeader('X-Frame-Options', 'DENY');
+  // SAMEORIGIN, а не DENY: конструктор витрины показывает её предпросмотр во фрейме.
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   try {
     if ((await handleAuth(req, res, url)) !== false) return;
@@ -223,6 +330,12 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, err instanceof UserError ? 400 : 500, { error: err instanceof UserError ? err.message : 'Внутренняя ошибка' });
   }
   const user = auth.currentUser(req);
+  try {
+    if ((await handlePublic(req, res, url, user)) !== false) return;
+  } catch (err) {
+    console.error(err);
+    return sendJson(res, 500, { error: 'Внутренняя ошибка' });
+  }
   if (auth.enabled && !user && !PUBLIC_PATHS.has(url.pathname)) {
     if (url.pathname.startsWith('/api/')) return sendJson(res, 401, { error: 'Нужно войти' });
     res.writeHead(302, { Location: '/login.html' });
@@ -246,7 +359,7 @@ const server = http.createServer(async (req, res) => {
     return res.end(Buffer.from(found.data));
   }
   if (req.method === 'GET' && url.pathname === '/api/events') {
-    if (!can(user, 'notify')) return sendJson(res, 403, { error: 'Нет доступа' });
+    if (!can(user, 'notify') && !can(user, 'orders')) return sendJson(res, 403, { error: 'Нет доступа' });
     return notifier.subscribe(req, res, user);
   }
   const route = match(req.method, url.pathname);

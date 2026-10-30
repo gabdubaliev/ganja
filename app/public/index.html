@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Мой магазин</title>
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="theme.css" id="theme-css">
 </head>
 <body>
 <nav class="nav" aria-label="Разделы">
@@ -15,7 +16,10 @@
     <a href="#arrivals" data-can="arrivals" hidden>Приход</a>
     <a href="#sales" data-can="sales" hidden>Чеки</a>
     <a href="#kpi" data-can="kpi" hidden>Эффективность</a>
-    <a href="#loyalty" data-can="customers" hidden>Лояльность</a>
+    <a href="#loyalty" data-can="customers" hidden>Покупатели</a>
+    <a href="#orders" data-can="orders" hidden>Заказы <span class="badge" id="orders-badge" hidden></span></a>
+    <a href="#shop" data-can="shop" hidden>Витрина</a>
+    <a href="#design" data-can="design" hidden>Оформление</a>
     <a href="#users" data-can="staff" hidden>Сотрудники</a>
     <a href="#settings" data-can="settings" hidden>Настройки</a>
     <a href="/kassa.html" target="_blank" class="nav-kassa" data-can="pos" hidden>Касса ↗</a>
@@ -97,8 +101,8 @@
   <header class="top">
     <div class="title"><h1>Товары</h1><span class="source" id="products-summary"></span></div>
     <div class="tools">
-      <button type="button" class="btn" id="product-import">Импорт из Excel</button>
-      <button type="button" class="btn primary" id="product-add">Добавить товар</button>
+      <button type="button" class="btn" id="product-import" data-can="import" hidden>Импорт из Excel</button>
+      <button type="button" class="btn primary" id="product-add" data-can="products" hidden>Добавить товар</button>
     </div>
   </header>
   <section class="panel">
@@ -106,9 +110,20 @@
       <input id="products-search" class="input search" type="search" placeholder="Найти по названию, коду, категории или штрихкоду" aria-label="Найти товар">
       <label class="check"><input type="checkbox" id="products-archived"> Показать убранные из продажи</label>
     </div>
+    <div class="bulk-bar" id="bulk-bar" hidden>
+      <b id="bulk-count"></b>
+      <button type="button" class="btn small" data-bulk="price">Цена</button>
+      <button type="button" class="btn small" data-bulk="cost">Себестоимость</button>
+      <button type="button" class="btn small" data-bulk="category">Категория</button>
+      <button type="button" class="btn small" data-bulk="unit">Единица</button>
+      <button type="button" class="btn small" data-bulk="archive" id="bulk-archive">Убрать из продажи</button>
+      <button type="button" class="btn small" data-bulk="restore" id="bulk-restore">Вернуть в продажу</button>
+      <button type="button" class="btn small danger-ghost" data-bulk="delete" data-can="products.delete" hidden>Удалить</button>
+      <button type="button" class="btn small ghost" id="bulk-clear">Снять выбор</button>
+    </div>
     <div class="table-wrap">
       <table class="products-table">
-        <thead><tr><th>Товар</th><th>Код</th><th>Штрихкод</th><th>Цена</th><th>Себестоимость</th><th>Наценка</th><th>Остаток</th><th></th></tr></thead>
+        <thead><tr><th class="sel" data-can="products" hidden><input type="checkbox" id="products-all" aria-label="Выбрать все товары в списке"></th><th class="name-col">Товар</th><th>Код</th><th>Штрихкод</th><th>Цена</th><th>Себестоимость</th><th>Наценка</th><th>Остаток</th><th></th></tr></thead>
         <tbody id="products-body"></tbody>
       </table>
     </div>
@@ -193,7 +208,7 @@
 
 <main class="page" data-view="loyalty" hidden>
   <header class="top">
-    <div class="title"><h1>Лояльность</h1><span class="source" id="loyalty-summary"></span></div>
+    <div class="title"><h1>Покупатели</h1><span class="source" id="loyalty-summary"></span></div>
     <div class="tools"><button type="button" class="btn primary" id="customer-add">Добавить покупателя</button></div>
   </header>
   <section class="panel">
@@ -207,14 +222,19 @@
   </section>
   <section class="panel">
     <div class="panel-head">
+      <div><h2>Рейтинг покупателей</h2><p class="sub">Кто чаще и больше покупает. Учитываются чеки без возвратов, к которым привязан покупатель, — на кассе и выданные заказы с витрины.</p></div>
+    </div>
+    <div class="panel-head">
+      <div class="chips" id="segments"></div>
       <input id="customers-search" class="input search" type="search" placeholder="Найти по имени или телефону" aria-label="Найти покупателя">
     </div>
     <div class="table-wrap">
       <table class="customers-table">
-        <thead><tr><th>Покупатель</th><th>Телефон</th><th>Бонусы</th><th>С нами с</th><th></th></tr></thead>
+        <thead><tr id="customers-head"></tr></thead>
         <tbody id="customers-body"></tbody>
       </table>
     </div>
+    <div class="more" id="customers-more" hidden><button type="button" id="customers-more-btn">Показать ещё</button></div>
   </section>
 </main>
 
@@ -268,6 +288,125 @@
   </form>
 </dialog>
 
+<main class="page" data-view="orders" hidden>
+  <header class="top">
+    <div class="title"><h1>Заказы с витрины</h1><span class="source" id="orders-summary"></span></div>
+    <div class="periods" id="orders-filter" role="group" aria-label="Статус"></div>
+  </header>
+  <section class="panel"><div id="orders-list" class="orders"></div></section>
+</main>
+
+<main class="page" data-view="shop" hidden>
+  <header class="top">
+    <div class="title"><h1>Интернет-витрина</h1><span class="source" id="shop-state"></span></div>
+    <div class="tools" id="shop-tools"></div>
+  </header>
+  <section class="panel shop-create" id="shop-create" hidden>
+    <h2>Свой интернет-магазин за минуту</h2>
+    <p class="sub">Витрина берёт товары, цены, фото и остатки прямо из программы. Покупатели выбирают товары, оформляют заказ с доставкой или самовывозом, а вам приходит уведомление. Оформление меняется как угодно: готовые шаблоны, свои цвета, шрифт, баннер, логотип и даже свой CSS.</p>
+    <button type="button" class="btn primary big" id="shop-create-btn">Создать интернет-витрину</button>
+  </section>
+  <div class="builder" id="shop-builder" hidden>
+    <form id="shop-form" class="builder-form" novalidate>
+      <details open><summary>Шаблон</summary><div class="templates" id="shop-templates"></div></details>
+      <details open><summary>Основное</summary>
+        <div class="field"><label>Название</label><input name="title" class="input" autocomplete="off"></div>
+        <div class="field"><label>Подзаголовок</label><input name="slogan" class="input" autocomplete="off"></div>
+        <div class="field"><label>О магазине</label><textarea name="about" class="input" rows="3"></textarea></div>
+        <div class="images-row">
+          <div class="field"><label>Логотип</label><div class="image-pick" data-image="logoId"></div></div>
+          <div class="field"><label>Баннер</label><div class="image-pick wide" data-image="bannerId"></div></div>
+        </div>
+      </details>
+      <details><summary>Цвета и шрифт</summary>
+        <div class="colors">
+          <label class="color"><input type="color" name="accent"> Основной</label>
+          <label class="color"><input type="color" name="bg"> Фон</label>
+          <label class="color"><input type="color" name="surface"> Карточки</label>
+          <label class="color"><input type="color" name="ink"> Текст</label>
+        </div>
+        <div class="field"><label>Шрифт</label><select name="font" class="input fonts"></select></div>
+        <div class="field"><label>Скругление углов: <span data-out="radius"></span> px</label><input type="range" name="radius" min="0" max="32"></div>
+      </details>
+      <details><summary>Каталог</summary>
+        <div class="field"><label>Вид карточек</label>
+          <select name="cardStyle" class="input"><option value="photo">Большое фото</option><option value="compact">Компактно</option><option value="list">Списком</option></select></div>
+        <div class="field"><label>Колонок на компьютере: <span data-out="columns"></span></label><input type="range" name="columns" min="2" max="6"></div>
+        <label class="check"><input type="checkbox" name="hideOutOfStock"> Скрывать товары, которых нет в наличии</label>
+        <label class="check"><input type="checkbox" name="showStock"> Показывать покупателям остаток</label>
+        <div class="field"><label>Категории на витрине (ничего не отмечено — все)</label><div class="cat-list" id="shop-cats"></div></div>
+      </details>
+      <details><summary>Доставка и контакты</summary>
+        <label class="check"><input type="checkbox" name="pickup"> Самовывоз</label>
+        <label class="check"><input type="checkbox" name="delivery"> Доставка</label>
+        <div class="field"><label>Стоимость доставки, ₽</label><input name="deliveryPrice" class="input num" inputmode="decimal"></div>
+        <div class="field"><label>Минимальная сумма заказа, ₽</label><input name="minOrder" class="input num" inputmode="decimal"></div>
+        <div class="field"><label>Телефон</label><input name="phone" class="input" inputmode="tel"></div>
+        <div class="field"><label>Адрес</label><input name="address" class="input"></div>
+        <div class="field"><label>Часы работы</label><input name="hours" class="input" placeholder="Ежедневно 9:00–21:00"></div>
+        <div class="field"><label>WhatsApp (номер)</label><input name="whatsapp" class="input" inputmode="tel"></div>
+        <div class="field"><label>Telegram (имя без @)</label><input name="telegram" class="input"></div>
+      </details>
+      <details><summary>Свой CSS</summary>
+        <p class="sub">Для тех, кто хочет поменять что угодно. Примеры: <code>.card { box-shadow: none }</code>, <code>.hero h1 { font-size: 56px }</code>.</p>
+        <textarea name="css" class="input code" rows="8" spellcheck="false"></textarea>
+      </details>
+      <p class="form-error" id="shop-error" role="alert" hidden></p>
+      <div class="builder-actions">
+        <button type="submit" class="btn primary">Сохранить</button>
+        <span class="pick-meta" id="shop-dirty"></span>
+      </div>
+    </form>
+    <div class="builder-preview">
+      <div class="preview-bar">
+        <div class="seg small" id="preview-size"><button type="button" data-size="desktop" aria-pressed="true">Компьютер</button><button type="button" data-size="mobile" aria-pressed="false">Телефон</button></div>
+      </div>
+      <div class="preview-frame"><iframe id="shop-preview" title="Предпросмотр витрины" src="about:blank"></iframe></div>
+    </div>
+  </div>
+</main>
+
+<main class="page" data-view="design" hidden>
+  <header class="top"><div class="title"><h1>Оформление программы</h1></div></header>
+  <section class="panel">
+    <form id="design-form" class="settings-form" novalidate>
+      <p class="sub">Изменения видны сразу. Чтобы они остались, нажмите «Сохранить» — оформление поменяется у всех сотрудников.</p>
+      <div class="field"><label>Готовые варианты</label><div class="templates" id="design-presets"></div></div>
+      <div class="field"><label for="df-name">Название магазина</label><input id="df-name" name="name" class="input" autocomplete="off"></div>
+      <div class="field"><label for="df-theme">Тема</label>
+        <select id="df-theme" name="theme" class="input"><option value="auto">Как в системе устройства</option><option value="light">Всегда светлая</option><option value="dark">Всегда тёмная</option></select></div>
+      <div class="colors">
+        <label class="color"><input type="color" name="accent"> Основной цвет</label>
+        <label class="color"><input type="color" name="bg" data-optional> Фон <button type="button" class="link" data-reset="bg">по умолчанию</button></label>
+        <label class="color"><input type="color" name="surface" data-optional> Панели <button type="button" class="link" data-reset="surface">по умолчанию</button></label>
+        <label class="color"><input type="color" name="ink" data-optional> Текст <button type="button" class="link" data-reset="ink">по умолчанию</button></label>
+      </div>
+      <div class="field"><label for="df-font">Шрифт</label><select id="df-font" name="font" class="input fonts"></select></div>
+      <div class="field"><label>Скругление углов: <span data-out="radius"></span> px</label><input type="range" name="radius" min="0" max="24"></div>
+      <div class="field"><label for="df-css">Свой CSS — меняйте что угодно</label>
+        <textarea id="df-css" name="css" class="input code" rows="8" spellcheck="false" placeholder=".nav { background: #111; } .nav a { color: #fff; }"></textarea></div>
+      <p class="form-error" id="design-error" role="alert" hidden></p>
+      <div class="form-actions start">
+        <button type="submit" class="btn primary">Сохранить</button>
+        <button type="button" class="btn" id="design-reset">Вернуть как было</button>
+      </div>
+    </form>
+  </section>
+</main>
+
+<dialog id="bulk-dialog" aria-labelledby="bulk-title">
+  <form id="bulk-form" novalidate>
+    <h2 id="bulk-title"></h2>
+    <p class="sub" id="bulk-sub"></p>
+    <div id="bulk-fields" class="form-grid"></div>
+    <p class="form-error" id="bulk-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="bulk-cancel">Отмена</button>
+      <button type="submit" class="btn primary" id="bulk-submit">Применить</button>
+    </div>
+  </form>
+</dialog>
+
 <main class="page" data-view="users" hidden>
   <header class="top">
     <div class="title"><h1>Сотрудники</h1><span class="source" id="users-summary"></span></div>
@@ -298,6 +437,10 @@
       <div class="field"><label for="uf-salary">Оклад в месяц, ₽</label><input id="uf-salary" name="salary" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
       <div class="field"><label for="uf-percent">Процент от продаж, %</label><input id="uf-percent" name="percent" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
       <div class="field"><label for="uf-plan">План продаж в месяц, ₽</label><input id="uf-plan" name="plan" class="input num" inputmode="decimal" autocomplete="off" placeholder="Без плана"></div>
+      <fieldset class="rights wide" id="uf-rights">
+        <legend>Права <button type="button" class="link" id="uf-rights-reset">как у роли</button></legend>
+        <div id="uf-rights-list"></div>
+      </fieldset>
       <label class="check wide" id="user-disabled-field"><input type="checkbox" id="uf-disabled" name="disabled"> Закрыть доступ (сотрудник не сможет войти)</label>
     </div>
     <p class="form-error" id="user-error" role="alert" hidden></p>
@@ -338,10 +481,12 @@
         <select id="pf-unit" name="unit" class="input"><option>шт</option><option>кг</option><option>л</option><option>м</option><option>уп</option></select>
       </div>
       <div class="field" id="product-stock-field"><label for="pf-stock">Сейчас на складе</label><input id="pf-stock" name="stock" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+      <div class="field wide"><label for="pf-description">Описание для интернет-витрины</label><textarea id="pf-description" name="description" class="input" rows="3" placeholder="Необязательно: состав, размер, особенности"></textarea></div>
       <label class="check wide" id="product-archived-field"><input type="checkbox" id="pf-archived" name="archived"> Убрать из продажи (товар скроется из кассы и списков, история продаж сохранится)</label>
     </div>
     <p class="form-error" id="product-error" role="alert" hidden></p>
     <div class="form-actions">
+      <button type="button" class="btn ghost danger-text" id="product-delete" hidden>Удалить товар</button>
       <button type="button" class="btn ghost" id="product-cancel">Отмена</button>
       <button type="submit" class="btn primary">Сохранить</button>
     </div>
@@ -379,6 +524,9 @@
 <script src="loyalty.js"></script>
 <script src="users.js"></script>
 <script src="settings.js"></script>
+<script src="orders.js"></script>
+<script src="shop-builder.js"></script>
+<script src="design.js"></script>
 <script>session.ready.then(route);</script>
 </body>
 </html>

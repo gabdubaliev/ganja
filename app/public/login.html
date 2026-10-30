@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Вход — Мой магазин</title>
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="theme.css" id="theme-css">
 <style>
   .login { min-height: 100vh; display: grid; place-items: center; padding-block: 24px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
   .login form { width: min(380px, 100%); display: grid; gap: 14px; }
@@ -31,6 +32,11 @@
   </form>
 </main>
 <script>
+// Название магазина из раздела «Оформление».
+fetch('/api/brand').then((r) => r.json()).then((b) => {
+  document.querySelector('h1').textContent = b.name;
+  document.title = 'Вход — ' + b.name;
+}).catch(() => {});
 document.getElementById('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const error = document.getElementById('login-error');

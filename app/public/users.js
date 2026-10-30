@@ -16,7 +16,7 @@ async function renderUsers() {
   $('#roles-help').innerHTML = Object.values(session.roles).map((r) => `<li><b>${esc(r.name)}</b> — ${esc(r.about)}</li>`).join('');
   $('#users-body').innerHTML = usersList.length ? usersList.map((u) => `<tr>
       <td><div class="pname">${esc(u.name || u.email)}${session.user?.id === u.id ? ' <span class="muted">(вы)</span>' : ''}</div>${u.name ? `<div class="pcat">${esc(u.email)}</div>` : ''}</td>
-      <td><span class="role-tag">${esc(session.roleName(u.role))}</span></td>
+      <td><span class="role-tag">${esc(session.roleName(u.role))}</span>${u.rights && u.role !== 'admin' ? '<div class="pcat">свои права</div>' : ''}</td>
       <td>${u.salary ? money(u.salary) : '—'}</td>
       <td>${u.percent ? u.percent + '%' : '—'}</td>
       <td>${u.plan ? money(u.plan) : '—'}</td>
@@ -49,13 +49,60 @@ function openUserDialog(user = null) {
     f.elements.plan.value = user.plan || '';
   }
   showRoleAbout();
+  renderRights(user && user.role !== 'admin' ? user.rights : null);
   $('#user-dialog').showModal();
 }
 
 function showRoleAbout() {
   $('#uf-role-about').textContent = session.roles[$('#uf-role').value]?.about || '';
 }
-$('#uf-role').addEventListener('change', showRoleAbout);
+$('#uf-role').addEventListener('change', () => {
+  showRoleAbout();
+  // Новая роль — новые галочки по умолчанию.
+  renderRights(null);
+});
+
+/* ---------- Права галочками ---------- */
+// custom — личный набор прав сотрудника или null (права роли).
+function renderRights(custom) {
+  const role = $('#uf-role').value;
+  const isAdmin = role === 'admin';
+  const checked = new Set(isAdmin ? session.rightsList.map((r) => r.key) : custom || session.roles[role].can);
+  const groups = groupBy(session.rightsList);
+  $('#uf-rights-list').innerHTML = [...groups].map(([group, rights]) => `
+    <div class="rights-group"><b>${esc(group)}</b>
+      ${rights.map((r) => `<label class="check"><input type="checkbox" value="${r.key}" ${checked.has(r.key) ? 'checked' : ''} ${isAdmin ? 'disabled' : ''}> ${esc(r.label)}</label>`).join('')}
+    </div>`).join('');
+  $('#uf-rights-reset').hidden = isAdmin;
+  markRightsCustom();
+}
+
+function groupBy(list) {
+  const map = new Map();
+  for (const r of list) map.set(r.group, [...(map.get(r.group) || []), r]);
+  return map;
+}
+
+function checkedRights() {
+  return [...document.querySelectorAll('#uf-rights-list input:checked')].map((i) => i.value);
+}
+
+// Если галочки совпадают с ролью, сохраняем «как у роли»: тогда изменения роли в будущих версиях дойдут и до сотрудника.
+function rightsForSave() {
+  const role = $('#uf-role').value;
+  if (role === 'admin') return null;
+  const mine = checkedRights().sort().join();
+  return mine === [...session.roles[role].can].sort().join() ? null : checkedRights();
+}
+
+function markRightsCustom() {
+  const custom = rightsForSave() !== null;
+  $('#uf-rights-reset').textContent = custom ? 'вернуть как у роли' : 'как у роли';
+  $('#uf-rights-reset').disabled = !custom;
+}
+
+$('#uf-rights-list').addEventListener('change', markRightsCustom);
+$('#uf-rights-reset').addEventListener('click', () => renderRights(null));
 
 $('#user-form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -63,6 +110,7 @@ $('#user-form').addEventListener('submit', async (e) => {
   const body = {
     email: f.elements.email.value, name: f.elements.name.value, role: f.elements.role.value,
     salary: parseNum(f.elements.salary.value) || 0, percent: parseNum(f.elements.percent.value) || 0, plan: parseNum(f.elements.plan.value) || 0,
+    rights: rightsForSave(),
   };
   if (f.elements.password.value) body.password = f.elements.password.value;
   if (editingUser) body.disabled = f.elements.disabled.checked;

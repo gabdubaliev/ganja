@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Магазин</title>
+<link rel="stylesheet" href="/shop.css">
+<link rel="stylesheet" href="/shop/theme.css" id="shop-theme">
+</head>
+<body>
+<div class="preview-note" id="preview-note" hidden>Предпросмотр: витрина ещё не открыта для покупателей</div>
+
+<header class="site-head">
+  <div class="wrap head-row">
+    <a class="brand" href="#" id="brand"><img id="logo" alt="" hidden><span id="title"></span></a>
+    <div class="head-contacts" id="head-contacts"></div>
+    <button type="button" class="cart-btn" id="cart-open" aria-label="Корзина">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h2l2.4 10.2a1 1 0 0 0 1 .8h8.9a1 1 0 0 0 1-.8L20 7H6.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="19" r="1.5" fill="currentColor"/><circle cx="17" cy="19" r="1.5" fill="currentColor"/></svg>
+      <span id="cart-count" class="cart-count" hidden></span>
+    </button>
+  </div>
+</header>
+
+<section class="hero" id="hero">
+  <div class="wrap">
+    <h1 id="hero-title"></h1>
+    <p id="slogan"></p>
+  </div>
+</section>
+
+<main class="wrap catalog">
+  <div class="filters">
+    <input type="search" id="search" class="search" placeholder="Поиск товаров" aria-label="Поиск товаров">
+    <div class="cats" id="cats" role="group" aria-label="Категории"></div>
+  </div>
+  <div id="grid" class="grid"></div>
+</main>
+
+<footer class="site-foot">
+  <div class="wrap foot-grid">
+    <div><h2 id="foot-title"></h2><p id="about"></p></div>
+    <div id="foot-contacts" class="foot-contacts"></div>
+  </div>
+</footer>
+
+<dialog id="product" class="sheet" aria-labelledby="product-name">
+  <button type="button" class="close" data-close aria-label="Закрыть">×</button>
+  <div id="product-body"></div>
+</dialog>
+
+<dialog id="cart" class="sheet side" aria-labelledby="cart-title">
+  <button type="button" class="close" data-close aria-label="Закрыть">×</button>
+  <h2 id="cart-title">Корзина</h2>
+  <div id="cart-lines" class="cart-lines"></div>
+  <form id="checkout" class="checkout" novalidate hidden>
+    <div class="cart-sum"><span>Товары</span><b id="sum-goods"></b></div>
+    <div class="cart-sum" id="sum-delivery-row" hidden><span>Доставка</span><b id="sum-delivery"></b></div>
+    <div class="cart-sum total"><span>Итого</span><b id="sum-total"></b></div>
+    <div class="ways" id="ways"></div>
+    <label>Имя<input name="name" required autocomplete="name"></label>
+    <label>Телефон<input name="phone" type="tel" required autocomplete="tel" placeholder="+7"></label>
+    <label id="address-row" hidden>Адрес доставки<input name="address" autocomplete="street-address"></label>
+    <label>Комментарий<textarea name="comment" rows="2" placeholder="Необязательно"></textarea></label>
+    <label class="hp" aria-hidden="true">Сайт<input name="website" tabindex="-1" autocomplete="off"></label>
+    <p class="error" id="checkout-error" role="alert" hidden></p>
+    <button type="submit" class="primary">Оформить заказ</button>
+    <p class="small">Оплата при получении. Мы позвоним, чтобы подтвердить заказ.</p>
+  </form>
+</dialog>
+
+<dialog id="done" class="sheet" aria-labelledby="done-title">
+  <div class="done">
+    <div class="done-icon" aria-hidden="true">✓</div>
+    <h2 id="done-title">Заказ оформлен</h2>
+    <p id="done-text"></p>
+    <button type="button" class="primary" data-close>Хорошо</button>
+  </div>
+</dialog>
+
+<script src="/shop.js"></script>
+</body>
+</html>

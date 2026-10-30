@@ -68,7 +68,23 @@ function createNotifier(store) {
     sendTelegram(lines.join('\n'), tg).catch((err) => console.error('Уведомление в Telegram не отправлено:', err.message));
   }
 
-  return { subscribe, broadcast, sale, sendTelegram, telegramSettings };
+  // Новый заказ с интернет-витрины.
+  function order(o) {
+    broadcast('order', { id: o.id, total: o.total, name: o.name, items: o.items.length, at: Date.now() }, 'orders');
+    const tg = telegramSettings();
+    if (!tg.enabled) return;
+    const lines = [
+      `🛒 Новый заказ №${o.id} с витрины — ${rub(o.total)}`,
+      `${o.name}, +${o.phone}`,
+      o.delivery === 'delivery' ? `Доставка: ${o.address}` : 'Самовывоз',
+      ...o.items.slice(0, 15).map((i) => `• ${i.name} × ${i.qty} = ${rub(i.qty * i.price)}`),
+      o.items.length > 15 ? `…и ещё ${o.items.length - 15}` : '',
+      o.comment ? `Комментарий: ${o.comment}` : '',
+    ].filter(Boolean);
+    sendTelegram(lines.join('\n'), tg).catch((err) => console.error('Уведомление в Telegram не отправлено:', err.message));
+  }
+
+  return { subscribe, broadcast, sale, order, sendTelegram, telegramSettings };
 }
 
 module.exports = { createNotifier };

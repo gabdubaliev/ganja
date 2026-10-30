@@ -5,7 +5,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
-const { ROLES } = require('./roles');
+const { RIGHTS, ROLES, can } = require('./roles');
 
 class UserError extends Error {}
 
@@ -111,22 +111,61 @@ function open(file) {
   addColumns('sales', [['user_id', 'INTEGER'], ['user_name', "TEXT NOT NULL DEFAULT ''"], ['customer_id', 'INTEGER'],
     ['bonus_spent', 'REAL NOT NULL DEFAULT 0'], ['bonus_earned', 'REAL NOT NULL DEFAULT 0']]);
   addColumns('users', [['salary', 'REAL NOT NULL DEFAULT 0'], ['percent', 'REAL NOT NULL DEFAULT 0'], ['plan', 'REAL NOT NULL DEFAULT 0']]);
-  addColumns('products', [['photo_at', 'INTEGER']]);
+  addColumns('products', [['photo_at', 'INTEGER'], ['deleted', 'INTEGER NOT NULL DEFAULT 0'], ['description', "TEXT NOT NULL DEFAULT ''"]]);
+  addColumns('users', [['rights', 'TEXT']]);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS orders (
+      id INTEGER PRIMARY KEY,
+      created_at INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      comment TEXT NOT NULL DEFAULT '',
+      delivery TEXT NOT NULL DEFAULT 'pickup',
+      address TEXT NOT NULL DEFAULT '',
+      total REAL NOT NULL,
+      status TEXT NOT NULL DEFAULT 'new',
+      updated_at INTEGER,
+      updated_by TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS orders_created ON orders(created_at);
+    CREATE TABLE IF NOT EXISTS order_items (
+      id INTEGER PRIMARY KEY,
+      order_id INTEGER NOT NULL REFERENCES orders(id),
+      product_id INTEGER NOT NULL REFERENCES products(id),
+      name TEXT NOT NULL,
+      qty REAL NOT NULL,
+      price REAL NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS images (
+      id INTEGER PRIMARY KEY,
+      mime TEXT NOT NULL,
+      data BLOB NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+  `);
+  addColumns('orders', [['sale_id', 'INTEGER']]);
   db.exec('CREATE INDEX IF NOT EXISTS sales_user ON sales(user_id)');
   // Роль «продавец» из прошлой версии стала «кассиром».
   db.exec("UPDATE users SET role = 'cashier' WHERE role = 'seller'");
   return db;
 }
 
+// Вложенная транзакция (например, выдача заказа пробивает чек) становится точкой сохранения.
+const depth = new WeakMap();
 function transaction(db, fn) {
-  db.exec('BEGIN');
+  const level = depth.get(db) || 0;
+  const name = `sp${level}`;
+  db.exec(level ? `SAVEPOINT ${name}` : 'BEGIN');
+  depth.set(db, level + 1);
   try {
     const result = fn();
-    db.exec('COMMIT');
+    db.exec(level ? `RELEASE ${name}` : 'COMMIT');
     return result;
   } catch (err) {
-    db.exec('ROLLBACK');
+    db.exec(level ? `ROLLBACK TO ${name}; RELEASE ${name}` : 'ROLLBACK');
     throw err;
+  } finally {
+    depth.set(db, level);
   }
 }
 
@@ -158,7 +197,15 @@ function role(value) {
 }
 
 // Сотрудник без хеша пароля — так он уходит в интерфейс.
-const publicUser = ({ password_hash, ...u }) => ({ ...u, disabled: Boolean(u.disabled) });
+// rights — личный набор прав или null, если действуют права роли.
+const publicUser = ({ password_hash, ...u }) => ({ ...u, disabled: Boolean(u.disabled), rights: u.rights ? JSON.parse(u.rights) : null });
+
+function rightsList(value) {
+  if (value === null) return null;
+  if (!Array.isArray(value)) throw new UserError('Права переданы неверно');
+  const known = new Set(RIGHTS.map((r) => r.key));
+  return JSON.stringify([...new Set(value)].filter((r) => known.has(r)));
+}
 
 // Телефон покупателя: только цифры, российский номер приводится к виду 7XXXXXXXXXX.
 function phone(value) {
@@ -170,6 +217,58 @@ function phone(value) {
 }
 
 const LOYALTY_DEFAULTS = { enabled: true, percent: 5, maxPay: 30 };
+
+// Оформление программы. Цвета — #rrggbb, остальное проверяется в setDesign.
+const DESIGN_DEFAULTS = { name: 'Мой магазин', accent: '#2a78d6', bg: '', surface: '', ink: '', font: 'system', radius: 10, theme: 'auto', css: '' };
+
+// Интернет-витрина: всё, что меняется в конструкторе.
+const SHOP_DEFAULTS = {
+  enabled: false,
+  created: false,
+  template: 'light',
+  title: 'Мой магазин',
+  slogan: 'Свежие товары каждый день',
+  about: '',
+  phone: '',
+  address: '',
+  hours: '',
+  whatsapp: '',
+  telegram: '',
+  accent: '#2a78d6',
+  bg: '#ffffff',
+  surface: '#f5f5f3',
+  ink: '#111111',
+  font: 'system',
+  radius: 14,
+  columns: 4,
+  cardStyle: 'photo',
+  showStock: false,
+  hideOutOfStock: true,
+  delivery: true,
+  pickup: true,
+  minOrder: 0,
+  deliveryPrice: 0,
+  categories: [],
+  bannerId: null,
+  logoId: null,
+  css: '',
+};
+const FONTS = ['system', 'serif', 'rounded', 'mono', 'condensed'];
+const COLOR_RE = /^#[0-9a-f]{6}$/i;
+
+function color(value, field, { optional = false } = {}) {
+  const s = String(value ?? '').trim();
+  if (optional && !s) return '';
+  if (!COLOR_RE.test(s)) throw new UserError(`Цвет «${field}» должен быть вида #2a78d6`);
+  return s.toLowerCase();
+}
+
+// Свой CSS: тег </style> и @import запрещены, чтобы стиль не тянул чужие файлы и не ломал страницу.
+function css(value) {
+  const s = text(value, 'Свой CSS', { max: 20000 });
+  if (/<\/?\s*style|@import|javascript:|expression\s*\(/i.test(s)) throw new UserError('В своём CSS нельзя использовать @import, javascript: и теги <style>');
+  return s;
+}
 
 function monthsBetween(from, to) {
   let months = 0;
@@ -192,6 +291,7 @@ function createStore(file) {
     category: text(input.category ?? current.category, 'Категория'),
     barcode: text(input.barcode ?? current.barcode, 'Штрихкод', { max: 64 }),
     code: text(input.code ?? current.code, 'Код товара', { max: 64 }),
+    description: text(input.description ?? current.description, 'Описание', { max: 2000 }),
     unit: text(input.unit ?? current.unit ?? 'шт', 'Единица', { max: 10 }) || 'шт',
     price: round2(number(input.price ?? current.price, 'Цена продажи')),
     cost: round2(number(input.cost ?? current.cost ?? 0, 'Себестоимость')),
@@ -234,24 +334,85 @@ function createStore(file) {
     },
 
     listProducts({ archived = false } = {}) {
-      return db.prepare(`SELECT * FROM products WHERE archived = ? ORDER BY name COLLATE NOCASE`).all(archived ? 1 : 0);
+      return db.prepare(`SELECT * FROM products WHERE archived = ? AND deleted = 0 ORDER BY name COLLATE NOCASE`).all(archived ? 1 : 0);
     },
 
     createProduct(input) {
       const f = productFields(input);
       const stock = number(input.stock ?? 0, 'Остаток');
       const { lastInsertRowid } = db.prepare(`
-        INSERT INTO products (name, category, barcode, code, unit, price, cost, stock, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(f.name, f.category, f.barcode, f.code, f.unit, f.price, f.cost, stock, Date.now());
+        INSERT INTO products (name, category, barcode, code, unit, price, cost, stock, description, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(f.name, f.category, f.barcode, f.code, f.unit, f.price, f.cost, stock, f.description, Date.now());
       return getProduct(lastInsertRowid);
+    },
+
+    // Групповые действия с товарами. ids — список товаров, action — что сделать.
+    // Удалённый товар пропадает из всех списков, но история продаж и приходов по нему остаётся.
+    bulkProducts({ ids, action, value, mode }) {
+      if (!Array.isArray(ids) || !ids.length) throw new UserError('Выберите товары');
+      if (ids.length > 10000) throw new UserError('Слишком много товаров за раз');
+      return transaction(db, () => {
+        const list = ids.map(getProduct).filter((p) => !p.deleted);
+        const set = (sql, args) => {
+          const st = db.prepare(sql);
+          for (const p of list) st.run(...args(p), p.id);
+        };
+        switch (action) {
+          case 'delete': {
+            const used = db.prepare('SELECT 1 FROM sale_items WHERE product_id = ? UNION SELECT 1 FROM arrival_items WHERE product_id = ? UNION SELECT 1 FROM order_items WHERE product_id = ? LIMIT 1');
+            for (const p of list) {
+              if (used.get(p.id, p.id, p.id)) {
+                db.prepare('UPDATE products SET deleted = 1, archived = 1 WHERE id = ?').run(p.id);
+              } else {
+                db.prepare('DELETE FROM product_photos WHERE product_id = ?').run(p.id);
+                db.prepare('DELETE FROM products WHERE id = ?').run(p.id);
+              }
+            }
+            break;
+          }
+          case 'archive': set('UPDATE products SET archived = 1 WHERE id = ?', () => []); break;
+          case 'restore': set('UPDATE products SET archived = 0 WHERE id = ?', () => []); break;
+          case 'category': {
+            const c = text(value, 'Категория');
+            set('UPDATE products SET category = ? WHERE id = ?', () => [c]);
+            break;
+          }
+          case 'unit': {
+            const u = text(value, 'Единица', { max: 10 }) || 'шт';
+            set('UPDATE products SET unit = ? WHERE id = ?', () => [u]);
+            break;
+          }
+          case 'price':
+          case 'cost': {
+            // mode: set — новая цена, percent — изменить на ±%, add — прибавить ±рубли,
+            // markup — цена = себестоимость + наценка в % (только для цены).
+            const n = number(value, 'Значение', { min: -Infinity });
+            const calc = {
+              set: () => n,
+              percent: (old) => old * (1 + n / 100),
+              add: (old) => old + n,
+              markup: (old, p) => p.cost * (1 + n / 100),
+            }[mode];
+            if (!calc || (mode === 'markup' && action === 'cost')) throw new UserError('Неизвестный способ изменения цены');
+            set(`UPDATE products SET ${action} = ? WHERE id = ?`, (p) => {
+              const next = round2(calc(p[action], p));
+              if (next < 0) throw new UserError(`У товара «${p.name}» цена получится меньше нуля`);
+              return [next];
+            });
+            break;
+          }
+          default: throw new UserError('Неизвестное действие');
+        }
+        return { count: list.length };
+      });
     },
 
     updateProduct(id, input) {
       const current = getProduct(id);
       const f = productFields(input, current);
       const archived = input.archived === undefined ? current.archived : input.archived ? 1 : 0;
-      db.prepare(`UPDATE products SET name = ?, category = ?, barcode = ?, code = ?, unit = ?, price = ?, cost = ?, archived = ? WHERE id = ?`)
-        .run(f.name, f.category, f.barcode, f.code, f.unit, f.price, f.cost, archived, current.id);
+      db.prepare(`UPDATE products SET name = ?, category = ?, barcode = ?, code = ?, unit = ?, price = ?, cost = ?, description = ?, archived = ? WHERE id = ?`)
+        .run(f.name, f.category, f.barcode, f.code, f.unit, f.price, f.cost, f.description, archived, current.id);
       return getProduct(current.id);
     },
 
@@ -414,7 +575,7 @@ function createStore(file) {
       const stats = new Map(rows.map((r) => [r.id, r]));
       const users = db.prepare('SELECT * FROM users ORDER BY name, email').all();
       const result = users
-        .filter((u) => stats.has(u.id) || (!u.disabled && ROLES[u.role]?.can.includes('pos')))
+        .filter((u) => stats.has(u.id) || (!u.disabled && can(u, 'pos')))
         .map((u) => ({ user: publicUser(u), ...stats.get(u.id) }));
       if (stats.has(null)) result.push({ user: null, ...stats.get(null) });
       return {
@@ -469,6 +630,16 @@ function createStore(file) {
       const like = `%${String(q).trim()}%`;
       return db.prepare(`SELECT * FROM customers WHERE ? = '' OR name LIKE ? OR (? <> '' AND phone LIKE ?)
                          ORDER BY created_at DESC LIMIT ?`).all(String(q).trim(), like, digits, `%${digits}%`, limit);
+    },
+
+    // Рейтинг покупателей: сколько раз и на сколько покупали, когда впервые и в последний раз.
+    customerRating() {
+      return db.prepare(`
+        SELECT c.*, COUNT(s.id) AS purchases, COALESCE(SUM(s.total), 0) AS spent,
+          MIN(s.created_at) AS first_at, MAX(s.created_at) AS last_at
+        FROM customers c LEFT JOIN sales s ON s.customer_id = c.id AND s.refunded_at IS NULL
+        GROUP BY c.id ORDER BY spent DESC, c.created_at DESC LIMIT 5000`).all()
+        .map((c) => ({ ...c, spent: round2(c.spent), avg: c.purchases ? round2(c.spent / c.purchases) : 0 }));
     },
 
     findCustomer(id) {
@@ -603,8 +774,8 @@ function createStore(file) {
       const e = email(input.email);
       if (this.findUserByEmail(e)) throw new UserError('Сотрудник с таким email уже есть');
       const pay = payFields(input);
-      const { lastInsertRowid } = db.prepare('INSERT INTO users (email, name, role, password_hash, created_at, salary, percent, plan) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(e, text(input.name, 'Имя', { max: 80 }), role(input.role || 'cashier'), passwordHash, Date.now(), pay.salary, pay.percent, pay.plan);
+      const { lastInsertRowid } = db.prepare('INSERT INTO users (email, name, role, password_hash, created_at, salary, percent, plan, rights) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(e, text(input.name, 'Имя', { max: 80 }), role(input.role || 'cashier'), passwordHash, Date.now(), pay.salary, pay.percent, pay.plan, rightsList(input.rights ?? null));
       return publicUser(this.findUser(lastInsertRowid));
     },
 
@@ -625,8 +796,9 @@ function createStore(file) {
       if (current.role === 'admin' && !current.disabled && (next.role !== 'admin' || next.disabled) && this.activeAdmins() <= 1) {
         throw new UserError('Это единственный администратор. Сначала назначьте другого.');
       }
-      db.prepare('UPDATE users SET email = ?, name = ?, role = ?, disabled = ?, password_hash = ?, salary = ?, percent = ?, plan = ? WHERE id = ?')
-        .run(next.email, next.name, next.role, next.disabled, passwordHash || current.password_hash, pay.salary, pay.percent, pay.plan, current.id);
+      const rights = input.rights === undefined ? current.rights : rightsList(input.rights);
+      db.prepare('UPDATE users SET email = ?, name = ?, role = ?, disabled = ?, password_hash = ?, salary = ?, percent = ?, plan = ?, rights = ? WHERE id = ?')
+        .run(next.email, next.name, next.role, next.disabled, passwordHash || current.password_hash, pay.salary, pay.percent, pay.plan, rights, current.id);
       return publicUser(this.findUser(current.id));
     },
 
@@ -657,6 +829,166 @@ function createStore(file) {
     },
 
     publicUser,
+
+    /* ---------- Оформление программы ---------- */
+
+    design() {
+      return { ...DESIGN_DEFAULTS, ...JSON.parse(this.setting('design', '{}')) };
+    },
+
+    setDesign(input) {
+      const radius = number(input.radius ?? 10, 'Скругление');
+      const next = {
+        name: text(input.name, 'Название', { max: 60 }) || DESIGN_DEFAULTS.name,
+        accent: color(input.accent, 'Основной'),
+        bg: color(input.bg, 'Фон', { optional: true }),
+        surface: color(input.surface, 'Панели', { optional: true }),
+        ink: color(input.ink, 'Текст', { optional: true }),
+        font: FONTS.includes(input.font) ? input.font : 'system',
+        radius: Math.min(radius, 30),
+        theme: ['auto', 'light', 'dark'].includes(input.theme) ? input.theme : 'auto',
+        css: css(input.css),
+      };
+      this.setSetting('design', JSON.stringify(next));
+      return next;
+    },
+
+    /* ---------- Картинки витрины (баннер, логотип) ---------- */
+
+    addImage({ mime, data }) {
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(mime)) throw new UserError('Картинка должна быть в формате JPEG, PNG или WebP');
+      const bytes = Buffer.from(String(data || ''), 'base64');
+      if (!bytes.length) throw new UserError('Файл пустой');
+      if (bytes.length > 4e6) throw new UserError('Картинка больше 4 МБ');
+      const { lastInsertRowid } = db.prepare('INSERT INTO images (mime, data, created_at) VALUES (?, ?, ?)').run(mime, bytes, Date.now());
+      return { id: Number(lastInsertRowid) };
+    },
+
+    getImage(id) {
+      return db.prepare('SELECT mime, data FROM images WHERE id = ?').get(Number(id)) || null;
+    },
+
+    /* ---------- Интернет-витрина ---------- */
+
+    shop() {
+      return { ...SHOP_DEFAULTS, ...JSON.parse(this.setting('shop', '{}')) };
+    },
+
+    setShop(input) {
+      const cur = this.shop();
+      const v = { ...cur, ...input };
+      const t = (k, f, max = 200) => text(v[k], f, { max });
+      const imageId = (x) => (x ? (this.getImage(x) ? Number(x) : null) : null);
+      const next = {
+        enabled: Boolean(v.enabled),
+        // Созданная витрина остаётся в конструкторе, даже когда её закрыли для покупателей.
+        created: Boolean(cur.created || v.created || v.enabled),
+        template: String(v.template || 'light').slice(0, 30),
+        title: t('title', 'Название витрины', 80) || 'Мой магазин',
+        slogan: t('slogan', 'Подзаголовок'),
+        about: t('about', 'О магазине', 3000),
+        phone: t('phone', 'Телефон', 40),
+        address: t('address', 'Адрес'),
+        hours: t('hours', 'Часы работы'),
+        whatsapp: t('whatsapp', 'WhatsApp', 40),
+        telegram: t('telegram', 'Telegram', 60).replace(/^@/, ''),
+        accent: color(v.accent, 'Основной'),
+        bg: color(v.bg, 'Фон'),
+        surface: color(v.surface, 'Карточки'),
+        ink: color(v.ink, 'Текст'),
+        font: FONTS.includes(v.font) ? v.font : 'system',
+        radius: Math.min(number(v.radius, 'Скругление'), 40),
+        columns: Math.max(1, Math.min(6, Math.round(number(v.columns, 'Колонки', { positive: true })))),
+        cardStyle: ['photo', 'compact', 'list'].includes(v.cardStyle) ? v.cardStyle : 'photo',
+        showStock: Boolean(v.showStock),
+        hideOutOfStock: Boolean(v.hideOutOfStock),
+        delivery: Boolean(v.delivery),
+        pickup: Boolean(v.pickup),
+        minOrder: round2(number(v.minOrder || 0, 'Минимальный заказ')),
+        deliveryPrice: round2(number(v.deliveryPrice || 0, 'Стоимость доставки')),
+        categories: Array.isArray(v.categories) ? v.categories.map((c) => String(c).slice(0, 200)).slice(0, 500) : [],
+        bannerId: imageId(v.bannerId),
+        logoId: imageId(v.logoId),
+        css: css(v.css),
+      };
+      if (!next.delivery && !next.pickup) throw new UserError('Включите доставку или самовывоз');
+      this.setSetting('shop', JSON.stringify(next));
+      return next;
+    },
+
+    // Товары для витрины: только нужные покупателю поля, без себестоимости.
+    shopProducts() {
+      const s = this.shop();
+      const cats = new Set(s.categories);
+      return db.prepare('SELECT id, name, category, unit, price, stock, description, photo_at FROM products WHERE archived = 0 AND deleted = 0 AND price > 0 ORDER BY category, name COLLATE NOCASE').all()
+        .filter((p) => (!cats.size || cats.has(p.category)) && (!s.hideOutOfStock || p.stock > 0))
+        .map((p) => ({ ...p, stock: s.showStock ? Math.max(0, p.stock) : p.stock > 0 ? 1 : 0, photo: Boolean(p.photo_at) }));
+    },
+
+    shopPhotoAllowed(id) {
+      return this.shopProducts().some((p) => p.id === Number(id) && p.photo);
+    },
+
+    createOrder(input) {
+      const s = this.shop();
+      if (!s.enabled) throw new UserError('Витрина сейчас закрыта');
+      const available = new Map(this.shopProducts().map((p) => [p.id, p]));
+      if (!Array.isArray(input.items) || !input.items.length) throw new UserError('Корзина пуста');
+      if (input.items.length > 200) throw new UserError('Слишком много позиций в заказе');
+      const lines = input.items.map((i) => {
+        const p = available.get(Number(i.productId));
+        if (!p) throw new UserError('Одного из товаров уже нет в продаже. Обновите страницу.');
+        return { p, qty: number(i.qty, 'Количество', { positive: true }) };
+      });
+      const delivery = input.delivery === 'delivery' ? 'delivery' : 'pickup';
+      if (delivery === 'delivery' ? !s.delivery : !s.pickup) throw new UserError('Этот способ получения недоступен');
+      const goods = round2(lines.reduce((sum, l) => sum + l.qty * l.p.price, 0));
+      if (goods < s.minOrder) throw new UserError(`Минимальная сумма заказа — ${s.minOrder} ₽`);
+      const total = round2(goods + (delivery === 'delivery' ? s.deliveryPrice : 0));
+      const address = text(input.address, 'Адрес', { max: 300 });
+      if (delivery === 'delivery' && !address) throw new UserError('Укажите адрес доставки');
+      return transaction(db, () => {
+        const { lastInsertRowid: id } = db.prepare('INSERT INTO orders (created_at, name, phone, comment, delivery, address, total) VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .run(Date.now(), text(input.name, 'Имя', { required: true, max: 80 }), phone(input.phone), text(input.comment, 'Комментарий', { max: 1000 }), delivery, address, total);
+        const add = db.prepare('INSERT INTO order_items (order_id, product_id, name, qty, price) VALUES (?, ?, ?, ?, ?)');
+        for (const l of lines) add.run(id, l.p.id, l.p.name, l.qty, l.p.price);
+        return this.getOrder(id);
+      });
+    },
+
+    getOrder(id) {
+      const o = db.prepare('SELECT * FROM orders WHERE id = ?').get(Number(id));
+      if (!o) throw new UserError('Заказ не найден');
+      return { ...o, items: db.prepare('SELECT product_id, name, qty, price FROM order_items WHERE order_id = ?').all(o.id) };
+    },
+
+    listOrders({ status = '' } = {}) {
+      const rows = db.prepare(`SELECT id FROM orders WHERE ? = '' OR status = ? ORDER BY created_at DESC LIMIT 300`).all(status, status);
+      return rows.map((r) => this.getOrder(r.id));
+    },
+
+    // Статусы: new — новый, confirmed — подтверждён, ready — собран, done — выдан, cancelled — отменён.
+    // При выдаче заказ пробивается чеком: товар списывается, выручка идёт тому, кто выдал.
+    setOrderStatus(id, { status, payment }, user = null) {
+      const o = this.getOrder(id);
+      if (!['new', 'confirmed', 'ready', 'done', 'cancelled'].includes(status)) throw new UserError('Неизвестный статус');
+      if (o.status === 'done' || o.status === 'cancelled') throw new UserError('Заказ уже закрыт');
+      return transaction(db, () => {
+        let saleId = null;
+        if (status === 'done') {
+          // Покупатель с витрины попадает в программу лояльности по телефону: так его покупки видны в рейтинге.
+          const customer = this.findCustomerByPhone(o.phone) || this.createCustomer({ phone: o.phone, name: o.name });
+          saleId = this.createSale({ payment: payment === 'cash' ? 'cash' : 'card', customerId: customer.id, items: o.items.map((i) => ({ productId: i.product_id, qty: i.qty, price: i.price })) }, user).id;
+        }
+        db.prepare('UPDATE orders SET status = ?, updated_at = ?, updated_by = ?, sale_id = COALESCE(?, sale_id) WHERE id = ?')
+          .run(status, Date.now(), user ? user.name || user.email : '', saleId, o.id);
+        return this.getOrder(o.id);
+      });
+    },
+
+    countNewOrders() {
+      return db.prepare("SELECT COUNT(*) AS n FROM orders WHERE status = 'new'").get().n;
+    },
 
     setSetting(key, value) {
       db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
