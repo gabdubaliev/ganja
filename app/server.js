@@ -238,6 +238,10 @@ const routes = [
   }, 'pos'],
   ['POST', '/api/sales/:id/refund', (p, url, body, user) => store.refundSale(p.id, user), 'refund'],
   ['POST', '/api/sales/delete', (p, url, body, user) => store.deleteSales(body, user), 'sales.delete'],
+  ['GET', '/api/inventory', (p, url) => store.listStockDocs({ kind: 'inventory', ...range(url) }), 'stock'],
+  ['POST', '/api/inventory', (p, url, body, user) => store.createInventory(body, user), 'stock'],
+  ['GET', '/api/writeoffs', (p, url) => ({ docs: store.listStockDocs({ kind: 'writeoff', ...range(url) }), summary: store.writeoffSummary(range(url)) }), 'writeoff'],
+  ['POST', '/api/writeoffs', (p, url, body, user) => store.createWriteoff(body, user), 'writeoff'],
   ['GET', '/api/arrivals', () => store.listArrivals(), 'arrivals'],
   ['POST', '/api/arrivals', (p, url, body) => store.createArrival(body), 'arrivals'],
   ['GET', '/api/cash-desk', () => store.cashDesk(), ['dashboard', 'shifts']],
@@ -457,6 +461,8 @@ const AUDIT_LABELS = {
   'POST /api/sales/:id/refund': 'Оформил возврат',
   'POST /api/sales/delete': 'Удалил продажи',
   'POST /api/arrivals': 'Провёл приход',
+  'POST /api/inventory': 'Провёл инвентаризацию',
+  'POST /api/writeoffs': 'Списал товар',
   'POST /api/demo': 'Загрузил пример магазина',
   'POST /api/shift/open': 'Открыл смену',
   'POST /api/shift/close': 'Закрыл смену',
@@ -523,6 +529,8 @@ function auditDetails(key, params, body, result) {
     case 'PUT /api/products/:id': return `${r.name}: цена ${r.price}, себестоимость ${r.cost}`;
     case 'DELETE /api/categories/:id': return `товаров перенесено: ${r.moved}${r.to ? ` в «${r.to}»` : ', остались без категории'}`;
     case 'POST /api/products/:id/variants': return `${Array.isArray(r) ? r.length : 0} шт.`;
+    case 'POST /api/inventory': return `№${r.id}: ${r.items.length} поз., недостача ${r.shortage_cost} сом, излишек ${r.surplus_cost} сом`;
+    case 'POST /api/writeoffs': return `№${r.id}: ${r.items.map((i) => `${i.name} ${i.qty} ${i.unit} (${i.reason})`).join(', ')} — ${r.total_cost} сом по себестоимости`;
     case 'POST /api/arrivals': return `Приход №${r.id} на ${r.total} сом${body.supplier ? `, ${body.supplier}` : ''}`;
     case 'POST /api/fines': return `${store.findUser(body.user_id)?.name || ''}: ${r.amount} сом — ${r.reason}`;
     case 'DELETE /api/fines/:id': return `${r.amount} сом — ${r.reason}`;

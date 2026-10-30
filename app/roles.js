@@ -19,9 +19,10 @@ const RIGHTS = [
   { key: 'products.delete', group: 'Товары', label: 'Удалять товары' },
   { key: 'import', group: 'Товары', label: 'Импорт товаров из Excel' },
   { key: 'stock.view', group: 'Товары', label: 'Видеть остатки товаров (на кассе, в товарах, на главной)' },
-  { key: 'stock', group: 'Товары', label: 'Пересчитывать остаток (инвентаризация)' },
   { key: 'photos', group: 'Товары', label: 'Добавлять, менять и удалять фото товаров' },
   { key: 'arrivals', group: 'Склад', label: 'Приход товара от поставщика' },
+  { key: 'stock', group: 'Склад', label: 'Инвентаризация: пересчитывать остатки по факту' },
+  { key: 'writeoff', group: 'Склад', label: 'Списывать товар: брак, просрочка, порча' },
   { key: 'crm', group: 'Покупатели', label: 'CRM: сделки, переписка с клиентами, задачи' },
   { key: 'customers', group: 'Покупатели', label: 'Список покупателей, рейтинг и история бонусов' },
   { key: 'customers.accounts', group: 'Покупатели', label: 'Аккаунты покупателей на витрине: коды подтверждения, сброс пароля, блокировка' },
@@ -50,7 +51,7 @@ const ROLES = {
   manager: {
     name: 'Управляющий',
     about: 'Видит всё и ведёт магазин, выписывает штрафы, правит смены, ведёт табель, даёт и проверяет задания. По умолчанию не меняет сотрудников, бонусы, оформление, настройки и не видит журнал действий.',
-    can: ['dashboard', 'kpi', 'pos', 'sales', 'refund', 'discount', 'products', 'stock.view', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'notify', 'shifts', 'fines', 'timesheet', 'tasks'],
+    can: ['dashboard', 'kpi', 'pos', 'sales', 'refund', 'discount', 'products', 'stock.view', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'notify', 'shifts', 'fines', 'timesheet', 'tasks', 'writeoff'],
   },
   cashier: {
     name: 'Кассир',
@@ -60,7 +61,7 @@ const ROLES = {
   storekeeper: {
     name: 'Кладовщик',
     about: 'Товары, фото, приход и остатки. Не видит продажи и деньги.',
-    can: ['products', 'stock.view', 'stock', 'photos', 'arrivals'],
+    can: ['products', 'stock.view', 'stock', 'writeoff', 'photos', 'arrivals'],
   },
 };
 

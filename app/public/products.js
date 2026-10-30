@@ -73,6 +73,7 @@ async function openProductCard(id, stats = null) {
     ${showStock && stats.daysLeft !== null ? cell('Хватит на', stats.daysLeft === Infinity ? 'не продаётся' : stats.daysLeft < 1 ? 'меньше дня' : `${int(Math.floor(stats.daysLeft))} ${plural(Math.floor(stats.daysLeft), ['день', 'дня', 'дней'])}`, `за 30 дней продано ${qty(stats.sold30, p.unit)}`) : ''}</div>` : '';
   $('#pc-edit').hidden = !session.can('products');
   $('#pc-stock').hidden = !session.can('stock') || kids.length > 0 || !showStock;
+  $('#pc-writeoff').hidden = !session.can('writeoff') || kids.length > 0;
   $('#pc-open').hidden = !session.can('products') && !session.can('photos');
   if (!$('#product-card').open) $('#product-card').showModal();
 }
@@ -100,6 +101,10 @@ $('#pc-stock').addEventListener('click', () => {
   $('#stock-error').hidden = true;
   $('#stock-dialog').showModal();
   $('#stock-form').elements.stock.select();
+});
+$('#pc-writeoff').addEventListener('click', () => {
+  $('#product-card').close();
+  writeoffProduct(cardProduct);
 });
 $('#pc-open').addEventListener('click', () => {
   const name = (cardProduct.parent_id ? catalog.byId(cardProduct.parent_id) : cardProduct).name;

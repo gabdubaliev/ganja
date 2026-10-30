@@ -214,6 +214,38 @@ function open(file) {
       CASE s.payment WHEN 'cash' THEN 'cash' ELSE 'card' END, s.total - s.bonus_spent
     FROM sales s WHERE NOT EXISTS (SELECT 1 FROM sale_payments sp WHERE sp.sale_id = s.id)`);
 
+  // Складские документы: инвентаризация (kind 'inventory') — пересчёт остатков по факту,
+  // списание (kind 'writeoff') — брак, просрочка, порча. Строки хранят снимок названия, цены и себестоимости.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS stock_docs (
+      id INTEGER PRIMARY KEY,
+      kind TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      user_id INTEGER,
+      user_name TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      shortage_cost REAL NOT NULL DEFAULT 0,
+      surplus_cost REAL NOT NULL DEFAULT 0,
+      total_cost REAL NOT NULL DEFAULT 0,
+      total_price REAL NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS stock_docs_kind ON stock_docs(kind, created_at);
+    CREATE TABLE IF NOT EXISTS stock_doc_items (
+      id INTEGER PRIMARY KEY,
+      doc_id INTEGER NOT NULL REFERENCES stock_docs(id),
+      product_id INTEGER,
+      name TEXT NOT NULL,
+      unit TEXT NOT NULL DEFAULT 'шт',
+      expected REAL,
+      actual REAL,
+      qty REAL NOT NULL,
+      cost REAL NOT NULL DEFAULT 0,
+      price REAL NOT NULL DEFAULT 0,
+      reason TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS stock_doc_items_doc ON stock_doc_items(doc_id);
+  `);
+
   // Задания сотрудникам: open — в работе, done — сотрудник отметил «Выполнено» и ждёт проверки,
   // approved — проверено и принято, returned — возвращено на доработку.
   db.exec(`
@@ -1652,6 +1684,73 @@ function createStore(file) {
         }
         return { id: Number(arrivalId), total };
       });
+    },
+
+    /* ---------- Инвентаризация и списание ---------- */
+    // Инвентаризация: items — [{ productId, actual }] — сколько товара по факту. Остаток становится фактом,
+    // разница (излишек или недостача) сохраняется в документе по себестоимости и цене.
+    createInventory({ items, note }, user = null) {
+      if (!Array.isArray(items) || !items.length) throw new UserError('Не посчитано ни одного товара');
+      return transaction(db, () => {
+        const lines = items.map((item) => {
+          const p = getProduct(item.productId);
+          if (childrenOf(p.id).length) throw new UserError(`«${p.name}» считается по модификациям`);
+          const actual = number(item.actual, `Факт «${p.name}»`, { min: 0 });
+          return { p, expected: p.stock, actual, qty: round2(actual - p.stock) };
+        });
+        const shortage = round2(lines.filter((l) => l.qty < 0).reduce((s, l) => s - l.qty * l.p.cost, 0));
+        const surplus = round2(lines.filter((l) => l.qty > 0).reduce((s, l) => s + l.qty * l.p.cost, 0));
+        const docId = this.addStockDoc('inventory', user, note, { shortage_cost: shortage, surplus_cost: surplus,
+          total_cost: round2(surplus - shortage), total_price: round2(lines.reduce((s, l) => s + l.qty * l.p.price, 0)) }, lines);
+        const set = db.prepare('UPDATE products SET stock = ? WHERE id = ?');
+        for (const l of lines) set.run(l.actual, l.p.id);
+        return this.getStockDoc(docId);
+      });
+    },
+
+    // Списание: items — [{ productId, qty, reason }]. Остаток уменьшается, потери — по себестоимости.
+    createWriteoff({ items, note }, user = null) {
+      if (!Array.isArray(items) || !items.length) throw new UserError('В списании нет товаров');
+      return transaction(db, () => {
+        const lines = items.map((item) => {
+          const p = getProduct(item.productId);
+          if (childrenOf(p.id).length) throw new UserError(`У «${p.name}» есть модификации — выберите нужную`);
+          const qty = number(item.qty, `Количество «${p.name}»`, { positive: true });
+          return { p, expected: p.stock, actual: round2(p.stock - qty), qty, reason: text(item.reason, 'Причина', { required: true, max: 100 }) };
+        });
+        const docId = this.addStockDoc('writeoff', user, note, {
+          total_cost: round2(lines.reduce((s, l) => s + l.qty * l.p.cost, 0)), total_price: round2(lines.reduce((s, l) => s + l.qty * l.p.price, 0)) }, lines);
+        const take = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?');
+        for (const l of lines) take.run(l.qty, l.p.id);
+        return this.getStockDoc(docId);
+      });
+    },
+
+    addStockDoc(kind, user, note, totals, lines) {
+      const { lastInsertRowid } = db.prepare(`INSERT INTO stock_docs (kind, created_at, user_id, user_name, note, shortage_cost, surplus_cost, total_cost, total_price)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(kind, Date.now(), user?.id ?? null, user ? user.name || user.email : '', text(note, 'Комментарий', { max: 500 }),
+        totals.shortage_cost || 0, totals.surplus_cost || 0, totals.total_cost || 0, totals.total_price || 0);
+      const add = db.prepare('INSERT INTO stock_doc_items (doc_id, product_id, name, unit, expected, actual, qty, cost, price, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+      for (const l of lines) add.run(lastInsertRowid, l.p.id, l.p.name, l.p.unit, l.expected, l.actual, l.qty, l.p.cost, l.p.price, l.reason || '');
+      return Number(lastInsertRowid);
+    },
+
+    getStockDoc(id) {
+      const d = db.prepare('SELECT * FROM stock_docs WHERE id = ?').get(Number(id));
+      if (!d) throw new UserError('Документ не найден');
+      return { ...d, items: db.prepare('SELECT * FROM stock_doc_items WHERE doc_id = ? ORDER BY id').all(d.id) };
+    },
+
+    listStockDocs({ kind, from = 0, to = Date.now() + 864e5 }) {
+      return db.prepare('SELECT id FROM stock_docs WHERE kind = ? AND created_at >= ? AND created_at < ? ORDER BY created_at DESC LIMIT 200')
+        .all(kind, from, to).map((r) => this.getStockDoc(r.id));
+    },
+
+    // Потери от списаний за период по причинам.
+    writeoffSummary({ from, to }) {
+      return db.prepare(`SELECT i.reason, COUNT(*) AS lines, SUM(i.qty * i.cost) AS cost, SUM(i.qty * i.price) AS price
+        FROM stock_doc_items i JOIN stock_docs d ON d.id = i.doc_id WHERE d.kind = 'writeoff' AND d.created_at >= ? AND d.created_at < ?
+        GROUP BY i.reason ORDER BY cost DESC`).all(from, to).map((r) => ({ ...r, cost: round2(r.cost), price: round2(r.price) }));
     },
 
     listArrivals({ limit = 100 } = {}) {

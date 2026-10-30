@@ -1061,3 +1061,27 @@ tr.clickable:hover td { background: var(--hover); }
 .pc-variant { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); text-align: left; cursor: pointer; font: inherit; color: inherit; }
 .pc-variant:hover { border-color: var(--series); }
 @media (max-width: 760px) { .stock-totals { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ---------- Инвентаризация и списание ---------- */
+.inv-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+.inv-option { display: grid; gap: 8px; align-content: start; padding: 16px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); text-align: left; font: inherit; color: inherit; }
+button.inv-option { cursor: pointer; }
+button.inv-option:hover { border-color: var(--series); box-shadow: var(--shadow-sm); }
+.inv-option b { font-size: 16px; }
+.inv-option span { color: var(--muted); font-size: 13px; }
+.inv-option .btn { justify-self: start; }
+.inv-scan { display: flex; gap: 8px; margin-bottom: 8px; }
+.inv-scan .input { flex: 1; }
+.inv-tools { margin-top: 4px; }
+.inv-table { min-width: 640px; }
+.inv-table .input { width: 110px; text-align: right; }
+.inv-table tr.short td { background: color-mix(in srgb, var(--critical) 5%, transparent); }
+.inv-table tr.over td { background: color-mix(in srgb, #1a9d55 6%, transparent); }
+.inv-foot { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: flex-end; margin-top: 12px; }
+.inv-foot > .input { flex: 1 1 240px; }
+.st-tile.bad { background: color-mix(in srgb, var(--critical) 7%, var(--surface)); border-color: color-mix(in srgb, var(--critical) 25%, var(--border)); }
+.st-tile.good { background: color-mix(in srgb, #1a9d55 8%, var(--surface)); border-color: color-mix(in srgb, #1a9d55 25%, var(--border)); }
+#wo-summary { margin-top: 4px; }
+@media (max-width: 760px) { .inv-options { grid-template-columns: 1fr; } }
+#inv-history .doc summary, #wo-history .doc summary { grid-template-columns: 50px 130px minmax(0, 1fr) auto auto; }
+@media (max-width: 640px) { #inv-history .doc summary, #wo-history .doc summary { grid-template-columns: auto minmax(0, 1fr) auto; } #inv-history .doc-who, #wo-history .doc-who, #inv-history summary .pick-meta, #wo-history summary .pick-meta { display: none; } }
