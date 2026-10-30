@@ -518,6 +518,40 @@
     </form>
   </section>
   <section class="panel">
+    <form id="sms-form" class="settings-form" novalidate>
+      <div>
+        <h2>SMS с кодами подтверждения</h2>
+        <p class="sub">Коды для регистрации и «Забыл пароль» на витрине уйдут покупателю по SMS. Если SMS не отправится, код попробует уйти в WhatsApp, а потом его увидит сотрудник в «Покупателях». Нужен договор с SMS-провайдером: обычно это оплата за каждое сообщение (порядка нескольких сомов) и одобренное имя отправителя.</p>
+      </div>
+      <div class="field"><label for="sms-provider">Провайдер</label><select id="sms-provider" name="provider" class="input"></select></div>
+      <div class="sms-help" id="sms-help"></div>
+      <div class="form-grid">
+        <div class="field" data-sms="login"><label for="sms-login" id="sms-login-label">Логин</label><input id="sms-login" name="login" class="input" autocomplete="off"></div>
+        <div class="field" data-sms="password"><label for="sms-password" id="sms-password-label">Пароль</label><input id="sms-password" name="password" type="password" class="input" autocomplete="new-password"></div>
+        <div class="field" data-sms="apiKey"><label for="sms-key">API-ключ</label><input id="sms-key" name="apiKey" class="input" autocomplete="off"></div>
+        <div class="field" data-sms="sender"><label for="sms-sender" id="sms-sender-label">Имя отправителя</label><input id="sms-sender" name="sender" class="input" autocomplete="off" placeholder="Например, MONTSHOP"></div>
+      </div>
+      <div class="custom-sms" data-sms="custom">
+        <div class="form-grid">
+          <div class="field"><label for="sms-method">Метод</label><select id="sms-method" name="method" class="input"><option>POST</option><option>GET</option></select></div>
+          <div class="field"><label for="sms-success">Слово успеха в ответе (необязательно)</label><input id="sms-success" name="successText" class="input" autocomplete="off" placeholder="например, OK"></div>
+          <div class="field wide"><label for="sms-url">Адрес запроса</label><input id="sms-url" name="url" class="input" autocomplete="off" placeholder="https://provider.kg/send?login={login}&to={phone}&text={text}"></div>
+          <div class="field wide"><label for="sms-body">Тело запроса (для POST)</label><textarea id="sms-body" name="body" class="input code" rows="3" spellcheck="false" placeholder='{"phone": "{phone}", "message": "{text}", "sender": "{sender}"}'></textarea></div>
+        </div>
+        <p class="sub">Подстановки: {phone} — номер вида 996700123456, {text} — текст SMS, {sender}, {login}, {password}, {apiKey} — из полей выше.</p>
+      </div>
+      <div class="field"><label for="sms-template">Текст SMS — {code} заменится кодом</label><input id="sms-template" name="template" class="input" autocomplete="off" placeholder="Код подтверждения: {code}. Никому не сообщайте его."></div>
+      <label class="check"><input type="checkbox" name="test"> Тестовый режим (провайдер принимает запрос, но SMS не отправляет — если он это поддерживает)</label>
+      <label class="check"><input type="checkbox" name="enabled"> Отправлять коды по SMS</label>
+      <p class="form-error" id="sms-error" role="alert" hidden></p>
+      <div class="form-actions start">
+        <button type="submit" class="btn primary">Сохранить</button>
+        <input id="sms-test-phone" class="input" inputmode="tel" placeholder="Ваш номер для пробы" aria-label="Номер для пробного SMS" style="max-width: 220px">
+        <button type="button" class="btn" id="sms-test">Отправить пробное SMS</button>
+      </div>
+    </form>
+  </section>
+  <section class="panel">
     <form id="whatsapp-form" class="settings-form" novalidate>
       <div>
         <h2>WhatsApp → CRM</h2>

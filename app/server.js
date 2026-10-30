@@ -16,6 +16,7 @@ const { themeCss, shopCss } = require('./theme');
 const { createNotifier } = require('./notify');
 const { createCrm } = require('./crm');
 const { createShopAuth } = require('./shop-auth');
+const { sendSms, PROVIDERS: SMS_PROVIDERS } = require('./sms');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -80,6 +81,40 @@ const auth = createAuth(store, process.env.SESSION_SECRET || store.setting('sess
 
 // Сотрудник с правом «Сотрудники», но не администратор, не может назначать
 // администраторов и менять их: иначе он выдал бы себе все права.
+// Настройки SMS. Пароли и ключи на экран не отдаём — только признак, что они заданы.
+const smsSettings = () => ({ enabled: false, provider: '', login: '', password: '', apiKey: '', sender: '', url: '', method: 'POST', body: '', successText: '', template: '', test: false,
+  ...JSON.parse(store.setting('sms', '{}')) });
+const smsPublic = (s) => ({ enabled: s.enabled, provider: s.provider, login: s.login, sender: s.sender, url: s.url, method: s.method, body: s.body,
+  successText: s.successText, template: s.template, test: s.test, hasPassword: Boolean(s.password), hasApiKey: Boolean(s.apiKey), providers: SMS_PROVIDERS });
+
+function setSms(input) {
+  const cur = smsSettings();
+  const str = (v, field, max = 200) => String(v ?? '').trim().slice(0, max);
+  const next = {
+    enabled: Boolean(input.enabled),
+    provider: Object.hasOwn(SMS_PROVIDERS, input.provider) ? input.provider : '',
+    login: str(input.login),
+    password: input.password ? str(input.password) : cur.password,
+    apiKey: input.apiKey ? str(input.apiKey) : cur.apiKey,
+    sender: str(input.sender, 'Отправитель', 40),
+    url: str(input.url, 'Адрес', 500),
+    method: input.method === 'GET' ? 'GET' : 'POST',
+    body: str(input.body, 'Тело запроса', 2000),
+    successText: str(input.successText),
+    template: str(input.template, 'Текст', 160),
+    test: Boolean(input.test),
+  };
+  if (next.template && !next.template.includes('{code}')) throw new UserError('В тексте SMS должно быть {code} — туда подставится код');
+  if (next.url && !/^https?:\/\//.test(next.url)) throw new UserError('Адрес провайдера должен начинаться с https://');
+  if (next.enabled) {
+    const need = { nikita: ['login', 'password', 'sender'], smsru: ['apiKey'], twilio: ['login', 'password', 'sender'], custom: ['url'] }[next.provider];
+    if (!need) throw new UserError('Выберите провайдера SMS');
+    if (need.some((k) => !next[k])) throw new UserError('Заполните данные провайдера: ' + need.map((k) => ({ login: 'логин', password: 'пароль', sender: 'отправитель', apiKey: 'API-ключ', url: 'адрес' }[k])).join(', '));
+  }
+  store.setSetting('sms', JSON.stringify(next));
+  return next;
+}
+
 // Настройки WhatsApp для экрана: секреты не отдаём, только признак, что они заданы.
 const whatsappPublic = (s) => ({ enabled: s.enabled, verifyToken: s.verifyToken, phoneNumberId: s.phoneNumberId, hasSecret: Boolean(s.appSecret), hasToken: Boolean(s.accessToken),
   otpEnabled: Boolean(s.otpEnabled), otpTemplate: s.otpTemplate || '', otpLang: s.otpLang || 'ru', webhookPath: '/webhooks/whatsapp' });
@@ -206,6 +241,19 @@ const routes = [
   ['POST', '/api/crm/tasks/:id/toggle', (p, url, body, user) => crm.toggleTask(p.id, user), 'crm'],
   ['POST', '/api/crm/leads/:id/customer', (p, url, body, user) => crm.toCustomer(p.id, user), 'crm'],
   ['POST', '/api/crm/leads/:id/instagram', (p, url, body, user) => crm.replyInstagram(p.id, body.text, user), 'crm'],
+  ['GET', '/api/settings/sms', () => smsPublic(smsSettings()), 'settings'],
+  ['PUT', '/api/settings/sms', (p, url, body) => smsPublic(setSms(body)), 'settings'],
+  ['POST', '/api/settings/sms/test', async (p, url, body) => {
+    const s = smsSettings();
+    if (!s.provider) throw new UserError('Сначала выберите провайдера и сохраните настройки');
+    const to = normalizePhone(body.phone);
+    try {
+      await sendSms(s, to, (s.template || 'Код подтверждения: {code}. Никому не сообщайте его.').replace('{code}', '123456'));
+    } catch (err) {
+      throw new UserError(`Не отправлено: ${err.message}`);
+    }
+    return { ok: true, to };
+  }, 'settings'],
   ['POST', '/api/crm/leads/:id/whatsapp', (p, url, body, user) => crm.replyWhatsapp(p.id, body.text, user), 'crm'],
   ['GET', '/api/settings/whatsapp', () => whatsappPublic(crm.whatsappSettings()), 'settings'],
   ['PUT', '/api/settings/whatsapp', (p, url, body) => whatsappPublic(crm.setWhatsapp(body)), 'settings'],
@@ -367,6 +415,8 @@ const AUDIT_LABELS = {
   'POST /api/crm/leads/:id/instagram': 'Ответил клиенту в Instagram',
   'POST /api/crm/leads/:id/whatsapp': 'Ответил клиенту в WhatsApp',
   'PUT /api/settings/whatsapp': 'Изменил подключение WhatsApp',
+  'PUT /api/settings/sms': 'Изменил подключение SMS',
+  'POST /api/settings/sms/test': 'Отправил пробное SMS',
   'POST /api/customers/codes/:id/sent': 'Передал покупателю код подтверждения',
   'POST /api/customers/:id/password': 'Выдал покупателю временный пароль',
   'PUT /api/customers/:id/login': 'Изменил доступ покупателя к витрине',

@@ -8,12 +8,13 @@
 //
 // Номер подтверждается одноразовым кодом: при «Забыл пароль» и при регистрации на номер,
 // который уже есть в программе (чтобы по чужому номеру нельзя было забрать чужие бонусы).
-// Код уходит в WhatsApp, если это настроено, а иначе его видит сотрудник в программе
+// Код уходит по SMS или в WhatsApp, если это настроено, а иначе его видит сотрудник в программе
 // и сообщает покупателю звонком или сообщением.
 
 const crypto = require('node:crypto');
 const { UserError, text, phone, birthday } = require('./db');
 const { hashPassword, checkPassword } = require('./auth');
+const { sendSms } = require('./sms');
 
 const COOKIE = 'shop_customer';
 const SESSION_DAYS = 90;
@@ -89,10 +90,16 @@ function createShopAuth(store, { onCodeRequested } = {}) {
 
   /* ---------- Коды подтверждения ---------- */
 
+  // Способы доставки кода по порядку: SMS → WhatsApp → через сотрудника.
   const codeSettings = () => {
     const wa = JSON.parse(store.setting('whatsapp', '{}'));
-    return { whatsapp: Boolean(wa.enabled && wa.otpEnabled && wa.otpTemplate && wa.accessToken && wa.phoneNumberId), wa };
+    const sms = JSON.parse(store.setting('sms', '{}'));
+    return {
+      sms: Boolean(sms.enabled && sms.provider), smsSettings: sms,
+      whatsapp: Boolean(wa.enabled && wa.otpEnabled && wa.otpTemplate && wa.accessToken && wa.phoneNumberId), wa,
+    };
   };
+  const smsText = (sms, code) => (sms.template || 'Код подтверждения: {code}. Никому не сообщайте его.').replace('{code}', code);
 
   // Код в WhatsApp шаблоном «Аутентификация»: в тексте и в кнопке «Скопировать код» — сам код.
   async function sendWhatsappCode(wa, to, code) {
@@ -123,9 +130,18 @@ function createShopAuth(store, { onCodeRequested } = {}) {
     // Прежние неиспользованные коды этого номера больше не действуют.
     db.prepare('UPDATE phone_codes SET used_at = ? WHERE phone = ? AND used_at IS NULL').run(Date.now(), p);
     const code = String(crypto.randomInt(0, 1e6)).padStart(6, '0');
-    const { whatsapp, wa } = codeSettings();
+    const { sms, smsSettings, whatsapp, wa } = codeSettings();
     let channel = 'manual';
-    if (whatsapp) {
+    if (sms) {
+      try {
+        await sendSms(smsSettings, p, smsText(smsSettings, code));
+        channel = 'sms';
+      } catch (err) {
+        console.error('SMS с кодом не отправлено:', err.message);
+        store.audit({ kind: 'denied', userName: 'SMS', action: 'SMS с кодом не отправлено', details: `+${p}: ${err.message}` });
+      }
+    }
+    if (channel === 'manual' && whatsapp) {
       try {
         await sendWhatsappCode(wa, p, code);
         channel = 'whatsapp';
@@ -226,7 +242,8 @@ function createShopAuth(store, { onCodeRequested } = {}) {
       const p = phone(input.phone);
       const c = findByPhone(p);
       if (c?.password_hash && !c.login_disabled) return issueCode(p, 'reset');
-      return { channel: codeSettings().whatsapp ? 'whatsapp' : 'manual', expiresIn: CODE_TTL / 60_000 };
+      const cs = codeSettings();
+      return { channel: cs.sms ? 'sms' : cs.whatsapp ? 'whatsapp' : 'manual', expiresIn: CODE_TTL / 60_000 };
     },
 
     resetPassword(input, req) {

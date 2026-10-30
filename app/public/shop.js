@@ -397,7 +397,9 @@ function openCode(purpose, phone, channel, extra = {}) {
   const form = $('#account [data-view="code"]');
   form.reset();
   form.querySelector('.new-pass').hidden = purpose !== 'reset';
-  form.querySelector('.code-hint').textContent = channel === 'whatsapp'
+  form.querySelector('.code-hint').textContent = channel === 'sms'
+    ? `Мы отправили SMS с кодом на номер ${phone}. Код действует 15 минут.`
+    : channel === 'whatsapp'
     ? 'Мы отправили код в WhatsApp на ваш номер. Код действует 15 минут.'
     : 'Мы получили запрос: сотрудник магазина позвонит или напишет вам и назовёт код. Код действует 15 минут.' +
       (state.settings.phone ? ` Можно позвонить нам: ${state.settings.phone}.` : '');

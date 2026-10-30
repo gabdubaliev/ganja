@@ -117,4 +117,69 @@ $('#whatsapp-form').addEventListener('click', async (e) => {
   try { await navigator.clipboard.writeText($(btn.dataset.copy).value); toast('Скопировано'); } catch { $(btn.dataset.copy).select(); }
 });
 
-views.settings = { show: () => { renderSettings(); renderInstagram(); renderWhatsapp(); }, right: 'settings' };
+/* ---------- SMS ---------- */
+// Какие поля нужны каждому провайдеру и как они называются у него.
+const SMS_FIELDS = {
+  nikita: { login: 'Логин SMSPRO', password: 'Пароль SMSPRO', sender: 'Имя отправителя (одобренное в SMSPRO)',
+    help: 'Договор и кабинет — на smspro.nikita.kg. В кабинете возьмите логин и пароль для API, согласуйте имя отправителя и, если просят, добавьте IP-адрес сервера в разрешённые.' },
+  smsru: { apiKey: true, sender: 'Имя отправителя (необязательно)',
+    help: 'Кабинет — на sms.ru. API-ключ — в разделе «Программистам». Перед отправкой в Кыргызстан проверьте цену SMS на номера +996.' },
+  twilio: { login: 'Account SID', password: 'Auth Token', sender: 'Номер Twilio (+1…) или Messaging Service SID (MG…)',
+    help: 'Кабинет — на twilio.com: Account SID и Auth Token на главной странице консоли. Отправка в Кыргызстан должна быть включена в Geo Permissions.' },
+  custom: { login: 'Логин (если нужен)', password: 'Пароль (если нужен)', apiKey: true, sender: 'Отправитель (если нужен)', custom: true,
+    help: 'Для любого провайдера: возьмите из его документации адрес запроса и вставьте подстановки.' },
+};
+
+function renderSmsFields() {
+  const f = $('#sms-form');
+  const conf = SMS_FIELDS[f.elements.provider.value] || {};
+  for (const el of f.querySelectorAll('[data-sms]')) el.hidden = !conf[el.dataset.sms];
+  if (conf.login) $('#sms-login-label').textContent = conf.login;
+  if (conf.password) $('#sms-password-label').textContent = conf.password;
+  if (conf.sender) $('#sms-sender-label').textContent = conf.sender;
+  $('#sms-help').textContent = conf.help || 'Выберите провайдера, с которым у вас договор.';
+}
+
+async function renderSms() {
+  const f = $('#sms-form');
+  $('#sms-error').hidden = true;
+  try {
+    const s = await api('/api/settings/sms');
+    f.elements.provider.innerHTML = '<option value="">— выберите —</option>' + Object.entries(s.providers).map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join('');
+    for (const k of ['provider', 'login', 'sender', 'url', 'method', 'body', 'successText', 'template']) f.elements[k].value = s[k] || (k === 'method' ? 'POST' : '');
+    f.elements.password.value = '';
+    f.elements.apiKey.value = '';
+    f.elements.password.placeholder = s.hasPassword ? 'Сохранён. Введите новый, чтобы заменить' : '';
+    f.elements.apiKey.placeholder = s.hasApiKey ? 'Сохранён. Введите новый, чтобы заменить' : '';
+    f.elements.test.checked = s.test;
+    f.elements.enabled.checked = s.enabled;
+    renderSmsFields();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+$('#sms-form').addEventListener('change', (e) => { if (e.target.name === 'provider') renderSmsFields(); });
+$('#sms-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const body = Object.fromEntries(['provider', 'login', 'password', 'apiKey', 'sender', 'url', 'method', 'body', 'successText', 'template'].map((k) => [k, f.elements[k].value]));
+  try {
+    await api('/api/settings/sms', { method: 'PUT', body: { ...body, test: f.elements.test.checked, enabled: f.elements.enabled.checked } });
+    toast('Настройки SMS сохранены');
+    renderSms();
+  } catch (err) {
+    showFormError('#sms-error', err);
+  }
+});
+$('#sms-test').addEventListener('click', async () => {
+  $('#sms-error').hidden = true;
+  try {
+    const r = await api('/api/settings/sms/test', { method: 'POST', body: { phone: $('#sms-test-phone').value } });
+    toast(`Пробное SMS отправлено на ${phoneFmt(r.to)} — проверьте телефон`);
+  } catch (err) {
+    showFormError('#sms-error', err);
+  }
+});
+
+views.settings = { show: () => { renderSettings(); renderSms(); renderInstagram(); renderWhatsapp(); }, right: 'settings' };
