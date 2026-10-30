@@ -1136,12 +1136,14 @@ function createStore(file) {
         AND NOT EXISTS (SELECT 1 FROM products c WHERE c.parent_id = p.id AND c.deleted = 0)`).all()
         .map((p) => ({ ...p, id: String(p.id) }));
       const sales = db.prepare(`
-        SELECT s.created_at AS t, s.id AS r, si.product_id AS p, si.name AS n, si.qty AS q, si.qty * si.price AS s, si.qty * si.cost AS c
+        SELECT s.created_at AS t, s.id AS r, s.user_id AS u, si.product_id AS p, si.name AS n, si.qty AS q, si.qty * si.price AS s, si.qty * si.cost AS c
         FROM sales s JOIN sale_items si ON si.sale_id = s.id
         WHERE s.refunded_at IS NULL AND s.created_at >= ? AND s.created_at < ?
         ORDER BY s.created_at`).all(from, to)
         .map((l) => ({ ...l, p: String(l.p), r: String(l.r) }));
-      return { products, sales, updatedAt: Date.now() };
+      // Имена сотрудников для «Топ сотрудников»; чеки без входа идут под ключом null.
+      const staff = Object.fromEntries(db.prepare("SELECT id, COALESCE(NULLIF(name, ''), email) AS name, role FROM users").all().map((u) => [u.id, { name: u.name, role: u.role }]));
+      return { products, sales, staff, updatedAt: Date.now() };
     },
 
     /* ---------- Сотрудники ---------- */

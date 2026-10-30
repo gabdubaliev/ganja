@@ -104,7 +104,7 @@ h1 { margin: 0; font-size: 26px; font-weight: 750; letter-spacing: -0.025em; }
 .notice.error { border-color: var(--critical); }
 
 /* Показатели */
-.kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; }
 .kpi {
   position: relative; overflow: hidden; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 16px 18px; display: grid; gap: 6px; min-width: 0; box-shadow: var(--shadow); transition: transform 0.15s, box-shadow 0.15s;
@@ -120,6 +120,11 @@ h1 { margin: 0; font-size: 26px; font-weight: 750; letter-spacing: -0.025em; }
 .delta .chg { display: inline-flex; align-items: center; gap: 2px; font-weight: 600; }
 .delta .chg.up { color: var(--good-ink); }
 .delta .chg.down { color: var(--critical); }
+/* У себестоимости рост — плохо, снижение — хорошо. */
+.delta .chg.up.inverse { color: var(--critical); }
+.delta .chg.down.inverse { color: var(--good-ink); }
+.hits.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.top-list .top-note { display: block; padding-top: 4px; }
 .delta svg { width: 12px; height: 12px; }
 
 /* Панели */
@@ -204,7 +209,7 @@ tbody tr:hover { background: var(--hover); }
 
 @media (max-width: 1100px) {
   .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .hits { grid-template-columns: 1fr; }
+  .hits, .hits.two { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }

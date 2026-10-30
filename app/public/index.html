@@ -59,18 +59,20 @@
     <div class="chart" id="chart"></div>
   </section>
 
-  <section class="hits" aria-label="Хиты продаж">
+  <section class="hits two" aria-label="Топ товаров и сотрудников">
     <div class="panel">
-      <div class="panel-head"><div><h2>Хиты продаж</h2><p class="sub">Больше всего продано, шт.</p></div></div>
-      <ol class="top-list" id="top-qty"></ol>
+      <div class="panel-head">
+        <div><h2>Топ товары</h2><p class="sub" id="top-products-sub"></p></div>
+        <div class="chips" id="top-products-sort"></div>
+      </div>
+      <ol class="top-list" id="top-products"></ol>
     </div>
     <div class="panel">
-      <div class="panel-head"><div><h2>Больше всего выручки</h2><p class="sub">Сумма продаж по товару</p></div></div>
-      <ol class="top-list" id="top-revenue"></ol>
-    </div>
-    <div class="panel">
-      <div class="panel-head"><div><h2>Больше всего прибыли</h2><p class="sub">Выручка минус себестоимость</p></div></div>
-      <ol class="top-list" id="top-profit"></ol>
+      <div class="panel-head">
+        <div><h2>Топ сотрудники</h2><p class="sub" id="top-staff-sub"></p></div>
+        <div class="chips" id="top-staff-sort"></div>
+      </div>
+      <ol class="top-list" id="top-staff"></ol>
     </div>
   </section>
 

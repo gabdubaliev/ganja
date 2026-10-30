@@ -37,6 +37,18 @@ function compute(data, key, now) {
   const cur = { revenue: 0, cost: 0, receipts: new Set() };
   const prev = { revenue: 0, cost: 0, receipts: new Set() };
   const byId = new Map();
+  const staffById = new Map();
+  // Сотрудник по чеку: выручка, прибыль, чеки — за период и за прошлый такой же период.
+  const person = (u) => {
+    const key = u ?? 'none';
+    let s = staffById.get(key);
+    if (!s) {
+      const info = data.staff?.[u];
+      s = { id: key, name: info ? info.name : 'Без сотрудника', role: info?.role || '', revenue: 0, cost: 0, receipts: new Set(), prevRevenue: 0, prevCost: 0, prevReceipts: new Set() };
+      staffById.set(key, s);
+    }
+    return s;
+  };
   const product = (id, name) => {
     let p = byId.get(id);
     if (!p) {
@@ -53,12 +65,16 @@ function compute(data, key, now) {
       const p = product(l.p, l.n);
       p.qty += l.q; p.revenue += l.s; p.cost += l.c;
       cur.revenue += l.s; cur.cost += l.c; cur.receipts.add(l.r);
+      const w = person(l.u);
+      w.revenue += l.s; w.cost += l.c; w.receipts.add(l.r);
       const b = buckets[bucketIndex(buckets, l.t)];
       b.revenue += l.s; b.cost += l.c; b.receipts.add(l.r);
     } else if (l.t >= range.prevStart && l.t < range.prevEnd) {
       const p = product(l.p, l.n);
       p.prevQty += l.q; p.prevRevenue += l.s; p.prevCost += l.c;
       prev.revenue += l.s; prev.cost += l.c; prev.receipts.add(l.r);
+      const w = person(l.u);
+      w.prevRevenue += l.s; w.prevCost += l.c; w.prevReceipts.add(l.r);
     }
   }
 
@@ -73,7 +89,12 @@ function compute(data, key, now) {
     return { ...p, profit, prevProfit: p.prevRevenue - p.prevCost, margin: p.revenue > 0 ? profit / p.revenue : null, daysLeft, status };
   });
 
-  return { range, buckets, cur, prev, products };
+  const staff = [...staffById.values()].map((s) => ({
+    ...s, profit: s.revenue - s.cost, prevProfit: s.prevRevenue - s.prevCost,
+    checks: s.receipts.size, prevChecks: s.prevReceipts.size,
+    avg: s.receipts.size ? s.revenue / s.receipts.size : 0, prevAvg: s.prevReceipts.size ? s.prevRevenue / s.prevReceipts.size : 0,
+  }));
+  return { range, buckets, cur, prev, products, staff };
 }
 
 /* ---------- Отрисовка ---------- */
@@ -82,16 +103,17 @@ function renderPeriods() {
     `<button type="button" data-period="${key}" aria-pressed="${key === state.period}">${p.label}</button>`).join('');
 }
 
-function deltaHtml(cur, prev, label, points) {
+// inverse — рост показателя — это плохо (себестоимость): стрелка вверх красная.
+function deltaHtml(cur, prev, label, points, inverse = false) {
   if (!prev) return `<span>Нет данных за ${esc(label)}</span>`;
   if (points) {
     const diff = (cur - prev) * 100;
     const dir = diff >= 0 ? 'up' : 'down';
-    return `<span class="chg ${dir}">${ICONS[dir]}${diff >= 0 ? '+' : '−'}${Math.abs(diff).toLocaleString('ru-RU', { maximumFractionDigits: 1 })} п.п.</span><span>к ${esc(label)}</span>`;
+    return `<span class="chg ${dir} ${inverse ? 'inverse' : ''}">${ICONS[dir]}${diff >= 0 ? '+' : '−'}${Math.abs(diff).toLocaleString('ru-RU', { maximumFractionDigits: 1 })} п.п.</span><span>к ${esc(label)}</span>`;
   }
   const ch = (cur - prev) / Math.abs(prev);
   const dir = ch >= 0 ? 'up' : 'down';
-  return `<span class="chg ${dir}">${ICONS[dir]}${ch >= 0 ? '+' : '−'}${pct(Math.abs(ch))}</span><span>к ${esc(label)}</span>`;
+  return `<span class="chg ${dir} ${inverse ? 'inverse' : ''}">${ICONS[dir]}${ch >= 0 ? '+' : '−'}${pct(Math.abs(ch))}</span><span>к ${esc(label)}</span>`;
 }
 
 function renderKpis(v) {
@@ -99,16 +121,17 @@ function renderKpis(v) {
   const c = v.cur, pr = v.prev;
   const tiles = [
     ['Выручка', money(c.revenue), c.revenue, pr.revenue],
+    ['Себестоимость', money(c.cost), c.cost, pr.cost, false, true],
     ['Прибыль', money(c.revenue - c.cost), c.revenue - c.cost, pr.revenue - pr.cost],
     ['Маржа', c.revenue ? pct((c.revenue - c.cost) / c.revenue) : '—', c.revenue ? (c.revenue - c.cost) / c.revenue : 0, pr.revenue ? (pr.revenue - pr.cost) / pr.revenue : 0, true],
     ['Чеков', int(c.receipts.size), c.receipts.size, pr.receipts.size],
     ['Средний чек', c.receipts.size ? money(c.revenue / c.receipts.size) : '—', c.receipts.size ? c.revenue / c.receipts.size : 0, pr.receipts.size ? pr.revenue / pr.receipts.size : 0],
   ];
-  $('#kpis').innerHTML = tiles.map(([label, value, cur, prev, points]) => `
+  $('#kpis').innerHTML = tiles.map(([label, value, cur, prev, points, inverse]) => `
     <div class="kpi">
       <div class="label">${label}</div>
       <div class="value">${value}</div>
-      <div class="delta">${deltaHtml(cur, prev, p.vs, points)}</div>
+      <div class="delta">${deltaHtml(cur, prev, p.vs, points, inverse)}</div>
     </div>`).join('');
 }
 
@@ -194,7 +217,8 @@ function showTip(i, evt) {
   tip.style.top = yy + 'px';
 }
 
-function renderTop(el, products, key, prevKey, fmt, unit) {
+// Топ: rows — товары или сотрудники, key — по чему сортировать. meta(p) — доп. строка под именем.
+function renderTop(el, products, key, prevKey, fmt, unit, meta = () => '') {
   const rows = products.filter((p) => p[key] > 0).sort((a, b) => b[key] - a[key]).slice(0, 8);
   if (!rows.length) { el.innerHTML = '<li class="empty" style="display:block">За этот период продаж нет</li>'; return; }
   const total = products.reduce((s, p) => s + Math.max(0, p[key]), 0);
@@ -210,16 +234,62 @@ function renderTop(el, products, key, prevKey, fmt, unit) {
       <div>
         <div class="row-line"><span class="name">${esc(p.name)}</span><span class="val num">${fmt(p[key])}${unit}</span></div>
         <div class="track"><div class="bar" style="width:${(p[key] / rows[0][key]) * 100}%"></div></div>
-        <div class="meta"><span>${pct(p[key] / total)} от всех</span>${move}</div>
+        <div class="meta"><span>${pct(p[key] / total)} от всех</span>${meta(p)}${move}</div>
       </div>
     </li>`;
   }).join('');
 }
 
+// Топ товаров и сотрудников: по чему сортировать — выбор запоминается.
+const TOP_PRODUCTS = {
+  revenue: ['По выручке', 'prevRevenue', money, '', 'Больше всего выручки за период'],
+  qty: ['По количеству', 'prevQty', int, ' шт', 'Больше всего продано, шт.'],
+  profit: ['По прибыли', 'prevProfit', money, '', 'Выручка минус себестоимость'],
+};
+const TOP_STAFF = {
+  revenue: ['Выручка', 'prevRevenue', money, '', 'Кто больше всех продал за период'],
+  checks: ['Чеки', 'prevChecks', int, ' чек.', 'Кто пробил больше всего чеков'],
+  avg: ['Средний чек', 'prevAvg', money, '', 'У кого самый большой средний чек'],
+};
+state.topProducts = store('topProducts') in TOP_PRODUCTS ? store('topProducts') : 'revenue';
+state.topStaff = store('topStaff') in TOP_STAFF ? store('topStaff') : 'revenue';
+
+function renderTops() {
+  const chips = (id, map, cur, attr) => {
+    $(id).innerHTML = Object.entries(map).map(([k, [label]]) => `<button type="button" class="chip" ${attr}="${k}" aria-pressed="${k === cur}">${label}</button>`).join('');
+  };
+  chips('#top-products-sort', TOP_PRODUCTS, state.topProducts, 'data-top-products');
+  chips('#top-staff-sort', TOP_STAFF, state.topStaff, 'data-top-staff');
+  const [, pk, pf, pu, ps] = TOP_PRODUCTS[state.topProducts];
+  $('#top-products-sub').textContent = ps;
+  renderTop($('#top-products'), state.view.products, state.topProducts, pk, pf, pu);
+  const [, sk, sf, su, ss] = TOP_STAFF[state.topStaff];
+  $('#top-staff-sub').textContent = `${ss} · ${PERIODS[state.period].label.toLowerCase()}`;
+  // Рейтинг — только сотрудники; чеки, пробитые без входа, показываем отдельной строкой.
+  const people = state.view.staff.filter((w) => w.id !== 'none');
+  const nobody = state.view.staff.find((w) => w.id === 'none' && w.checks);
+  renderTop($('#top-staff'), people, state.topStaff, sk, sf, su, (w) => `<span>${state.topStaff === 'checks'
+    ? `${money(w.revenue)} · средний ${money(w.avg)}`
+    : `${int(w.checks)} ${plural(w.checks, ['чек', 'чека', 'чеков'])}${state.topStaff === 'avg' ? ` · ${money(w.revenue)}` : ` · средний ${money(w.avg)}`}`}</span>`);
+  if (!people.some((w) => w[state.topStaff] > 0)) {
+    $('#top-staff').innerHTML = `<li class="empty" style="display:block">${nobody ? 'Продажи за период пробиты без входа сотрудника. Чтобы видеть, кто сколько продаёт, кассиры входят в кассу под своим email.' : 'За этот период продаж нет'}</li>`;
+  } else if (nobody) {
+    $('#top-staff').insertAdjacentHTML('beforeend', `<li class="top-note"><span></span><span class="pick-meta">Ещё ${int(nobody.checks)} ${plural(nobody.checks, ['чек', 'чека', 'чеков'])} на ${money(nobody.revenue)} пробито без входа сотрудника</span></li>`);
+  }
+}
+
+document.addEventListener('click', (e) => {
+  const tp = e.target.closest('[data-top-products]');
+  const ts = e.target.closest('[data-top-staff]');
+  if (tp) { state.topProducts = tp.dataset.topProducts; store('topProducts', state.topProducts); renderTops(); }
+  if (ts) { state.topStaff = ts.dataset.topStaff; store('topStaff', state.topStaff); renderTops(); }
+});
+
 const COLUMNS = [
   { key: 'name', label: 'Товар', dir: 1 },
   { key: 'qty', label: 'Продано, шт' },
   { key: 'revenue', label: 'Выручка' },
+  { key: 'cost', label: 'Себестоимость' },
   { key: 'profit', label: 'Прибыль' },
   { key: 'margin', label: 'Маржа' },
   { key: 'stock', label: 'Остаток, шт' },
@@ -266,6 +336,7 @@ function renderTable(v) {
       <td><div class="pname">${esc(p.name)}</div>${p.category ? `<div class="pcat">${esc(p.category)}</div>` : ''}</td>
       <td>${int(p.qty)}</td>
       <td>${money(p.revenue)}</td>
+      <td>${money(p.cost)}</td>
       <td class="${p.profit < 0 ? 'neg' : ''}">${money(p.profit)}</td>
       <td>${p.margin === null ? '—' : pct(p.margin)}</td>
       <td>${p.stock === null ? '—' : int(p.stock)}</td>
@@ -304,9 +375,7 @@ function renderAll() {
   renderPeriods();
   renderKpis(state.view);
   renderChart(state.view);
-  renderTop($('#top-qty'), state.view.products, 'qty', 'prevQty', int, ' шт');
-  renderTop($('#top-revenue'), state.view.products, 'revenue', 'prevRevenue', money, '');
-  renderTop($('#top-profit'), state.view.products, 'profit', 'prevProfit', money, '');
+  renderTops();
   renderTable(state.view);
 }
 
