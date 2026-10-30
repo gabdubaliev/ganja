@@ -34,6 +34,7 @@
   <div class="pos">
     <section class="panel pos-pick" aria-label="Подбор товаров">
       <input id="pos-search" class="input big" type="search" placeholder="Название, код или штрихкод" autocomplete="off" aria-label="Найти товар">
+      <div id="pos-cats" class="pos-cats" hidden></div>
       <div id="pos-results" class="pick-list"></div>
     </section>
     <section class="panel pos-cart" aria-label="Чек">
@@ -107,6 +108,10 @@
       <label class="check"><input type="checkbox" id="photos-missing"> Только без фото</label>
     </div>
     <div id="photos-grid" class="photo-grid"></div>
+  </section>
+  <section class="panel">
+    <div class="panel-head"><div><h2>Фото категорий</h2><p class="sub">Показываются в кассе над товарами и на интернет-витрине. Нажмите на кружок, чтобы добавить или заменить фото.</p></div></div>
+    <div id="photos-cats" class="photo-cats"></div>
   </section>
 </main>
 

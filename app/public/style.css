@@ -662,6 +662,21 @@ input[type="range"] { width: 100%; accent-color: var(--series); }
 #categories-dialog { width: min(760px, calc(100vw - 24px)); }
 @media (max-width: 640px) { .cat-row { grid-template-columns: 52px minmax(0, 1fr); } .cat-count, .cat-actions { grid-column: 2; justify-content: flex-start; } }
 
+/* Категории с фото в кассе */
+.pos-cats { display: flex; gap: 10px; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: thin; }
+.pos-cat { flex: none; display: grid; justify-items: center; gap: 5px; width: 78px; padding: 0; border: 0; background: none; color: var(--ink-2); font-size: 12px; font-weight: 600; line-height: 1.2; text-align: center; }
+.pos-cat-pic { width: 60px; height: 60px; border-radius: 50%; overflow: hidden; display: grid; place-items: center; background: var(--series-soft); color: var(--series); font-size: 22px; font-weight: 800; border: 3px solid transparent; box-shadow: var(--shadow-sm); transition: border-color 0.15s, transform 0.15s; }
+.pos-cat-pic img { width: 100%; height: 100%; object-fit: cover; }
+.pos-cat:hover .pos-cat-pic { transform: scale(1.05); }
+.pos-cat[aria-pressed="true"] { color: var(--ink); }
+.pos-cat[aria-pressed="true"] .pos-cat-pic { border-color: var(--series); }
+.pos-cat-name { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.photo-cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 14px; }
+.photo-cat { display: grid; justify-items: center; gap: 4px; text-align: center; }
+.cat-img.big { width: 96px; height: 96px; font-size: 30px; }
+.photo-cat .thumb-wrap { width: auto; }
+.photo-cat .thumb-del { top: 0; right: 0; }
+
 /* Настройки SMS */
 .sms-help { padding: 10px 14px; border-radius: 10px; background: var(--surface-2); color: var(--ink-2); font-size: 13px; }
 .custom-sms { display: grid; gap: 8px; }

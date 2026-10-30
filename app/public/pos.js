@@ -9,6 +9,8 @@ const pos = {
   customer: null,    // покупатель из программы лояльности
   spend: 0,          // сколько бонусов списать
   birthday: true,    // применить скидку именинника, если она действует
+  cat: '',           // выбранная категория: показываются только её товары
+  cats: [],          // справочник категорий с фото
   shift: null,       // открытая смена кассира
 };
 
@@ -20,7 +22,9 @@ const linePrice = (l) => Math.round(l.price * (1 - birthdayRate() / 100) * 100) 
 function renderPick() {
   const q = $('#pos-search').value;
   // Без поиска модификации спрятаны в карточку своего товара; при поиске находятся сразу.
-  const list = q.trim() ? catalog.search(q, 40) : catalog.list.filter((p) => !p.parent_id);
+  // Поиск ищет по всем товарам; без поиска — товары выбранной категории.
+  const list = q.trim() ? catalog.search(q, 40) : catalog.list.filter((p) => !p.parent_id && (!pos.cat || p.category === pos.cat));
+  renderPosCats(Boolean(q.trim()));
   $('#pos-results').innerHTML = list.length ? list.map((p) => {
     const group = catalog.isGroup(p);
     const inCart = group
@@ -311,9 +315,36 @@ $('#shift-bar').addEventListener('click', async (e) => {
   }
 });
 
+/* ---------- Категории с фото над товарами ---------- */
+async function loadPosCats() {
+  try { pos.cats = await api('/api/categories'); } catch { pos.cats = []; }
+}
+
+function renderPosCats(searching) {
+  const used = new Set(catalog.list.filter((p) => !p.parent_id).map((p) => p.category).filter(Boolean));
+  const cats = pos.cats.filter((c) => used.has(c.name));
+  if (pos.cat && !used.has(pos.cat)) pos.cat = '';
+  const el = $('#pos-cats');
+  // При поиске категории не нужны; одна категория — тоже.
+  el.hidden = searching || cats.length < 2;
+  if (el.hidden) return;
+  el.innerHTML = [{ name: '', label: 'Все' }, ...cats].map((c) => `
+    <button type="button" class="pos-cat" data-pos-cat="${esc(c.name)}" aria-pressed="${pos.cat === c.name}">
+      <span class="pos-cat-pic">${c.image_id ? `<img src="/img/${c.image_id}" alt="" loading="lazy">` : esc(c.name ? c.name.trim()[0].toUpperCase() : '★')}</span>
+      <span class="pos-cat-name">${esc(c.label || c.name)}</span>
+    </button>`).join('');
+}
+
+$('#pos-cats').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-pos-cat]');
+  if (!btn) return;
+  pos.cat = btn.dataset.posCat;
+  renderPick();
+});
+
 views.pos = {
   async show() {
-    try { await catalog.load(); } catch (err) { toast(err.message, 'error'); }
+    try { await Promise.all([catalog.load(), loadPosCats()]); } catch (err) { toast(err.message, 'error'); }
     renderPick();
     renderCart();
     loadShift();

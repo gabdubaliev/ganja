@@ -196,7 +196,7 @@ const routes = [
   ['DELETE', '/api/categories/:id', (p, url) => store.deleteCategory(p.id, { moveTo: url.searchParams.get('moveTo') || '' }), 'products'],
   ['PUT', '/api/categories-order', (p, url, body) => store.sortCategories(body.ids), ['products', 'shop']],
   // Картинка категории для витрины: загрузить (mime + data) или убрать (пустое тело).
-  ['PUT', '/api/categories/:id/image', (p, url, body) => store.setCategoryImage(p.id, body.data ? store.addImage(body).id : null), ['products', 'shop']],
+  ['PUT', '/api/categories/:id/image', (p, url, body) => store.setCategoryImage(p.id, body.data ? store.addImage(body).id : null), ['products', 'shop', 'photos']],
   ['POST', '/api/products/:id/variants', (p, url, body) => store.createVariants(p.id, body), 'products'],
   ['GET', '/api/barcode', () => ({ barcode: store.newBarcode() }), 'products'],
   ['PUT', '/api/products/:id/photo', (p, url, body) => store.setPhoto(p.id, body), 'photos'],
