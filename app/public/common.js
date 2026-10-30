@@ -119,6 +119,10 @@ async function api(url, { method = 'GET', body } = {}) {
   } catch {
     throw new Error('Нет связи с программой. Проверьте, что её окно открыто.');
   }
+  if (res.status === 401) {
+    location.replace('/login.html');
+    throw new Error('Нужно войти');
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Ошибка ${res.status}`);
   return data;
@@ -165,3 +169,10 @@ function route() {
   views[target].show();
 }
 addEventListener('hashchange', route);
+
+// Кнопка «Выйти» видна, только когда вход по паролю включён.
+api('/api/status').then((s) => { $('#logout').hidden = !s.auth; }).catch(() => {});
+$('#logout').addEventListener('click', async () => {
+  await fetch('/api/logout', { method: 'POST' }).catch(() => {});
+  location.replace('/login.html');
+});

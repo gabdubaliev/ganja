@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Вход — Мой магазин</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .login { min-height: 100vh; display: grid; place-items: center; padding-block: 24px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .login form { width: min(380px, 100%); display: grid; gap: 14px; }
+  .login h1 { margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<main class="login">
+  <form class="panel" id="login-form" novalidate>
+    <div>
+      <h1>Мой магазин</h1>
+      <p class="sub">Введите пароль, чтобы открыть программу.</p>
+    </div>
+    <div class="field">
+      <label for="password">Пароль</label>
+      <input id="password" name="password" type="password" class="input big" autocomplete="current-password" required autofocus>
+    </div>
+    <p class="form-error" id="login-error" role="alert" hidden></p>
+    <button type="submit" class="btn primary big">Войти</button>
+  </form>
+</main>
+<script>
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const error = document.getElementById('login-error');
+  const button = e.target.querySelector('button');
+  button.disabled = true;
+  error.hidden = true;
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: e.target.elements.password.value }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) return location.replace('/');
+    error.textContent = data.error || 'Не получилось войти';
+  } catch {
+    error.textContent = 'Нет связи с сервером. Проверьте интернет.';
+  }
+  error.hidden = false;
+  button.disabled = false;
+  e.target.elements.password.select();
+});
+</script>
+</body>
+</html>

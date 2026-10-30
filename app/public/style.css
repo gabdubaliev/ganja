@@ -204,6 +204,7 @@ a { color: var(--series); }
   color: var(--ink-2); text-decoration: none; padding: 7px 12px; border-radius: 8px; font-weight: 500; white-space: nowrap;
 }
 .nav a:hover { background: var(--hover); color: var(--ink); }
+.nav-logout { margin-left: auto; }
 .nav a[aria-current="page"] { background: var(--series-soft); color: var(--ink); font-weight: 650; }
 
 /* Кнопки и поля */

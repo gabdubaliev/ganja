@@ -1,0 +1,6 @@
+.git
+.agents
+.claude
+app/data
+app/.env
+**/node_modules

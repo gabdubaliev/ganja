@@ -7,12 +7,15 @@ const path = require('node:path');
 loadEnv(path.join(__dirname, '.env'));
 const { createStore, UserError } = require('./db');
 const { seedDemo } = require('./demo');
+const { createAuth } = require('./auth');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
 const DB_FILE = path.resolve(__dirname, process.env.DB_FILE || 'data/shop.db');
 const PUBLIC = path.join(__dirname, 'public');
 const MAX_RANGE = 800 * 864e5;
+// Без входа можно открыть только страницу входа и её стили.
+const PUBLIC_PATHS = new Set(['/login.html', '/style.css']);
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -30,7 +33,13 @@ function loadEnv(file) {
   }
 }
 
+if (process.env.REQUIRE_PASSWORD === '1' && !process.env.APP_PASSWORD) {
+  console.error('Задайте пароль для входа в переменной APP_PASSWORD. Без него программа на сервере не запускается.');
+  process.exit(1);
+}
+
 const store = createStore(DB_FILE);
+const auth = createAuth(process.env.APP_PASSWORD || '');
 
 function sendJson(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -61,7 +70,7 @@ function range(url) {
 
 // [метод, шаблон пути, обработчик(params, url, body)]
 const routes = [
-  ['GET', '/api/status', () => ({ empty: store.isEmpty() })],
+  ['GET', '/api/status', () => ({ empty: store.isEmpty(), auth: auth.enabled })],
   ['POST', '/api/demo', () => {
     if (!store.isEmpty()) throw new UserError('Пример можно загрузить только в пустую базу');
     seedDemo(store);
@@ -86,7 +95,7 @@ function match(method, pathname) {
     const names = [];
     const re = new RegExp('^' + pattern.replace(/:(\w+)/g, (_, n) => (names.push(n), '([^/]+)')) + '$');
     const found = pathname.match(re);
-    if (found) return { handler, params: Object.fromEntries(names.map((n, i) => [n, decodeURIComponent(found[i + 1])])) };
+    if (found) return { handler, params: Object.fromEntries(names.map((n, i) => [n, found[i + 1]])) };
   }
   return null;
 }
@@ -101,9 +110,44 @@ function serveStatic(res, pathname) {
   fs.createReadStream(file).pipe(res);
 }
 
+async function handleAuth(req, res, url) {
+  if (url.pathname === '/api/login' && req.method === 'POST') {
+    const body = await readBody(req);
+    const result = auth.login(req, body.password || '');
+    if (!result.ok) return sendJson(res, result.status, { error: result.error });
+    res.setHeader('Set-Cookie', result.cookie);
+    return sendJson(res, 200, { ok: true });
+  }
+  if (url.pathname === '/api/logout' && req.method === 'POST') {
+    res.setHeader('Set-Cookie', auth.logoutCookie(req));
+    return sendJson(res, 200, { ok: true });
+  }
+  return false;
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  if (!url.pathname.startsWith('/api/')) return serveStatic(res, decodeURIComponent(url.pathname));
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  try {
+    if ((await handleAuth(req, res, url)) !== false) return;
+  } catch (err) {
+    return sendJson(res, err instanceof UserError ? 400 : 500, { error: err instanceof UserError ? err.message : 'Внутренняя ошибка' });
+  }
+  if (!auth.isLoggedIn(req) && !PUBLIC_PATHS.has(url.pathname)) {
+    if (url.pathname.startsWith('/api/')) return sendJson(res, 401, { error: 'Нужно войти' });
+    res.writeHead(302, { Location: '/login.html' });
+    return res.end();
+  }
+  if (!url.pathname.startsWith('/api/')) {
+    let pathname;
+    try {
+      pathname = decodeURIComponent(url.pathname);
+    } catch {
+      return sendJson(res, 400, { error: 'Неверный адрес' });
+    }
+    return serveStatic(res, pathname);
+  }
   const route = match(req.method, url.pathname);
   if (!route) return sendJson(res, 404, { error: 'Не найдено' });
   try {
@@ -127,5 +171,6 @@ if (process.argv.includes('--demo')) {
   server.listen(PORT, HOST, () => {
     console.log(`Программа открыта: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
     console.log(`База данных: ${DB_FILE}`);
+    console.log(auth.enabled ? 'Вход по паролю включён.' : 'Вход без пароля (пароль задаётся в APP_PASSWORD).');
   });
 }
