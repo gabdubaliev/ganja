@@ -30,6 +30,8 @@ const RIGHTS = [
   { key: 'staff', group: 'Персонал', label: 'Сотрудники, их права и ставки' },
   { key: 'shifts', group: 'Персонал', label: 'Смены всех сотрудников: открыть, закрыть, исправить' },
   { key: 'fines', group: 'Персонал', label: 'Штрафы: выписывать и отменять' },
+  { key: 'timesheet', group: 'Персонал', label: 'Табель: кто в какой день работал и сколько заработал' },
+  { key: 'tasks', group: 'Персонал', label: 'Задания: давать сотрудникам и проверять выполнение (свои задания видит каждый)' },
   { key: 'salary', group: 'Персонал', label: 'Зарплата: менять ставку, оклад, процент, план и бонус за план; начислять бонусы' },
   { key: 'design', group: 'Управление', label: 'Оформление программы: цвета, шрифт, название' },
   { key: 'settings', group: 'Управление', label: 'Настройки и уведомления в Telegram' },
@@ -46,8 +48,8 @@ const ROLES = {
   },
   manager: {
     name: 'Управляющий',
-    about: 'Видит всё и ведёт магазин, выписывает штрафы и правит смены. По умолчанию не меняет сотрудников, бонусы, оформление, настройки и не видит журнал действий.',
-    can: ['dashboard', 'kpi', 'pos', 'sales', 'refund', 'discount', 'products', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'notify', 'shifts', 'fines'],
+    about: 'Видит всё и ведёт магазин, выписывает штрафы, правит смены, ведёт табель, даёт и проверяет задания. По умолчанию не меняет сотрудников, бонусы, оформление, настройки и не видит журнал действий.',
+    can: ['dashboard', 'kpi', 'pos', 'sales', 'refund', 'discount', 'products', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'notify', 'shifts', 'fines', 'timesheet', 'tasks'],
   },
   cashier: {
     name: 'Кассир',

@@ -18,7 +18,7 @@
       <a href="#home" data-can="dashboard" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg><span>Главная</span></a>
       <a href="#products" data-can="products" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg><span>Товары</span></a>
       <a href="#sales" data-can="sales" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 7h6M9 11h6M9 15h4"/></svg><span>Продажи</span></a>
-      <a href="#more" id="nav-more"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg><span>Ещё</span> <span class="badge" id="orders-badge" hidden></span></a>
+      <a href="#more" id="nav-more"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg><span>Ещё</span> <span class="badge" id="orders-badge" hidden></span> <span class="badge task-badge" data-task-badge hidden title="Задания"></span></a>
       <a href="/kassa.html" target="_blank" class="nav-kassa" data-can="pos" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M7 7V4h10v3M7 12h4M7 16h2M15 12h2M15 16h2"/></svg><span>Касса</span></a>
     </div>
     <span class="nav-user">
@@ -366,6 +366,37 @@
   </div>
 </dialog>
 
+<main class="page" data-view="timesheet" hidden>
+  <header class="top">
+    <div class="title"><h1>Табель</h1><span class="source" id="ts-sub"></span></div>
+    <div class="tools"><button type="button" class="btn" id="ts-export">Скачать для Excel</button></div>
+  </header>
+  <section class="panel period-bar ts-bar">
+    <div class="ts-month-nav">
+      <button type="button" class="icon-btn" id="ts-prev" aria-label="Предыдущий месяц">‹</button>
+      <b id="ts-month"></b>
+      <button type="button" class="icon-btn" id="ts-next" aria-label="Следующий месяц">›</button>
+    </div>
+    <div class="periods" id="ts-parts" role="group" aria-label="Выплатный период"></div>
+    <div class="ts-legend"><span class="lg worked">8 ч / 1 200</span> рабочий день: часы и заработок за день <span class="lg off">В</span> выходной <span class="lg noshift">без смены</span> продажи без открытой смены <i class="plus"></i> бонус <i class="minus"></i> штраф</div>
+  </section>
+  <section class="panel ts-panel">
+    <div class="ts-wrap"><table class="ts-table" id="ts-table"></table></div>
+    <p class="sub">Заработок за день — ставка за выход и процент от выручки этого дня (без комиссии банков). Оклад, бонус за план и исправления из «Отчёты» → «Зарплата» входят в итоги периода справа. Наведите на ячейку, чтобы увидеть время смены и выручку.</p>
+  </section>
+</main>
+
+<main class="page" data-view="tasks" hidden>
+  <header class="top">
+    <div class="title"><h1>Задания</h1></div>
+    <div class="tools"><button type="button" class="btn primary" id="task-add" hidden>Дать задание</button></div>
+  </header>
+  <section class="panel period-bar">
+    <div class="periods" id="tasks-filter" role="group" aria-label="Какие задания"></div>
+  </section>
+  <section class="panel"><div id="tasks-list" class="tasks"></div></section>
+</main>
+
 <main class="page" data-view="shifts" hidden>
   <header class="top">
     <div class="title"><h1>Смены</h1><span class="source" id="shifts-sub"></span></div>
@@ -436,6 +467,35 @@
       <button type="button" class="btn ghost danger-text" id="shift-delete" hidden>Удалить</button>
       <button type="button" class="btn ghost" id="shift-cancel">Отмена</button>
       <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="task-dialog" aria-labelledby="task-title">
+  <form id="task-form" novalidate>
+    <h2 id="task-title">Дать задание</h2>
+    <div class="form-grid">
+      <div class="field wide"><label for="tk-title">Что сделать</label><input id="tk-title" name="title" class="input" autocomplete="off" required placeholder="Например, разложить новый товар на витрине"></div>
+      <div class="field wide"><label for="tk-desc">Подробности (необязательно)</label><textarea id="tk-desc" name="description" class="input" rows="3"></textarea></div>
+      <div class="field wide"><span class="label">Срок</span>
+        <div class="seg" id="tk-period" role="group" aria-label="Срок">
+          <button type="button" data-period="day">День</button>
+          <button type="button" data-period="week">Неделя</button>
+          <button type="button" data-period="month">Месяц</button>
+          <button type="button" data-period="date">К дате</button>
+        </div>
+      </div>
+      <div class="field wide" id="tk-date-row" hidden><label for="tk-due">Выполнить до (включительно)</label><input id="tk-due" name="due" type="date" class="input"></div>
+      <fieldset class="rights wide">
+        <legend>Кому <button type="button" class="link" id="tk-all">все</button></legend>
+        <div id="tk-staff" class="pm-checks"></div>
+      </fieldset>
+    </div>
+    <p class="sub">«День» — до конца сегодняшнего дня, «Неделя» — до конца воскресенья, «Месяц» — до конца месяца. Каждый сотрудник получит своё задание и отметит его сам.</p>
+    <p class="form-error" id="task-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="task-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Дать задание</button>
     </div>
   </form>
 </dialog>
@@ -1027,6 +1087,8 @@
 <script src="more.js"></script>
 <script src="kpi.js"></script>
 <script src="staff-time.js"></script>
+<script src="timesheet.js"></script>
+<script src="tasks.js"></script>
 <script src="audit.js"></script>
 <script src="crm.js"></script>
 <script src="loyalty.js"></script>

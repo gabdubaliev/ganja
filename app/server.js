@@ -240,6 +240,16 @@ const routes = [
   ['GET', '/api/bonuses', (p, url) => store.listFines({ ...range(url), kind: 'bonus' }), ['salary', 'kpi', 'fines']],
   ['POST', '/api/bonuses', (p, url, body, user) => store.addFine(body, user, 'bonus'), 'salary'],
   ['DELETE', '/api/bonuses/:id', (p) => store.deleteFine(p.id, 'bonus'), 'salary'],
+  ['GET', '/api/timesheet', (p, url) => store.timesheet({ year: url.searchParams.get('year'), month: url.searchParams.get('month') }), 'timesheet'],
+  ['GET', '/api/tasks', (p, url, body, user) => {
+    // Без входа (сотрудников ещё нет) программа открыта как администратору.
+    const all = url.searchParams.get('all') === '1' && can(user, 'tasks');
+    return { tasks: store.listTasks({ user: user || { id: 0 }, all, status: url.searchParams.get('status') || 'active' }), counts: store.taskCounts(user || { id: 0 }, can(user, 'tasks')) };
+  }, 'any'],
+  ['POST', '/api/tasks', (p, url, body, user) => store.createTasks(body, user), 'tasks'],
+  ['PUT', '/api/tasks/:id/done', (p, url, body, user) => store.markTask(p.id, body, user || { id: 0 }, can(user, 'tasks')), 'any'],
+  ['PUT', '/api/tasks/:id/review', (p, url, body, user) => store.reviewTask(p.id, body, user), 'tasks'],
+  ['DELETE', '/api/tasks/:id', (p) => store.deleteTask(p.id), 'tasks'],
   ['PUT', '/api/pay-override', (p, url, body, user) => store.setPayOverride(body, user), 'salary'],
   ['PUT', '/api/users/:id/pay', (p, url, body, user) => {
     guardAdmin(user, store.findUser(p.id), {});
@@ -248,7 +258,7 @@ const routes = [
   ['POST', '/api/fines', (p, url, body, user) => store.addFine(body, user), 'fines'],
   ['DELETE', '/api/fines/:id', (p) => store.deleteFine(p.id), 'fines'],
   // Короткий список сотрудников для выбора в сменах и штрафах.
-  ['GET', '/api/staff-list', () => store.listUsers().map((u) => ({ id: u.id, name: u.name || u.email, role: u.role, disabled: u.disabled })), ['shifts', 'fines', 'kpi', 'staff', 'crm', 'salary']],
+  ['GET', '/api/staff-list', () => store.listUsers().map((u) => ({ id: u.id, name: u.name || u.email, role: u.role, disabled: u.disabled })), ['shifts', 'fines', 'kpi', 'staff', 'crm', 'salary', 'tasks', 'timesheet']],
   // CRM. mine=1 — только мои сделки и задачи.
   ['GET', '/api/crm/leads', (p, url, body, user) => crm.list({ q: url.searchParams.get('q') || '', source: url.searchParams.get('source') || '',
     userId: url.searchParams.get('mine') === '1' && user ? user.id : null }), 'crm'],
@@ -430,6 +440,10 @@ const AUDIT_LABELS = {
   'DELETE /api/bonuses/:id': 'Отменил бонус сотруднику',
   'PUT /api/users/:id/pay': 'Изменил зарплату сотрудника',
   'PUT /api/pay-override': 'Исправил сумму в ведомости',
+  'POST /api/tasks': 'Дал задание',
+  'PUT /api/tasks/:id/done': 'Отметил задание',
+  'PUT /api/tasks/:id/review': 'Проверил задание',
+  'DELETE /api/tasks/:id': 'Удалил задание',
   'DELETE /api/fines/:id': 'Отменил штраф',
   'POST /api/customers': 'Добавил покупателя',
   'PUT /api/customers/:id': 'Изменил покупателя',
@@ -486,6 +500,10 @@ function auditDetails(key, params, body, result) {
     case 'DELETE /api/fines/:id': return `${r.amount} сом — ${r.reason}`;
     case 'POST /api/bonuses': return `${store.findUser(body.user_id)?.name || ''}: +${r.amount} сом — ${r.reason}`;
     case 'DELETE /api/bonuses/:id': return `${r.amount} сом — ${r.reason}`;
+    case 'POST /api/tasks': return `«${r[0]?.title}» — ${r.map((t) => t.assignee).join(', ')}`;
+    case 'PUT /api/tasks/:id/done': return `«${r.title}» — ${r.status === 'done' ? 'выполнено' : 'отметка снята'}${r.done_comment ? `: ${r.done_comment}` : ''}`;
+    case 'PUT /api/tasks/:id/review': return `«${r.title}» (${r.assignee_name}) — ${r.status === 'approved' ? 'принято' : 'возвращено на доработку'}${r.check_comment ? `: ${r.check_comment}` : ''}`;
+    case 'DELETE /api/tasks/:id': return `«${r.title}» (${r.assignee_name})`;
     case 'PUT /api/pay-override': return `${r.user}, ${({ rate: 'ставка за выход', salary: 'за смены и оклад', bonus: '% от продаж', pay: 'к выплате' })[r.field]}: ${r.amount === null ? 'возвращён расчёт' : `${r.amount} сом${r.reason ? ` — ${r.reason}` : ''}`}, период ${new Date(body.from).toLocaleDateString('ru-RU')}—${new Date(body.to - 1).toLocaleDateString('ru-RU')}`;
     case 'PUT /api/users/:id/pay': return `${r.name || r.email}: за смену ${r.shift_rate}, оклад ${r.salary}, ${r.percent}%, план ${r.plan}, бонус за план ${r.plan_bonus}`;
     case 'POST /api/customers/:id/bonus': return `${r.name || '+' + r.phone}: ${body.delta > 0 ? '+' : ''}${body.delta}${body.reason ? ` (${body.reason})` : ''}`;

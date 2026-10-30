@@ -189,7 +189,7 @@ function showFormError(id, err) {
 // Окно кассы — отдельная страница со своими разделами.
 const IS_KASSA = location.pathname.startsWith('/kassa');
 // Разделы основной программы, которые есть и в окне кассы.
-const KASSA_TOO = new Set(['orders']);
+const KASSA_TOO = new Set(['orders', 'tasks']);
 
 /* ---------- Разделы ---------- */
 // Каждый раздел регистрируется как views.name = { show, right }: right — право из roles.js.

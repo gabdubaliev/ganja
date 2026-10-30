@@ -212,6 +212,28 @@ function open(file) {
       CASE s.payment WHEN 'cash' THEN 'cash' ELSE 'card' END, s.total - s.bonus_spent
     FROM sales s WHERE NOT EXISTS (SELECT 1 FROM sale_payments sp WHERE sp.sale_id = s.id)`);
 
+  // Задания сотрудникам: open — в работе, done — сотрудник отметил «Выполнено» и ждёт проверки,
+  // approved — проверено и принято, returned — возвращено на доработку.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tasks (
+      id INTEGER PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      assignee_id INTEGER NOT NULL REFERENCES users(id),
+      period TEXT NOT NULL DEFAULT 'day',
+      due_at INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_by TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL,
+      done_at INTEGER,
+      done_comment TEXT NOT NULL DEFAULT '',
+      checked_at INTEGER,
+      checked_by TEXT NOT NULL DEFAULT '',
+      check_comment TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS tasks_assignee ON tasks(assignee_id, status);
+  `);
+
   // Справочник категорий. Товар хранит название категории, справочник — картинку и порядок на витрине.
   db.exec(`
     CREATE TABLE IF NOT EXISTS categories (
@@ -1255,6 +1277,134 @@ function createStore(file) {
       t.cash = cashSum;
       t.card = byMethod.reduce((a, m) => a + m.sum, 0) - cashSum;
       return { ...sh, receipts: t.receipts, revenue: round2(t.revenue), cash: round2(t.cash), card: round2(t.card), byMethod };
+    },
+
+    /* ---------- Табель ---------- */
+    // Табель за месяц: по каждому сотруднику и дню — был ли выход, часы, выручка и заработок за день,
+    // плюс итоги по выплатным периодам (1–15 и 16–конец) из расчёта зарплаты, с ручными исправлениями.
+    timesheet({ year, month }) {
+      const y = number(year, 'Год', { positive: true }), m = number(month, 'Месяц', { min: 1 }) - 1;
+      if (m > 11) throw new UserError('Неверный месяц');
+      const start = new Date(y, m, 1).getTime(), mid = new Date(y, m, 16).getTime(), end = new Date(y, m + 1, 1).getTime();
+      const daysInMonth = new Date(y, m + 1, 0).getDate();
+      const dayOf = (t) => new Date(t).getDate();
+      const halves = [this.kpi({ from: start, to: mid }), this.kpi({ from: mid, to: end })];
+      const byUser = new Map();
+      const row = (id) => {
+        if (!byUser.has(id)) byUser.set(id, { days: {} });
+        return byUser.get(id);
+      };
+      const cell = (id, d) => (row(id).days[d] ||= { shifts: [], revenue: 0, fines: 0, bonuses: 0 });
+      for (const sh of db.prepare('SELECT user_id, opened_at, closed_at FROM shifts WHERE opened_at >= ? AND opened_at < ? ORDER BY opened_at').all(start, end)) {
+        cell(sh.user_id, dayOf(sh.opened_at)).shifts.push({ from: sh.opened_at, to: sh.closed_at });
+      }
+      for (const s of db.prepare(`SELECT s.user_id, s.created_at, s.total - ${SALE_FEE} AS money FROM sales s
+        WHERE s.refunded_at IS NULL AND s.user_id IS NOT NULL AND s.created_at >= ? AND s.created_at < ?`).all(start, end)) {
+        cell(s.user_id, dayOf(s.created_at)).revenue += s.money;
+      }
+      for (const f of db.prepare('SELECT user_id, at, amount, kind FROM fines WHERE at >= ? AND at < ?').all(start, end)) {
+        cell(f.user_id, dayOf(f.at))[f.kind === 'bonus' ? 'bonuses' : 'fines'] += f.amount;
+      }
+      const staff = new Map();
+      for (const [i, h] of halves.entries()) {
+        for (const r of h.staff) {
+          if (!r.user) continue;
+          const s = staff.get(r.user.id) || { user: r.user, halves: [null, null] };
+          s.halves[i] = { shifts: r.shifts, rate: r.rate, salary: r.salary, bonus: r.bonus, planBonus: r.planBonus, extra: r.extra, fines: r.fines, pay: r.pay, revenue: r.revenue, overrides: r.overrides };
+          staff.set(r.user.id, s);
+        }
+      }
+      const rows = [...staff.values()].filter((s) => byUser.has(s.user.id) || s.halves.some((h) => h && (h.pay || h.shifts)) || !s.user.disabled).map((s) => {
+        const days = byUser.get(s.user.id)?.days || {};
+        for (const [d, c] of Object.entries(days)) {
+          const h = s.halves[Number(d) < 16 ? 0 : 1];
+          const rate = h ? h.rate : s.user.shift_rate;
+          c.revenue = round2(c.revenue);
+          c.worked = c.shifts.length > 0;
+          // Заработок за день по расчёту: ставка за выход + процент от выручки дня. Оклад и бонус за план — в итогах периода.
+          c.earned = round2((c.worked ? rate : 0) + c.revenue * s.user.percent / 100);
+        }
+        return { ...s, days };
+      });
+      return { year: y, month: m + 1, daysInMonth, start, mid, end, today: Date.now(), rows };
+    },
+
+    /* ---------- Задания ---------- */
+    listTasks({ user, all = false, status }) {
+      const where = [], args = [];
+      if (!all) { where.push('t.assignee_id = ?'); args.push(user.id); }
+      if (status === 'active') where.push("t.status IN ('open', 'returned', 'done')");
+      else if (status) { where.push('t.status = ?'); args.push(status); }
+      return db.prepare(`SELECT t.*, COALESCE(NULLIF(u.name, ''), u.email) AS assignee_name FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id
+        ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+        ORDER BY CASE t.status WHEN 'done' THEN 0 WHEN 'returned' THEN 1 WHEN 'open' THEN 2 ELSE 3 END, t.due_at, t.id DESC LIMIT 500`).all(...args);
+    },
+
+    // Сколько заданий ждут: у сотрудника — невыполненные, у проверяющего — отмеченные «Выполнено».
+    taskCounts(user, reviewer) {
+      return {
+        mine: db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE assignee_id = ? AND status IN ('open', 'returned')").get(user.id).n,
+        review: reviewer ? db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE status = 'done'").get().n : 0,
+      };
+    },
+
+    // Задание одному или нескольким сотрудникам: каждому — своя копия, отмечают и проверяются отдельно.
+    createTasks(input, by) {
+      const title = text(input.title, 'Задание', { required: true, max: 200 });
+      const description = text(input.description, 'Описание', { max: 2000 });
+      const ids = [...new Set((Array.isArray(input.assignees) ? input.assignees : [input.assignees]).map(Number).filter(Boolean))];
+      if (!ids.length) throw new UserError('Выберите сотрудников');
+      const users = ids.map((id) => this.findUser(id) || (() => { throw new UserError('Сотрудник не найден'); })());
+      const period = ['day', 'week', 'month', 'date'].includes(input.period) ? input.period : 'day';
+      const now = new Date();
+      const due = period === 'day' ? new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime()
+        : period === 'week' ? new Date(now.getFullYear(), now.getMonth(), now.getDate() + 8 - (now.getDay() || 7)).getTime()
+          : period === 'month' ? new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime()
+            : number(input.due_at, 'Срок', { positive: true });
+      if (due < Date.now() - 864e5) throw new UserError('Срок уже прошёл');
+      const add = db.prepare('INSERT INTO tasks (title, description, assignee_id, period, due_at, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+      return transaction(db, () => users.map((u) => {
+        const { lastInsertRowid } = add.run(title, description, u.id, period, due, by ? by.name || by.email : '', Date.now());
+        return { id: Number(lastInsertRowid), title, assignee: u.name || u.email, due_at: due };
+      }));
+    },
+
+    getTask(id) {
+      const t = db.prepare(`SELECT t.*, COALESCE(NULLIF(u.name, ''), u.email) AS assignee_name FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id WHERE t.id = ?`).get(Number(id));
+      if (!t) throw new UserError('Задание не найдено');
+      return t;
+    },
+
+    // Сотрудник отмечает «Выполнено» (или снимает отметку, пока задание не проверено).
+    markTask(id, { done = true, comment }, user, reviewer) {
+      const t = this.getTask(id);
+      if (t.assignee_id !== user.id && !reviewer) throw new UserError('Это задание другого сотрудника');
+      if (t.status === 'approved') throw new UserError('Задание уже проверено и принято');
+      if (done) {
+        db.prepare("UPDATE tasks SET status = 'done', done_at = ?, done_comment = ? WHERE id = ?").run(Date.now(), text(comment, 'Комментарий', { max: 1000 }), t.id);
+      } else {
+        if (t.status !== 'done') throw new UserError('Задание не отмечено как выполненное');
+        db.prepare("UPDATE tasks SET status = 'open', done_at = NULL, done_comment = '' WHERE id = ?").run(t.id);
+      }
+      return this.getTask(t.id);
+    },
+
+    // Проверка: принять или вернуть на доработку с комментарием.
+    reviewTask(id, { approve, comment }, by) {
+      const t = this.getTask(id);
+      if (t.status !== 'done' && approve !== false) throw new UserError('Сотрудник ещё не отметил задание выполненным');
+      if (t.status === 'approved' && approve) throw new UserError('Задание уже принято');
+      const note = text(comment, 'Комментарий', { max: 1000 });
+      if (!approve && !note) throw new UserError('Напишите, что нужно доделать');
+      db.prepare('UPDATE tasks SET status = ?, checked_at = ?, checked_by = ?, check_comment = ? WHERE id = ?')
+        .run(approve ? 'approved' : 'returned', Date.now(), by ? by.name || by.email : '', note, t.id);
+      return this.getTask(t.id);
+    },
+
+    deleteTask(id) {
+      const t = this.getTask(id);
+      db.prepare('DELETE FROM tasks WHERE id = ?').run(t.id);
+      return t;
     },
 
     listShifts({ from, to }) {

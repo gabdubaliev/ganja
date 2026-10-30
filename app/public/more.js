@@ -19,6 +19,8 @@ const MORE_GROUPS = [
     ['users', 'staff', '👥', 'Сотрудники', 'Роли, права, ставка за смену, процент'],
     ['shifts', ['shifts', 'kpi'], '🕘', 'Смены', 'Кто когда работал, выходы на смену'],
     ['fines', ['fines', 'kpi'], '⚠️', 'Штрафы', 'Причина, сумма, кто выписал'],
+    ['timesheet', 'timesheet', '🗓️', 'Табель', 'Кто в какой день работал и сколько заработал, по 15 дней'],
+    ['tasks', '', '✅', 'Задания', 'Задания на день, неделю, месяц; отметка «Выполнено» и проверка'],
   ]],
   ['Отчёты', [
     ['kpi', ['kpi', 'salary'], '📊', 'Отчёты', 'Зарплата с 1 по 15 и с 16 по конец месяца, топ продавцов, хиты товаров'],
@@ -41,12 +43,13 @@ function renderMore() {
       <div class="more-tiles">${visible.map(([view, , icon, title, about]) => `
         <a class="more-tile" href="#${view}">
           <span class="more-icon" aria-hidden="true">${icon}</span>
-          <span class="more-text"><b>${title}${view === 'orders' ? ' <span class="badge" data-orders-badge hidden></span>' : ''}</b><span>${about}</span></span>
+          <span class="more-text"><b>${title}${view === 'orders' ? ' <span class="badge" data-orders-badge hidden></span>' : view === 'tasks' ? ' <span class="badge" data-task-badge hidden></span>' : ''}</b><span>${about}</span></span>
         </a>`).join('')}
       </div>
     </section>`;
   }).join('') || '<p class="empty">Других разделов для вашей роли нет</p>';
   setOrdersBadge(session.newOrders || 0);
+  if (typeof updateTaskBadge === 'function') updateTaskBadge();
 }
 
 // Раздел открыт, если есть хоть одно право на что-то внутри.
