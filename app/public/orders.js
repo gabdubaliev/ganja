@@ -14,9 +14,10 @@ const ORDER_ONE = { new: 'Новый', confirmed: 'Подтверждён', read
 // Доставку после сборки передают курьеру, самовывоз сразу выдают.
 const orderNext = (o) => ({ new: 'confirmed', confirmed: 'ready', ready: o.delivery === 'delivery' ? 'shipped' : 'done', shipped: 'done' })[o.status];
 const ORDER_NEXT_LABEL = { confirmed: 'Подтвердить', ready: 'Собран', shipped: 'Передать курьеру', done: 'Выдать и пробить чек' };
-const ordersView = { status: 'new', list: [], confirmCancel: null };
+const ordersView = { status: 'new', list: [], confirmCancel: null, methods: [] };
 
 async function renderOrders() {
+  try { ordersView.methods = await api('/api/payment-methods?mine=1'); } catch { ordersView.methods = []; }
   $('#orders-filter').innerHTML = [['', 'Все'], ...Object.entries(ORDER_STATUS)].map(([key, label]) =>
     `<button type="button" data-status="${key}" aria-pressed="${ordersView.status === key}">${label}</button>`).join('');
   try {
@@ -47,9 +48,9 @@ async function renderOrders() {
         <ul class="order-items">${o.items.map((i) => `<li><span>${esc(i.name)}</span><span class="num">${qtyFmt.format(i.qty)} × ${money2(i.price)}</span></li>`).join('')}</ul>
       </div>
       ${open ? `<div class="doc-actions">
-        ${next === 'done' ? `
-          <button type="button" class="btn small primary" data-order="${o.id}" data-to="done" data-pay="card">Выдать · оплата картой</button>
-          <button type="button" class="btn small" data-order="${o.id}" data-to="done" data-pay="cash">Выдать · наличными</button>`
+        ${next === 'done' ? (ordersView.methods.length ? `<span class="pick-meta">Выдать, оплата:</span>` + ordersView.methods.map((m, i) => `
+          <button type="button" class="btn small ${i === 0 ? 'primary' : ''}" data-order="${o.id}" data-to="done" data-method="${m.id}">${esc(m.name)}</button>`).join('')
+          : '<span class="neg">Нет доступных способов оплаты</span>')
         : `<button type="button" class="btn small primary" data-order="${o.id}" data-to="${next}">${ORDER_NEXT_LABEL[next]}</button>`}
         <button type="button" class="btn small ${ordersView.confirmCancel === o.id ? 'danger' : 'ghost'}" data-order="${o.id}" data-to="cancelled">${ordersView.confirmCancel === o.id ? 'Точно отменить?' : 'Отменить'}</button>
       </div>` : `<p class="pick-meta">${o.status === 'done' ? `Выдан ${o.updated_at ? dateTime(o.updated_at) : ''}${o.updated_by ? ', ' + esc(o.updated_by) : ''}${o.sale_id ? ` · чек №${o.sale_id}` : ''}` : `Отменён ${o.updated_by ? esc(o.updated_by) : ''}`}</p>`}
@@ -73,7 +74,7 @@ $('#orders-list').addEventListener('click', async (e) => {
   }
   ordersView.confirmCancel = null;
   try {
-    const o = await api(`/api/orders/${id}`, { method: 'PUT', body: { status: btn.dataset.to, payment: btn.dataset.pay } });
+    const o = await api(`/api/orders/${id}`, { method: 'PUT', body: { status: btn.dataset.to, methodId: btn.dataset.method ? Number(btn.dataset.method) : undefined } });
     toast(o.status === 'done' ? `Заказ №${o.id} выдан, чек №${o.sale_id} пробит` : `Заказ №${o.id}: ${ORDER_ONE[o.status].toLowerCase()}`);
     renderOrders();
   } catch (err) {

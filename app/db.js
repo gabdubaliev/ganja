@@ -147,6 +147,30 @@ function open(file) {
     );
   `);
   addColumns('orders', [['sale_id', 'INTEGER']]);
+  // Способы оплаты: наличные, МБАНК, Оптима и всё, что заведёт владелец. kind — тип: cash, card, transfer, qr, other.
+  // У чека — ссылка на способ и его название на момент продажи (чтобы переименование не меняло историю).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS payment_methods (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'card',
+      active INTEGER NOT NULL DEFAULT 1,
+      sort INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+  `);
+  if (!db.prepare('SELECT COUNT(*) AS n FROM payment_methods').get().n) {
+    db.prepare("INSERT INTO payment_methods (name, kind, sort, created_at) VALUES ('Наличные', 'cash', 1, ?), ('Карта', 'card', 2, ?)").run(Date.now(), Date.now());
+  }
+  addColumns('sales', [['method_id', 'INTEGER'], ['method_name', "TEXT NOT NULL DEFAULT ''"]]);
+  // Чеки из прошлых версий: «наличными» и «картой» → первые способы этих типов.
+  for (const [payment, kind] of [['cash', 'cash'], ['card', 'card']]) {
+    const m = db.prepare('SELECT * FROM payment_methods WHERE kind = ? ORDER BY sort, id LIMIT 1').get(kind);
+    if (m) db.prepare('UPDATE sales SET method_id = ?, method_name = ? WHERE method_id IS NULL AND payment = ?').run(m.id, m.name, payment);
+  }
+  // Личный список способов оплаты сотрудника (JSON id) или NULL — все включённые.
+  addColumns('users', [['payment_methods', 'TEXT']]);
+
   // Справочник категорий. Товар хранит название категории, справочник — картинку и порядок на витрине.
   db.exec(`
     CREATE TABLE IF NOT EXISTS categories (
@@ -252,7 +276,8 @@ function role(value) {
 
 // Сотрудник без хеша пароля — так он уходит в интерфейс.
 // rights — личный набор прав или null, если действуют права роли.
-const publicUser = ({ password_hash, ...u }) => ({ ...u, disabled: Boolean(u.disabled), rights: u.rights ? JSON.parse(u.rights) : null });
+const publicUser = ({ password_hash, ...u }) => ({ ...u, disabled: Boolean(u.disabled), rights: u.rights ? JSON.parse(u.rights) : null,
+  payment_methods: u.payment_methods ? JSON.parse(u.payment_methods) : null });
 
 function rightsList(value) {
   if (value === null) return null;
@@ -275,6 +300,8 @@ function phone(value) {
 
 // birthdayDiscount — скидка в % в день рождения, birthdayDays — сколько дней до и после он действует.
 // Скидка даётся один раз в год.
+const PAYMENT_KINDS = { cash: 'Наличные', card: 'Карта', transfer: 'Перевод', qr: 'QR-код', other: 'Другое' };
+
 const LOYALTY_DEFAULTS = { enabled: true, percent: 5, maxPay: 30, birthdayDiscount: 10, birthdayDays: 3 };
 
 // Дата рождения как ДД.ММ.ГГГГ, ДД.ММ или ГГГГ-ММ-ДД → 'ГГГГ-ММ-ДД' (год 0000, если не указан).
@@ -481,6 +508,73 @@ function createStore(file) {
         INSERT INTO products (name, category, barcode, code, unit, price, cost, stock, description, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(f.name, f.category, f.barcode, f.code, f.unit, f.price, f.cost, stock, f.description, Date.now());
       return getProduct(lastInsertRowid);
+    },
+
+    /* ---------- Способы оплаты ---------- */
+
+    paymentKinds: PAYMENT_KINDS,
+
+    listPaymentMethods({ all = false } = {}) {
+      return db.prepare(`SELECT * FROM payment_methods ${all ? '' : 'WHERE active = 1'} ORDER BY sort, id`).all().map((m) => ({ ...m, active: Boolean(m.active) }));
+    },
+
+    // Способы, которыми этот сотрудник может принимать оплату. Без входа — все включённые.
+    allowedPaymentMethods(user) {
+      const active = this.listPaymentMethods();
+      const own = user?.payment_methods ? JSON.parse(user.payment_methods) : null;
+      return Array.isArray(own) && user.role !== 'admin' ? active.filter((m) => own.includes(m.id)) : active;
+    },
+
+    // Способ оплаты для чека: по id или, для старых запросов, первый способ нужного типа.
+    paymentMethodFor(methodId, payment, user) {
+      const allowed = this.allowedPaymentMethods(user ? this.findUser(user.id) : null);
+      const m = methodId ? allowed.find((x) => x.id === Number(methodId))
+        : allowed.find((x) => (payment === 'cash' ? x.kind === 'cash' : x.kind !== 'cash'));
+      if (!m) {
+        const exists = methodId && db.prepare('SELECT name, active FROM payment_methods WHERE id = ?').get(Number(methodId));
+        throw new UserError(exists ? (exists.active ? `У вас нет доступа к оплате «${exists.name}»` : `Способ «${exists.name}» выключен`) : 'Выберите способ оплаты');
+      }
+      return m;
+    },
+
+    savePaymentMethod(id, input) {
+      const name = text(input.name, 'Название', { required: true, max: 60 });
+      const kind = Object.hasOwn(PAYMENT_KINDS, input.kind) ? input.kind : 'card';
+      const clash = db.prepare('SELECT id, name FROM payment_methods').all().find((m) => m.id !== Number(id) && m.name.toLowerCase() === name.toLowerCase());
+      if (clash) throw new UserError('Такой способ оплаты уже есть');
+      if (id) {
+        const cur = db.prepare('SELECT * FROM payment_methods WHERE id = ?').get(Number(id));
+        if (!cur) throw new UserError('Способ оплаты не найден');
+        const active = input.active === undefined ? cur.active : input.active ? 1 : 0;
+        if (!active && db.prepare('SELECT COUNT(*) AS n FROM payment_methods WHERE active = 1 AND id <> ?').get(cur.id).n === 0) {
+          throw new UserError('Должен остаться хотя бы один включённый способ оплаты');
+        }
+        db.prepare('UPDATE payment_methods SET name = ?, kind = ?, active = ? WHERE id = ?').run(name, kind, active, cur.id);
+        return db.prepare('SELECT * FROM payment_methods WHERE id = ?').get(cur.id);
+      }
+      const sort = (db.prepare('SELECT MAX(sort) AS m FROM payment_methods').get().m ?? 0) + 1;
+      const { lastInsertRowid } = db.prepare('INSERT INTO payment_methods (name, kind, sort, created_at) VALUES (?, ?, ?, ?)').run(name, kind, sort, Date.now());
+      return db.prepare('SELECT * FROM payment_methods WHERE id = ?').get(lastInsertRowid);
+    },
+
+    sortPaymentMethods(ids) {
+      if (!Array.isArray(ids)) throw new UserError('Порядок передан неверно');
+      const st = db.prepare('UPDATE payment_methods SET sort = ? WHERE id = ?');
+      transaction(db, () => ids.forEach((id, i) => st.run(i + 1, Number(id))));
+      return this.listPaymentMethods({ all: true });
+    },
+
+    // Сколько денег пришло каждым способом оплаты за период (без чеков с возвратом).
+    // money — деньгами (без части, оплаченной бонусами), total — сумма чеков.
+    reportPayments({ from, to }) {
+      return db.prepare(`
+        SELECT s.method_id AS id, COALESCE(NULLIF(s.method_name, ''), CASE s.payment WHEN 'cash' THEN 'Наличные' ELSE 'Карта' END) AS name,
+          m.kind, COUNT(*) AS receipts, SUM(s.total - s.bonus_spent) AS money, SUM(s.total) AS total,
+          SUM(CASE WHEN s.refunded_at IS NOT NULL THEN 1 ELSE 0 END) AS refunds
+        FROM sales s LEFT JOIN payment_methods m ON m.id = s.method_id
+        WHERE s.created_at >= ? AND s.created_at < ? AND s.refunded_at IS NULL
+        GROUP BY s.method_id, name ORDER BY money DESC`).all(from, to)
+        .map((r) => ({ ...r, money: round2(r.money), total: round2(r.total) }));
     },
 
     /* ---------- Категории ---------- */
@@ -771,9 +865,10 @@ function createStore(file) {
     // user — кто пробил чек, customerId — покупатель из программы лояльности,
     // bonusSpend — сколько бонусов покупатель тратит (1 бонус = 1 сом).
     // birthday: true — применить скидку именинника (если она сейчас действует).
-    createSale({ items, payment, at, customerId, bonusSpend = 0, birthday: useBirthday = false }, user = null) {
+    // methodId — способ оплаты из справочника; payment ('cash' | 'card') — по-старому, для совместимости.
+    createSale({ items, payment, methodId, at, customerId, bonusSpend = 0, birthday: useBirthday = false }, user = null) {
       if (!Array.isArray(items) || !items.length) throw new UserError('В чеке нет товаров');
-      if (!['cash', 'card'].includes(payment)) throw new UserError('Выберите способ оплаты');
+      const method = this.paymentMethodFor(methodId, payment, user);
       return transaction(db, () => {
         const lines = items.map((item) => {
           const p = getProduct(item.productId);
@@ -806,10 +901,10 @@ function createStore(file) {
           earned = Math.floor((total - spent) * loyalty.percent / 100);
         }
         const { lastInsertRowid: saleId } = db.prepare(`
-          INSERT INTO sales (created_at, payment, total, user_id, user_name, customer_id, bonus_spent, bonus_earned, discount, discount_reason, shift_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-          .run(at || Date.now(), payment, total, user?.id ?? null, user ? user.name || user.email : '', customer?.id ?? null, spent, earned,
-            discount, discountReason, user ? this.currentShift(user.id)?.id ?? null : null);
+          INSERT INTO sales (created_at, payment, total, user_id, user_name, customer_id, bonus_spent, bonus_earned, discount, discount_reason, shift_id, method_id, method_name)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(at || Date.now(), method.kind === 'cash' ? 'cash' : 'card', total, user?.id ?? null, user ? user.name || user.email : '', customer?.id ?? null, spent, earned,
+            discount, discountReason, user ? this.currentShift(user.id)?.id ?? null : null, method.id, method.name);
         const addItem = db.prepare('INSERT INTO sale_items (sale_id, product_id, name, qty, price, cost) VALUES (?, ?, ?, ?, ?, ?)');
         const takeStock = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?');
         for (const l of lines) {
@@ -819,7 +914,7 @@ function createStore(file) {
         const who = user ? user.name || user.email : '';
         if (spent) changeBonus(customer.id, -spent, `Оплата чека №${saleId}`, who, saleId);
         if (earned) changeBonus(customer.id, earned, `Начислено за чек №${saleId}`, who, saleId);
-        return { id: Number(saleId), total, paid: round2(total - spent), bonusSpent: spent, bonusEarned: earned, discount, discountReason,
+        return { id: Number(saleId), method: method.name, total, paid: round2(total - spent), bonusSpent: spent, bonusEarned: earned, discount, discountReason,
           items: lines.map((l) => ({ name: l.p.name, qty: l.qty, price: l.price })), customer: customer && this.findCustomer(customer.id) };
       });
     },
@@ -1009,7 +1104,11 @@ function createStore(file) {
         COALESCE(SUM(CASE WHEN payment = 'card' THEN total - bonus_spent END), 0) AS card
         FROM sales WHERE refunded_at IS NULL AND ((shift_id = ?) OR (shift_id IS NULL AND user_id = ? AND created_at >= ? AND created_at < ?))`)
         .get(sh.id, sh.user_id, sh.opened_at, sh.closed_at || Date.now());
-      return { ...sh, receipts: t.receipts, revenue: round2(t.revenue), cash: round2(t.cash), card: round2(t.card) };
+      const byMethod = db.prepare(`SELECT method_name AS name, COUNT(*) AS receipts, COALESCE(SUM(total - bonus_spent), 0) AS sum FROM sales
+        WHERE refunded_at IS NULL AND ((shift_id = ?) OR (shift_id IS NULL AND user_id = ? AND created_at >= ? AND created_at < ?))
+        GROUP BY method_id, method_name ORDER BY sum DESC`).all(sh.id, sh.user_id, sh.opened_at, sh.closed_at || Date.now())
+        .map((r) => ({ ...r, sum: round2(r.sum) }));
+      return { ...sh, receipts: t.receipts, revenue: round2(t.revenue), cash: round2(t.cash), card: round2(t.card), byMethod };
     },
 
     listShifts({ from, to }) {
@@ -1272,6 +1371,9 @@ function createStore(file) {
       const pay = payFields(input);
       const { lastInsertRowid } = db.prepare('INSERT INTO users (email, name, role, password_hash, created_at, salary, percent, plan, rights, shift_rate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         .run(e, text(input.name, 'Имя', { max: 80 }), role(input.role || 'cashier'), passwordHash, Date.now(), pay.salary, pay.percent, pay.plan, rightsList(input.rights ?? null), pay.shift_rate);
+      if (Array.isArray(input.payment_methods)) {
+        db.prepare('UPDATE users SET payment_methods = ? WHERE id = ?').run(JSON.stringify([...new Set(input.payment_methods.map(Number))]), lastInsertRowid);
+      }
       return publicUser(this.findUser(lastInsertRowid));
     },
 
@@ -1293,8 +1395,10 @@ function createStore(file) {
         throw new UserError('Это единственный администратор. Сначала назначьте другого.');
       }
       const rights = input.rights === undefined ? current.rights : rightsList(input.rights);
-      db.prepare('UPDATE users SET email = ?, name = ?, role = ?, disabled = ?, password_hash = ?, salary = ?, percent = ?, plan = ?, rights = ?, shift_rate = ? WHERE id = ?')
-        .run(next.email, next.name, next.role, next.disabled, passwordHash || current.password_hash, pay.salary, pay.percent, pay.plan, rights, pay.shift_rate, current.id);
+      const methods = input.payment_methods === undefined ? current.payment_methods
+        : input.payment_methods === null ? null : JSON.stringify([...new Set(input.payment_methods.map(Number))]);
+      db.prepare('UPDATE users SET email = ?, name = ?, role = ?, disabled = ?, password_hash = ?, salary = ?, percent = ?, plan = ?, rights = ?, shift_rate = ?, payment_methods = ? WHERE id = ?')
+        .run(next.email, next.name, next.role, next.disabled, passwordHash || current.password_hash, pay.salary, pay.percent, pay.plan, rights, pay.shift_rate, methods, current.id);
       return publicUser(this.findUser(current.id));
     },
 
@@ -1496,7 +1600,7 @@ function createStore(file) {
     // Статусы: new — новый, confirmed — подтверждён, ready — собран, shipped — передан курьеру,
     // done — выдан (доставлен), cancelled — отменён.
     // При выдаче заказ пробивается чеком: товар списывается, выручка идёт тому, кто выдал.
-    setOrderStatus(id, { status, payment }, user = null) {
+    setOrderStatus(id, { status, payment, methodId }, user = null) {
       const o = this.getOrder(id);
       if (!['new', 'confirmed', 'ready', 'shipped', 'done', 'cancelled'].includes(status)) throw new UserError('Неизвестный статус');
       if (o.status === 'done' || o.status === 'cancelled') throw new UserError('Заказ уже закрыт');
@@ -1505,7 +1609,7 @@ function createStore(file) {
         if (status === 'done') {
           // Покупатель с витрины попадает в программу лояльности по телефону: так его покупки видны в рейтинге.
           const customer = this.findCustomerByPhone(o.phone) || this.createCustomer({ phone: o.phone, name: o.name });
-          saleId = this.createSale({ payment: payment === 'cash' ? 'cash' : 'card', customerId: customer.id, items: o.items.map((i) => ({ productId: i.product_id, qty: i.qty, price: i.price })) }, user).id;
+          saleId = this.createSale({ methodId, payment: payment === 'cash' ? 'cash' : 'card', customerId: customer.id, items: o.items.map((i) => ({ productId: i.product_id, qty: i.qty, price: i.price })) }, user).id;
         }
         db.prepare('UPDATE orders SET status = ?, updated_at = ?, updated_by = ?, sale_id = COALESCE(?, sale_id) WHERE id = ?')
           .run(status, Date.now(), user ? user.name || user.email : '', saleId, o.id);

@@ -18,6 +18,9 @@ function salesPeriod() {
   return [addDays(today, fromDays), addDays(today, toDays)];
 }
 
+// Название способа оплаты чека; у чеков из старых версий — «Наличные» или «Карта».
+const methodName = (s) => s.method_name || (s.payment === 'cash' ? 'Наличные' : 'Карта');
+
 async function renderSales() {
   $('#sales-ranges').innerHTML = Object.entries(SALES_RANGES).map(([key, [label]]) =>
     `<button type="button" data-range="${key}" aria-pressed="${key === salesView.range}">${label}</button>`).join('');
@@ -35,11 +38,16 @@ async function renderSales() {
   const done = list.filter((s) => !s.refunded_at);
   // Деньгами — без части, оплаченной бонусами.
   const sum = done.reduce((s, x) => s + x.total - x.bonus_spent, 0);
-  const card = done.filter((s) => s.payment === 'card').reduce((s, x) => s + x.total - x.bonus_spent, 0);
+  // Сколько пришло каждым способом оплаты: «Наличные 12 000 · МБАНК 8 500 · Оптима 3 200».
+  const byMethod = new Map();
+  for (const x of done) {
+    const name = methodName(x);
+    byMethod.set(name, (byMethod.get(name) || 0) + x.total - x.bonus_spent);
+  }
   $('#sales-summary').innerHTML = `
     <span><b class="num">${done.length}</b> ${plural(done.length, ['чек', 'чека', 'чеков'])}</span>
     <span>на <b class="num">${money2(sum)}</b></span>
-    <span class="pick-meta">картой ${money2(card)} · наличными ${money2(sum - card)}</span>
+    <span class="pay-split">${[...byMethod].sort((a, b) => b[1] - a[1]).map(([n, v]) => `<span class="pay-chip">${esc(n)} <b class="num">${money2(v)}</b></span>`).join('')}</span>
     ${list.length >= 200 ? '<span class="pick-meta">показаны последние 200</span>' : ''}`;
   $('#sales-list').innerHTML = list.length ? list.map((s) => `
     <div class="sale-row ${del ? 'with-select' : ''} ${salesView.selected.has(s.id) ? 'selected' : ''}">
@@ -48,7 +56,7 @@ async function renderSales() {
       <summary>
         <span class="num">№${s.id}</span>
         <span>${dateTime(s.created_at)}</span>
-        <span class="pick-meta">${s.payment === 'card' ? 'картой' : 'наличными'}${s.user_name ? ' · ' + esc(s.user_name) : ''}${s.refunded_at ? ' · возврат' : ''}</span>
+        <span class="pick-meta">${esc(methodName(s))}${s.user_name ? ' · ' + esc(s.user_name) : ''}${s.refunded_at ? ' · возврат' : ''}</span>
         <b class="num">${money2(s.total)}</b>
       </summary>
       <ul>${s.items.map((i) => `<li><span>${esc(i.name)}</span><span class="num">${qtyFmt.format(i.qty)} × ${money2(i.price)} = ${money2(i.qty * i.price)}</span></li>`).join('')}</ul>

@@ -190,6 +190,14 @@ const routes = [
     return store.bulkProducts(body);
   }, 'products'],
   ['DELETE', '/api/products/:id', (p) => store.bulkProducts({ ids: [Number(p.id)], action: 'delete' }), 'products.delete'],
+  // mine=1 — способы, доступные вошедшему сотруднику (для кассы); all=1 — весь справочник с выключенными.
+  ['GET', '/api/payment-methods', (p, url, body, user) => (url.searchParams.get('mine') === '1'
+    ? store.allowedPaymentMethods(user && store.findUser(user.id))
+    : { methods: store.listPaymentMethods({ all: url.searchParams.get('all') === '1' }), kinds: store.paymentKinds }), 'any'],
+  ['POST', '/api/payment-methods', (p, url, body) => store.savePaymentMethod(null, body), 'settings'],
+  ['PUT', '/api/payment-methods/:id', (p, url, body) => store.savePaymentMethod(p.id, body), 'settings'],
+  ['PUT', '/api/payment-methods-order', (p, url, body) => store.sortPaymentMethods(body.ids), 'settings'],
+  ['GET', '/api/reports/payments', (p, url) => store.reportPayments(range(url)), ['kpi', 'sales']],
   ['GET', '/api/categories', () => store.listCategories(), 'any'],
   ['POST', '/api/categories', (p, url, body) => store.createCategory(body), 'products'],
   ['PUT', '/api/categories/:id', (p, url, body) => store.renameCategory(p.id, body), 'products'],
@@ -392,6 +400,9 @@ const AUDIT_LABELS = {
   'POST /api/products/bulk': 'Групповое изменение товаров',
   'POST /api/products/:id/variants': 'Добавил модификации',
   'POST /api/categories': 'Создал категорию',
+  'POST /api/payment-methods': 'Добавил способ оплаты',
+  'PUT /api/payment-methods/:id': 'Изменил способ оплаты',
+  'PUT /api/payment-methods-order': 'Изменил порядок способов оплаты',
   'PUT /api/categories/:id': 'Переименовал категорию',
   'DELETE /api/categories/:id': 'Удалил категорию',
   'PUT /api/categories/:id/image': 'Поменял картинку категории',
@@ -440,7 +451,8 @@ const ORDER_NAMES = { confirmed: 'подтверждён', ready: 'собран'
 function auditDetails(key, params, body, result) {
   const r = result && typeof result === 'object' ? result : {};
   switch (key) {
-    case 'POST /api/sales': return `Чек №${r.id} на ${r.total} сом${r.discount ? `, скидка ${r.discount} сом (${r.discountReason})` : ''}`;
+    case 'PUT /api/payment-methods/:id': return `${r.name}${r.active ? '' : ' (выключен)'}`;
+    case 'POST /api/sales': return `Чек №${r.id} на ${r.total} сом, ${r.method}${r.discount ? `, скидка ${r.discount} сом (${r.discountReason})` : ''}`;
     case 'POST /api/sales/:id/refund': return `Чек №${params.id}`;
     case 'POST /api/customers/:id/password': return `+${r.phone}`;
     case 'PUT /api/customers/:id/login': return `${r.name || '+' + r.phone}: вход ${r.login_disabled ? 'закрыт' : 'открыт'}`;

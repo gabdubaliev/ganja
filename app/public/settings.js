@@ -182,4 +182,53 @@ $('#sms-test').addEventListener('click', async () => {
   }
 });
 
-views.settings = { show: () => { renderSettings(); renderSms(); renderInstagram(); renderWhatsapp(); }, right: 'settings' };
+/* ---------- Способы оплаты ---------- */
+const PM_KINDS = { cash: 'Наличные', card: 'Карта', transfer: 'Перевод', qr: 'QR-код', other: 'Другое' };
+let pmList = [];
+
+async function renderPaymentMethods() {
+  try { pmList = (await api('/api/payment-methods?all=1')).methods; } catch (err) { return toast(err.message, 'error'); }
+  const kindOptions = (sel) => Object.entries(PM_KINDS).map(([k, n]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${n}</option>`).join('');
+  $('#pm-add').elements.kind.innerHTML = kindOptions('card');
+  $('#pm-list').innerHTML = pmList.map((m, i) => `
+    <div class="pm-row ${m.active ? '' : 'off'}" data-pm="${m.id}">
+      <input class="input" value="${esc(m.name)}" data-pm-name aria-label="Название">
+      <select class="input" data-pm-kind aria-label="Тип">${kindOptions(m.kind)}</select>
+      <label class="check"><input type="checkbox" data-pm-active ${m.active ? 'checked' : ''}> Включён</label>
+      <span class="cat-actions">
+        <button type="button" class="icon-btn" data-pm-move="-1" ${i === 0 ? 'disabled' : ''} aria-label="Выше">↑</button>
+        <button type="button" class="icon-btn" data-pm-move="1" ${i === pmList.length - 1 ? 'disabled' : ''} aria-label="Ниже">↓</button>
+      </span>
+    </div>`).join('');
+}
+
+$('#pm-add').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  try {
+    await api('/api/payment-methods', { method: 'POST', body: { name: f.elements.name.value, kind: f.elements.kind.value } });
+    f.elements.name.value = '';
+    toast('Способ оплаты добавлен');
+    renderPaymentMethods();
+  } catch (err) { toast(err.message, 'error'); }
+});
+$('#pm-list').addEventListener('change', async (e) => {
+  const row = e.target.closest('[data-pm]');
+  if (!row) return;
+  const body = { name: row.querySelector('[data-pm-name]').value, kind: row.querySelector('[data-pm-kind]').value, active: row.querySelector('[data-pm-active]').checked };
+  try {
+    await api(`/api/payment-methods/${row.dataset.pm}`, { method: 'PUT', body });
+    toast('Сохранено');
+  } catch (err) { toast(err.message, 'error'); }
+  renderPaymentMethods();
+});
+$('#pm-list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-pm-move]');
+  if (!btn) return;
+  const ids = pmList.map((m) => m.id);
+  const i = ids.indexOf(Number(btn.closest('[data-pm]').dataset.pm)), j = i + Number(btn.dataset.pmMove);
+  [ids[i], ids[j]] = [ids[j], ids[i]];
+  try { await api('/api/payment-methods-order', { method: 'PUT', body: { ids } }); renderPaymentMethods(); } catch (err) { toast(err.message, 'error'); }
+});
+
+views.settings = { show: () => { renderSettings(); renderPaymentMethods(); renderSms(); renderInstagram(); renderWhatsapp(); }, right: 'settings' };

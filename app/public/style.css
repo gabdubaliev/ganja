@@ -682,6 +682,20 @@ input[type="range"] { width: 100%; accent-color: var(--series); }
 #categories-dialog { width: min(760px, calc(100vw - 24px)); }
 @media (max-width: 640px) { .cat-row { grid-template-columns: 52px minmax(0, 1fr); } .cat-count, .cat-actions { grid-column: 2; justify-content: flex-start; } }
 
+/* Способы оплаты */
+.pay-methods { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 6px; padding: 4px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
+.pay-methods button { display: flex; gap: 6px; align-items: center; justify-content: center; padding: 10px 8px; border: 0; border-radius: 9px; background: none; font-weight: 650; color: var(--ink-2); }
+.pay-methods button[aria-pressed="true"] { background: var(--surface); color: var(--series); box-shadow: var(--shadow-sm), inset 0 0 0 1.5px var(--series); }
+.pay-split { display: flex; flex-wrap: wrap; gap: 6px; }
+.pay-chip { padding: 3px 10px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); font-size: 13px; color: var(--ink-2); }
+.pay-chip b { color: var(--ink); }
+.pm-add { display: grid; grid-template-columns: minmax(0, 1fr) 160px auto; gap: 8px; }
+.pm-list { display: grid; gap: 8px; }
+.pm-row { display: grid; grid-template-columns: minmax(0, 1fr) 160px auto auto; gap: 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.pm-row.off { opacity: 0.55; }
+.pm-checks { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+@media (max-width: 640px) { .pm-add, .pm-row { grid-template-columns: 1fr; } }
+
 /* Категории с фото в кассе */
 .pos-cats { display: flex; gap: 10px; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: thin; }
 .pos-cat { flex: none; display: grid; justify-items: center; gap: 5px; width: 78px; padding: 0; border: 0; background: none; color: var(--ink-2); font-size: 12px; font-weight: 600; line-height: 1.2; text-align: center; }
@@ -737,7 +751,7 @@ input[type="range"] { width: 100%; accent-color: var(--series); }
 .period-custom select { width: auto; }
 .period-dates { display: flex; gap: 6px; align-items: center; color: var(--ink-2); }
 .period-dates input { width: auto; }
-.tabs { grid-template-columns: repeat(3, auto); }
+.tabs { grid-template-columns: repeat(4, auto); }
 .tabs button { padding: 7px 14px; }
 .pay-table, .shifts-table, .fines-table, .hits-table { min-width: 760px; }
 .pay-table tfoot td { font-weight: 600; border-bottom: 0; }
@@ -787,7 +801,7 @@ tr.audit-login_failed, tr.audit-denied { background: rgba(208, 59, 59, 0.06); }
   #me-password { max-width: 110px; }
   .nav-user .btn.small { padding: 5px 9px; }
   .period-custom { margin-left: 0; }
-  .tabs { grid-template-columns: repeat(3, 1fr); width: 100%; }
+  .tabs { grid-template-columns: repeat(2, 1fr); width: 100%; }
   .prices { grid-template-columns: 1fr; }
   .gen-row { grid-template-columns: minmax(0, 1fr) 32px; }
   .gen-row [data-gen="values"] { grid-column: 1; }

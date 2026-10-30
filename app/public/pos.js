@@ -4,7 +4,8 @@
 
 const pos = {
   cart: [],          // { productId, qty, price }
-  payment: 'card',
+  methods: [],       // способы оплаты, доступные кассиру
+  methodId: null,    // выбранный способ
   busy: false,
   customer: null,    // покупатель из программы лояльности
   spend: 0,          // сколько бонусов списать
@@ -74,12 +75,30 @@ function renderCart() {
   $('#cart-paid').textContent = money2(paid);
   $('#checkout').disabled = !pos.cart.length || pos.busy;
   $('#cart-clear').hidden = !pos.cart.length;
-  for (const b of document.querySelectorAll('#pay [data-pay]')) b.setAttribute('aria-pressed', b.dataset.pay === pos.payment);
-  $('#cash-row').hidden = pos.payment !== 'cash';
+  renderPayMethods();
+  const cash = isCash();
+  $('#cash-row').hidden = !cash;
   const given = parseNum($('#cash-given').value);
-  $('#change').textContent = pos.payment === 'cash' && given > 0
+  $('#change').textContent = cash && given > 0
     ? (given >= paid ? `Сдача: ${money2(given - paid)}` : `Не хватает ${money2(paid - given)}`)
     : '';
+}
+
+/* ---------- Способы оплаты ---------- */
+const PAY_ICON = { cash: '💵', card: '💳', transfer: '🏦', qr: '📱', other: '•' };
+const currentMethod = () => pos.methods.find((m) => m.id === pos.methodId);
+const isCash = () => currentMethod()?.kind === 'cash';
+
+async function loadPayMethods() {
+  try { pos.methods = await api('/api/payment-methods?mine=1'); } catch { pos.methods = []; }
+  if (!pos.methods.some((m) => m.id === pos.methodId)) pos.methodId = pos.methods[0]?.id ?? null;
+}
+
+function renderPayMethods() {
+  const el = $('#pay');
+  el.innerHTML = pos.methods.length ? pos.methods.map((m) => `
+    <button type="button" data-method="${m.id}" aria-pressed="${m.id === pos.methodId}"><span aria-hidden="true">${PAY_ICON[m.kind] || '•'}</span>${esc(m.name)}</button>`).join('')
+    : '<p class="neg">Вам не открыт ни один способ оплаты — обратитесь к администратору.</p>';
 }
 
 /* ---------- Покупатель и бонусы ---------- */
@@ -331,18 +350,19 @@ $('#cart').addEventListener('change', (e) => {
   renderPick();
 });
 $('#pay').addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-pay]');
+  const btn = e.target.closest('[data-method]');
   if (!btn) return;
-  pos.payment = btn.dataset.pay;
+  pos.methodId = Number(btn.dataset.method);
   renderCart();
-  if (pos.payment === 'cash') $('#cash-given').focus();
+  if (isCash()) $('#cash-given').focus();
 });
 $('#cash-given').addEventListener('input', renderCart);
 $('#cart-clear').addEventListener('click', () => { pos.cart = []; $('#cash-given').value = ''; clearCustomer(); renderCart(); renderPick(); });
 
 $('#checkout').addEventListener('click', async () => {
   const total = cartTotal() - bonusSpend();
-  if (pos.payment === 'cash' && $('#cash-given').value && parseNum($('#cash-given').value) < total) {
+  if (!currentMethod()) return toast('Выберите способ оплаты', 'error');
+  if (isCash() && $('#cash-given').value && parseNum($('#cash-given').value) < total) {
     return toast('Получено меньше, чем сумма чека', 'error');
   }
   pos.busy = true;
@@ -350,9 +370,9 @@ $('#checkout').addEventListener('click', async () => {
   try {
     const sale = await api('/api/sales', {
       method: 'POST',
-      body: { payment: pos.payment, items: pos.cart, customerId: pos.customer?.id, bonusSpend: bonusSpend(), birthday: birthdayRate() > 0 },
+      body: { methodId: pos.methodId, items: pos.cart, customerId: pos.customer?.id, bonusSpend: bonusSpend(), birthday: birthdayRate() > 0 },
     });
-    toast(`Чек №${sale.id} на ${money2(sale.total)} пробит${sale.discount ? `, скидка ${money2(sale.discount)}` : ''}${sale.bonusEarned ? `, начислено ${sale.bonusEarned} бонусов` : ''}`);
+    toast(`Чек №${sale.id} на ${money2(sale.total)} (${sale.method}) пробит${sale.discount ? `, скидка ${money2(sale.discount)}` : ''}${sale.bonusEarned ? `, начислено ${sale.bonusEarned} бонусов` : ''}`);
     loadShift();
     pos.cart = [];
     $('#cash-given').value = '';
@@ -381,7 +401,7 @@ async function loadShift() {
   bar.hidden = false;
   bar.className = 'shift-bar ' + (sh ? 'open' : 'closed');
   bar.innerHTML = sh
-    ? `<span>Смена открыта с <b>${new Date(sh.opened_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</b> · ${int(sh.receipts)} ${plural(sh.receipts, ['чек', 'чека', 'чеков'])} на <b>${money2(sh.revenue)}</b> · наличными ${money2(sh.cash)}, картой ${money2(sh.card)}</span>
+    ? `<span>Смена открыта с <b>${new Date(sh.opened_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</b> · ${int(sh.receipts)} ${plural(sh.receipts, ['чек', 'чека', 'чеков'])} на <b>${money2(sh.revenue)}</b>${sh.byMethod.length ? ' · ' + sh.byMethod.map((m) => `${esc(m.name)} <b>${money2(m.sum)}</b>`).join(', ') : ''}</span>
        <button type="button" class="btn small" id="shift-close">Закрыть смену</button>`
     : `<span>Смена не открыта. Откройте её в начале рабочего дня — по сменам считается зарплата.</span>
        <button type="button" class="btn small primary" id="shift-open">Открыть смену</button>`;
@@ -434,7 +454,7 @@ $('#pos-cats').addEventListener('click', (e) => {
 
 views.pos = {
   async show() {
-    try { await Promise.all([catalog.load(), loadPosCats()]); } catch (err) { toast(err.message, 'error'); }
+    try { await Promise.all([catalog.load(), loadPosCats(), loadPayMethods()]); } catch (err) { toast(err.message, 'error'); }
     renderPick();
     renderCart();
     loadShift();

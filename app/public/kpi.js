@@ -39,10 +39,11 @@ async function renderKpi() {
       api(`/api/kpi?from=${from}&to=${to}`),
       kpiView.tab === 'products' ? api(`/api/reports/products?from=${from}&to=${to}`) : Promise.resolve(kpiView.hits),
     ]);
+    if (kpiView.tab === 'payments') kpiView.payments = await api(`/api/reports/payments?from=${from}&to=${to}`);
   } catch (err) {
     return toast(err.message, 'error');
   }
-  ({ pay: renderPay, sellers: renderSellers, products: renderHits })[kpiView.tab]();
+  ({ pay: renderPay, sellers: renderSellers, products: renderHits, payments: renderPayments })[kpiView.tab]();
 }
 
 const tile = (label, value, note = '') => `<div class="kpi"><div class="label">${label}</div><div class="value num">${value}</div><div class="delta">${note}</div></div>`;
@@ -104,6 +105,32 @@ function renderSellers() {
       <td>${r.receipts ? pct(r.loyaltyReceipts / r.receipts) : '—'}</td>
       <td>${r.plan ? `<span class="${r.planDone >= 1 ? 'good' : ''}">${pct(r.planDone)}</span><div class="pcat">из ${money(r.plan)}</div>` : '—'}</td>
     </tr>`).join('') : '<tr><td colspan="9" class="empty">Продаж нет</td></tr>';
+}
+
+const PAY_KIND = { cash: 'Наличные', card: 'Карта', transfer: 'Перевод', qr: 'QR-код', other: 'Другое' };
+
+function renderPayments() {
+  const rows = kpiView.payments || [];
+  const total = rows.reduce((s, r) => s + r.money, 0);
+  const cash = rows.filter((r) => r.kind === 'cash').reduce((s, r) => s + r.money, 0);
+  const top = rows.find((r) => r.kind !== 'cash');
+  $('#kpi-cards').innerHTML = [
+    tile('Всего деньгами', money(total), `${int(rows.reduce((s, r) => s + r.receipts, 0))} чеков`),
+    tile('Наличными', money(cash), total ? pct(cash / total) : ''),
+    tile('Безналичными', money(total - cash), total ? pct((total - cash) / total) : ''),
+    tile('Больше всего через', top ? esc(top.name) : '—', top ? money(top.money) : ''),
+  ].join('');
+  const max = Math.max(1, ...rows.map((r) => r.money));
+  $('#pay-bars').innerHTML = rows.length ? rows.map((r) => `
+    <div class="kpi-bar">
+      <span class="kpi-bar-name">${esc(r.name)}<span class="pcat">${PAY_KIND[r.kind] || ''}</span></span>
+      <span class="kpi-bar-track"><i style="width:${(r.money / max) * 100}%"></i></span>
+      <span class="kpi-bar-value num">${money(r.money)} · ${total ? pct(r.money / total) : ''}</span>
+    </div>`).join('') : '<p class="empty">За этот период оплат нет</p>';
+  $('#pay-report-body').innerHTML = rows.map((r) => `<tr>
+      <td><div class="pname">${esc(r.name)}</div></td><td>${PAY_KIND[r.kind] || '—'}</td><td>${int(r.receipts)}</td>
+      <td><b>${money(r.money)}</b></td><td>${money(r.total)}</td><td>${total ? pct(r.money / total) : '—'}</td>
+    </tr>`).join('') || '<tr><td colspan="6" class="empty">Оплат нет</td></tr>';
 }
 
 const HITS_SORT = { revenue: 'По выручке', qty: 'По количеству', profit: 'По прибыли', receipts: 'По числу чеков' };

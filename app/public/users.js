@@ -51,6 +51,7 @@ function openUserDialog(user = null) {
   }
   showRoleAbout();
   renderRights(user && user.role !== 'admin' ? user.rights : null);
+  renderUserMethods(user);
   $('#user-dialog').showModal();
 }
 
@@ -61,6 +62,31 @@ $('#uf-role').addEventListener('change', () => {
   showRoleAbout();
   // Новая роль — новые галочки по умолчанию.
   renderRights(null);
+});
+
+/* ---------- Способы оплаты сотрудника ---------- */
+let userMethods = [];
+
+async function renderUserMethods(user) {
+  try { userMethods = (await api('/api/payment-methods')).methods; } catch { userMethods = []; }
+  const isAdmin = $('#uf-role').value === 'admin';
+  const own = user?.payment_methods;
+  $('#uf-methods-list').innerHTML = userMethods.map((m) => `
+    <label class="check"><input type="checkbox" value="${m.id}" ${isAdmin || !own || own.includes(m.id) ? 'checked' : ''} ${isAdmin ? 'disabled' : ''}> ${esc(m.name)}</label>`).join('')
+    + (isAdmin ? '<p class="pcat">Администратор принимает оплату любым способом.</p>' : '');
+  $('#uf-methods-all').hidden = isAdmin;
+}
+
+// Все галочки стоят — значит «все способы», в том числе те, что добавят позже.
+function methodsForSave() {
+  if ($('#uf-role').value === 'admin') return null;
+  const checked = [...document.querySelectorAll('#uf-methods-list input:checked')].map((i) => Number(i.value));
+  if (!checked.length) return [];
+  return checked.length === userMethods.length ? null : checked;
+}
+
+$('#uf-methods-all').addEventListener('click', () => {
+  for (const i of document.querySelectorAll('#uf-methods-list input')) i.checked = true;
 });
 
 /* ---------- Права галочками ---------- */
@@ -112,6 +138,7 @@ $('#user-form').addEventListener('submit', async (e) => {
     email: f.elements.email.value, name: f.elements.name.value, role: f.elements.role.value,
     shift_rate: parseNum(f.elements.shift_rate.value) || 0, salary: parseNum(f.elements.salary.value) || 0, percent: parseNum(f.elements.percent.value) || 0, plan: parseNum(f.elements.plan.value) || 0,
     rights: rightsForSave(),
+    payment_methods: methodsForSave(),
   };
   if (f.elements.password.value) body.password = f.elements.password.value;
   if (editingUser) body.disabled = f.elements.disabled.checked;
