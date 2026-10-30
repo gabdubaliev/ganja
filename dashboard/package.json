@@ -1,0 +1,13 @@
+{
+  "name": "sales-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Дашборд продаж, прибыли и остатков для CloudShop",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "check": "node server.js --check"
+  }
+}
