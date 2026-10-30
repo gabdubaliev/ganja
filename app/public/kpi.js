@@ -1,7 +1,8 @@
 'use strict';
 
 // Отчёты: зарплата за выплатный период, топ продавцов и хиты товаров.
-// Зарплата = выходы на смену × ставка + месячный оклад за долю месяца + % от продаж − штрафы.
+// Зарплата = выходы на смену × ставка + месячный оклад за долю месяца + % от продаж
+//   + бонус за выполнение плана + бонусы, начисленные вручную − штрафы.
 
 const kpiView = { tab: 'pay', range: 'half', from: 0, to: 0, data: null, hits: null, hitsSort: 'revenue', hitsQuery: '' };
 const staffName = (u) => (u ? u.name || u.email : 'Без сотрудника');
@@ -39,6 +40,7 @@ async function renderKpi() {
       api(`/api/kpi?from=${from}&to=${to}`),
       kpiView.tab === 'products' ? api(`/api/reports/products?from=${from}&to=${to}`) : Promise.resolve(kpiView.hits),
     ]);
+    if (kpiView.tab === 'pay' && session.can('salary')) kpiView.bonuses = await api(`/api/bonuses?from=${from}&to=${to}`);
     if (kpiView.tab === 'payments') kpiView.payments = await api(`/api/reports/payments?from=${from}&to=${to}`);
   } catch (err) {
     return toast(err.message, 'error');
@@ -55,21 +57,27 @@ function renderPay() {
     tile('К выплате всем', money(sum('pay')), `${staff.length} ${plural(staff.length, ['сотрудник', 'сотрудника', 'сотрудников'])}`),
     tile('За смены и оклад', money(sum('salary')), `${int(sum('shifts'))} ${plural(sum('shifts'), ['выход', 'выхода', 'выходов'])}`),
     tile('Проценты от продаж', money(sum('bonus'))),
+    tile('Бонусы', money(sum('planBonus') + sum('extra')), `за план ${money(sum('planBonus'))} · разовые ${money(sum('extra'))}`),
     tile('Штрафы', money(sum('fines')), `${int(sum('finesCount'))} ${plural(sum('finesCount'), ['штраф', 'штрафа', 'штрафов'])}`),
     tile('Выручка сотрудников', money(sum('revenue'))),
   ].join('');
-  $('#kpi-note').textContent = 'Выход — день, в который сотрудник открывал смену. Ставка, процент и оклад задаются в карточке сотрудника, штрафы — в разделе «Штрафы».';
+  const edit = session.can('salary');
+  $('#kpi-note').textContent = `Выход — день, в который сотрудник открывал смену. ${edit ? 'Ставку, оклад, процент, план и бонус за план меняет кнопка «Изменить ЗП»' : 'Ставка, процент и оклад задаются в карточке сотрудника'}, штрафы — в разделе «Штрафы».`;
   $('#pay-body').innerHTML = staff.length ? staff.map((r) => `<tr>
-      <td><div class="pname">${esc(staffName(r.user))}</div><div class="pcat">${esc(session.roleName(r.user.role))}${r.user.shift_rate ? ` · ${money(r.user.shift_rate)} за смену` : ''}${r.user.percent ? ` · ${r.user.percent}%` : ''}</div></td>
+      <td><div class="pname">${esc(staffName(r.user))}</div><div class="pcat">${esc(session.roleName(r.user.role))}${r.user.shift_rate ? ` · ${money(r.user.shift_rate)} за смену` : ''}${r.user.percent ? ` · ${r.user.percent}%` : ''}</div>
+        ${r.plan ? `<div class="pcat">план ${money(r.plan)} · ${r.planDone >= 1 ? '<b class="pos-text">выполнен</b>' : `выполнено ${pct(r.planDone)}`}${r.user.plan_bonus ? ` · бонус ${money(r.user.plan_bonus)}/мес` : ''}</div>` : ''}</td>
       <td>${int(r.shifts)}</td>
       <td>${money(r.salary)}</td>
       <td>${money(r.revenue)}</td>
       <td>${r.user.percent ? money(r.bonus) : '—'}</td>
+      <td>${r.planBonus || r.extra ? `<span class="pos-text">+${money(r.planBonus + r.extra)}</span>${r.planBonus ? `<div class="pcat">за план ${money(r.planBonus)}</div>` : ''}${r.extra ? `<div class="pcat">разовые ${money(r.extra)}</div>` : ''}` : '—'}</td>
       <td class="${r.fines ? 'neg' : ''}">${r.fines ? '−' + money(r.fines) : '—'}</td>
       <td><b>${money(r.pay)}</b></td>
-    </tr>`).join('') : '<tr><td colspan="7" class="empty">Сотрудников пока нет</td></tr>';
+      ${edit ? `<td class="row-actions"><button type="button" class="btn small ghost" data-pay-edit="${r.user.id}">Изменить ЗП</button><button type="button" class="btn small" data-bonus-for="${r.user.id}">+ Бонус</button></td>` : ''}
+    </tr>`).join('') : '<tr><td colspan="9" class="empty">Сотрудников пока нет</td></tr>';
   $('#pay-foot').innerHTML = staff.length > 1 ? `<tr><td>Итого</td><td>${int(sum('shifts'))}</td><td>${money(sum('salary'))}</td><td>${money(sum('revenue'))}</td>
-    <td>${money(sum('bonus'))}</td><td>${sum('fines') ? '−' + money(sum('fines')) : '—'}</td><td><b>${money(sum('pay'))}</b></td></tr>` : '';
+    <td>${money(sum('bonus'))}</td><td>${sum('planBonus') + sum('extra') ? '+' + money(sum('planBonus') + sum('extra')) : '—'}</td><td>${sum('fines') ? '−' + money(sum('fines')) : '—'}</td><td><b>${money(sum('pay'))}</b></td>${edit ? '<td></td>' : ''}</tr>` : '';
+  renderBonuses();
 }
 
 function renderSellers() {
@@ -166,7 +174,7 @@ function printPayroll() {
   const [from, to] = kpiPeriod();
   const win = window.open('', '_blank');
   if (!win) return toast('Браузер не дал открыть окно печати. Разрешите всплывающие окна для этого сайта.', 'error');
-  const rows = staff.map((r) => `<tr><td>${esc(staffName(r.user))}</td><td>${r.shifts}</td><td>${money(r.salary)}</td><td>${money(r.bonus)}</td><td>${r.fines ? '−' + money(r.fines) : ''}</td><td><b>${money(r.pay)}</b></td><td></td></tr>`).join('');
+  const rows = staff.map((r) => `<tr><td>${esc(staffName(r.user))}</td><td>${r.shifts}</td><td>${money(r.salary)}</td><td>${money(r.bonus)}</td><td>${r.planBonus + r.extra ? '+' + money(r.planBonus + r.extra) : ''}</td><td>${r.fines ? '−' + money(r.fines) : ''}</td><td><b>${money(r.pay)}</b></td><td></td></tr>`).join('');
   const total = staff.reduce((s, r) => s + r.pay, 0);
   win.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Ведомость</title><style>
     body { font: 13px system-ui, Arial, sans-serif; margin: 16mm; color: #000; }
@@ -176,8 +184,8 @@ function printPayroll() {
   </style></head><body>
     <h1>Ведомость на выплату зарплаты — ${esc(session.design?.name || '')}</h1>
     <p>Период: ${new Date(from).toLocaleDateString('ru-RU')} — ${new Date(to - 1).toLocaleDateString('ru-RU')}</p>
-    <table><thead><tr><th>Сотрудник</th><th>Выходов</th><th>За смены и оклад</th><th>% от продаж</th><th>Штрафы</th><th>К выплате</th><th>Подпись</th></tr></thead>
-    <tbody>${rows}</tbody><tfoot><tr><td colspan="5">Итого</td><td><b>${money(total)}</b></td><td></td></tr></tfoot></table>
+    <table><thead><tr><th>Сотрудник</th><th>Выходов</th><th>За смены и оклад</th><th>% от продаж</th><th>Бонусы</th><th>Штрафы</th><th>К выплате</th><th>Подпись</th></tr></thead>
+    <tbody>${rows}</tbody><tfoot><tr><td colspan="6">Итого</td><td><b>${money(total)}</b></td><td></td></tr></tfoot></table>
     <script>addEventListener('load', () => print());<\/script></body></html>`);
   win.document.close();
 }
@@ -221,4 +229,89 @@ $('#pay-print').addEventListener('click', printPayroll);
 // Новая продажа сразу видна в цифрах.
 salesFeed.listeners.push(() => { if (currentView === 'kpi') renderKpi(); });
 
-views.kpi = { show: renderKpi, right: 'kpi' };
+/* ---------- Изменение зарплаты и бонусы (право «Зарплата») ---------- */
+function renderBonuses() {
+  const list = kpiView.bonuses || [];
+  $('#bonus-panel').hidden = !session.can('salary') || !list.length;
+  $('#bonus-body').innerHTML = list.map((b) => `<tr>
+      <td>${new Date(b.at).toLocaleDateString('ru-RU')}</td>
+      <td>${esc(b.user_name || '—')}</td>
+      <td>${esc(b.reason)}</td>
+      <td class="pos-text"><b>+${money(b.amount)}</b></td>
+      <td class="pcat">${esc(b.created_by)}<br>${dateTime(b.created_at)}</td>
+      <td><button type="button" class="btn small ghost" data-bonus-del="${b.id}">Отменить</button></td>
+    </tr>`).join('');
+}
+
+const payRow = (id) => kpiView.data.staff.find((r) => r.user?.id === id);
+
+function openBonus(userId) {
+  const f = $('#bonus-form');
+  f.reset();
+  const staff = kpiView.data.staff.filter((r) => r.user && !r.user.disabled);
+  f.elements.user_id.innerHTML = staff.map((r) => `<option value="${r.user.id}">${esc(staffName(r.user))}</option>`).join('');
+  if (userId) f.elements.user_id.value = userId;
+  // По умолчанию — сегодня, но не позже конца выбранного периода, чтобы бонус попал в эту ведомость.
+  const [from, to] = kpiPeriod();
+  f.elements.date.value = dateInput(Math.max(from, Math.min(Date.now(), to - 1)));
+  $('#bonus-error').hidden = true;
+  $('#bonus-dialog').showModal();
+  f.elements.amount.focus();
+}
+
+function openPay(userId) {
+  const u = payRow(userId).user;
+  const f = $('#pay-form');
+  f.dataset.user = userId;
+  $('#pay-title').textContent = `Зарплата: ${staffName(u)}`;
+  for (const k of ['shift_rate', 'salary', 'percent', 'plan', 'plan_bonus']) f.elements[k].value = u[k] ? String(u[k]).replace('.', ',') : '';
+  $('#pay-error').hidden = true;
+  $('#pay-dialog').showModal();
+}
+
+$('#bonus-add').addEventListener('click', () => openBonus(null));
+$('#pay-body').addEventListener('click', (e) => {
+  const edit = e.target.closest('[data-pay-edit]');
+  const bonus = e.target.closest('[data-bonus-for]');
+  if (edit) openPay(Number(edit.dataset.payEdit));
+  if (bonus) openBonus(Number(bonus.dataset.bonusFor));
+});
+$('#bonus-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  try {
+    await api('/api/bonuses', { method: 'POST', body: { user_id: Number(f.elements.user_id.value), amount: parseNum(f.elements.amount.value), reason: f.elements.reason.value, at: fromDateInput(f.elements.date.value) + 12 * 36e5 } });
+    $('#bonus-dialog').close();
+    toast('Бонус начислен');
+    renderKpi();
+  } catch (err) { showFormError('#bonus-error', err); }
+});
+$('#pay-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const body = Object.fromEntries(['shift_rate', 'salary', 'percent', 'plan', 'plan_bonus'].map((k) => [k, parseNum(f.elements[k].value) || 0]));
+  try {
+    await api(`/api/users/${f.dataset.user}/pay`, { method: 'PUT', body });
+    $('#pay-dialog').close();
+    toast('Зарплата сотрудника изменена');
+    renderKpi();
+  } catch (err) { showFormError('#pay-error', err); }
+});
+$('#bonus-cancel').addEventListener('click', () => $('#bonus-dialog').close());
+$('#pay-cancel').addEventListener('click', () => $('#pay-dialog').close());
+$('#bonus-body').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-bonus-del]');
+  if (!btn) return;
+  if (!btn.classList.contains('danger')) {
+    btn.classList.add('danger');
+    btn.textContent = 'Точно отменить?';
+    return;
+  }
+  try {
+    await api(`/api/bonuses/${btn.dataset.bonusDel}`, { method: 'DELETE' });
+    toast('Бонус отменён');
+    renderKpi();
+  } catch (err) { toast(err.message, 'error'); }
+});
+
+views.kpi = { show: renderKpi, right: ['kpi', 'salary'] };

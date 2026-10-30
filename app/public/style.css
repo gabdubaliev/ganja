@@ -904,3 +904,8 @@ tr.audit-login_failed, tr.audit-denied { background: rgba(208, 59, 59, 0.06); }
   .cart-line > .icon-btn { grid-area: rm; }
 }
 .kpi .label .kpi-note { display: block; font-size: 11px; font-weight: 500; text-transform: none; letter-spacing: 0; opacity: .8; }
+
+/* ---------- Зарплата: бонусы и изменение ЗП ---------- */
+.pos-text { color: var(--pos, #1a9d55); }
+.pay-table .row-actions { white-space: nowrap; }
+.pay-table .row-actions .btn + .btn { margin-left: 6px; }

@@ -48,6 +48,7 @@ function openUserDialog(user = null) {
     f.elements.shift_rate.value = user.shift_rate || '';
     f.elements.percent.value = user.percent || '';
     f.elements.plan.value = user.plan || '';
+    f.elements.plan_bonus.value = user.plan_bonus || '';
     f.elements.max_discount.value = user.max_discount ?? '';
   }
   showRoleAbout();
@@ -137,7 +138,7 @@ $('#user-form').addEventListener('submit', async (e) => {
   const f = e.target;
   const body = {
     email: f.elements.email.value, name: f.elements.name.value, role: f.elements.role.value,
-    shift_rate: parseNum(f.elements.shift_rate.value) || 0, salary: parseNum(f.elements.salary.value) || 0, percent: parseNum(f.elements.percent.value) || 0, plan: parseNum(f.elements.plan.value) || 0,
+    shift_rate: parseNum(f.elements.shift_rate.value) || 0, salary: parseNum(f.elements.salary.value) || 0, percent: parseNum(f.elements.percent.value) || 0, plan: parseNum(f.elements.plan.value) || 0, plan_bonus: parseNum(f.elements.plan_bonus.value) || 0,
     max_discount: f.elements.max_discount.value.trim() === '' ? null : parseNum(f.elements.max_discount.value),
     rights: rightsForSave(),
     payment_methods: methodsForSave(),

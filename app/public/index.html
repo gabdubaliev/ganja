@@ -233,13 +233,25 @@
     <section class="panel">
       <div class="panel-head">
         <div><h2>Зарплата за период</h2><p class="sub" id="kpi-note"></p></div>
-        <button type="button" class="btn" id="pay-print">Распечатать ведомость</button>
+        <span class="tools">
+          <button type="button" class="btn primary" id="bonus-add" data-can="salary" hidden>+ Бонус</button>
+          <button type="button" class="btn" id="pay-print">Распечатать ведомость</button>
+        </span>
       </div>
       <div class="table-wrap">
         <table class="kpi-table pay-table">
-          <thead><tr><th>Сотрудник</th><th>Выходов</th><th>За смены</th><th>Выручка</th><th>% от продаж</th><th>Штрафы</th><th>К выплате</th></tr></thead>
+          <thead><tr><th>Сотрудник</th><th>Выходов</th><th>За смены</th><th>Выручка</th><th>% от продаж</th><th>Бонусы</th><th>Штрафы</th><th>К выплате</th><th data-can="salary" hidden></th></tr></thead>
           <tbody id="pay-body"></tbody>
           <tfoot id="pay-foot"></tfoot>
+        </table>
+      </div>
+    </section>
+    <section class="panel" id="bonus-panel" hidden>
+      <div class="panel-head"><div><h2>Бонусы за период</h2><p class="sub">Начисленные вручную. Бонус за выполнение плана считается сам и здесь не показывается.</p></div></div>
+      <div class="table-wrap">
+        <table class="fines-table">
+          <thead><tr><th>Дата</th><th>Сотрудник</th><th>За что</th><th>Сумма</th><th>Начислил</th><th></th></tr></thead>
+          <tbody id="bonus-body"></tbody>
         </table>
       </div>
     </section>
@@ -423,6 +435,43 @@
     <div class="form-actions">
       <button type="button" class="btn ghost danger-text" id="shift-delete" hidden>Удалить</button>
       <button type="button" class="btn ghost" id="shift-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="bonus-dialog" aria-labelledby="bonus-title">
+  <form id="bonus-form" novalidate>
+    <h2 id="bonus-title">Начислить бонус</h2>
+    <div class="form-grid">
+      <div class="field wide"><label for="bn-user">Сотрудник</label><select id="bn-user" name="user_id" class="input"></select></div>
+      <div class="field"><label for="bn-amount">Сумма, сом</label><input id="bn-amount" name="amount" class="input num" inputmode="decimal" autocomplete="off" required></div>
+      <div class="field"><label for="bn-date">Дата</label><input id="bn-date" name="date" type="date" class="input" required></div>
+      <div class="field wide"><label for="bn-reason">За что</label><textarea id="bn-reason" name="reason" class="input" rows="2" required placeholder="Например, лучший продавец недели"></textarea></div>
+    </div>
+    <p class="sub">Бонус прибавляется к зарплате за выплатный период, в который попадает дата.</p>
+    <p class="form-error" id="bonus-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="bonus-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Начислить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="pay-dialog" aria-labelledby="pay-title">
+  <form id="pay-form" novalidate>
+    <h2 id="pay-title">Зарплата сотрудника</h2>
+    <div class="form-grid">
+      <div class="field"><label for="pf-rate">За выход на смену, сом</label><input id="pf-rate" name="shift_rate" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+      <div class="field"><label for="pf-salary">Оклад в месяц, сом</label><input id="pf-salary" name="salary" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+      <div class="field"><label for="pf-percent">Процент от продаж, %</label><input id="pf-percent" name="percent" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+      <div class="field"><label for="pf-plan">План продаж в месяц, сом</label><input id="pf-plan" name="plan" class="input num" inputmode="decimal" autocomplete="off" placeholder="Без плана"></div>
+      <div class="field wide"><label for="pf-plan-bonus">Бонус за выполнение плана, сом в месяц</label><input id="pf-plan-bonus" name="plan_bonus" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+    </div>
+    <p class="sub">Новые условия сразу пересчитывают зарплату в отчёте за любой период. План и бонус за план задаются на месяц: за выплатный период с 1 по 15 — половина плана и половина бонуса. Бонус начисляется, когда выручка сотрудника за период достигла плана.</p>
+    <p class="form-error" id="pay-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="pay-cancel">Отмена</button>
       <button type="submit" class="btn primary">Сохранить</button>
     </div>
   </form>
@@ -804,6 +853,7 @@
       <div class="field"><label for="uf-salary">Оклад в месяц, сом (если есть)</label><input id="uf-salary" name="salary" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
       <div class="field"><label for="uf-percent">Процент от продаж, %</label><input id="uf-percent" name="percent" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
       <div class="field"><label for="uf-plan">План продаж в месяц, сом</label><input id="uf-plan" name="plan" class="input num" inputmode="decimal" autocomplete="off" placeholder="Без плана"></div>
+      <div class="field"><label for="uf-plan-bonus">Бонус за выполнение плана, сом</label><input id="uf-plan-bonus" name="plan_bonus" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
       <div class="field"><label for="uf-maxdisc">Скидка на кассе — не больше, % от чека</label><input id="uf-maxdisc" name="max_discount" class="input num" inputmode="decimal" autocomplete="off" placeholder="Без ограничения"></div>
       <fieldset class="rights wide" id="uf-methods">
         <legend>Способы оплаты на кассе <button type="button" class="link" id="uf-methods-all">все</button></legend>

@@ -171,6 +171,10 @@ function open(file) {
   // Личный список способов оплаты сотрудника (JSON id) или NULL — все включённые.
   // max_discount — сколько процентов скидки на чек может дать сотрудник (NULL — без ограничения).
   addColumns('users', [['payment_methods', 'TEXT'], ['max_discount', 'REAL']]);
+  // plan_bonus — премия в сомах за выполнение месячного плана продаж.
+  addColumns('users', [['plan_bonus', 'REAL NOT NULL DEFAULT 0']]);
+  // Штрафы и бонусы сотрудникам — одна таблица: kind 'fine' уменьшает зарплату, 'bonus' увеличивает.
+  addColumns('fines', [['kind', "TEXT NOT NULL DEFAULT 'fine'"]]);
   // Комиссия банка в процентах для способа оплаты (М-Банк, эквайринг…).
   addColumns('payment_methods', [['commission', 'REAL NOT NULL DEFAULT 0']]);
   // Оплата чека частями: наличные + карта и т.д. У каждой части — способ, сумма и удержанная комиссия.
@@ -458,6 +462,7 @@ function createStore(file) {
       salary: round2(number(input.salary ?? current.salary ?? 0, 'Оклад')),
       percent,
       plan: round2(number(input.plan ?? current.plan ?? 0, 'План продаж')),
+      plan_bonus: round2(number(input.plan_bonus ?? current.plan_bonus ?? 0, 'Бонус за план')),
     };
   };
 
@@ -1126,10 +1131,11 @@ function createStore(file) {
         days.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
         shiftDays.set(sh.user_id, days);
       }
-      const fines = new Map(db.prepare('SELECT user_id, SUM(amount) AS sum, COUNT(*) AS n FROM fines WHERE at >= ? AND at < ? GROUP BY user_id').all(from, to).map((r) => [r.user_id, r]));
+      const fines = new Map(db.prepare("SELECT user_id, SUM(amount) AS sum, COUNT(*) AS n FROM fines WHERE kind = 'fine' AND at >= ? AND at < ? GROUP BY user_id").all(from, to).map((r) => [r.user_id, r]));
+      const extras = new Map(db.prepare("SELECT user_id, SUM(amount) AS sum, COUNT(*) AS n FROM fines WHERE kind = 'bonus' AND at >= ? AND at < ? GROUP BY user_id").all(from, to).map((r) => [r.user_id, r]));
       const users = db.prepare('SELECT * FROM users ORDER BY name, email').all();
       const result = users
-        .filter((u) => stats.has(u.id) || shiftDays.has(u.id) || fines.has(u.id) || (!u.disabled && (can(u, 'pos') || u.shift_rate > 0 || u.salary > 0)))
+        .filter((u) => stats.has(u.id) || shiftDays.has(u.id) || fines.has(u.id) || extras.has(u.id) || (!u.disabled && (can(u, 'pos') || u.shift_rate > 0 || u.salary > 0)))
         .map((u) => ({ user: publicUser(u), ...stats.get(u.id) }));
       if (stats.has(null)) result.push({ user: null, ...stats.get(null) });
       return {
@@ -1142,6 +1148,9 @@ function createStore(file) {
           const bonus = r.user ? round2(revenue * r.user.percent / 100) : 0;
           const fine = r.user ? round2(fines.get(r.user.id)?.sum || 0) : 0;
           const plan = r.user ? round2(r.user.plan * months) : 0;
+          // Бонус за план: план и премия заданы на месяц и пересчитываются на период, как оклад.
+          const planBonus = plan > 0 && revenue >= plan ? round2((r.user.plan_bonus || 0) * months) : 0;
+          const extra = r.user ? round2(extras.get(r.user.id)?.sum || 0) : 0;
           const p = profit.get(r.user?.id ?? null);
           return {
             user: r.user,
@@ -1160,7 +1169,10 @@ function createStore(file) {
             bonus,
             fines: fine,
             finesCount: r.user ? fines.get(r.user.id)?.n || 0 : 0,
-            pay: round2(salary + bonus - fine),
+            planBonus,
+            extra,
+            extraCount: r.user ? extras.get(r.user.id)?.n || 0 : 0,
+            pay: round2(salary + bonus + planBonus + extra - fine),
           };
         }),
         sales: byDay.map((x) => ({ u: x.id, t: x.t, s: x.total })),
@@ -1248,25 +1260,26 @@ function createStore(file) {
 
     /* ---------- Штрафы ---------- */
 
-    listFines({ from, to }) {
+    // Штрафы и бонусы за период; kind — 'fine' или 'bonus', без него — всё вместе.
+    listFines({ from, to, kind }) {
       return db.prepare(`SELECT f.*, COALESCE(NULLIF(u.name, ''), u.email) AS user_name FROM fines f LEFT JOIN users u ON u.id = f.user_id
-        WHERE f.at >= ? AND f.at < ? ORDER BY f.at DESC`).all(from, to);
+        WHERE f.at >= ? AND f.at < ? ${kind ? 'AND f.kind = ?' : ''} ORDER BY f.at DESC`).all(from, to, ...(kind ? [kind] : []));
     },
 
-    addFine(input, by) {
+    addFine(input, by, kind = 'fine') {
       const u = this.findUser(input.user_id);
       if (!u) throw new UserError('Выберите сотрудника');
-      const amount = round2(number(input.amount, 'Сумма штрафа', { positive: true }));
-      const reason = text(input.reason, 'Причина', { required: true, max: 300 });
+      const amount = round2(number(input.amount, kind === 'bonus' ? 'Сумма бонуса' : 'Сумма штрафа', { positive: true }));
+      const reason = text(input.reason, kind === 'bonus' ? 'За что' : 'Причина', { required: true, max: 300 });
       const at = input.at ? number(input.at, 'Дата', { positive: true }) : Date.now();
-      const { lastInsertRowid } = db.prepare('INSERT INTO fines (user_id, at, amount, reason, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(u.id, at, amount, reason, by ? by.name || by.email : '', Date.now());
+      const { lastInsertRowid } = db.prepare('INSERT INTO fines (user_id, at, amount, reason, created_by, created_at, kind) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(u.id, at, amount, reason, by ? by.name || by.email : '', Date.now(), kind);
       return db.prepare('SELECT * FROM fines WHERE id = ?').get(lastInsertRowid);
     },
 
-    deleteFine(id) {
-      const f = db.prepare('SELECT * FROM fines WHERE id = ?').get(Number(id));
-      if (!f) throw new UserError('Штраф не найден');
+    deleteFine(id, kind = 'fine') {
+      const f = db.prepare('SELECT * FROM fines WHERE id = ? AND kind = ?').get(Number(id), kind);
+      if (!f) throw new UserError(kind === 'bonus' ? 'Бонус не найден' : 'Штраф не найден');
       db.prepare('DELETE FROM fines WHERE id = ?').run(f.id);
       return f;
     },
@@ -1477,6 +1490,7 @@ function createStore(file) {
       const pay = payFields(input);
       const { lastInsertRowid } = db.prepare('INSERT INTO users (email, name, role, password_hash, created_at, salary, percent, plan, rights, shift_rate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         .run(e, text(input.name, 'Имя', { max: 80 }), role(input.role || 'cashier'), passwordHash, Date.now(), pay.salary, pay.percent, pay.plan, rightsList(input.rights ?? null), pay.shift_rate);
+      db.prepare('UPDATE users SET plan_bonus = ? WHERE id = ?').run(pay.plan_bonus, lastInsertRowid);
       if (input.max_discount !== undefined && input.max_discount !== null && input.max_discount !== '') {
         db.prepare('UPDATE users SET max_discount = ? WHERE id = ?').run(Math.min(100, number(input.max_discount, 'Максимальная скидка')), lastInsertRowid);
       }
@@ -1510,6 +1524,17 @@ function createStore(file) {
         : input.payment_methods === null ? null : JSON.stringify([...new Set(input.payment_methods.map(Number))]);
       db.prepare('UPDATE users SET email = ?, name = ?, role = ?, disabled = ?, password_hash = ?, salary = ?, percent = ?, plan = ?, rights = ?, shift_rate = ?, payment_methods = ?, max_discount = ? WHERE id = ?')
         .run(next.email, next.name, next.role, next.disabled, passwordHash || current.password_hash, pay.salary, pay.percent, pay.plan, rights, pay.shift_rate, methods, maxDiscount, current.id);
+      db.prepare('UPDATE users SET plan_bonus = ? WHERE id = ?').run(pay.plan_bonus, current.id);
+      return publicUser(this.findUser(current.id));
+    },
+
+    // Зарплатные условия сотрудника: ставка за смену, оклад, процент, план и бонус за план.
+    setUserPay(id, input) {
+      const current = this.findUser(id);
+      if (!current) throw new UserError('Сотрудник не найден');
+      const pay = payFields(input, current);
+      db.prepare('UPDATE users SET shift_rate = ?, salary = ?, percent = ?, plan = ?, plan_bonus = ? WHERE id = ?')
+        .run(pay.shift_rate, pay.salary, pay.percent, pay.plan, pay.plan_bonus, current.id);
       return publicUser(this.findUser(current.id));
     },
 

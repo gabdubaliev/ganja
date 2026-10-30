@@ -222,7 +222,7 @@ const routes = [
   ['GET', '/api/arrivals', () => store.listArrivals(), 'arrivals'],
   ['POST', '/api/arrivals', (p, url, body) => store.createArrival(body), 'arrivals'],
   ['GET', '/api/analytics', (p, url) => store.analytics(range(url)), 'dashboard'],
-  ['GET', '/api/kpi', (p, url) => store.kpi(range(url)), 'kpi'],
+  ['GET', '/api/kpi', (p, url) => store.kpi(range(url)), ['kpi', 'salary']],
   ['GET', '/api/reports/products', (p, url) => store.reportProducts(range(url)), 'kpi'],
 
   // Своя смена — у любого, кто работает на кассе; чужие смены — у права «Смены».
@@ -236,11 +236,18 @@ const routes = [
   ['POST', '/api/shifts', (p, url, body, user) => store.saveShift(null, body, user), 'shifts'],
   ['PUT', '/api/shifts/:id', (p, url, body, user) => store.saveShift(p.id, body, user), 'shifts'],
   ['DELETE', '/api/shifts/:id', (p) => store.deleteShift(p.id), 'shifts'],
-  ['GET', '/api/fines', (p, url) => store.listFines(range(url)), ['fines', 'kpi']],
+  ['GET', '/api/fines', (p, url) => store.listFines({ ...range(url), kind: url.searchParams.get('kind') || 'fine' }), ['fines', 'kpi', 'salary']],
+  ['GET', '/api/bonuses', (p, url) => store.listFines({ ...range(url), kind: 'bonus' }), ['salary', 'kpi', 'fines']],
+  ['POST', '/api/bonuses', (p, url, body, user) => store.addFine(body, user, 'bonus'), 'salary'],
+  ['DELETE', '/api/bonuses/:id', (p) => store.deleteFine(p.id, 'bonus'), 'salary'],
+  ['PUT', '/api/users/:id/pay', (p, url, body, user) => {
+    guardAdmin(user, store.findUser(p.id), {});
+    return store.setUserPay(p.id, body);
+  }, 'salary'],
   ['POST', '/api/fines', (p, url, body, user) => store.addFine(body, user), 'fines'],
   ['DELETE', '/api/fines/:id', (p) => store.deleteFine(p.id), 'fines'],
   // Короткий список сотрудников для выбора в сменах и штрафах.
-  ['GET', '/api/staff-list', () => store.listUsers().map((u) => ({ id: u.id, name: u.name || u.email, role: u.role, disabled: u.disabled })), ['shifts', 'fines', 'kpi', 'staff', 'crm']],
+  ['GET', '/api/staff-list', () => store.listUsers().map((u) => ({ id: u.id, name: u.name || u.email, role: u.role, disabled: u.disabled })), ['shifts', 'fines', 'kpi', 'staff', 'crm', 'salary']],
   // CRM. mine=1 — только мои сделки и задачи.
   ['GET', '/api/crm/leads', (p, url, body, user) => crm.list({ q: url.searchParams.get('q') || '', source: url.searchParams.get('source') || '',
     userId: url.searchParams.get('mine') === '1' && user ? user.id : null }), 'crm'],
@@ -418,6 +425,9 @@ const AUDIT_LABELS = {
   'PUT /api/shifts/:id': 'Исправил смену',
   'DELETE /api/shifts/:id': 'Удалил смену',
   'POST /api/fines': 'Выписал штраф',
+  'POST /api/bonuses': 'Начислил бонус сотруднику',
+  'DELETE /api/bonuses/:id': 'Отменил бонус сотруднику',
+  'PUT /api/users/:id/pay': 'Изменил зарплату сотрудника',
   'DELETE /api/fines/:id': 'Отменил штраф',
   'POST /api/customers': 'Добавил покупателя',
   'PUT /api/customers/:id': 'Изменил покупателя',
@@ -472,6 +482,9 @@ function auditDetails(key, params, body, result) {
     case 'POST /api/arrivals': return `Приход №${r.id} на ${r.total} сом${body.supplier ? `, ${body.supplier}` : ''}`;
     case 'POST /api/fines': return `${store.findUser(body.user_id)?.name || ''}: ${r.amount} сом — ${r.reason}`;
     case 'DELETE /api/fines/:id': return `${r.amount} сом — ${r.reason}`;
+    case 'POST /api/bonuses': return `${store.findUser(body.user_id)?.name || ''}: +${r.amount} сом — ${r.reason}`;
+    case 'DELETE /api/bonuses/:id': return `${r.amount} сом — ${r.reason}`;
+    case 'PUT /api/users/:id/pay': return `${r.name || r.email}: за смену ${r.shift_rate}, оклад ${r.salary}, ${r.percent}%, план ${r.plan}, бонус за план ${r.plan_bonus}`;
     case 'POST /api/customers/:id/bonus': return `${r.name || '+' + r.phone}: ${body.delta > 0 ? '+' : ''}${body.delta}${body.reason ? ` (${body.reason})` : ''}`;
     case 'PUT /api/orders/:id': return `Заказ №${params.id} ${ORDER_NAMES[body.status] || body.status}`;
     case 'PUT /api/users/:id': return `${r.name || r.email}${body.password ? ', новый пароль' : ''}${body.rights !== undefined ? ', права' : ''}`;
