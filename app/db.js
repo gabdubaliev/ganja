@@ -742,6 +742,49 @@ function createStore(file) {
       });
     },
 
+    // Удаление продаж: ids — выбранные чеки, from/to — все за период, all — все за всё время.
+    // Бонусы по удалённому чеку отменяются (будто покупки не было), restock — вернуть товар на склад.
+    // По чекам с возвратом товар уже вернулся, поэтому их остаток не трогаем. dryRun — только посчитать.
+    deleteSales({ ids, from, to, all = false, restock = true, dryRun = false }, user = null) {
+      let rows;
+      if (Array.isArray(ids)) {
+        if (!ids.length) throw new UserError('Выберите чеки');
+        if (ids.length > 5000) throw new UserError('Слишком много чеков за раз');
+        const get = db.prepare('SELECT * FROM sales WHERE id = ?');
+        rows = ids.map((id) => get.get(Number(id))).filter(Boolean);
+      } else if (all) {
+        rows = db.prepare('SELECT * FROM sales').all();
+      } else {
+        const f = number(from, 'Начало периода'), t = number(to, 'Конец периода');
+        if (f >= t) throw new UserError('Неверный период');
+        rows = db.prepare('SELECT * FROM sales WHERE created_at >= ? AND created_at < ?').all(f, t);
+      }
+      const summary = { count: rows.length, total: round2(rows.filter((s) => !s.refunded_at).reduce((sum, s) => sum + s.total, 0)) };
+      if (dryRun || !rows.length) return summary;
+      const who = user ? user.name || user.email : '';
+      return transaction(db, () => {
+        const back = db.prepare(`UPDATE products SET stock = stock + (SELECT COALESCE(SUM(qty), 0) FROM sale_items WHERE sale_id = ? AND product_id = products.id)
+          WHERE id IN (SELECT product_id FROM sale_items WHERE sale_id = ?)`);
+        const delItems = db.prepare('DELETE FROM sale_items WHERE sale_id = ?');
+        const delSale = db.prepare('DELETE FROM sales WHERE id = ?');
+        const unlinkOrder = db.prepare('UPDATE orders SET sale_id = NULL WHERE sale_id = ?');
+        for (const sale of rows) {
+          if (!sale.refunded_at) {
+            if (restock) back.run(sale.id, sale.id);
+            if (sale.customer_id && (sale.bonus_spent || sale.bonus_earned)) {
+              const c = db.prepare('SELECT * FROM customers WHERE id = ?').get(sale.customer_id);
+              const delta = c ? round2(Math.max(sale.bonus_spent - sale.bonus_earned, -c.bonus)) : 0;
+              if (delta) changeBonus(c.id, delta, `Чек №${sale.id} удалён`, who, sale.id);
+            }
+          }
+          delItems.run(sale.id);
+          unlinkOrder.run(sale.id);
+          delSale.run(sale.id);
+        }
+        return summary;
+      });
+    },
+
     // userId — показать только чеки этого сотрудника.
     listSales({ from, to, limit = 200, userId = null }) {
       const sales = db.prepare(`

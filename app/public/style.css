@@ -567,6 +567,18 @@ tr.variant-row .pname { font-weight: 500; }
 .cat-list { display: grid; gap: 4px; max-height: 180px; overflow-y: auto; }
 input[type="range"] { width: 100%; accent-color: var(--series); }
 
+/* Удаление продаж */
+.sales-tools { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--grid); }
+.sales-tools .btn:disabled { opacity: 0.5; }
+.danger-ghost-light { color: var(--critical); border-color: color-mix(in srgb, var(--critical) 40%, transparent); }
+.sale-row.with-select { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: start; }
+.sale-row .sale-check { width: 18px; height: 18px; margin: 12px 0 0 4px; }
+.sale-row.selected { background: color-mix(in srgb, var(--critical) 6%, transparent); border-radius: 8px; }
+.sd-scope { display: grid; gap: 6px; margin-bottom: 8px; }
+.sd-count { font-size: 15px; margin: 8px 0; }
+#sale-delete-form { display: grid; gap: 10px; }
+#sale-delete-form .form-actions { margin-top: 6px; }
+
 /* «Ещё» */
 .more-groups { display: grid; gap: 20px; }
 .more-group h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 8px; }

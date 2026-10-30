@@ -13,6 +13,7 @@ const RIGHTS = [
   { key: 'pos', group: 'Касса', label: 'Продавать на кассе и заводить покупателей' },
   { key: 'sales', group: 'Касса', label: 'Видеть все чеки (без этого — только свои)' },
   { key: 'refund', group: 'Касса', label: 'Оформлять возвраты' },
+  { key: 'sales.delete', group: 'Касса', label: 'Удалять продажи: по одной, выбранные и все сразу' },
   { key: 'products', group: 'Товары', label: 'Заводить и менять товары, цены, групповое изменение' },
   { key: 'products.delete', group: 'Товары', label: 'Удалять товары' },
   { key: 'import', group: 'Товары', label: 'Импорт товаров из Excel' },

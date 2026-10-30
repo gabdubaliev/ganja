@@ -149,6 +149,7 @@ const routes = [
     return sale;
   }, 'pos'],
   ['POST', '/api/sales/:id/refund', (p, url, body, user) => store.refundSale(p.id, user), 'refund'],
+  ['POST', '/api/sales/delete', (p, url, body, user) => store.deleteSales(body, user), 'sales.delete'],
   ['GET', '/api/arrivals', () => store.listArrivals(), 'arrivals'],
   ['POST', '/api/arrivals', (p, url, body) => store.createArrival(body), 'arrivals'],
   ['GET', '/api/analytics', (p, url) => store.analytics(range(url)), 'dashboard'],
@@ -286,6 +287,7 @@ const AUDIT_LABELS = {
   'POST /api/products/:id/variants': 'Добавил модификации',
   'POST /api/sales': 'Пробил чек',
   'POST /api/sales/:id/refund': 'Оформил возврат',
+  'POST /api/sales/delete': 'Удалил продажи',
   'POST /api/arrivals': 'Провёл приход',
   'POST /api/demo': 'Загрузил пример магазина',
   'POST /api/shift/open': 'Открыл смену',
@@ -317,6 +319,13 @@ function auditDetails(key, params, body, result) {
   switch (key) {
     case 'POST /api/sales': return `Чек №${r.id} на ${r.total} сом${r.discount ? `, скидка ${r.discount} сом (${r.discountReason})` : ''}`;
     case 'POST /api/sales/:id/refund': return `Чек №${params.id}`;
+    case 'POST /api/sales/delete': {
+      const scope = Array.isArray(body.ids) ? `чеки ${body.ids.slice(0, 20).map((id) => '№' + id).join(', ')}${body.ids.length > 20 ? '…' : ''}`
+        : body.all ? 'все продажи за всё время' : `все за ${new Date(Number(body.from)).toLocaleDateString('ru-RU')} — ${new Date(Number(body.to) - 1).toLocaleDateString('ru-RU')}`;
+      const n = r.count % 100, k = n % 10;
+      const word = n > 10 && n < 20 ? 'чеков' : k === 1 ? 'чек' : k > 1 && k < 5 ? 'чека' : 'чеков';
+      return `${r.count} ${word} на ${r.total} сом (${scope}), товар ${body.restock === false ? 'на склад не возвращён' : 'возвращён на склад'}`;
+    }
     case 'POST /api/products/bulk': return `${{ delete: 'удаление', archive: 'убрать из продажи', restore: 'вернуть в продажу', price: 'цена', cost: 'себестоимость', category: 'категория', unit: 'единица', barcodes: 'штрихкоды' }[body.action] || body.action}${body.value !== undefined ? ` (${body.mode ? body.mode + ' ' : ''}${body.value})` : ''}, товаров: ${r.count ?? body.ids?.length}`;
     case 'POST /api/products/import': return `создано ${r.created}, обновлено ${r.updated}, пропущено ${r.skipped?.length ?? 0}`;
     case 'PUT /api/products/:id/stock': return `${r.name}: остаток ${r.stock}`;
@@ -480,7 +489,8 @@ const server = http.createServer(async (req, res) => {
     const body = req.method === 'GET' ? {} : await readBody(req);
     const result = await route.handler(route.params, url, body, user && store.publicUser(user));
     const key = `${req.method} ${route.pattern}`;
-    if (AUDIT_LABELS[key]) {
+    // Предварительный подсчёт (dryRun) ничего не меняет — в журнал не пишем.
+    if (AUDIT_LABELS[key] && !body.dryRun) {
       try {
         store.audit({ kind: 'change', user, ip: clientIp(req), device: device(req), action: AUDIT_LABELS[key], details: auditDetails(key, route.params, body, result) });
       } catch (err) {

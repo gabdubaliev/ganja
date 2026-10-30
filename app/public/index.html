@@ -173,9 +173,33 @@
   </header>
   <section class="panel">
     <div class="sales-summary" id="sales-summary"></div>
+    <div class="sales-tools" id="sales-tools" hidden>
+      <label class="check"><input type="checkbox" id="sales-all"> Выбрать все на экране</label>
+      <button type="button" class="btn small danger-ghost-light" id="sales-del-selected" disabled>Удалить выбранные</button>
+      <button type="button" class="btn small ghost danger-text" id="sales-del-all">Удалить все продажи…</button>
+    </div>
     <div id="sales-list" class="docs"></div>
   </section>
 </main>
+
+<dialog id="sale-delete-dialog" aria-labelledby="sd-title">
+  <form id="sale-delete-form" novalidate>
+    <h2 id="sd-title">Удалить продажи</h2>
+    <div id="sd-scope" class="sd-scope">
+      <label class="check"><input type="radio" name="scope" value="period" checked> <span id="sd-period-label">За выбранный период</span></label>
+      <label class="check"><input type="radio" name="scope" value="all"> За всё время — все продажи магазина</label>
+    </div>
+    <p class="sd-count" id="sd-count">Считаю…</p>
+    <label class="check"><input type="checkbox" name="restock" checked> Вернуть проданный товар на склад</label>
+    <p class="sub">Чек пропадёт из журнала, главной и отчётов, бонусы по нему отменятся. Если чек удаляете потому, что покупатель вернул товар, лучше оформить возврат: тогда история сохранится. Удаление нельзя отменить, оно записывается в журнал действий.</p>
+    <div class="field" id="sd-confirm-field"><label for="sd-confirm">Чтобы подтвердить, напишите слово <b>УДАЛИТЬ</b></label><input id="sd-confirm" name="confirm" class="input" autocomplete="off"></div>
+    <p class="form-error" id="sd-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="sd-cancel">Отмена</button>
+      <button type="submit" class="btn danger" id="sd-submit">Удалить</button>
+    </div>
+  </form>
+</dialog>
 
 <main class="page" data-view="more" hidden>
   <header class="top"><div class="title"><h1>Ещё</h1></div></header>

@@ -1,6 +1,6 @@
 'use strict';
 
-// Чеки: история продаж и возвраты.
+// Журнал продаж: история, возвраты и удаление чеков.
 
 const SALES_RANGES = {
   today: ['Сегодня', 0, 1],
@@ -8,19 +8,30 @@ const SALES_RANGES = {
   week: ['7 дней', -6, 1],
   month: ['30 дней', -29, 1],
 };
-const salesView = { range: 'today', confirm: null };
+const salesView = { range: 'today', confirm: null, list: [], selected: new Set(), deleting: null };
+// Удалять можно в основной программе, если есть право; в окне кассы — нет.
+const canDeleteSales = () => !IS_KASSA && session.can('sales.delete');
+
+function salesPeriod() {
+  const [, fromDays, toDays] = SALES_RANGES[salesView.range];
+  const today = dayStart(Date.now()).getTime();
+  return [addDays(today, fromDays), addDays(today, toDays)];
+}
 
 async function renderSales() {
   $('#sales-ranges').innerHTML = Object.entries(SALES_RANGES).map(([key, [label]]) =>
     `<button type="button" data-range="${key}" aria-pressed="${key === salesView.range}">${label}</button>`).join('');
-  const [, fromDays, toDays] = SALES_RANGES[salesView.range];
-  const today = dayStart(Date.now()).getTime();
+  const [from, to] = salesPeriod();
   let list;
   try {
-    list = await api(`/api/sales?from=${addDays(today, fromDays)}&to=${addDays(today, toDays)}`);
+    list = await api(`/api/sales?from=${from}&to=${to}`);
   } catch (err) {
     return toast(err.message, 'error');
   }
+  salesView.list = list;
+  const ids = new Set(list.map((s) => s.id));
+  for (const id of salesView.selected) if (!ids.has(id)) salesView.selected.delete(id);
+  const del = canDeleteSales();
   const done = list.filter((s) => !s.refunded_at);
   // Деньгами — без части, оплаченной бонусами.
   const sum = done.reduce((s, x) => s + x.total - x.bonus_spent, 0);
@@ -31,6 +42,8 @@ async function renderSales() {
     <span class="pick-meta">картой ${money2(card)} · наличными ${money2(sum - card)}</span>
     ${list.length >= 200 ? '<span class="pick-meta">показаны последние 200</span>' : ''}`;
   $('#sales-list').innerHTML = list.length ? list.map((s) => `
+    <div class="sale-row ${del ? 'with-select' : ''} ${salesView.selected.has(s.id) ? 'selected' : ''}">
+    ${del ? `<input type="checkbox" class="sale-check" data-sale-select="${s.id}" ${salesView.selected.has(s.id) ? 'checked' : ''} aria-label="Выбрать чек №${s.id}">` : ''}
     <details class="doc ${s.refunded_at ? 'refunded' : ''}">
       <summary>
         <span class="num">№${s.id}</span>
@@ -47,18 +60,109 @@ async function renderSales() {
             ${salesView.confirm === s.id ? 'Нажмите ещё раз, чтобы вернуть' : 'Оформить возврат'}
           </button>
         </div>`}
-    </details>`).join('') : '<p class="empty">Чеков за этот период нет</p>';
+      ${del ? `<div class="doc-actions"><button type="button" class="btn small ghost danger-text" data-sale-delete="${s.id}">Удалить чек</button></div>` : ''}
+    </details>
+    </div>`).join('') : '<p class="empty">Чеков за этот период нет</p>';
+  renderSalesTools();
   if (salesView.confirm) $(`[data-refund="${salesView.confirm}"]`)?.closest('details')?.setAttribute('open', '');
 }
+
+function renderSalesTools() {
+  const tools = $('#sales-tools');
+  if (!tools) return;
+  tools.hidden = !canDeleteSales();
+  const n = salesView.selected.size;
+  $('#sales-del-selected').disabled = !n;
+  $('#sales-del-selected').textContent = n ? `Удалить выбранные (${n})` : 'Удалить выбранные';
+  $('#sales-all').checked = n > 0 && n === salesView.list.length;
+  $('#sales-all').indeterminate = n > 0 && n < salesView.list.length;
+}
+
+/* ---------- Удаление продаж ---------- */
+// mode: { ids } — выбранные или один чек; { bulk: true } — все за период или за всё время.
+async function openSaleDelete(mode) {
+  salesView.deleting = mode;
+  const f = $('#sale-delete-form');
+  f.reset();
+  $('#sd-error').hidden = true;
+  $('#sd-scope').hidden = !mode.bulk;
+  $('#sd-period-label').textContent = `За период «${SALES_RANGES[salesView.range][0]}»`;
+  $('#sd-title').textContent = mode.bulk ? 'Удалить все продажи' : mode.ids.length === 1 ? `Удалить чек №${mode.ids[0]}` : 'Удалить выбранные продажи';
+  $('#sale-delete-dialog').showModal();
+  await countSaleDelete();
+}
+
+function saleDeleteBody() {
+  const m = salesView.deleting;
+  if (!m.bulk) return { ids: m.ids };
+  if ($('#sale-delete-form').elements.scope.value === 'all') return { all: true };
+  const [from, to] = salesPeriod();
+  return { from, to };
+}
+
+// Сколько чеков удалится: считает сервер, ничего не удаляя. Одному чеку подтверждение словом не нужно.
+async function countSaleDelete() {
+  const body = saleDeleteBody();
+  const needWord = !(body.ids && body.ids.length === 1);
+  $('#sd-confirm-field').hidden = !needWord;
+  $('#sd-count').textContent = 'Считаю…';
+  try {
+    const r = await api('/api/sales/delete', { method: 'POST', body: { ...body, dryRun: true } });
+    salesView.deleting.count = r.count;
+    $('#sd-count').innerHTML = r.count
+      ? `Будет удалено <b>${int(r.count)} ${plural(r.count, ['чек', 'чека', 'чеков'])}</b> на <b>${money2(r.total)}</b>.`
+      : 'Удалять нечего: продаж нет.';
+    $('#sd-submit').disabled = !r.count;
+  } catch (err) {
+    showFormError('#sd-error', err);
+  }
+}
+
+$('#sale-delete-form')?.addEventListener('change', (e) => { if (e.target.name === 'scope') countSaleDelete(); });
+$('#sale-delete-form')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  if (!$('#sd-confirm-field').hidden && f.elements.confirm.value.trim().toUpperCase() !== 'УДАЛИТЬ') {
+    return showFormError('#sd-error', new Error('Напишите слово УДАЛИТЬ, чтобы подтвердить'));
+  }
+  try {
+    const r = await api('/api/sales/delete', { method: 'POST', body: { ...saleDeleteBody(), restock: f.elements.restock.checked } });
+    $('#sale-delete-dialog').close();
+    toast(`Удалено ${int(r.count)} ${plural(r.count, ['чек', 'чека', 'чеков'])} на ${money2(r.total)}`);
+    salesView.selected.clear();
+    renderSales();
+  } catch (err) {
+    showFormError('#sd-error', err);
+  }
+});
+$('#sd-cancel')?.addEventListener('click', () => $('#sale-delete-dialog').close());
+$('#sales-del-selected')?.addEventListener('click', () => openSaleDelete({ ids: [...salesView.selected] }));
+$('#sales-del-all')?.addEventListener('click', () => openSaleDelete({ bulk: true }));
+$('#sales-all')?.addEventListener('change', (e) => {
+  for (const s of salesView.list) {
+    if (e.target.checked) salesView.selected.add(s.id); else salesView.selected.delete(s.id);
+  }
+  renderSales();
+});
 
 $('#sales-ranges').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-range]');
   if (!btn) return;
   salesView.range = btn.dataset.range;
   salesView.confirm = null;
+  salesView.selected.clear();
   renderSales();
 });
 $('#sales-list').addEventListener('click', async (e) => {
+  const pick = e.target.closest('[data-sale-select]');
+  if (pick) {
+    const id = Number(pick.dataset.saleSelect);
+    if (pick.checked) salesView.selected.add(id); else salesView.selected.delete(id);
+    pick.closest('.sale-row').classList.toggle('selected', pick.checked);
+    return renderSalesTools();
+  }
+  const one = e.target.closest('[data-sale-delete]');
+  if (one) return openSaleDelete({ ids: [Number(one.dataset.saleDelete)] });
   const btn = e.target.closest('[data-refund]');
   if (!btn) return;
   const id = Number(btn.dataset.refund);
