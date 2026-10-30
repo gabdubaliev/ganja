@@ -271,6 +271,12 @@ if (process.argv.includes('--demo')) {
     console.log('Пример магазина загружен.');
   }
 } else {
+  server.on('error', (err) => {
+    if (err.code !== 'EADDRINUSE') throw err;
+    console.error(`Порт ${PORT} уже занят: скорее всего, программа уже запущена в другом окне. Откройте http://localhost:${PORT} в браузере.`);
+    console.error(`Чтобы перезапустить, остановите её командой: pkill -f server.js. Или запустите на другом порту: PORT=3001 npm start`);
+    process.exit(1);
+  });
   server.listen(PORT, HOST, () => {
     console.log(`Программа открыта: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
     console.log(`База данных: ${DB_FILE}`);
