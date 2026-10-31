@@ -26,6 +26,20 @@ const CONFIRM_WORD = 'ВОССТАНОВИТЬ';
 class BackupError extends Error {}
 const fail = (msg) => { throw new BackupError(msg); };
 
+// Создать папку со всеми родительскими — по одной, без { recursive: true }
+// (встроенный вариант зацикливается на некоторых файловых системах вместо ошибки).
+function mkdirp(dir) {
+  const parts = path.resolve(dir).split(path.sep).filter(Boolean);
+  let cur = path.sep;
+  for (const part of parts) {
+    cur = path.join(cur, part);
+    try { fs.mkdirSync(cur); } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+      if (!fs.statSync(cur).isDirectory()) throw Object.assign(new Error(`${cur} — это не папка`), { code: 'ENOTDIR' });
+    }
+  }
+}
+
 const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const stamp = (d = new Date()) => {
   const p = (n) => String(n).padStart(2, '0');
@@ -39,7 +53,8 @@ function listDatabases(dataDir) {
   const files = [MAIN, ...fs.readdirSync(dataDir).filter((f) => BRANCH_RE.test(f)).sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]))];
   const db = open(path.join(dataDir, MAIN));
   try {
-    const row = db.prepare("SELECT value FROM settings WHERE key = 'branches'").get();
+    let row;
+    try { row = db.prepare("SELECT value FROM settings WHERE key = 'branches'").get(); } catch (err) { fail(`основная база ${MAIN} не читается (повреждена?): ${err.message}`); }
     const listed = row ? JSON.parse(row.value).map((b) => b.file).filter((f) => f && BRANCH_RE.test(f)) : [];
     const missing = listed.filter((f) => !files.includes(f));
     if (missing.length) fail(`в настройках есть филиалы, а их баз нет в папке: ${missing.join(', ')}`);
@@ -85,17 +100,21 @@ function backup(dataDir, root, label = '') {
   dataDir = path.resolve(dataDir);
   root = path.resolve(root);
   const files = listDatabases(dataDir);
-  fs.mkdirSync(root, { recursive: true });
+  try { mkdirp(root); } catch (err) { fail(`не создаётся папка копий ${root}: ${err.message}`); }
+  // Пишется ли в папку копий: пробный файл (на некоторых файловых системах mkdir отвечает странно).
+  const probe = path.join(root, `.write-test-${process.pid}`);
+  try { fs.writeFileSync(probe, 'ok'); fs.rmSync(probe); } catch (err) { fail(`в папку копий ${root} нельзя записать: ${err.message}`); }
   checkSpace(dataDir, files, root);
   // Своя папка для каждой копии: дата и время; если такая уже есть (та же секунда) — с номером. Ничего не перезаписываем.
   const base = `${stamp()}${label ? `_${label.replace(/[^\w-]/g, '')}` : ''}`;
-  let dir = path.join(root, base);
-  for (let i = 2; ; i++) {
-    try { fs.mkdirSync(dir); break; } catch (err) {
-      if (err.code !== 'EEXIST') fail(`не создаётся папка копии ${dir}: ${err.message}`);
-      dir = path.join(root, `${base}-${i}`);
+  let dir = '';
+  for (let i = 1; i <= 100 && !dir; i++) {
+    const name = path.join(root, i === 1 ? base : `${base}-${i}`);
+    try { fs.mkdirSync(name); dir = name; } catch (err) {
+      if (err.code !== 'EEXIST') fail(`не создаётся папка копии ${name}: ${err.message}`);
     }
   }
+  if (!dir || !fs.statSync(dir).isDirectory()) fail(`не удалось создать отдельную папку для копии в ${root}`);
   const manifest = { created: new Date().toISOString(), label, source: dataDir, files: [] };
   try {
     for (const name of files) {
@@ -105,7 +124,7 @@ function backup(dataDir, root, label = '') {
       const db = open(src);
       let counts;
       try {
-        counts = tableCounts(db);
+        try { counts = tableCounts(db); } catch (err) { fail(`база ${name} не читается (повреждена?): ${err.message}`); }
         db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
         // Строки ещё раз после снимка: если программа писала в базу во время копии, сверка ниже это поймает.
         const again = tableCounts(db);
@@ -182,7 +201,7 @@ async function restore(dir, dataDir) {
   process.stderr.write('Текущие файлы баз НЕ удаляются: они будут перенесены в отдельную папку replaced-<дата>.\n');
   const answer = (await ask(`Чтобы продолжить, введите ${CONFIRM_WORD}: `)).trim();
   if (answer !== CONFIRM_WORD) fail('восстановление отменено: подтверждение не введено');
-  fs.mkdirSync(dataDir, { recursive: true });
+  mkdirp(dataDir);
   let aside = '';
   if (current.length) {
     aside = path.join(dataDir, `replaced-${stamp()}`);
