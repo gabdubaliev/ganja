@@ -1079,13 +1079,13 @@ function createStore(file) {
           case 'purchase':
           case 'cost': {
             // mode: set — новая цена, percent — изменить на ±%, add — прибавить ±сомы,
-            // markup — цена = себестоимость + наценка в % (только для цены).
+            // markup — цена = цена закупки + наценка в % (только для цены).
             const n = number(value, 'Значение', { min: -Infinity });
             const calc = {
               set: () => n,
               percent: (old) => old * (1 + n / 100),
               add: (old) => old + n,
-              markup: (old, p) => p.cost * (1 + n / 100),
+              markup: (old, p) => (p.purchase || p.cost) * (1 + n / 100),
             }[mode];
             if (!calc || (mode === 'markup' && action !== 'price')) throw new UserError('Неизвестный способ изменения цены');
             set(`UPDATE products SET ${action} = ? WHERE id = ?`, (p) => {

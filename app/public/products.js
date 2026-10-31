@@ -13,10 +13,12 @@ const categories = {
   },
 };
 
-// Наценка — от себестоимости (закупка + расходы), а если её нет — от цены закупки.
+// Наценка — от цены закупки (чистая стоимость товара), а если её нет — от себестоимости.
+// Маржинальность и прибыль с единицы — от себестоимости (закупка + расходы).
 const baseCost = (p) => p.cost || p.purchase || 0;
+const basePurchase = (p) => p.purchase || p.cost || 0;
 function markup(p) {
-  const c = baseCost(p);
+  const c = basePurchase(p);
   return c > 0 ? (p.price - c) / c : null;
 }
 // Последнее поступление товара; у товара с модификациями — по всем модификациям.
@@ -40,7 +42,7 @@ function stockTotalsHtml(list) {
     <div class="st-tile"><span>Товаров</span><b class="num">${int(positions)}</b><small>${int(inStock.length)} в наличии · ${int(positions - inStock.length)} нет · ${qtyFmt.format(Math.round(units * 1000) / 1000)} ед.</small></div>
     <div class="st-tile"><span>По цене закупки</span><b class="num">${money(atPurchase)}</b><small>сколько заплачено поставщикам</small></div>
     <div class="st-tile"><span>По себестоимости</span><b class="num">${money(atCost)}</b><small>${noCost ? `у ${noCost} без себестоимости` : 'закупка с расходами'}</small></div>
-    <div class="st-tile accent"><span>По цене продажи</span><b class="num">${money(atPrice)}</b><small>можно выручить · наценка ${money(atPrice - atCost)}</small></div>`;
+    <div class="st-tile accent"><span>По цене продажи</span><b class="num">${money(atPrice)}</b><small>можно выручить · наценка ${money(atPrice - atPurchase)}</small></div>`;
 }
 
 /* ---------- Карточка товара: информация, цены, склад, история ---------- */
@@ -106,7 +108,8 @@ function renderCardPrices(p, kids) {
   const one = (x) => {
     const sale = salePrice(x);
     const cost = baseCost(x);
-    return { sale, cost, purchase: x.purchase ?? x.cost, markup: cost > 0 ? (x.price - cost) / cost : null, margin: sale > 0 && cost > 0 ? (sale - cost) / sale : null, profit: sale - cost };
+    const buy = basePurchase(x);
+    return { sale, cost, purchase: x.purchase ?? x.cost, markup: buy > 0 ? (x.price - buy) / buy : null, margin: sale > 0 && cost > 0 ? (sale - cost) / sale : null, profit: sale - cost };
   };
   if (kids.length) {
     const prices = kids.map((k) => k.price);
@@ -127,11 +130,11 @@ function renderCardPrices(p, kids) {
     pcCell('Цена закупки', c.purchase ? money2(c.purchase) : '—', 'только товар у поставщика'),
     pcCell('Себестоимость', p.cost ? money2(p.cost) : '—', p.cost && extra > 0.004 ? `закупка + расходы ${money2(extra)}` : 'закупка с расходами'),
     pcCell('Скидка', p.discount > 0 ? `${int(p.discount)}%` : '0%', p.discount > 0 ? `−${money2(p.price - c.sale)} с единицы` : 'без скидки'),
-    pcCell('Наценка', c.markup === null ? '—' : pct(c.markup), 'на себестоимость'),
+    pcCell('Наценка', c.markup === null ? '—' : pct(c.markup), c.purchase ? `от цены закупки, +${money2(p.price - c.purchase)}` : 'от цены закупки'),
     pcCell('Маржинальность', c.margin === null ? '—' : pct(c.margin), c.cost ? `прибыль с единицы ${money2(c.profit)}` : ''),
   ].join('');
   $('#pc-prices-note').textContent = c.purchase && c.purchase !== p.cost
-    ? `От цены закупки: наценка ${pct((p.price - c.purchase) / c.purchase)}, маржа ${c.sale > 0 ? pct((c.sale - c.purchase) / c.sale) : '—'}.`
+    ? `От себестоимости: наценка ${p.cost ? pct((p.price - p.cost) / p.cost) : '—'}. Маржинальность — от себестоимости, то есть с учётом расходов.`
     : 'Маржинальность — какая доля цены продажи (со скидкой) остаётся после себестоимости.';
   $('#pc-prices-variants').innerHTML = '';
 }
@@ -350,7 +353,7 @@ function openBulk(action) {
           <option value="percent">Изменить на процент (минус — снизить)</option>
           <option value="add">Прибавить сумму в сомах (минус — вычесть)</option>
           <option value="set">Поставить одну цену всем</option>
-          ${action === 'price' ? '<option value="markup">Наценка от себестоимости, %</option>' : ''}
+          ${action === 'price' ? '<option value="markup">Наценка от цены закупки, %</option>' : ''}
         </select></div>
       <div class="field wide"><label for="bf-value">Значение</label><input id="bf-value" name="value" class="input num" inputmode="decimal" autocomplete="off" placeholder="Например, 10 или -5"></div>`,
     category: `<div class="field wide"><label for="bf-value">Перенести в категорию</label><select id="bf-value" name="value" class="input">${categories.options('', 'Без категории')}<option value="__new">+ Новая категория…</option></select></div>
@@ -413,7 +416,7 @@ const round0 = (n) => Math.round(n);
 const fmtNum = (n) => (Number.isFinite(n) ? String(Math.round(n * 100) / 100).replace('.', ',') : '');
 
 // Цена, себестоимость и наценка связаны: что поменяли, от того и считаем остальное.
-// Наценка — от себестоимости, а пока её нет — от цены закупки. Цена из наценки округляется до целого сома.
+// Наценка — от цены закупки, а пока её нет — от себестоимости. Цена из наценки округляется до целого сома.
 // Пока себестоимость не трогали, она повторяет цену закупки.
 function syncPrices(changed) {
   const f = $('#product-form');
@@ -423,11 +426,12 @@ function syncPrices(changed) {
   const cost = parseNum(f.elements.cost.value) || purchase;
   const price = parseNum(f.elements.price.value);
   const mk = parseNum(f.elements.markup.value);
-  const costChanged = changed === 'cost' || changed === 'purchase';
-  if ((changed === 'markup' || (costChanged && f.elements.markup.value)) && cost > 0 && Number.isFinite(mk) && f.elements.markup.value !== '') {
-    f.elements.price.value = fmtNum(round0(cost * (1 + mk / 100)));
-  } else if ((changed === 'price' || costChanged) && cost > 0 && price > 0) {
-    f.elements.markup.value = fmtNum(((price - cost) / cost) * 100);
+  const buy = purchase || cost;
+  const buyChanged = changed === 'purchase' || (changed === 'cost' && !purchase);
+  if ((changed === 'markup' || (buyChanged && f.elements.markup.value)) && buy > 0 && Number.isFinite(mk) && f.elements.markup.value !== '') {
+    f.elements.price.value = fmtNum(round0(buy * (1 + mk / 100)));
+  } else if ((changed === 'price' || buyChanged) && buy > 0 && price > 0) {
+    f.elements.markup.value = fmtNum(((price - buy) / buy) * 100);
   }
   const p = parseNum(f.elements.price.value);
   const disc = parseNum(f.elements.discount.value) || 0;
@@ -496,7 +500,7 @@ function openProductDialog(product = null, onSaved = null) {
     const purchase = product.purchase ?? product.cost;
     f.elements.purchase.value = purchase ? fmtNum(purchase) : '';
     f.elements.discount.value = product.discount ? fmtNum(product.discount) : '';
-    const mkBase = product.cost || purchase;
+    const mkBase = purchase || product.cost;
     f.elements.markup.value = mkBase > 0 ? fmtNum(((product.price - mkBase) / mkBase) * 100) : '';
     f.elements.archived.checked = Boolean(product.archived);
   }
