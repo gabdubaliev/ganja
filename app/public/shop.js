@@ -375,7 +375,8 @@ async function loadMe() {
     state.purchases = d.purchases || [];
     state.bonusLog = d.bonusLog || [];
     state.loyalty = d.loyalty || null;
-    state.bonusByStore = d.bonusByStore || [];
+    state.certificates = d.certificates || [];
+    state.certificateOps = d.certificateOps || [];
     state.manyStores = (d.stores || 1) > 1;
     if ($('#account').open && !$('#account [data-view="profile"]').hidden) renderProfile();
   } catch {
@@ -498,17 +499,26 @@ function renderBonusLog() {
   $('#profile-bonus-rules').textContent = l && l.enabled
     ? `С каждой покупки возвращается ${l.percent}% бонусами. 1 бонус = 1 сом: бонусами можно оплатить до ${l.maxPay}% покупки. Назовите номер телефона на кассе.`
     : 'Бонусная программа сейчас не действует.';
-  // В филиалах бонусы копятся отдельно и тратятся там же.
-  const other = state.bonusByStore || [];
-  $('#profile-bonus-stores').hidden = !other.length;
-  $('#profile-bonus-stores').innerHTML = other.length
-    ? `Бонусы в других магазинах (тратятся там же): ${other.map((x) => `<b>${esc(x.store)}</b> — ${bonusFmt(x.bonus)}`).join(', ')}`
-    : '';
-  const log = state.bonusLog || [];
-  $('#profile-bonus-log').innerHTML = log.length ? log.map((b) => `
+  if (state.manyStores) $('#profile-bonus-rules').textContent += ' Бонусы и сертификаты действуют во всех наших магазинах.';
+  // Сертификаты покупателя: остаток и срок.
+  const CERT_STATE = { active: 'Действует', used: 'Потрачен', expired: 'Срок истёк', blocked: 'Заблокирован' };
+  const certs = state.certificates || [];
+  $('#profile-certs').hidden = !certs.length;
+  $('#profile-certs').innerHTML = certs.map((c) => `
+    <div class="profile-cert${c.state === 'active' ? '' : ' off'}">
+      <div class="row"><span>🎁 Сертификат <b>№${esc(c.number)}</b></span><b>${rub(c.balance)}</b></div>
+      <div class="bonus-tag">${CERT_STATE[c.state] || ''}${c.state === 'active' && c.balance < c.amount ? ` · номинал ${rub(c.amount)}` : ''}${c.state === 'active' && c.expires_at ? ` · до ${dayText(c.expires_at)}` : ''}</div>
+    </div>`).join('');
+  // Общая история: бонусы и сертификаты вместе, новые сверху.
+  const CERT_OP = { sale: 'Куплен сертификат', redeem: 'Оплата сертификатом', refund: 'Возврат на сертификат' };
+  const rows = [
+    ...(state.bonusLog || []).map((b) => ({ at: b.created_at, title: b.reason || (b.delta > 0 ? 'Начислено' : 'Списано'), store: b.store, value: b.delta, unit: 'bonus' })),
+    ...(state.certificateOps || []).map((o) => ({ at: o.at, title: `${CERT_OP[o.kind]}${o.sale_id ? ` · чек №${o.sale_id}` : ''}`, store: o.store, value: o.amount, unit: 'cert', number: o.number })),
+  ].sort((a, b) => b.at - a.at);
+  $('#profile-bonus-log').innerHTML = rows.length ? rows.map((r) => `
     <div class="profile-order"><div class="row">
-      <span>${esc(b.reason || (b.delta > 0 ? 'Начислено' : 'Списано'))}<br><span class="bonus-tag">${dayText(b.created_at)}${state.manyStores ? ` · ${esc(b.store)}` : ''}</span></span>
-      <span class="${b.delta > 0 ? 'bonus-plus' : 'bonus-minus'}">${b.delta > 0 ? '+' : '−'}${bonusFmt(Math.abs(b.delta))}</span>
+      <span>${r.unit === 'cert' ? '🎁 ' : ''}${esc(r.title)}<br><span class="bonus-tag">${dayText(r.at)}${state.manyStores && r.store ? ` · ${esc(r.store)}` : ''}${r.unit === 'cert' ? ` · №${esc(r.number)}` : ''}</span></span>
+      <span class="${r.value > 0 ? 'bonus-plus' : 'bonus-minus'}">${r.value > 0 ? '+' : '−'}${r.unit === 'cert' ? rub(Math.abs(r.value)) : bonusFmt(Math.abs(r.value)) + ' Б'}</span>
     </div></div>`).join('') : '<p class="small left">Начислений и списаний пока не было.</p>';
 }
 
@@ -590,7 +600,8 @@ $('#logout').addEventListener('click', async () => {
   state.orders = [];
   state.purchases = [];
   state.bonusLog = [];
-  state.bonusByStore = [];
+  state.certificates = [];
+  state.certificateOps = [];
   renderAccountButton();
   renderCart();
   $('#account').close();

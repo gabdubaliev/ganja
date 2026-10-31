@@ -496,6 +496,16 @@ function open(file) {
   // free — выдан бесплатно (подарок от магазина): покупки по нему уходят в расходы «Сертификаты в подарок».
   // deleted_at — удалён: скрыт из списков, деньги за него и история чеков остаются.
   addColumns('certificates', [['free', 'INTEGER NOT NULL DEFAULT 0'], ['deleted_at', 'INTEGER']]);
+  // Бонусы и сертификаты общие для всех магазинов: лежат в основной базе. store_id — в каком магазине было
+  // (NULL — основной), sale_id — чек в том магазине. hidden — ручные правки администратора и удалённые чеки:
+  // покупатель на витрине их не видит.
+  addColumns('bonus_log', [['store_id', 'INTEGER'], ['hidden', 'INTEGER NOT NULL DEFAULT 0']]);
+  addColumns('certificate_ops', [['store_id', 'INTEGER']]);
+  // Деньги за сертификат остаются в магазине, где его продали: когда, в какую смену и кто — в самой оплате.
+  addColumns('certificate_payments', [['at', 'INTEGER'], ['shift_id', 'INTEGER'], ['user_id', 'INTEGER']]);
+  db.exec(`UPDATE certificate_payments SET at = (SELECT sold_at FROM certificates c WHERE c.id = certificate_id),
+    shift_id = (SELECT shift_id FROM certificates c WHERE c.id = certificate_id), user_id = (SELECT user_id FROM certificates c WHERE c.id = certificate_id)
+    WHERE at IS NULL`);
   db.exec("CREATE INDEX IF NOT EXISTS customers_card ON customers(card)");
   db.exec(`
     CREATE INDEX IF NOT EXISTS doc_items_product ON doc_items(product_id);
@@ -850,6 +860,11 @@ function monthsBetween(from, to) {
 function createStore(file) {
   const db = open(file);
   let branchLink = null; // связь с другими магазинами (перемещения), задаёт сервер
+  // Общие бонусы и сертификаты: у филиала bank — основной магазин, где они лежат; у основного bank = null.
+  let bank = null, storeId = null, cdb = db; // cdb — база, где лежат сертификаты
+  const wallet = () => bank || store;
+  // Операция, которая меняет и этот магазин, и общие бонусы/сертификаты: обе базы вместе или ничего.
+  const bankTx = (fn) => (bank ? transaction(bank.db, () => transaction(db, fn)) : transaction(db, fn));
 
   // Категория по названию без учёта регистра. Сравниваем здесь, а не в SQLite: его NOCASE не знает кириллицу.
   const findCategory = (name) => {
@@ -902,10 +917,10 @@ function createStore(file) {
     return c;
   }
 
-  function changeBonus(customerId, delta, reason, userName, saleId = null) {
-    db.prepare('UPDATE customers SET bonus = ROUND(bonus + ?, 2) WHERE id = ?').run(delta, customerId);
-    db.prepare('INSERT INTO bonus_log (customer_id, created_at, delta, reason, sale_id, user_name) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(customerId, Date.now(), delta, reason, saleId, userName);
+  // Бонусы меняются в общей базе (основной магазин) — покупатель там ищется по телефону.
+  // hidden — правка администратора: на витрине покупатель её не видит.
+  function changeBonus(customerId, delta, reason, userName, saleId = null, hidden = false) {
+    wallet().walletBonus(getCustomer(customerId), delta, reason, userName, saleId, bank ? storeId : null, hidden);
   }
 
   // Внутренний штрихкод EAN-13. Префикс 20–29 оставлен стандартом для товаров самого магазина,
@@ -950,8 +965,116 @@ function createStore(file) {
     return p;
   }
 
-  return {
+  const store = {
     db,
+
+    /* ---------- Общие бонусы и сертификаты всех магазинов ---------- */
+    // Филиал подключается к основному магазину: бонусы, сертификаты и правила программы лояльности — там.
+    useBank(mainStore, id) {
+      bank = mainStore;
+      storeId = Number(id);
+      cdb = mainStore.db;
+    },
+
+    // Покупатель общей базы для покупателя магазина: по телефону; если его там нет — заводится.
+    walletCustomer(c) {
+      const found = db.prepare('SELECT * FROM customers WHERE phone = ?').get(c.phone);
+      if (found) return found;
+      const card = c.card && !db.prepare('SELECT 1 FROM customers WHERE card = ?').get(c.card) ? c.card : this.newCustomerCard();
+      const { lastInsertRowid } = db.prepare('INSERT INTO customers (phone, name, birthday, created_at, card, gender) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(c.phone, c.name || '', c.birthday || '', Date.now(), card, c.gender || '');
+      return getCustomer(lastInsertRowid);
+    },
+    walletBonusOf(p) {
+      return db.prepare('SELECT bonus FROM customers WHERE phone = ?').get(p)?.bonus || 0;
+    },
+    walletBonus(c, delta, reason, userName, saleId, fromStore, hidden) {
+      const m = this.walletCustomer(c);
+      db.prepare('UPDATE customers SET bonus = ROUND(bonus + ?, 2) WHERE id = ?').run(delta, m.id);
+      db.prepare('INSERT INTO bonus_log (customer_id, created_at, delta, reason, sale_id, user_name, store_id, hidden) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(m.id, Date.now(), delta, reason, saleId, userName, fromStore, hidden ? 1 : 0);
+    },
+    // Чек удалён — его бонусы покупатель больше не видит.
+    walletHideSale(fromStore, saleId) {
+      db.prepare('UPDATE bonus_log SET hidden = 1 WHERE sale_id = ? AND store_id IS ?').run(saleId, fromStore);
+    },
+    walletBonusLog(p) {
+      return db.prepare(`SELECT b.* FROM bonus_log b JOIN customers c ON c.id = b.customer_id WHERE c.phone = ?
+        ORDER BY b.created_at DESC, b.id DESC LIMIT 200`).all(p);
+    },
+    // Действующие сертификаты покупателя (для кассы и витрины) — из общей базы.
+    customerCertificates(id, { all = false } = {}) {
+      const c = this.findCustomer(id);
+      if (!c) throw new UserError('Покупатель не найден');
+      const m = cdb.prepare('SELECT id FROM customers WHERE phone = ?').get(c.phone);
+      if (!m) return [];
+      return cdb.prepare("SELECT id FROM certificates WHERE customer_id = ? AND status <> 'deleted' ORDER BY sold_at DESC").all(m.id)
+        .map((r) => this.getCertificate(r.id, { byId: true })).filter((x) => all || x.state === 'active');
+    },
+    // История сертификатов покупателя: продажа, оплата покупок, возвраты (правки администратора не входят).
+    customerCertificateOps(id) {
+      const c = this.findCustomer(id);
+      const m = c && cdb.prepare('SELECT id FROM customers WHERE phone = ?').get(c.phone);
+      if (!m) return [];
+      return cdb.prepare(`SELECT o.id, o.at, o.kind, o.amount, o.sale_id, o.store_id, c.number FROM certificate_ops o JOIN certificates c ON c.id = o.certificate_id
+        WHERE c.customer_id = ? AND c.status <> 'deleted' AND o.kind IN ('sale', 'redeem', 'refund') ORDER BY o.at DESC, o.id DESC LIMIT 200`).all(m.id);
+    },
+
+    // Один раз: бонусы и сертификаты филиала переезжают в общую базу (этот магазин — основной).
+    absorbBranchWallet(branch, branchId) {
+      const bdb = branch.db;
+      const saleExists = bdb.prepare('SELECT 1 FROM sales WHERE id = ?');
+      transaction(db, () => transaction(bdb, () => {
+        const custOf = new Map();
+        const mainOf = (localId) => {
+          if (!localId) return null;
+          if (!custOf.has(localId)) {
+            const c = bdb.prepare('SELECT * FROM customers WHERE id = ?').get(localId);
+            custOf.set(localId, c ? this.walletCustomer(c) : null);
+          }
+          return custOf.get(localId);
+        };
+        for (const c of bdb.prepare('SELECT * FROM customers WHERE bonus <> 0').all()) {
+          db.prepare('UPDATE customers SET bonus = ROUND(bonus + ?, 2) WHERE id = ?').run(c.bonus, mainOf(c.id).id);
+        }
+        for (const b of bdb.prepare('SELECT * FROM bonus_log ORDER BY id').all()) {
+          const m = mainOf(b.customer_id);
+          if (!m) continue;
+          const hidden = !b.sale_id || !saleExists.get(b.sale_id) || /удал[её]н/i.test(b.reason) ? 1 : 0;
+          db.prepare('INSERT INTO bonus_log (customer_id, created_at, delta, reason, sale_id, user_name, store_id, hidden) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+            .run(m.id, b.created_at, b.delta, b.reason, b.sale_id, b.user_name, branchId, hidden);
+        }
+        bdb.exec('UPDATE customers SET bonus = 0; DELETE FROM bonus_log;');
+        // Сертификаты: новые id в общей базе; ссылки в оплатах филиала переписываются (через минус, чтобы id не пересеклись).
+        const moved = [];
+        for (const c of bdb.prepare('SELECT * FROM certificates ORDER BY id').all()) {
+          let num = c.number;
+          if (db.prepare('SELECT 1 FROM certificates WHERE number = ?').get(num)) num = `${num}-${branchId}`;
+          const id = Number(db.prepare(`INSERT INTO certificates (number, amount, balance, customer_id, sold_at, expires_at, user_id, user_name, shift_id, status, note, free, deleted_at)
+            VALUES (?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?, ?, ?)`).run(num, c.amount, c.balance, mainOf(c.customer_id)?.id ?? null, c.sold_at, c.expires_at,
+            c.user_name, c.status, c.note, c.free, c.deleted_at).lastInsertRowid);
+          for (const o of bdb.prepare('SELECT * FROM certificate_ops WHERE certificate_id = ? ORDER BY id').all(c.id)) {
+            db.prepare('INSERT INTO certificate_ops (certificate_id, at, kind, amount, sale_id, user_name, note, store_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+              .run(id, o.at, o.kind, o.amount, o.sale_id, o.user_name, o.note, branchId);
+          }
+          moved.push([c.id, id]);
+        }
+        for (const [from, to] of moved) {
+          bdb.prepare('UPDATE sale_payments SET certificate_id = ? WHERE certificate_id = ?').run(-to, from);
+          bdb.prepare('UPDATE certificate_payments SET certificate_id = ? WHERE certificate_id = ?').run(-to, from);
+        }
+        bdb.exec(`UPDATE sale_payments SET certificate_id = -certificate_id WHERE certificate_id < 0;
+          UPDATE certificate_payments SET certificate_id = -certificate_id WHERE certificate_id < 0;
+          DELETE FROM certificate_ops; DELETE FROM certificates;`);
+      }));
+    },
+    // Один раз в основной базе: ручные правки бонусов и удалённые чеки — скрыть от покупателя.
+    hideAdminBonusRows() {
+      const saleExists = db.prepare('SELECT 1 FROM sales WHERE id = ?');
+      for (const b of db.prepare('SELECT id, sale_id, reason FROM bonus_log WHERE store_id IS NULL AND hidden = 0').all()) {
+        if (!b.sale_id || !saleExists.get(b.sale_id) || /удал[её]н/i.test(b.reason)) db.prepare('UPDATE bonus_log SET hidden = 1 WHERE id = ?').run(b.id);
+      }
+    },
 
     isEmpty() {
       return db.prepare('SELECT COUNT(*) AS n FROM products').get().n === 0;
@@ -1104,9 +1227,9 @@ function createStore(file) {
         WHERE s.created_at >= ? AND s.created_at < ? AND s.refunded_at IS NULL AND sp.kind <> 'certificate'
         GROUP BY sp.method_id, sp.method_name`).all(from, to)
         // Проданные сертификаты — тоже деньги, пришедшие этим способом.
-        .concat(db.prepare(`SELECT cp.method_id AS id, cp.method_name AS name, cp.kind, COUNT(DISTINCT c.id) AS receipts, SUM(cp.amount) AS money, SUM(cp.commission) AS commission, COALESCE(m.commission, 0) AS rate
-          FROM certificate_payments cp JOIN certificates c ON c.id = cp.certificate_id LEFT JOIN payment_methods m ON m.id = cp.method_id
-          WHERE c.sold_at >= ? AND c.sold_at < ? GROUP BY cp.method_id, cp.method_name`).all(from, to))
+        .concat(db.prepare(`SELECT cp.method_id AS id, cp.method_name AS name, cp.kind, COUNT(DISTINCT cp.certificate_id) AS receipts, SUM(cp.amount) AS money, SUM(cp.commission) AS commission, COALESCE(m.commission, 0) AS rate
+          FROM certificate_payments cp LEFT JOIN payment_methods m ON m.id = cp.method_id
+          WHERE cp.at >= ? AND cp.at < ? GROUP BY cp.method_id, cp.method_name`).all(from, to))
         .reduce((acc, r) => {
           const x = acc.find((y) => y.id === r.id && y.name === r.name);
           if (x) { x.receipts += r.receipts; x.money += r.money; x.commission += r.commission; } else acc.push({ ...r });
@@ -1419,7 +1542,7 @@ function createStore(file) {
     createSale({ items, payment, methodId, payments, at, customerId, bonusSpend = 0, birthday: useBirthday = false, checkDiscount, certificate }, user = null, { trustPrices = false } = {}) {
       if (!Array.isArray(items) || !items.length) throw new UserError('В чеке нет товаров');
       const staff = user ? this.findUser(user.id) : null;
-      return transaction(db, () => {
+      return bankTx(() => {
         const lines = items.map((item) => {
           const p = getProduct(item.productId);
           if (p.archived) throw new UserError(`Товар «${p.name}» убран из продажи`);
@@ -1542,9 +1665,9 @@ function createStore(file) {
         for (const x of parts) if (x.amount > 0 || !cert) addPart.run(saleId, x.method.id, x.method.name, x.method.kind, x.amount, x.commission);
         if (cert) {
           db.prepare("INSERT INTO sale_payments (sale_id, method_id, method_name, kind, amount, commission, certificate_id) VALUES (?, NULL, 'Сертификат', 'certificate', ?, 0, ?)").run(saleId, certAmount, cert.id);
-          db.prepare('UPDATE certificates SET balance = ROUND(balance - ?, 2) WHERE id = ?').run(certAmount, cert.id);
-          db.prepare("INSERT INTO certificate_ops (certificate_id, at, kind, amount, sale_id, user_name) VALUES (?, ?, 'redeem', ?, ?, ?)")
-            .run(cert.id, Date.now(), -certAmount, saleId, user ? user.name || user.email : '');
+          cdb.prepare('UPDATE certificates SET balance = ROUND(balance - ?, 2) WHERE id = ?').run(certAmount, cert.id);
+          cdb.prepare("INSERT INTO certificate_ops (certificate_id, at, kind, amount, sale_id, user_name, store_id) VALUES (?, ?, 'redeem', ?, ?, ?, ?)")
+            .run(cert.id, Date.now(), -certAmount, saleId, user ? user.name || user.email : '', bank ? storeId : null);
           // Бесплатный сертификат: денег за него не было — покупка по нему идёт в расходы, чтобы чистая прибыль была честной.
           if (cert.free) this.addExpense({ category: 'Сертификаты в подарок', amount: certAmount, at: Date.now(), note: freeCertNote(cert.number, saleId) }, user);
         }
@@ -1566,7 +1689,7 @@ function createStore(file) {
 
     // Возврат: товар назад на склад, начисленные бонусы списываются, потраченные возвращаются.
     refundSale(id, user = null) {
-      return transaction(db, () => {
+      return bankTx(() => {
         const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(Number(id));
         if (!sale) throw new UserError('Чек не найден');
         if (sale.refunded_at) throw new UserError('По этому чеку уже оформлен возврат');
@@ -1575,7 +1698,7 @@ function createStore(file) {
         db.prepare(`UPDATE products SET stock = stock + (SELECT COALESCE(SUM(qty), 0) FROM sale_items WHERE sale_id = ? AND product_id = products.id)
                     WHERE id IN (SELECT product_id FROM sale_items WHERE sale_id = ?)`).run(sale.id, sale.id);
         if (sale.customer_id && (sale.bonus_spent || sale.bonus_earned)) {
-          const c = getCustomer(sale.customer_id);
+          const c = this.findCustomer(sale.customer_id) || getCustomer(sale.customer_id);
           // Если начисленные бонусы уже потрачены, баланс не уходит в минус.
           const delta = round2(Math.max(sale.bonus_spent - sale.bonus_earned, -c.bonus));
           if (delta) changeBonus(c.id, delta, `Возврат чека №${sale.id}`, user ? user.name || user.email : '', sale.id);
@@ -1604,7 +1727,7 @@ function createStore(file) {
       const summary = { count: rows.length, total: round2(rows.filter((s) => !s.refunded_at).reduce((sum, s) => sum + s.total, 0)) };
       if (dryRun || !rows.length) return summary;
       const who = user ? user.name || user.email : '';
-      return transaction(db, () => {
+      return bankTx(() => {
         const back = db.prepare(`UPDATE products SET stock = stock + (SELECT COALESCE(SUM(qty), 0) FROM sale_items WHERE sale_id = ? AND product_id = products.id)
           WHERE id IN (SELECT product_id FROM sale_items WHERE sale_id = ?)`);
         const delItems = db.prepare('DELETE FROM sale_items WHERE sale_id = ?');
@@ -1618,11 +1741,13 @@ function createStore(file) {
             this.returnToCertificates(sale.id, `Чек №${sale.id} удалён`, who);
             if (restock) back.run(sale.id, sale.id);
             if (sale.customer_id && (sale.bonus_spent || sale.bonus_earned)) {
-              const c = db.prepare('SELECT * FROM customers WHERE id = ?').get(sale.customer_id);
+              const c = this.findCustomer(sale.customer_id);
               const delta = c ? round2(Math.max(sale.bonus_spent - sale.bonus_earned, -c.bonus)) : 0;
-              if (delta) changeBonus(c.id, delta, `Чек №${sale.id} удалён`, who, sale.id);
+              if (delta) changeBonus(c.id, delta, `Чек №${sale.id} удалён`, who, sale.id, true);
             }
           }
+          // Бонусы удалённого чека покупатель на витрине больше не видит.
+          if (sale.customer_id) wallet().walletHideSale(bank ? storeId : null, sale.id);
           delItems.run(sale.id);
           delParts.run(sale.id);
           unlinkDoc.run(sale.id);
@@ -1828,9 +1953,9 @@ function createStore(file) {
       const byMethodRaw = db.prepare(`SELECT sp.method_name AS name, sp.kind, COUNT(DISTINCT s.id) AS receipts, SUM(sp.amount) AS sum, SUM(sp.commission) AS commission
         FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id WHERE ${inShift} AND sp.kind <> 'certificate'
         GROUP BY sp.method_id, sp.method_name`).all(...args);
-      const certPays = db.prepare(`SELECT cp.method_name AS name, cp.kind, COUNT(DISTINCT c.id) AS receipts, SUM(cp.amount) AS sum, SUM(cp.commission) AS commission
-        FROM certificate_payments cp JOIN certificates c ON c.id = cp.certificate_id
-        WHERE c.shift_id = ? OR (c.shift_id IS NULL AND c.user_id = ? AND c.sold_at >= ? AND c.sold_at < ?) GROUP BY cp.method_id, cp.method_name`).all(...args);
+      const certPays = db.prepare(`SELECT cp.method_name AS name, cp.kind, COUNT(DISTINCT cp.certificate_id) AS receipts, SUM(cp.amount) AS sum, SUM(cp.commission) AS commission
+        FROM certificate_payments cp
+        WHERE cp.shift_id = ? OR (cp.shift_id IS NULL AND cp.user_id = ? AND cp.at >= ? AND cp.at < ?) GROUP BY cp.method_id, cp.method_name`).all(...args);
       const merged = new Map();
       for (const r of [...byMethodRaw, ...certPays]) {
         const x = merged.get(r.name) || { name: r.name, kind: r.kind, receipts: 0, sum: 0, commission: 0 };
@@ -2089,11 +2214,13 @@ function createStore(file) {
     /* ---------- Покупатели и бонусы ---------- */
 
     loyalty() {
+      if (bank) return bank.loyalty(); // правила бонусов общие — из основного магазина
       const saved = JSON.parse(this.setting('loyalty', JSON.stringify(LOYALTY_DEFAULTS)));
       return { ...LOYALTY_DEFAULTS, ...saved };
     },
 
     setLoyalty(input) {
+      if (bank) return bank.setLoyalty(input);
       const next = {
         enabled: Boolean(input.enabled),
         percent: number(input.percent, 'Начислять, %'),
@@ -2111,7 +2238,8 @@ function createStore(file) {
       const digits = String(q).replace(/\D/g, '');
       const like = `%${String(q).trim()}%`;
       return db.prepare(`SELECT * FROM customers WHERE ? = '' OR name LIKE ? OR (? <> '' AND phone LIKE ?)
-                         ORDER BY created_at DESC LIMIT ?`).all(String(q).trim(), like, digits, `%${digits}%`, limit);
+                         ORDER BY created_at DESC LIMIT ?`).all(String(q).trim(), like, digits, `%${digits}%`, limit)
+        .map((c) => (bank ? { ...c, bonus: bank.walletBonusOf(c.phone) } : c));
     },
 
     // Рейтинг покупателей: сколько раз и на сколько покупали, когда впервые и в последний раз.
@@ -2130,12 +2258,12 @@ function createStore(file) {
     },
 
     // Добавляет к покупателю: дней до дня рождения и действует ли сейчас скидка именинника.
-    withBirthday(c) {
+    withBirthday({ password_hash, ...c }) { // хеш пароля витрины сотрудникам не отдаём
       const l = this.loyalty();
       const days = daysToBirthday(c.birthday);
       const thisYear = new Date().getFullYear();
       const active = Boolean(l.birthdayDiscount > 0 && days !== null && Math.abs(days) <= l.birthdayDays && c.birthday_used !== thisYear);
-      return { ...c, birthdayIn: days, birthdayDiscount: active ? l.birthdayDiscount : 0 };
+      return { ...c, bonus: bank ? bank.walletBonusOf(c.phone) : c.bonus, birthdayIn: days, birthdayDiscount: active ? l.birthdayDiscount : 0 };
     },
 
     // Поиск покупателя на кассе: по телефону (цифры), номеру карты (8 цифр, сканер) или ФИО (без учёта регистра).
@@ -2155,6 +2283,20 @@ function createStore(file) {
           const n = c.name.toLowerCase();
           if (words.every((w) => n.includes(w))) out.set(c.id, c);
           if (out.size >= limit) break;
+        }
+      }
+      // Филиал: покупатель, которого здесь ещё нет, но он есть в общей базе, — заводится и здесь.
+      if (bank && out.size < limit) {
+        for (const m of bank.searchCustomers(s, limit)) {
+          if (out.size >= limit) break;
+          let local = db.prepare('SELECT * FROM customers WHERE phone = ?').get(m.phone);
+          if (!local) {
+            const card = m.card && !db.prepare('SELECT 1 FROM customers WHERE card = ?').get(m.card) ? m.card : this.newCustomerCard();
+            const id = db.prepare('INSERT INTO customers (phone, name, birthday, created_at, card, gender) VALUES (?, ?, ?, ?, ?, ?)')
+              .run(m.phone, m.name || '', m.birthday || '', Date.now(), card, m.gender || '').lastInsertRowid;
+            local = getCustomer(id);
+          }
+          out.set(local.id, local);
         }
       }
       return [...out.values()].map((c) => this.withBirthday(c));
@@ -2201,17 +2343,18 @@ function createStore(file) {
 
     // Ручное изменение бонусов: delta — сколько добавить (или списать, если меньше нуля).
     adjustBonus(id, { delta, reason }, user = null) {
-      const c = getCustomer(id);
+      const c = this.findCustomer(id);
+      if (!c) throw new UserError('Покупатель не найден');
       const d = round2(number(delta, 'Бонусы', { min: -Infinity }));
       if (!d) throw new UserError('Укажите, сколько бонусов добавить или списать');
       if (c.bonus + d < 0) throw new UserError(`Нельзя списать больше, чем есть: ${c.bonus}`);
-      changeBonus(c.id, d, text(reason, 'Причина', { max: 200 }) || 'Изменено вручную', user ? user.name || user.email : '');
+      bankTx(() => changeBonus(c.id, d, text(reason, 'Причина', { max: 200 }) || 'Изменено вручную', user ? user.name || user.email : '', null, true));
       return this.findCustomer(c.id);
     },
 
+    // История бонусов покупателя во всех магазинах (store_id — где было, NULL — основной).
     bonusHistory(id) {
-      getCustomer(id);
-      return db.prepare('SELECT * FROM bonus_log WHERE customer_id = ? ORDER BY created_at DESC, id DESC LIMIT 200').all(Number(id));
+      return wallet().walletBonusLog(getCustomer(id).phone);
     },
 
     /* ---------- Фото товаров ---------- */
@@ -2499,7 +2642,7 @@ function createStore(file) {
           purchases: sumIn(`SELECT SUM(total) AS v FROM docs WHERE kind = 'purchase' AND status = 'posted' AND method_id = ? AND doc_date >= ? AND doc_date < ?`, m.id, a, b),
           ops: sumIn('SELECT SUM(amount) AS v FROM account_ops WHERE method_id = ? AND at >= ? AND at < ?', m.id, a, b),
           expenses: sumIn('SELECT SUM(amount) AS v FROM expenses WHERE method_id = ? AND at >= ? AND at < ?', m.id, a, b),
-          certificates: sumIn('SELECT SUM(cp.amount - cp.commission) AS v FROM certificate_payments cp JOIN certificates c ON c.id = cp.certificate_id WHERE cp.method_id = ? AND c.sold_at >= ? AND c.sold_at < ?', m.id, a, b),
+          certificates: sumIn('SELECT SUM(cp.amount - cp.commission) AS v FROM certificate_payments cp WHERE cp.method_id = ? AND cp.at >= ? AND cp.at < ?', m.id, a, b),
         });
         const all = flows(0, 8.64e15);
         const period = flows(from, to);
@@ -2555,9 +2698,11 @@ function createStore(file) {
 
     /* ---------- Подарочные сертификаты ---------- */
     certificateSettings() {
+      if (bank) return bank.certificateSettings();
       return { months: Number(this.setting('cert_months', '12')) || 0 };
     },
     setCertificateSettings(input) {
+      if (bank) return bank.setCertificateSettings(input);
       const months = Math.round(number(input.months ?? 12, 'Срок действия, месяцев'));
       if (months > 120) throw new UserError('Срок — не больше 10 лет');
       this.setSetting('cert_months', String(months));
@@ -2566,7 +2711,7 @@ function createStore(file) {
 
     // Свободный номер: EAN-13 с префиксом 299 — печатается штрихкодом и не путается с картами покупателей (8 цифр).
     newCertificateNumber() {
-      const taken = db.prepare('SELECT 1 FROM certificates WHERE number = ?');
+      const taken = cdb.prepare('SELECT 1 FROM certificates WHERE number = ?');
       for (let i = 0; i < 1000; i++) {
         const code = ean13('299' + String(Math.floor(Math.random() * 1e9)).padStart(9, '0'));
         if (!taken.get(code)) return code;
@@ -2576,7 +2721,7 @@ function createStore(file) {
 
     // Сертификат с покупателем и состоянием: active / used (остаток 0) / expired / blocked.
     getCertificate(numberOrId, { byId = false } = {}) {
-      const c = db.prepare(`SELECT c.*, cu.name AS customer_name, cu.phone AS customer_phone, cu.card AS customer_card
+      const c = cdb.prepare(`SELECT c.*, cu.name AS customer_name, cu.phone AS customer_phone, cu.card AS customer_card
         FROM certificates c LEFT JOIN customers cu ON cu.id = c.customer_id WHERE ${byId ? 'c.id = ?' : 'c.number = ?'}`).get(byId ? Number(numberOrId) : String(numberOrId ?? '').trim());
       if (!c) return null;
       const state = c.status === 'deleted' ? 'deleted' : c.status === 'blocked' ? 'blocked' : c.balance <= 0.004 ? 'used' : c.expires_at && c.expires_at < Date.now() ? 'expired' : 'active';
@@ -2599,7 +2744,7 @@ function createStore(file) {
       if (sum > 1e6) throw new UserError('Слишком большая сумма сертификата');
       const code = String(num ?? '').trim() || this.newCertificateNumber();
       if (!/^[0-9A-Za-z-]{4,32}$/.test(code)) throw new UserError('Номер сертификата — от 4 до 32 цифр или букв');
-      if (db.prepare('SELECT 1 FROM certificates WHERE number = ?').get(code)) throw new UserError(`Сертификат №${code} уже продан`);
+      if (cdb.prepare('SELECT 1 FROM certificates WHERE number = ?').get(code)) throw new UserError(`Сертификат №${code} уже продан`);
       const customer = customerId ? this.findCustomer(customerId) : null;
       if (!customer) throw new UserError('Выберите покупателя или заведите нового — сертификат записывается на него');
       let parts = free ? [] : [{ method: this.paymentMethodFor(methodId, null, user), amount: sum }];
@@ -2616,14 +2761,17 @@ function createStore(file) {
       if (exp) { exp.setMonth(exp.getMonth() + months); exp.setHours(23, 59, 59, 999); }
       if (expiresAt !== undefined) exp = expiresAt ? new Date(number(expiresAt, 'Действует до', { positive: true })) : null;
       const who = user ? user.name || user.email : '';
-      return transaction(db, () => {
-        const id = Number(db.prepare(`INSERT INTO certificates (number, amount, balance, customer_id, sold_at, expires_at, user_id, user_name, shift_id, note, free)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(code, sum, sum, customer.id, Date.now(), exp ? exp.getTime() : null, user?.id ?? null, who,
-          user && !free ? this.currentShift(user.id)?.id ?? null : null, text(note, 'Комментарий', { max: 200 }), free ? 1 : 0).lastInsertRowid);
-        const add = db.prepare('INSERT INTO certificate_payments (certificate_id, method_id, method_name, kind, amount, commission) VALUES (?, ?, ?, ?, ?, ?)');
-        for (const x of parts) add.run(id, x.method.id, x.method.name, x.method.kind, x.amount, round2(x.amount * (x.method.commission || 0) / 100));
-        db.prepare("INSERT INTO certificate_ops (certificate_id, at, kind, amount, user_name, note) VALUES (?, ?, 'sale', ?, ?, ?)")
-          .run(id, Date.now(), sum, who, free ? 'бесплатно — подарок от магазина' : parts.map((x) => `${x.method.name} ${x.amount}`).join(' + '));
+      const shiftId = user && !free ? this.currentShift(user.id)?.id ?? null : null;
+      return bankTx(() => {
+        // Сертификат — в общей базе (на покупателя оттуда), деньги за него — в этом магазине.
+        const owner = bank ? bank.walletCustomer(customer) : customer;
+        const id = Number(cdb.prepare(`INSERT INTO certificates (number, amount, balance, customer_id, sold_at, expires_at, user_id, user_name, shift_id, note, free)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(code, sum, sum, owner.id, Date.now(), exp ? exp.getTime() : null, bank ? null : user?.id ?? null, who,
+          bank ? null : shiftId, text(note, 'Комментарий', { max: 200 }), free ? 1 : 0).lastInsertRowid);
+        const add = db.prepare('INSERT INTO certificate_payments (certificate_id, method_id, method_name, kind, amount, commission, at, shift_id, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        for (const x of parts) add.run(id, x.method.id, x.method.name, x.method.kind, x.amount, round2(x.amount * (x.method.commission || 0) / 100), Date.now(), shiftId, user?.id ?? null);
+        cdb.prepare("INSERT INTO certificate_ops (certificate_id, at, kind, amount, user_name, note, store_id) VALUES (?, ?, 'sale', ?, ?, ?, ?)")
+          .run(id, Date.now(), sum, who, free ? 'бесплатно — подарок от магазина' : parts.map((x) => `${x.method.name} ${x.amount}`).join(' + '), bank ? storeId : null);
         return this.getCertificate(id, { byId: true });
       });
     },
@@ -2631,18 +2779,18 @@ function createStore(file) {
     // Возврат или удаление чека, оплаченного сертификатом: сумма возвращается на сертификат.
     returnToCertificates(saleId, reason, who = '') {
       for (const p of db.prepare("SELECT * FROM sale_payments WHERE sale_id = ? AND kind = 'certificate' AND certificate_id IS NOT NULL").all(saleId)) {
-        db.prepare('UPDATE certificates SET balance = ROUND(balance + ?, 2) WHERE id = ?').run(p.amount, p.certificate_id);
-        const cert = db.prepare('SELECT number, free FROM certificates WHERE id = ?').get(p.certificate_id);
+        cdb.prepare('UPDATE certificates SET balance = ROUND(balance + ?, 2) WHERE id = ?').run(p.amount, p.certificate_id);
+        const cert = cdb.prepare('SELECT number, free FROM certificates WHERE id = ?').get(p.certificate_id);
         if (cert?.free) db.prepare("DELETE FROM expenses WHERE category = 'Сертификаты в подарок' AND note = ?").run(freeCertNote(cert.number, saleId));
-        db.prepare("INSERT INTO certificate_ops (certificate_id, at, kind, amount, sale_id, user_name, note) VALUES (?, ?, 'refund', ?, ?, ?, ?)")
-          .run(p.certificate_id, Date.now(), p.amount, saleId, who, reason);
+        cdb.prepare("INSERT INTO certificate_ops (certificate_id, at, kind, amount, sale_id, user_name, note, store_id) VALUES (?, ?, 'refund', ?, ?, ?, ?, ?)")
+          .run(p.certificate_id, Date.now(), p.amount, saleId, who, reason, bank ? storeId : null);
       }
     },
 
     listCertificates({ q = '', state = '' } = {}) {
       const s = String(q).trim().toLowerCase();
       const digits = s.replace(/\D/g, '');
-      return db.prepare(`SELECT c.*, cu.name AS customer_name, cu.phone AS customer_phone FROM certificates c LEFT JOIN customers cu ON cu.id = c.customer_id
+      return cdb.prepare(`SELECT c.*, cu.name AS customer_name, cu.phone AS customer_phone FROM certificates c LEFT JOIN customers cu ON cu.id = c.customer_id
         ORDER BY c.sold_at DESC LIMIT 2000`).all()
         .map((c) => this.getCertificate(c.id, { byId: true }))
         .filter((c) => (state ? c.state === state : c.state !== 'deleted') && (!s || c.number.includes(s) || (c.customer_name || '').toLowerCase().includes(s) || (digits.length >= 3 && (c.customer_phone || '').includes(digits))));
@@ -2651,7 +2799,7 @@ function createStore(file) {
     certificateHistory(id) {
       const c = this.getCertificate(id, { byId: true });
       if (!c) throw new UserError('Сертификат не найден');
-      return { ...c, ops: db.prepare('SELECT * FROM certificate_ops WHERE certificate_id = ? ORDER BY at DESC, id DESC').all(c.id),
+      return { ...c, ops: cdb.prepare('SELECT * FROM certificate_ops WHERE certificate_id = ? ORDER BY at DESC, id DESC').all(c.id),
         payments: db.prepare('SELECT method_name, amount, commission FROM certificate_payments WHERE certificate_id = ?').all(c.id) };
     },
 
@@ -2661,21 +2809,21 @@ function createStore(file) {
       if (!c || c.state === 'deleted') throw new UserError('Сертификат не найден');
       const why = text(note, 'Причина', { max: 200 });
       const who = user ? user.name || user.email : '';
-      return transaction(db, () => {
+      return transaction(cdb, () => {
         if (balance !== undefined && balance !== null && balance !== '') {
           const next = round2(number(balance, 'Остаток', { min: 0 }));
           const delta = round2(next - c.balance);
           if (delta) {
-            db.prepare('UPDATE certificates SET balance = ?, amount = ROUND(amount + ?, 2) WHERE id = ?').run(next, delta, c.id);
-            db.prepare("INSERT INTO certificate_ops (certificate_id, at, kind, amount, user_name, note) VALUES (?, ?, 'adjust', ?, ?, ?)")
+            cdb.prepare('UPDATE certificates SET balance = ?, amount = ROUND(amount + ?, 2) WHERE id = ?').run(next, delta, c.id);
+            cdb.prepare("INSERT INTO certificate_ops (certificate_id, at, kind, amount, user_name, note) VALUES (?, ?, 'adjust', ?, ?, ?)")
               .run(c.id, Date.now(), delta, who, why || `остаток ${c.balance} → ${next}`);
           }
         }
         if (expiresAt !== undefined) {
           const exp = expiresAt ? number(expiresAt, 'Действует до', { positive: true }) : null;
           if (exp !== c.expires_at) {
-            db.prepare('UPDATE certificates SET expires_at = ? WHERE id = ?').run(exp, c.id);
-            db.prepare("INSERT INTO certificate_ops (certificate_id, at, kind, amount, user_name, note) VALUES (?, ?, 'expires', 0, ?, ?)")
+            cdb.prepare('UPDATE certificates SET expires_at = ? WHERE id = ?').run(exp, c.id);
+            cdb.prepare("INSERT INTO certificate_ops (certificate_id, at, kind, amount, user_name, note) VALUES (?, ?, 'expires', 0, ?, ?)")
               .run(c.id, Date.now(), who, `срок: ${exp ? new Date(exp).toLocaleDateString('ru-RU') : 'без срока'}${why ? ` · ${why}` : ''}`);
           }
         }
@@ -2688,8 +2836,8 @@ function createStore(file) {
     deleteCertificate(id, user = null, note = '') {
       const c = this.getCertificate(id, { byId: true });
       if (!c || c.state === 'deleted') throw new UserError('Сертификат не найден');
-      db.prepare("UPDATE certificates SET status = 'deleted', deleted_at = ?, number = ? WHERE id = ?").run(Date.now(), `${c.number}#удалён-${c.id}`, c.id);
-      db.prepare("INSERT INTO certificate_ops (certificate_id, at, kind, amount, user_name, note) VALUES (?, ?, 'delete', 0, ?, ?)")
+      cdb.prepare("UPDATE certificates SET status = 'deleted', deleted_at = ?, number = ? WHERE id = ?").run(Date.now(), `${c.number}#удалён-${c.id}`, c.id);
+      cdb.prepare("INSERT INTO certificate_ops (certificate_id, at, kind, amount, user_name, note) VALUES (?, ?, 'delete', 0, ?, ?)")
         .run(c.id, Date.now(), user ? user.name || user.email : '', text(note, 'Причина', { max: 200 }) || (c.balance > 0 ? `остаток ${c.balance} сом сгорел` : ''));
       return c;
     },
@@ -2697,18 +2845,19 @@ function createStore(file) {
     setCertificateBlocked(id, blocked, user = null, note = '') {
       const c = this.getCertificate(id, { byId: true });
       if (!c) throw new UserError('Сертификат не найден');
-      db.prepare('UPDATE certificates SET status = ? WHERE id = ?').run(blocked ? 'blocked' : 'active', c.id);
-      db.prepare('INSERT INTO certificate_ops (certificate_id, at, kind, amount, user_name, note) VALUES (?, ?, ?, 0, ?, ?)')
+      cdb.prepare('UPDATE certificates SET status = ? WHERE id = ?').run(blocked ? 'blocked' : 'active', c.id);
+      cdb.prepare('INSERT INTO certificate_ops (certificate_id, at, kind, amount, user_name, note) VALUES (?, ?, ?, 0, ?, ?)')
         .run(c.id, Date.now(), blocked ? 'block' : 'unblock', user ? user.name || user.email : '', text(note, 'Причина', { max: 200 }));
       return this.getCertificate(c.id, { byId: true });
     },
 
     // Для главной: продано сертификатов и потрачено по ним за период, не потрачено сейчас (действующие).
     certificateStats({ from, to }) {
-      const sold = db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(amount), 0) AS v FROM certificates WHERE free = 0 AND sold_at >= ? AND sold_at < ?').get(from, to);
+      // Продано — деньги, полученные этим магазином; не потрачено — по всем магазинам (сертификаты общие).
+      const sold = db.prepare('SELECT COUNT(DISTINCT certificate_id) AS n, COALESCE(SUM(amount), 0) AS v FROM certificate_payments WHERE at >= ? AND at < ?').get(from, to);
       const redeemed = db.prepare(`SELECT COALESCE(SUM(sp.amount), 0) AS v FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
         WHERE sp.kind = 'certificate' AND s.refunded_at IS NULL AND s.created_at >= ? AND s.created_at < ?`).get(from, to).v;
-      const open = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(balance), 0) AS v FROM certificates WHERE status = 'active' AND balance > 0 AND (expires_at IS NULL OR expires_at >= ?)").get(Date.now());
+      const open = cdb.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(balance), 0) AS v FROM certificates WHERE status = 'active' AND balance > 0 AND (expires_at IS NULL OR expires_at >= ?)").get(Date.now());
       return { soldCount: sold.n, sold: round2(sold.v), redeemed: round2(redeemed), openCount: open.n, outstanding: round2(open.v) };
     },
 
@@ -3404,6 +3553,7 @@ function createStore(file) {
 
     transaction: (fn) => transaction(db, fn),
   };
+  return store;
 }
 
 module.exports = { createStore, UserError, text, number, phone, birthday, gender, personName, round2, transaction };

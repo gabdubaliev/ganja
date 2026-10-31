@@ -419,6 +419,9 @@ button.thumb:hover { border-color: var(--series); }
 .customer-find, .customer-new { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .customer-find .input, .customer-new .input { flex: 1 1 160px; width: auto; }
 .customer-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.customer-certs { grid-column: 1 / -1; display: grid; gap: 6px; }
+.customer-cert-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border-radius: 10px; background: var(--accent-soft, rgba(37, 99, 235, 0.08)); font-size: 13px; }
+.customer-cert-row b, .customer-cert-row > .pick-meta { white-space: nowrap; }
 .customer-spend { grid-column: 1 / -1; grid-template-columns: auto 110px auto; align-items: center; gap: 8px; color: var(--ink-2); font-size: 13px; }
 .cart-topay { display: flex; justify-content: space-between; align-items: baseline; color: var(--ink-2); }
 .cart-topay b { font-size: 20px; color: var(--ink); }

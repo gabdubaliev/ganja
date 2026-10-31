@@ -68,6 +68,8 @@ function branchList() {
 }
 
 function makeContext(id, st) {
+  // Филиал: бонусы, сертификаты и правила программы лояльности — общие, в основной базе.
+  if (id !== 1) st.useBank(mainStore, id);
   const ctx = { id, store: st };
   ctx.notifier = createNotifier(st);
   ctx.crm = createCrm(st);
@@ -105,6 +107,14 @@ function contextOf(id) {
 }
 makeContext(1, mainStore);
 for (const b of branchList()) if (!b.main) contextOf(b.id);
+// Один раз: бонусы и сертификаты филиалов переезжают в основную базу и становятся общими.
+if (mainStore.setting('shared_wallet', '0') !== '1') {
+  mainStore.hideAdminBonusRows();
+  for (const b of branchList()) if (!b.main) mainStore.absorbBranchWallet(contextOf(b.id).store, b.id);
+  mainStore.setSetting('shared_wallet', '1');
+  console.log('Бонусы и сертификаты всех магазинов объединены');
+}
+const storeName = (id) => branchList().find((b) => b.id === (id || 1))?.name || '';
 
 // Администратор из переменных. APP_PASSWORD — пароль из прошлых версий, где вход был без email.
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || '';
@@ -715,7 +725,9 @@ const routes = [
   ['POST', '/api/customers/:id/password', (p) => shopAuth.adminResetPassword(p.id), 'customers.accounts'],
   ['PUT', '/api/customers/:id/login', (p, url, body) => shopAuth.setLoginDisabled(p.id, body.disabled), 'customers.accounts'],
   ['GET', '/api/customers/:id/orders', (p) => shopAuth.myOrders(store.findCustomer(p.id) || (() => { throw new UserError('Покупатель не найден'); })()), 'customers'],
-  ['GET', '/api/customers/:id/bonus', (p) => store.bonusHistory(p.id), 'customers'],
+  ['GET', '/api/customers/:id/bonus', (p) => store.bonusHistory(p.id).map((b) => ({ ...b, store: storeName(b.store_id) })), 'customers'],
+  // Действующие сертификаты покупателя — на кассе предлагаются вместе с бонусами.
+  ['GET', '/api/customers/:id/certificates', (p) => store.customerCertificates(p.id), ['pos', 'certificates.accept', 'customers']],
   ['PUT', '/api/customers/:id', (p, url, body) => store.updateCustomer(p.id, body), 'loyalty'],
   ['POST', '/api/customers/:id/bonus', (p, url, body, user) => store.adjustBonus(p.id, body, user), 'loyalty'],
   ['PUT', '/api/loyalty', (p, url, body) => store.setLoyalty(body), 'loyalty'],
@@ -1156,22 +1168,22 @@ async function shopAccount(req, res, url) {
       if (!c) return sendJson(res, 200, { customer: null });
       const full = store.findCustomer(c.id);
       const { enabled, percent, maxPay } = store.loyalty();
-      // Покупки и бонусы во всех магазинах: в филиале у покупателя своя запись (ищется по телефону) и свои бонусы.
-      const purchases = [], bonusLog = [], bonusByStore = [];
+      // Покупки во всех магазинах: в филиале у покупателя своя запись (ищется по телефону).
+      // Бонусы и сертификаты общие — лежат в основной базе.
+      const purchases = [];
       for (const b of branchList()) {
         const ctx = contextOf(b.id);
         const bc = b.main ? c : ctx?.store.findCustomerByPhone(c.phone);
-        if (!bc) continue;
-        const tag = (list) => list.map((x) => ({ ...x, store: b.name, storeId: b.id }));
-        purchases.push(...tag(ctx.shopAuth.myPurchases(bc)));
-        bonusLog.push(...tag(ctx.shopAuth.myBonusLog(bc)));
-        if (!b.main && bc.bonus) bonusByStore.push({ store: b.name, bonus: bc.bonus });
+        if (bc) purchases.push(...ctx.shopAuth.myPurchases(bc).map((x) => ({ ...x, store: b.name, storeId: b.id })));
       }
-      const newest = (a, b) => b.created_at - a.created_at;
+      const named = (list) => list.map((x) => ({ ...x, store: storeName(x.store_id) }));
+      const certificates = mainStore.customerCertificates(c.id, { all: true })
+        .map(({ number, amount, balance, sold_at, expires_at, state }) => ({ number, amount, balance, sold_at, expires_at, state }));
       return sendJson(res, 200, {
         customer: { ...shopAuth.publicCustomer(c), birthdayDiscount: full.birthdayDiscount },
-        orders: shopAuth.myOrders(c), purchases: purchases.sort(newest).slice(0, 100), bonusLog: bonusLog.sort(newest).slice(0, 200),
-        bonusByStore, stores: branchList().length, loyalty: { enabled, percent, maxPay },
+        orders: shopAuth.myOrders(c), purchases: purchases.sort((a, b) => b.created_at - a.created_at).slice(0, 100),
+        bonusLog: named(shopAuth.myBonusLog(c)), certificates, certificateOps: named(mainStore.customerCertificateOps(c.id)),
+        stores: branchList().length, loyalty: { enabled, percent, maxPay },
       });
     }
     if (req.method !== 'POST' && req.method !== 'PUT') return sendJson(res, 405, { error: 'Неверный запрос' });

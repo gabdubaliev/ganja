@@ -227,7 +227,7 @@ async function openCustomer(customer) {
     $('#customer-history').innerHTML = history.length ? history.map((h) => `
       <div class="history-row">
         <span>${dateTime(h.created_at)}</span>
-        <span>${esc(h.reason)}${h.user_name ? `<span class="pcat"> · ${esc(h.user_name)}</span>` : ''}</span>
+        <span>${esc(h.reason)}${h.store ? `<span class="pcat"> · ${esc(h.store)}</span>` : ''}${h.user_name ? `<span class="pcat"> · ${esc(h.user_name)}</span>` : ''}${h.hidden ? '<span class="pcat"> · покупатель не видит</span>' : ''}</span>
         <b class="num ${h.delta < 0 ? 'neg' : 'good'}">${h.delta > 0 ? '+' : ''}${int(h.delta)}</b>
       </div>`).join('') : '<p class="empty">Бонусов ещё не было</p>';
   } catch (err) {

@@ -132,6 +132,14 @@ img { max-width: 100%; display: block; }
 .bonus-plus { color: #15803d; font-weight: 700; }
 .bonus-minus { color: #be123c; font-weight: 700; }
 .profile-order.refunded { opacity: 0.6; }
+.profile-tabs { grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1fr); border-radius: 18px; }
+.profile-tabs button { border-radius: 14px !important; }
+.profile-tabs button { font-size: 13px; padding: 8px 4px; line-height: 1.25; }
+.profile-certs { display: grid; gap: 8px; }
+.profile-cert { display: grid; gap: 4px; padding: 12px 14px; border-radius: var(--radius); background: linear-gradient(135deg, #fff1c2, #ffe0ec); color: #3b2a00; }
+.profile-cert .row { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.profile-cert .row b:last-child { white-space: nowrap; font-size: 18px; }
+.profile-cert.off { opacity: 0.55; }
 .profile-edit summary { cursor: pointer; font-weight: 600; color: var(--accent); }
 .acc-form { display: grid; gap: 10px; margin-top: 10px; }
 .shop-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 50; background: #141625; color: #fff; padding: 12px 20px; border-radius: 999px; font-weight: 600; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); }

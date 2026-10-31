@@ -311,6 +311,7 @@ function renderCustomer() {
     $('#customer-bday').checked = pos.birthday;
     $('#customer-bday-text').textContent = `🎂 ${c.birthdayIn === 0 ? 'Сегодня день рождения' : 'Скоро день рождения'} — скидка ${c.birthdayDiscount}%${off > 0 ? ` (−${money2(off)})` : ''}`;
   }
+  renderCustomerCerts(c);
   $('#customer-title').textContent = c.name || phoneFmt(c.phone);
   $('#customer-meta').textContent = ` · ${c.name ? phoneFmt(c.phone) + ' · ' : ''}${c.card ? `карта ${c.card} · ` : ''}бонусов ${qtyFmt.format(c.bonus)}`;
   const limit = bonusLimit();
@@ -320,9 +321,39 @@ function renderCustomer() {
   if (pos.cart.length) $('#customer-meta').textContent += ` · за этот чек +${earn}`;
 }
 
+// Бонусы и сертификаты покупателя — вместе: его действующие сертификаты (общие для всех магазинов)
+// показываются под бонусами, оплатить ими — одной кнопкой.
+function renderCustomerCerts(c) {
+  const box = $('#customer-certs');
+  const list = pos.customerCerts?.id === c.id ? pos.customerCerts.list : [];
+  box.hidden = !list.length;
+  box.innerHTML = list.map((x) => {
+    const used = pos.cert?.number === x.number;
+    return `<div class="customer-cert-row"><span>🎁 Сертификат №${esc(x.number)} · <b>${money2(x.balance)}</b>${x.expires_at ? `<span class="pick-meta"> до ${new Date(x.expires_at).toLocaleDateString('ru-RU')}</span>` : ''}</span>
+      ${used ? '<span class="pick-meta">✓ в оплате</span>' : `<button type="button" class="btn small" data-cust-cert="${esc(x.number)}">Оплатить</button>`}</div>`;
+  }).join('');
+}
+async function loadCustomerCerts(c) {
+  pos.customerCerts = { id: c.id, list: [] };
+  if (!session.can('certificates.accept')) return;
+  try {
+    const list = await api(`/api/customers/${c.id}/certificates`);
+    if (pos.customer?.id === c.id) { pos.customerCerts = { id: c.id, list }; renderCart(); }
+  } catch { /* без сертификатов */ }
+}
+$('#customer-certs').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-cust-cert]');
+  if (!b) return;
+  const x = pos.customerCerts.list.find((y) => y.number === b.dataset.custCert);
+  if (!x) return;
+  pos.cert = { number: x.number, amount: x.balance, balance: x.balance, customer_name: pos.customer?.name || '' };
+  renderCart();
+});
+
 // Поиск покупателя: телефон, ФИО или номер карты (сканер карты вводит 8 цифр и Enter).
 let custFound = [];
 function pickCustomer(c) {
+  loadCustomerCerts(c);
   pos.customer = c;
   pos.spend = 0;
   $('#customer-spend').value = '';
