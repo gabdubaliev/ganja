@@ -259,8 +259,8 @@ async function showSecrets(id, branch) {
   const row = (label, value, none) => `<div class="secret-row"><span>${label}</span>${value ? `<code class="secret-value">${esc(value)}</code><button type="button" class="btn small ghost" data-copy="${esc(value)}">Копировать</button>` : `<span class="pick-meta">${none}</span>`}</div>`;
   $('#secrets-title').textContent = s.name;
   $('#secrets-body').innerHTML = `<p class="pick-meta">Email для входа: <b>${esc(s.email)}</b></p>
-    ${row('Пароль', s.password, 'не сохранён: задан до этой функции или сотрудник сменил его сам. Задайте новый в карточке — он будет виден здесь.')}
-    ${row('PIN-код кассы', s.pin, s.hasPin ? 'не сохранён: задан до этой функции или сотрудник сменил его сам.' : 'PIN не задан')}
+    ${row('Пароль', s.password, 'ещё не известен: появится после следующего входа сотрудника. Или задайте новый в карточке (✎) — он сразу будет виден здесь.')}
+    ${row('PIN-код кассы', s.pin, s.hasPin ? 'ещё не известен: появится, когда сотрудник войдёт по PIN через «Сменить кассира». Или задайте новый в карточке.' : 'PIN не задан')}
     <p class="pick-meta">Просмотр записан в журнал действий.</p>`;
   $('#secrets-dialog').showModal();
 }

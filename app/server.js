@@ -381,6 +381,17 @@ function guardAdmin(user, target, body) {
 }
 const seesSecrets = (user) => !auth.enabled || user?.role === 'owner' || can(user, 'staff.passwords');
 
+// Актуальная копия пароля или PIN сотрудника для владельца: пишется, когда сотрудник меняет их сам
+// и при входе (так становятся видны и пароли, заданные до этой функции). Пароль владельца не хранится.
+function keepSecret(u, field, value) {
+  if (!u || u.role === 'owner' || u.owner_shadow || !value) return;
+  const st = contextOf(u.branch || 1)?.store || store;
+  const row = st.findUser(u.id);
+  if (!row) return;
+  if (decryptSecret(field === 'pin' ? row.secret_pin : row.secret_pw) === String(value)) return;
+  st.setUserSecrets(u.id, { [field]: String(value) }, encryptSecret);
+}
+
 // PIN для смены кассира: 4–6 цифр; пустой — убрать PIN.
 function pinHash(value) {
   const s = String(value ?? '').trim();
@@ -456,14 +467,16 @@ const routes = [
     if (!user) throw new UserError('Сначала заведите сотрудников');
     if (!checkPassword(body.current, store.findUser(user.id).password_hash)) throw new UserError('Текущий пароль указан неверно');
     store.setUserPin(user.id, pinHash(body.pin));
-    store.setUserSecrets(user.id, { pin: null }, encryptSecret); // свой PIN сотрудник никому не показывает
+    const pinText = String(body.pin ?? '').trim();
+    if (pinText) keepSecret({ ...user, branch: current().id }, 'pin', pinText); // владелец видит актуальный PIN
+    else store.setUserSecrets(user.id, { pin: null }, encryptSecret); // PIN убран
     return { ok: true };
   }, 'any'],
   ['PUT', '/api/me/password', (p, url, body, user) => {
     if (!user) throw new UserError('Сначала заведите сотрудников');
     if (!checkPassword(body.current, store.findUser(user.id).password_hash)) throw new UserError('Текущий пароль указан неверно');
     store.updateUser(user.id, {}, password(body.password));
-    store.setUserSecrets(user.id, { password: null }, encryptSecret); // свой пароль сотрудник никому не показывает
+    keepSecret({ ...user, branch: current().id }, 'password', body.password); // владелец видит актуальный пароль
     return { ok: true };
   }, 'any'],
 
@@ -1013,6 +1026,7 @@ async function handleAuth(req, res, url) {
     }
     // Вход пишется в журнал магазина сотрудника: там и ищется его «последний вход».
     (contextOf(result.user.branch || 1)?.store || store).audit({ ...who, kind: 'login', user: result.user, action: 'Вход в программу' });
+    keepSecret(result.user, 'password', body.password);
     res.setHeader('Set-Cookie', result.cookie);
     return sendJson(res, 200, { ok: true, user: store.publicUser(result.user) });
   }
@@ -1031,6 +1045,7 @@ async function handleAuth(req, res, url) {
       return sendJson(res, result.status, { error: result.error });
     }
     store.audit({ ...who, kind: 'login', user: result.user, action: 'Смена кассира', details: `после ${onTill.name || onTill.email}` });
+    keepSecret(result.user, result.user.pin_hash ? 'pin' : 'password', String(body.code || ''));
     res.setHeader('Set-Cookie', result.cookie);
     return sendJson(res, 200, { ok: true, user: store.publicUser(result.user) });
   }
