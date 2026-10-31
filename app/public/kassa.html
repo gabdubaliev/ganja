@@ -45,15 +45,14 @@
       <div id="cart" class="cart"></div>
       <div class="customer-box" id="customer-box" hidden>
         <div class="customer-find" id="customer-find">
-          <input id="customer-phone" class="input" inputmode="tel" placeholder="Телефон покупателя для бонусов" autocomplete="off" aria-label="Телефон покупателя">
+          <div class="suggest-wrap grow">
+            <input id="customer-phone" class="input" type="search" placeholder="Покупатель: телефон, ФИО или номер карты" autocomplete="off" aria-label="Найти покупателя">
+            <div id="customer-results" class="suggest-list" hidden></div>
+          </div>
           <button type="button" class="btn" id="customer-lookup">Найти</button>
+          <button type="button" class="btn primary" id="customer-add" data-can="customers.create" hidden>+ Новый клиент</button>
         </div>
-        <div class="customer-new" id="customer-new" hidden>
-          <span class="pick-meta">Такого покупателя ещё нет.</span>
-          <input id="customer-new-name" class="input" placeholder="Имя (необязательно)" autocomplete="off" aria-label="Имя нового покупателя">
-          <input id="customer-new-bday" class="input" inputmode="numeric" placeholder="Дата рождения: ДД.ММ.ГГГГ" autocomplete="off" aria-label="Дата рождения нового покупателя">
-          <button type="button" class="btn primary" id="customer-create">Завести карту</button>
-        </div>
+        <div class="customer-new" id="customer-new" hidden></div>
         <div class="customer-card" id="customer-card" hidden>
           <div><b id="customer-title"></b><span class="pick-meta" id="customer-meta"></span></div>
           <button type="button" class="icon-btn" id="customer-clear" aria-label="Убрать покупателя из чека">×</button>
@@ -121,6 +120,29 @@
     <div id="photos-cats" class="photo-cats"></div>
   </section>
 </main>
+
+<dialog id="cust-dialog" aria-labelledby="cust-title">
+  <form id="cust-form" novalidate>
+    <h2 id="cust-title">Новый клиент</h2>
+    <div class="form-grid">
+      <div class="field wide"><label for="cu-name">ФИО</label><input id="cu-name" name="name" class="input big" autocomplete="off" autocapitalize="words" placeholder="Фамилия Имя Отчество" data-capitalize></div>
+      <div class="field"><label for="cu-phone">Номер телефона</label><input id="cu-phone" name="phone" class="input" inputmode="tel" autocomplete="off" required placeholder="0700 123 456"></div>
+      <div class="field"><label for="cu-card">Номер карточки (8 цифр)</label>
+        <div class="input-row"><input id="cu-card" name="card" class="input num" inputmode="numeric" maxlength="8" autocomplete="off" placeholder="Сканируйте карту"><button type="button" class="btn" id="cu-card-new" title="Программа сама подберёт свободный номер">Новый</button></div>
+      </div>
+      <div class="field"><label for="cu-bday">Дата рождения</label><input id="cu-bday" name="birthday" class="input" inputmode="numeric" autocomplete="off" placeholder="ДД.ММ.ГГГГ" maxlength="10"></div>
+      <div class="field"><span class="label">Пол</span>
+        <div class="seg cu-gender" id="cu-gender" role="group" aria-label="Пол"><button type="button" data-g="m" aria-pressed="false">👨 Мужской</button><button type="button" data-g="f" aria-pressed="false">👩 Женский</button></div>
+      </div>
+    </div>
+    <p class="sub">Карточку можно не сканировать — программа выдаст номер сама. Бонусы начнут копиться с этого чека.</p>
+    <p class="form-error" id="cust-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="cust-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить и добавить в чек</button>
+    </div>
+  </form>
+</dialog>
 
 <main class="page" data-view="mytimesheet" hidden>
   <header class="top">

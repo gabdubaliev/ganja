@@ -13,7 +13,8 @@ const RIGHTS = [
   { key: 'kpi', group: 'Отчёты', label: 'Отчёты: хиты товаров, топ продавцов, зарплата' },
   { key: 'finance', group: 'Отчёты', label: 'Главная: расходы, зарплата сотрудников и чистая прибыль' },
   { key: 'abc', group: 'Отчёты', label: 'ABC / XYZ анализ ассортимента (и матрица на главной)' },
-  { key: 'pos', group: 'Касса', label: 'Продавать на кассе и заводить покупателей' },
+  { key: 'pos', group: 'Касса', label: 'Продавать на кассе и находить покупателя по телефону' },
+  { key: 'customers.create', group: 'Касса', label: 'Заводить и искать покупателей на кассе: ФИО, телефон, номер карты, дата рождения, пол' },
   { key: 'sales', group: 'Касса', label: 'Видеть все чеки (без этого — только свои)' },
   { key: 'refund', group: 'Касса', label: 'Оформлять возвраты: по чеку и документом «Возврат продажи»' },
   { key: 'discount', group: 'Касса', label: 'Давать скидку на кассе (на товар и на чек; предел — в карточке сотрудника)' },
@@ -73,12 +74,12 @@ const ROLES = {
   manager: {
     name: 'Управляющий',
     about: 'Видит всё и ведёт магазин, выписывает штрафы, правит смены, ведёт табель, даёт и проверяет задания. По умолчанию не меняет сотрудников, бонусы, оформление, настройки и не видит журнал действий.',
-    can: ['dashboard', 'kpi', 'pos', 'sales', 'refund', 'discount', 'products', 'stock.view', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'notify', 'shifts', 'fines', 'timesheet', 'timesheet.edit', 'tasks', 'writeoff', 'docs.sale', 'transfer', 'docs.unpost', 'expenses', 'finance', 'abc', 'products.history', 'receive.photo', 'mytimesheet'],
+    can: ['dashboard', 'kpi', 'pos', 'customers.create', 'sales', 'refund', 'discount', 'products', 'stock.view', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'notify', 'shifts', 'fines', 'timesheet', 'timesheet.edit', 'tasks', 'writeoff', 'docs.sale', 'transfer', 'docs.unpost', 'expenses', 'finance', 'abc', 'products.history', 'receive.photo', 'mytimesheet'],
   },
   cashier: {
     name: 'Кассир',
     about: 'Работает в окне кассы: открывает смену, продаёт, видит свои чеки, отправляет онлайн-заказы, меняет фото товаров.',
-    can: ['pos', 'photos', 'orders', 'discount', 'stock.view', 'mytimesheet'],
+    can: ['pos', 'customers.create', 'photos', 'orders', 'discount', 'stock.view', 'mytimesheet'],
   },
   storekeeper: {
     name: 'Кладовщик',

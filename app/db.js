@@ -450,6 +450,9 @@ function open(file) {
   addColumns('doc_items', [['prev_purchase', 'REAL']]);
   // Зашифрованные копии пароля и PIN, заданных владельцем или администратором (для просмотра владельцем).
   addColumns('users', [['secret_pw', 'TEXT'], ['secret_pin', 'TEXT']]);
+  // Карта покупателя (номер — 8 цифр, печатается штрихкодом) и пол: 'm' — мужской, 'f' — женский.
+  addColumns('customers', [['card', "TEXT NOT NULL DEFAULT ''"], ['gender', "TEXT NOT NULL DEFAULT ''"]]);
+  db.exec("CREATE INDEX IF NOT EXISTS customers_card ON customers(card)");
   db.exec(`
     CREATE INDEX IF NOT EXISTS doc_items_product ON doc_items(product_id);
     CREATE INDEX IF NOT EXISTS sale_items_product ON sale_items(product_id);
@@ -496,6 +499,16 @@ function open(file) {
   fillCodes(db);
   // Новые права (галочки): тем, у кого права настроены вручную, добавляем их по смыслу — один раз,
   // чтобы после обновления никто не потерял то, что уже видел.
+  // Заводить покупателей на кассе — отдельная галочка: у кого была «Касса», тому она добавляется.
+  if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v4'").get()) {
+    const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
+    for (const u of db.prepare('SELECT id, rights FROM users WHERE rights IS NOT NULL').all()) {
+      let list;
+      try { list = JSON.parse(u.rights); } catch { continue; }
+      if (Array.isArray(list) && list.includes('pos') && !list.includes('customers.create')) set.run(JSON.stringify([...list, 'customers.create']), u.id);
+    }
+    db.prepare("INSERT INTO settings (key, value) VALUES ('rights_v4', '1')").run();
+  }
   // Бонусы сотрудникам — отдельная галочка: у кого была «Зарплата», тому она добавляется.
   if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v3'").get()) {
     const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
@@ -640,6 +653,24 @@ const PAYMENT_KINDS = { cash: 'Наличные', card: 'Карта', transfer: 
 const LOYALTY_DEFAULTS = { enabled: true, percent: 5, maxPay: 30, birthdayDiscount: 10, birthdayDays: 3 };
 
 // Дата рождения как ДД.ММ.ГГГГ, ДД.ММ или ГГГГ-ММ-ДД → 'ГГГГ-ММ-ДД' (год 0000, если не указан).
+// ФИО: каждое слово (и часть через дефис) — с заглавной буквы, лишние пробелы убираются.
+function personName(value) {
+  const s = text(value, 'ФИО', { max: 80 }).replace(/\s+/g, ' ');
+  return s.toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (m, sep, ch) => sep + ch.toUpperCase());
+}
+function customerCard(value) {
+  const s = String(value ?? '').replace(/\s/g, '');
+  if (!s) return '';
+  if (!/^\d{8}$/.test(s)) throw new UserError('Номер карты — ровно 8 цифр');
+  return s;
+}
+function gender(value) {
+  const g = String(value ?? '').toLowerCase();
+  if (['m', 'м', 'male', 'мужской'].includes(g)) return 'm';
+  if (['f', 'ж', 'female', 'женский'].includes(g)) return 'f';
+  return '';
+}
+
 function birthday(value) {
   const s = String(value ?? '').trim();
   if (!s) return '';
@@ -2004,16 +2035,51 @@ function createStore(file) {
       return { ...c, birthdayIn: days, birthdayDiscount: active ? l.birthdayDiscount : 0 };
     },
 
+    // Поиск покупателя на кассе: по телефону (цифры), номеру карты (8 цифр, сканер) или ФИО (без учёта регистра).
+    // Точное совпадение карты или телефона — первым.
+    searchCustomers(q, limit = 12) {
+      const s = String(q ?? '').trim();
+      if (!s) return [];
+      const digits = s.replace(/\D/g, '');
+      const words = s.toLowerCase().split(/\s+/).filter(Boolean);
+      const out = new Map();
+      if (digits.length >= 3 && digits.length === s.replace(/[\s()+-]/g, '').length) {
+        for (const c of db.prepare('SELECT * FROM customers WHERE card = ? OR card LIKE ? OR phone LIKE ? ORDER BY card = ? DESC, created_at DESC LIMIT ?')
+          .all(digits, `${digits}%`, `%${digits}%`, digits, limit)) out.set(c.id, c);
+      } else {
+        // Кириллицу SQLite в нижний регистр не переводит — сравниваем в JS.
+        for (const c of db.prepare("SELECT * FROM customers WHERE name <> '' ORDER BY created_at DESC").all()) {
+          const n = c.name.toLowerCase();
+          if (words.every((w) => n.includes(w))) out.set(c.id, c);
+          if (out.size >= limit) break;
+        }
+      }
+      return [...out.values()].map((c) => this.withBirthday(c));
+    },
+
+    // Свободный номер карты: 8 цифр, не начинается с нуля.
+    newCustomerCard() {
+      const taken = db.prepare('SELECT 1 FROM customers WHERE card = ?');
+      for (let i = 0; i < 1000; i++) {
+        const card = String(10000000 + Math.floor(Math.random() * 90000000));
+        if (!taken.get(card)) return card;
+      }
+      throw new UserError('Не получилось подобрать номер карты');
+    },
+
     findCustomerByPhone(value) {
       const c = db.prepare('SELECT * FROM customers WHERE phone = ?').get(phone(value));
       return c ? this.withBirthday(c) : null;
     },
 
+    // Номер карты пустой — программа выдаёт свой. Пол: m / f / пусто.
     createCustomer(input) {
       const p = phone(input.phone);
       if (db.prepare('SELECT 1 FROM customers WHERE phone = ?').get(p)) throw new UserError('Покупатель с таким телефоном уже есть');
-      const { lastInsertRowid } = db.prepare('INSERT INTO customers (phone, name, birthday, created_at) VALUES (?, ?, ?, ?)')
-        .run(p, text(input.name, 'Имя', { max: 80 }), birthday(input.birthday), Date.now());
+      const card = customerCard(input.card) || this.newCustomerCard();
+      if (db.prepare('SELECT 1 FROM customers WHERE card = ?').get(card)) throw new UserError(`Карта ${card} уже выдана другому покупателю`);
+      const { lastInsertRowid } = db.prepare('INSERT INTO customers (phone, name, birthday, created_at, card, gender) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(p, personName(input.name), birthday(input.birthday), Date.now(), card, gender(input.gender));
       return this.findCustomer(lastInsertRowid);
     },
 
@@ -2022,8 +2088,11 @@ function createStore(file) {
       const p = input.phone === undefined ? c.phone : phone(input.phone);
       const other = db.prepare('SELECT id FROM customers WHERE phone = ?').get(p);
       if (other && other.id !== c.id) throw new UserError('Покупатель с таким телефоном уже есть');
-      db.prepare('UPDATE customers SET phone = ?, name = ?, birthday = ? WHERE id = ?')
-        .run(p, input.name === undefined ? c.name : text(input.name, 'Имя', { max: 80 }), input.birthday === undefined ? c.birthday : birthday(input.birthday), c.id);
+      const card = input.card === undefined ? c.card : customerCard(input.card);
+      if (card && db.prepare('SELECT 1 FROM customers WHERE card = ? AND id <> ?').get(card, c.id)) throw new UserError(`Карта ${card} уже выдана другому покупателю`);
+      db.prepare('UPDATE customers SET phone = ?, name = ?, birthday = ?, card = ?, gender = ? WHERE id = ?')
+        .run(p, input.name === undefined ? c.name : personName(input.name), input.birthday === undefined ? c.birthday : birthday(input.birthday),
+          card, input.gender === undefined ? c.gender : gender(input.gender), c.id);
       return this.findCustomer(c.id);
     },
 

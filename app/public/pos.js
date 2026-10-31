@@ -289,9 +289,9 @@ function bonusLimit() {
 const bonusSpend = () => Math.min(pos.spend, bonusLimit());
 
 function renderCustomer() {
-  $('#customer-box').hidden = !session.loyalty.enabled;
+  $('#customer-box').hidden = !session.loyalty.enabled && !session.can('customers.create');
   const c = pos.customer;
-  $('#customer-find').hidden = Boolean(c) || !$('#customer-new').hidden;
+  $('#customer-find').hidden = Boolean(c);
   $('#customer-card').hidden = !c;
   if (!c) return;
   $('#customer-bday-row').hidden = !c.birthdayDiscount;
@@ -301,7 +301,7 @@ function renderCustomer() {
     $('#customer-bday-text').textContent = `🎂 ${c.birthdayIn === 0 ? 'Сегодня день рождения' : 'Скоро день рождения'} — скидка ${c.birthdayDiscount}%${off > 0 ? ` (−${money2(off)})` : ''}`;
   }
   $('#customer-title').textContent = c.name || phoneFmt(c.phone);
-  $('#customer-meta').textContent = ` · ${c.name ? phoneFmt(c.phone) + ' · ' : ''}бонусов ${qtyFmt.format(c.bonus)}`;
+  $('#customer-meta').textContent = ` · ${c.name ? phoneFmt(c.phone) + ' · ' : ''}${c.card ? `карта ${c.card} · ` : ''}бонусов ${qtyFmt.format(c.bonus)}`;
   const limit = bonusLimit();
   $('#customer-spend-row').hidden = !c.bonus;
   $('#customer-spend-hint').textContent = limit ? `можно до ${qtyFmt.format(limit)}` : 'добавьте товары в чек';
@@ -309,20 +309,37 @@ function renderCustomer() {
   if (pos.cart.length) $('#customer-meta').textContent += ` · за этот чек +${earn}`;
 }
 
-async function lookupCustomer() {
-  const phone = $('#customer-phone').value;
-  if (!phone.trim()) return;
+// Поиск покупателя: телефон, ФИО или номер карты (сканер карты вводит 8 цифр и Enter).
+let custFound = [];
+function pickCustomer(c) {
+  pos.customer = c;
+  pos.spend = 0;
+  $('#customer-spend').value = '';
+  $('#customer-results').hidden = true;
+  renderCart();
+}
+function renderCustomerResults(list, q) {
+  custFound = list;
+  const canAdd = session.can('customers.create');
+  $('#customer-results').innerHTML = list.map((c, i) => `<button type="button" class="suggest" data-cust="${i}">
+      <span><b>${esc(c.name || phoneFmt(c.phone))}</b><span class="pick-meta"> ${c.name ? phoneFmt(c.phone) : ''}${c.card ? ` · карта ${c.card}` : ''}</span></span>
+      <span class="pick-meta">бонусов ${qtyFmt.format(c.bonus)}</span></button>`).join('')
+    + (!list.length ? `<div class="suggest muted">Никого не нашли</div>` : '')
+    + (canAdd ? `<button type="button" class="suggest new" data-cust-new>+ Новый клиент${q ? `: ${esc(q)}` : ''}</button>` : '');
+  $('#customer-results').hidden = false;
+}
+let custTimer = null;
+async function lookupCustomer({ enter = false } = {}) {
+  const q = $('#customer-phone').value.trim();
+  if (!q) { $('#customer-results').hidden = true; return; }
   try {
-    const found = await api('/api/customers/by-phone?phone=' + encodeURIComponent(phone));
-    if (found) {
-      pos.customer = found;
-      pos.spend = 0;
-      $('#customer-spend').value = '';
-    } else {
-      $('#customer-new').hidden = false;
-      $('#customer-new-name').focus();
-    }
-    renderCart();
+    const list = await api('/api/customers/search?q=' + encodeURIComponent(q));
+    if (q !== $('#customer-phone').value.trim()) return;
+    const digits = q.replace(/\D/g, '');
+    const exact = list.find((c) => c.card === digits || c.phone.endsWith(digits.slice(-9)) && digits.length >= 9);
+    // Отсканированная карта или полный телефон — сразу в чек.
+    if (enter && (exact || list.length === 1)) return pickCustomer(exact || list[0]);
+    renderCustomerResults(list, q);
   } catch (err) {
     toast(err.message, 'error');
   }
@@ -332,23 +349,67 @@ function clearCustomer() {
   pos.customer = null;
   pos.spend = 0;
   pos.birthday = true;
-  $('#customer-new-bday').value = '';
   $('#customer-phone').value = '';
   $('#customer-spend').value = '';
-  $('#customer-new').hidden = true;
+  $('#customer-results').hidden = true;
 }
 
-$('#customer-lookup').addEventListener('click', lookupCustomer);
-$('#customer-phone').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); lookupCustomer(); } });
-$('#customer-create').addEventListener('click', async () => {
+$('#customer-lookup').addEventListener('click', () => lookupCustomer({ enter: true }));
+$('#customer-phone').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(custTimer); lookupCustomer({ enter: true }); } });
+$('#customer-phone').addEventListener('input', () => { clearTimeout(custTimer); custTimer = setTimeout(lookupCustomer, 250); });
+$('#customer-results').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-cust]');
+  if (b) return pickCustomer(custFound[Number(b.dataset.cust)]);
+  if (e.target.closest('[data-cust-new]')) openCustomerDialog($('#customer-phone').value.trim());
+});
+document.addEventListener('click', (e) => { if (!e.target.closest('#customer-find')) $('#customer-results').hidden = true; });
+
+/* ---------- Новый клиент: ФИО, телефон, карта, дата рождения, пол ---------- */
+let custGender = '';
+function openCustomerDialog(q = '') {
+  const f = $('#cust-form');
+  f.reset();
+  custGender = '';
+  for (const b of document.querySelectorAll('#cu-gender [data-g]')) b.setAttribute('aria-pressed', 'false');
+  // Что ввели в поиск — в нужное поле: цифры 8 — карта, другие цифры — телефон, буквы — ФИО.
+  const digits = q.replace(/\D/g, '');
+  if (q && digits.length === q.replace(/[\s()+-]/g, '').length) {
+    if (digits.length === 8 && !digits.startsWith('0')) f.elements.card.value = digits; else f.elements.phone.value = q;
+  } else if (q) f.elements.name.value = capitalizeWords(q);
+  $('#cust-error').hidden = true;
+  $('#customer-results').hidden = true;
+  $('#cust-dialog').showModal();
+  (f.elements.name.value ? f.elements.phone : f.elements.name).focus();
+}
+$('#customer-add').addEventListener('click', () => openCustomerDialog($('#customer-phone').value.trim()));
+$('#cust-cancel').addEventListener('click', () => $('#cust-dialog').close());
+$('#cu-gender').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-g]');
+  if (!b) return;
+  custGender = custGender === b.dataset.g ? '' : b.dataset.g;
+  for (const x of document.querySelectorAll('#cu-gender [data-g]')) x.setAttribute('aria-pressed', String(x.dataset.g === custGender));
+});
+$('#cu-card-new').addEventListener('click', async () => {
+  try { $('#cu-card').value = (await api('/api/customers/new-card')).card; } catch (err) { showFormError('#cust-error', err); }
+});
+$('#cu-card').addEventListener('input', (e) => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 8); });
+// Дата: точки ставятся сами — 15031990 → 15.03.1990.
+$('#cu-bday').addEventListener('input', (e) => {
+  const d = e.target.value.replace(/\D/g, '').slice(0, 8);
+  e.target.value = [d.slice(0, 2), d.slice(2, 4), d.slice(4)].filter(Boolean).join('.');
+});
+$('#cust-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  if (!f.elements.phone.value.trim()) return showFormError('#cust-error', new Error('Укажите номер телефона'));
   try {
-    pos.customer = await api('/api/customers', { method: 'POST', body: { phone: $('#customer-phone').value, name: $('#customer-new-name').value, birthday: $('#customer-new-bday').value } });
-    $('#customer-new').hidden = true;
-    $('#customer-new-name').value = '';
-    toast('Карта покупателя заведена');
-    renderCart();
+    const c = await api('/api/customers', { method: 'POST', body: { name: f.elements.name.value, phone: f.elements.phone.value, card: f.elements.card.value, birthday: f.elements.birthday.value, gender: custGender } });
+    $('#cust-dialog').close();
+    toast(`Клиент заведён, карта ${c.card}`);
+    $('#customer-phone').value = '';
+    pickCustomer(c);
   } catch (err) {
-    toast(err.message, 'error');
+    showFormError('#cust-error', err);
   }
 });
 $('#customer-bday').addEventListener('change', (e) => { pos.birthday = e.target.checked; renderCart(); });

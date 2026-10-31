@@ -79,7 +79,7 @@ async function renderCustomers() {
   const place = new Map([...all].sort((x, y) => y.spent - x.spent).map((c, i) => [c.id, c.purchases ? i + 1 : null]));
   const list = all
     .filter((c) => loyaltyView.segment === 'all' || (loyaltyView.segment === 'birthday' ? soon(c) : c.segment === loyaltyView.segment))
-    .filter((c) => !q || c.name.toLowerCase().includes(q) || (digits && c.phone.includes(digits)))
+    .filter((c) => !q || c.name.toLowerCase().includes(q) || (digits && (c.phone.includes(digits) || (c.card || '').includes(digits))))
     .sort((x, y) => sortBy(y) - sortBy(x));
   loyaltyView.list = list;
   const total = all.reduce((s, c) => s + c.bonus, 0);
@@ -90,7 +90,7 @@ async function renderCustomers() {
     '<th>Первая покупка</th><th>Группа</th><th></th>';
   $('#customers-body').innerHTML = list.length ? list.slice(0, loyaltyView.shown).map((c) => `<tr>
       <td>${place.get(c.id) ? `<b>${place.get(c.id)}</b>` : '—'}</td>
-      <td><div class="pname">${esc(c.name || 'Без имени')}${c.birthdayDiscount ? ' <span title="Действует скидка именинника">🎂</span>' : ''}${c.registered_at ? ` <span class="role-tag" title="Зарегистрирован на витрине">${c.login_disabled ? 'вход закрыт' : 'на витрине'}</span>` : ''}</div><div class="pcat">${phoneFmt(c.phone)}${c.birthday ? ` · ДР ${birthdayText(c)}` : ''}</div></td>
+      <td><div class="pname">${esc(c.name || 'Без имени')}${c.birthdayDiscount ? ' <span title="Действует скидка именинника">🎂</span>' : ''}${c.registered_at ? ` <span class="role-tag" title="Зарегистрирован на витрине">${c.login_disabled ? 'вход закрыт' : 'на витрине'}</span>` : ''}</div><div class="pcat">${phoneFmt(c.phone)}${c.card ? ` · карта ${c.card}` : ''}${c.gender ? ` · ${c.gender === 'm' ? 'муж.' : 'жен.'}` : ''}${c.birthday ? ` · ДР ${birthdayText(c)}` : ''}</div></td>
       <td>${money(c.spent)}</td>
       <td>${int(c.purchases)}</td>
       <td>${c.purchases ? money(c.avg) : '—'}</td>
@@ -209,12 +209,14 @@ async function openCustomer(customer) {
   $('#customer-temp-result').hidden = true;
   if (customer) renderCustomerAccount(customer);
   const editable = !customer || session.can('loyalty');
-  f.elements.phone.disabled = f.elements.name.disabled = f.elements.birthday.disabled = !editable;
+  f.elements.phone.disabled = f.elements.name.disabled = f.elements.birthday.disabled = f.elements.card.disabled = f.elements.gender.disabled = !editable;
   $('#customer-save').hidden = !editable;
   if (customer) {
     f.elements.phone.value = phoneFmt(customer.phone);
     f.elements.name.value = customer.name;
     f.elements.birthday.value = birthdayInput(customer.birthday);
+    f.elements.card.value = customer.card || '';
+    f.elements.gender.value = customer.gender || '';
     $('#customer-balance').textContent = int(customer.bonus);
     $('#customer-history').innerHTML = '<p class="empty">Загрузка…</p>';
   }
@@ -252,7 +254,7 @@ $('#customer-form').addEventListener('submit', async (e) => {
   const f = e.target;
   const c = loyaltyView.customer;
   try {
-    const body = { phone: f.elements.phone.value, name: f.elements.name.value, birthday: f.elements.birthday.value };
+    const body = { phone: f.elements.phone.value, name: f.elements.name.value, birthday: f.elements.birthday.value, card: f.elements.card.value, gender: f.elements.gender.value };
     await api(c ? `/api/customers/${c.id}` : '/api/customers', { method: c ? 'PUT' : 'POST', body });
     $('#customer-dialog').close();
     toast(c ? 'Покупатель сохранён' : 'Покупатель добавлен');

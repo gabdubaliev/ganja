@@ -1407,3 +1407,10 @@ th.ts-name.ts-editable:hover, th.ts-day.ts-editable:hover { color: var(--series)
   .owner-row { grid-template-columns: 48px minmax(0, 1fr); }
   .owner-actions { grid-column: 1 / -1; justify-content: flex-start; }
 }
+
+/* ---------- Покупатель на кассе ---------- */
+.customer-find { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+.customer-find .grow { flex: 1; min-width: 200px; }
+#customer-results { z-index: 20; }
+#customer-results .suggest { width: 100%; }
+.cu-gender { grid-template-columns: 1fr 1fr; }

@@ -677,7 +677,9 @@ const routes = [
 
   // Кассир ищет покупателя по телефону и заводит нового прямо на кассе.
   ['GET', '/api/customers/by-phone', (p, url) => store.findCustomerByPhone(url.searchParams.get('phone')), ['pos', 'docs.sale', 'refund']],
-  ['POST', '/api/customers', (p, url, body) => store.createCustomer(body), 'pos'],
+  ['GET', '/api/customers/search', (p, url) => store.searchCustomers(url.searchParams.get('q')), ['pos', 'customers.create', 'docs.sale', 'refund', 'customers']],
+  ['GET', '/api/customers/new-card', () => ({ card: store.newCustomerCard() }), ['customers.create', 'loyalty']],
+  ['POST', '/api/customers', (p, url, body) => store.createCustomer(body), ['customers.create', 'loyalty']],
   ['GET', '/api/customers', (p, url) => store.listCustomers({ q: url.searchParams.get('q') || '' }), 'customers'],
   ['GET', '/api/customers/rating', () => store.customerRating(), 'customers'],
   ['GET', '/api/customers/codes', () => shopAuth.pendingCodes(), 'customers.accounts'],

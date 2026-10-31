@@ -1102,8 +1102,10 @@
     <h2 id="customer-dialog-title">Покупатель</h2>
     <div class="form-grid">
       <div class="field"><label for="cf-phone">Телефон</label><input id="cf-phone" name="phone" class="input" inputmode="tel" required autocomplete="off" placeholder="+996 700 123 456"></div>
-      <div class="field"><label for="cf-name">Имя</label><input id="cf-name" name="name" class="input" autocomplete="off" placeholder="Необязательно"></div>
+      <div class="field"><label for="cf-name">ФИО</label><input id="cf-name" name="name" class="input" autocomplete="off" placeholder="Фамилия Имя Отчество" data-capitalize></div>
       <div class="field"><label for="cf-bday">Дата рождения</label><input id="cf-bday" name="birthday" class="input" inputmode="numeric" autocomplete="off" placeholder="ДД.ММ.ГГГГ"></div>
+      <div class="field"><label for="cf-card">Номер карты (8 цифр)</label><input id="cf-card" name="card" class="input num" inputmode="numeric" maxlength="8" autocomplete="off" placeholder="Пусто — выдаст программа"></div>
+      <div class="field"><label for="cf-gender">Пол</label><select id="cf-gender" name="gender" class="input"><option value="">Не указан</option><option value="m">Мужской</option><option value="f">Женский</option></select></div>
     </div>
     <div class="shop-account" id="customer-account" hidden>
       <h3>Аккаунт на витрине</h3>

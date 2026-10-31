@@ -125,6 +125,17 @@ function finesListHtml(items, { showUser = false, empty = 'Штрафов и б�
   </li>`).join('')}</ul>`;
 }
 const fineTipLines = (items = []) => items.map((f) => `${f.kind === 'bonus' ? 'Бонус +' : 'Штраф −'}${money(f.amount)}: ${f.reason}${f.by ? ` (выписал: ${f.by})` : ''}`);
+// ФИО: первая буква каждого слова (и после дефиса) — заглавная. Длина не меняется, поэтому курсор остаётся на месте.
+const capitalizeWords = (v) => String(v).replace(/(^|[\s-])(\p{Ll})/gu, (m, sep, ch) => sep + ch.toUpperCase());
+document.addEventListener('input', (e) => {
+  const el = e.target;
+  if (!el.matches?.('[data-capitalize]')) return;
+  const next = capitalizeWords(el.value);
+  if (next === el.value) return;
+  const { selectionStart: a, selectionEnd: b } = el;
+  el.value = next;
+  el.setSelectionRange(a, b);
+});
 const dateOnly = (t) => new Date(t).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
 // Цена продажи со скидкой из карточки товара (так же считает сервер).
 const salePrice = (p) => (p.discount > 0 ? Math.round(p.price * (1 - p.discount / 100) * 100) / 100 : p.price);
