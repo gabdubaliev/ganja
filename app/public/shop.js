@@ -137,7 +137,7 @@ function cardHtml(p) {
         ${s.showStock && p.stock > 0 ? `<div class="meta">В наличии: ${qtyFmt.format(p.stock)} ${esc(p.unit)}</div>` : `<div class="meta">${esc(p.unit === 'шт' ? '' : 'за ' + p.unit)}</div>`}
       </div>
       <div class="row">
-        <span class="price">${rub(p.price)}</span>
+        <span class="price">${p.oldPrice ? `<s class="old-price">${rub(p.oldPrice)}</s> ` : ''}${rub(p.price)}</span>
         ${p.stock > 0 ? `<button type="button" class="add ${inCart ? 'in' : ''}" data-add="${p.id}">${inCart ? `В корзине: ${qtyFmt.format(inCart)}` : 'В корзину'}</button>` : '<span class="out-tag">Нет в наличии</span>'}
       </div>
     </div>

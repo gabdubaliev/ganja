@@ -180,3 +180,4 @@ dialog.side { margin-right: 0; margin-top: 0; height: 100dvh; max-height: 100dvh
   .hero { padding: 36px 0 28px; }
   .hero.has-image { padding: 64px 0 52px; }
 }
+.old-price { font-size: .8em; font-weight: 500; opacity: .55; margin-right: 2px; }

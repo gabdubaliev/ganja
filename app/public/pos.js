@@ -32,12 +32,12 @@ function renderPick() {
     const left = hidden ? Infinity : catalog.stockOf(p) - inCart;
     // У модификации без своего фото показываем фото товара.
     const photo = photoUrl(p) || (p.parent_id ? photoUrl(catalog.byId(p.parent_id) || {}) : '');
-    const prices = group ? catalog.children(p.id).map((k) => k.price) : [p.price];
+    const prices = group ? catalog.children(p.id).map(salePrice) : [salePrice(p)];
     const lo = Math.min(...prices);
     return `<button type="button" class="pick ${left <= 0 ? 'out' : ''} ${photo ? 'has-photo' : ''}" data-id="${p.id}">
       ${photo ? `<img class="pick-photo" src="${photo}" alt="" loading="lazy">` : ''}
       <span class="pick-name">${esc(p.name)}${group ? `<span class="pick-meta"> · ${catalog.children(p.id).length} вар.</span>` : ''}</span>
-      <span class="pick-price num">${group && Math.max(...prices) !== lo ? 'от ' : ''}${money2(lo)}</span>
+      <span class="pick-price num">${group && Math.max(...prices) !== lo ? 'от ' : ''}${!group && p.discount > 0 ? `<s class="pick-old">${money2(p.price)}</s> ` : ''}${money2(lo)}</span>
       <span class="pick-meta">${esc([p.code, p.category].filter(Boolean).join(' · ') || 'Без категории')}</span>
       ${hidden ? '' : `<span class="pick-stock num ${left <= 0 ? 'neg' : ''}">${left <= 0 ? 'нет на складе' : 'осталось ' + qty(left, p.unit)}</span>`}
     </button>`;
@@ -367,7 +367,7 @@ function addToCart(id, amount = 1) {
   if (!p) return;
   const line = pos.cart.find((l) => l.productId === p.id);
   if (line) line.qty += amount;
-  else pos.cart.push({ productId: p.id, qty: amount, price: p.price });
+  else pos.cart.push({ productId: p.id, qty: amount, price: salePrice(p) });
   renderCart();
   renderPick();
 }
@@ -470,12 +470,12 @@ function renderVariantPicker() {
   const left = k ? leftOf(k) : 0;
   $('#variant-result').innerHTML = k ? `
     <div><b>${esc(optionsText(k))}</b><div class="pick-meta">${esc(k.barcode || k.code || '')}</div></div>
-    <div class="variant-price num">${money2(k.price)}</div>
+    <div class="variant-price num">${money2(salePrice(k))}</div>
     ${left === Infinity ? '' : `<div class="pick-stock num ${left <= 0 ? 'neg' : ''}">${left <= 0 ? 'нет на складе — продажа уйдёт в минус' : 'осталось ' + qty(left, k.unit)}</div>`}`
     : '<p class="pick-meta">Такого сочетания нет — выберите другое</p>';
   $('#variant-qty input').value = qtyFmt.format(picker.qty);
   $('#variant-add').disabled = !k;
-  $('#variant-add').textContent = k ? `Добавить в чек · ${money2(k.price * picker.qty)}` : 'Добавить в чек';
+  $('#variant-add').textContent = k ? `Добавить в чек · ${money2(salePrice(k) * picker.qty)}` : 'Добавить в чек';
 }
 
 $('#variant-options').addEventListener('click', (e) => {

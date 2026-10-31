@@ -164,7 +164,7 @@ function renderDoc() {
     sale: ['Товар', 'Кол-во', 'Цена', 'Сумма'],
     return: ['Товар', 'Кол-во', 'Цена возврата', 'Сумма'],
     purchase: ['Товар', 'Кол-во', 'Закупочная цена', 'Сумма'],
-    receipt: ['Товар', 'Кол-во', 'Себестоимость', 'Сумма'],
+    receipt: ['Товар', 'Кол-во', 'Цена закупки', 'Сумма'],
     writeoff: ['Товар', ...(showStock ? ['Остаток'] : []), 'Кол-во', 'Причина', 'По себестоимости'],
     inventory: ['Товар', ...(showStock ? ['В программе'] : []), 'Факт', ...(showStock ? ['Разница', 'Разница, сом'] : [])],
     transfer: ['Товар', ...(showStock ? ['Остаток'] : []), 'Кол-во', 'На сумму'],
@@ -273,7 +273,7 @@ function addDocProduct(p, { scan = false } = {}) {
   const k = doc.data.kind;
   let l = doc.data.items.find((x) => x.productId === p.id);
   if (!l) {
-    l = { productId: p.id, qty: k === 'inventory' ? 0 : scan ? 0 : 1, price: p.price, cost: p.cost, actual: null, reason: k === 'writeoff' ? WRITEOFF_REASONS[0] : '' };
+    l = { productId: p.id, qty: k === 'inventory' ? 0 : scan ? 0 : 1, price: k === 'sale' ? salePrice(p) : p.price, cost: ['purchase', 'receipt'].includes(k) ? p.purchase ?? p.cost : p.cost, actual: null, reason: k === 'writeoff' ? WRITEOFF_REASONS[0] : '' };
     doc.data.items.unshift(l);
   }
   // Каждый скан — +1: к факту в инвентаризации, к количеству в остальных документах.

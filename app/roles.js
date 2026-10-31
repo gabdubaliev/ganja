@@ -38,6 +38,7 @@ const RIGHTS = [
   { key: 'timesheet', group: 'Персонал', label: 'Табель: кто в какой день работал и сколько заработал' },
   { key: 'tasks', group: 'Персонал', label: 'Задания: давать сотрудникам и проверять выполнение (свои задания видит каждый)' },
   { key: 'salary', group: 'Персонал', label: 'Зарплата: менять ставку, оклад, процент, план и бонус за план; начислять бонусы' },
+  { key: 'expenses', group: 'Управление', label: 'Расходы: аренда, доставка, налоги и другие — для чистой прибыли на главной' },
   { key: 'accounts', group: 'Управление', label: 'Счета: остатки денег, внесение, изъятие, переводы между счетами' },
   { key: 'design', group: 'Управление', label: 'Оформление программы: цвета, шрифт, название' },
   { key: 'settings', group: 'Управление', label: 'Настройки и уведомления в Telegram' },
@@ -55,7 +56,7 @@ const ROLES = {
   manager: {
     name: 'Управляющий',
     about: 'Видит всё и ведёт магазин, выписывает штрафы, правит смены, ведёт табель, даёт и проверяет задания. По умолчанию не меняет сотрудников, бонусы, оформление, настройки и не видит журнал действий.',
-    can: ['dashboard', 'kpi', 'pos', 'sales', 'refund', 'discount', 'products', 'stock.view', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'notify', 'shifts', 'fines', 'timesheet', 'tasks', 'writeoff', 'docs.sale', 'transfer', 'docs.unpost'],
+    can: ['dashboard', 'kpi', 'pos', 'sales', 'refund', 'discount', 'products', 'stock.view', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'notify', 'shifts', 'fines', 'timesheet', 'tasks', 'writeoff', 'docs.sale', 'transfer', 'docs.unpost', 'expenses'],
   },
   cashier: {
     name: 'Кассир',

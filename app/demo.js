@@ -35,7 +35,7 @@ function seedDemo(store, { days = 760, now = Date.now() } = {}) {
   const { db } = store;
 
   store.transaction(() => {
-    const insertProduct = db.prepare('INSERT INTO products (name, category, barcode, unit, price, cost, stock, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?)');
+    const insertProduct = db.prepare('INSERT INTO products (name, category, barcode, code, unit, price, cost, purchase, stock, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)');
     const products = [];
     const weights = [];
     let n = 0;
@@ -44,7 +44,7 @@ function seedDemo(store, { days = 760, now = Date.now() } = {}) {
         n++;
         const cost = Math.round(price * costRatio * 100) / 100;
         const barcode = '460' + String(1000000000 + n * 7919).slice(-10);
-        const { lastInsertRowid } = insertProduct.run(name, category, barcode, /кг$/.test(name) ? 'кг' : 'шт', price, cost, now - days * DAY);
+        const { lastInsertRowid } = insertProduct.run(name, category, barcode, String(n).padStart(5, '0'), /кг$/.test(name) ? 'кг' : 'шт', price, cost, cost, now - days * DAY);
         products.push({ id: Number(lastInsertRowid), name, price, cost });
         // Пара товаров давно не продаётся.
         weights.push(/^(Вареники|Морс)/.test(name) ? 0 : Math.pow(1 / (1 + rnd() * 9), 1.4) * (price < 120 ? 1.6 : 1));
@@ -54,7 +54,7 @@ function seedDemo(store, { days = 760, now = Date.now() } = {}) {
     const pickHour = weighted([0, 0, 0, 0, 0, 0, 0, 0.3, 0.8, 1, 0.9, 0.9, 1.3, 1.4, 1.1, 0.9, 1, 1.3, 1.7, 1.8, 1.4, 0.9, 0.5, 0.2]);
 
     const insertSale = db.prepare('INSERT INTO sales (created_at, payment, total) VALUES (?, ?, ?)');
-    const insertItem = db.prepare('INSERT INTO sale_items (sale_id, product_id, name, qty, price, cost) VALUES (?, ?, ?, ?, ?, ?)');
+    const insertItem = db.prepare('INSERT INTO sale_items (sale_id, product_id, name, qty, price, cost, purchase) VALUES (?, ?, ?, ?, ?, ?, ?)');
     const sold30 = new Map();
     const start = new Date(now);
     start.setHours(0, 0, 0, 0);
@@ -78,7 +78,7 @@ function seedDemo(store, { days = 760, now = Date.now() } = {}) {
         const total = lines.reduce((s, l) => s + l.p.price * l.q, 0);
         const { lastInsertRowid } = insertSale.run(t, rnd() < 0.7 ? 'card' : 'cash', total);
         for (const l of lines) {
-          insertItem.run(lastInsertRowid, l.p.id, l.p.name, l.q, l.p.price, l.p.cost);
+          insertItem.run(lastInsertRowid, l.p.id, l.p.name, l.q, l.p.price, l.p.cost, l.p.cost);
           if (t >= from30) sold30.set(l.p.id, (sold30.get(l.p.id) || 0) + l.q);
         }
       }
@@ -93,14 +93,23 @@ function seedDemo(store, { days = 760, now = Date.now() } = {}) {
       setStock.run(stock, p.id);
     }
 
-    // Несколько последних приходов для истории.
-    const insertArrival = db.prepare('INSERT INTO arrivals (created_at, supplier, total) VALUES (?, ?, ?)');
-    const insertArrivalItem = db.prepare('INSERT INTO arrival_items (arrival_id, product_id, qty, cost) VALUES (?, ?, ?, ?)');
-    for (const [daysAgo, supplier] of [[2, 'ООО «Молочный двор»'], [5, 'ИП Сафаров'], [9, 'ООО «Северная бакалея»']]) {
+    // Несколько последних закупок для истории: проведённые документы с поставщиком.
+    const insertSupplier = db.prepare('INSERT INTO suppliers (name, created_at) VALUES (?, ?)');
+    const insertDoc = db.prepare(`INSERT INTO docs (kind, number, status, doc_date, created_at, posted_at, supplier_id, supplier_name, total, total_cost)
+      VALUES ('purchase', ?, 'posted', ?, ?, ?, ?, ?, ?, ?)`);
+    const insertDocItem = db.prepare('INSERT INTO doc_items (doc_id, product_id, name, unit, qty, price, cost) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const setSupplier = db.prepare('UPDATE products SET supplier_id = COALESCE(supplier_id, ?) WHERE id = ?');
+    let number = 0;
+    for (const [daysAgo, supplier] of [[9, 'ООО «Северная бакалея»'], [5, 'ИП Сафаров'], [2, 'ООО «Молочный двор»']]) {
+      const supplierId = Number(insertSupplier.run(supplier, now).lastInsertRowid);
       const lines = Array.from({ length: 4 }, () => ({ p: products[Math.floor(rnd() * products.length)], q: 10 + Math.floor(rnd() * 30) }));
-      const total = lines.reduce((s, l) => s + l.p.cost * l.q, 0);
-      const { lastInsertRowid } = insertArrival.run(now - daysAgo * DAY + 10 * 36e5, supplier, Math.round(total * 100) / 100);
-      for (const l of lines) insertArrivalItem.run(lastInsertRowid, l.p.id, l.q, l.p.cost);
+      const total = Math.round(lines.reduce((s, l) => s + l.p.cost * l.q, 0) * 100) / 100;
+      const at = now - daysAgo * DAY + 10 * 36e5;
+      const docId = Number(insertDoc.run(++number, at, at, at, supplierId, supplier, total, total).lastInsertRowid);
+      for (const l of lines) {
+        insertDocItem.run(docId, l.p.id, l.p.name, 'шт', l.q, l.p.price, l.p.cost);
+        setSupplier.run(supplierId, l.p.id);
+      }
     }
   });
 }

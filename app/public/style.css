@@ -1143,3 +1143,61 @@ button.inv-option:hover { border-color: var(--series); box-shadow: var(--shadow-
 @media (max-width: 640px) { .branch-switch select { max-width: 130px; } }
 /* Сотрудники: магазины */
 .users-branches { margin-bottom: 12px; }
+
+/* ---------- Карточка товара: разделы ---------- */
+.product-card { width: min(780px, calc(100vw - 24px)); }
+.pc-head-actions { display: flex; gap: 8px; align-items: center; }
+.pc-tabs { margin-bottom: 14px; overflow-x: auto; }
+.pc-tabs button { white-space: nowrap; }
+.pc-pane { min-height: 120px; }
+.pc-cell.pc-wide { grid-column: 1 / -1; }
+.pc-cell.accent { background: color-mix(in srgb, var(--series) 10%, var(--surface-2)); }
+.pc-cell small b { color: var(--series); }
+.pc-text { white-space: pre-wrap; font-size: 14px; color: var(--ink-2); }
+.pc-barcode { justify-items: center; background: #fff; }
+.pc-barcode svg { max-width: 260px; height: auto; }
+.pc-table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 0; }
+.product-card .table-wrap { margin: 0; padding: 0; }
+.pc-table th, .pc-table td, .pc-table th:last-child, .pc-table td:last-child { text-align: left; }
+.pc-table th.num, .pc-table td.num, .pc-table th.num:last-child, .pc-table td.num:last-child { text-align: right; }
+.pc-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--grid); }
+.pc-table td { padding: 9px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+.pc-table tfoot td:nth-child(2) { text-align: right; }
+.pc-table tfoot td { font-weight: 700; border-bottom: 0; }
+.pc-table tr.pc-here td { background: color-mix(in srgb, var(--series) 6%, transparent); }
+.pc-history { max-height: 360px; overflow: auto; }
+.pc-history-sum { margin-bottom: 10px; }
+.pc-stock-actions { justify-content: flex-start; }
+.hist-in { color: var(--good-ink); font-weight: 650; }
+.hist-out { color: var(--critical); font-weight: 650; }
+td.nowrap, .nowrap { white-space: nowrap; }
+.pick-old { font-weight: 500; color: var(--muted); font-size: .85em; }
+.products-table tr.clickable:focus-visible td { background: var(--hover); outline: none; }
+@media (max-width: 640px) {
+  .pc-head { grid-template-columns: auto minmax(0, 1fr); }
+  .pc-head-actions { grid-column: 1 / -1; justify-content: space-between; }
+  .pc-photo { width: 64px; height: 64px; }
+  .pc-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible; }
+  .product-card .pc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pc-cell b { font-size: 15px; }
+  .pc-table { font-size: 13px; }
+  .pc-table td, .pc-table th { padding: 7px 4px; }
+}
+
+/* ---------- Чистая прибыль на главной ---------- */
+.net-profit .np-body { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 24px; }
+.np-lines { display: grid; gap: 2px; }
+.np-line { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding: 8px 10px; border-radius: 10px; }
+.np-line span { display: grid; gap: 1px; }
+.np-line small { font-size: 12px; color: var(--muted); font-weight: 400; }
+.np-line b { white-space: nowrap; }
+.np-line.np-minus b { color: var(--ink-2); font-weight: 600; }
+.np-line.np-sub { background: var(--surface-2); font-weight: 650; }
+.np-line.np-total { background: color-mix(in srgb, var(--series) 10%, var(--surface)); border: 1px solid color-mix(in srgb, var(--series) 30%, var(--border)); font-size: 17px; font-weight: 750; margin-top: 4px; }
+.np-line a { color: inherit; text-decoration: underline dotted; }
+.np-list h3 { font-size: 14px; margin: 4px 0 8px; }
+.np-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 320px; overflow: auto; }
+.np-items li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 7px 8px; border-bottom: 1px solid var(--grid); }
+.np-items li small { display: block; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.np-date { font-size: 12px; color: var(--muted); white-space: nowrap; }
+@media (max-width: 860px) { .net-profit .np-body { grid-template-columns: 1fr; } }

@@ -440,8 +440,54 @@ function open(file) {
   // Колонки таблиц, которые создаются выше в этой же функции: на новой базе их добавляем после создания таблиц.
   addColumns('fines', [['kind', "TEXT NOT NULL DEFAULT 'fine'"]]);
   addColumns('shifts', [['register_id', 'INTEGER']]);
+  // Карточка товара: цена закупки (чистая стоимость товара у поставщика), артикул, поставщик, скидка в %.
+  // Себестоимость (cost) — закупка плюс расходы на единицу: доставка, зарплата, налоги и т.д.
+  addColumns('products', [['purchase', 'REAL'], ['article', "TEXT NOT NULL DEFAULT ''"], ['supplier_id', 'INTEGER'], ['discount', 'REAL NOT NULL DEFAULT 0']]);
+  db.exec('UPDATE products SET purchase = cost WHERE purchase IS NULL');
+  // Цена закупки в строке чека — для прибыли на главной; prev_purchase — чтобы отменить закупку.
+  addColumns('sale_items', [['purchase', 'REAL']]);
+  db.exec('UPDATE sale_items SET purchase = cost WHERE purchase IS NULL');
+  addColumns('doc_items', [['prev_purchase', 'REAL']]);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS doc_items_product ON doc_items(product_id);
+    CREATE INDEX IF NOT EXISTS sale_items_product ON sale_items(product_id);
+    -- Расходы магазина: аренда, доставка, налоги… Из них и зарплаты считается чистая прибыль.
+    -- method_id — счёт, с которого заплатили (необязательно): тогда расход уменьшает остаток счёта.
+    CREATE TABLE IF NOT EXISTS expenses (
+      id INTEGER PRIMARY KEY,
+      at INTEGER NOT NULL,
+      category TEXT NOT NULL,
+      amount REAL NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      method_id INTEGER,
+      user_name TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS expenses_at ON expenses(at);
+  `);
+  // Код товара программа присваивает сама — и товарам, заведённым до этого (или загруженным без кода).
+  fillCodes(db);
   return db;
 }
+
+// Следующий свободный код товара: 00001, 00002… Длинные коды (штрихкоды, вписанные как код) не учитываются.
+function nextCode(db) {
+  const max = db.prepare(`SELECT MAX(CAST(code AS INTEGER)) AS m FROM products
+    WHERE code <> '' AND length(code) <= 8 AND code NOT GLOB '*[^0-9]*'`).get().m || 0;
+  return String(max + 1).padStart(5, '0');
+}
+
+function fillCodes(db) {
+  const empty = db.prepare("SELECT id FROM products WHERE code = '' ORDER BY id").all();
+  if (!empty.length) return;
+  transaction(db, () => {
+    const set = db.prepare('UPDATE products SET code = ? WHERE id = ?');
+    for (const p of empty) set.run(nextCode(db), p.id);
+  });
+}
+
+// Цена продажи со скидкой товара (скидка в % из карточки).
+const salePrice = (p) => (p.discount > 0 ? Math.round(p.price * (1 - p.discount / 100) * 100) / 100 : p.price);
 
 // Вложенная транзакция (например, выдача заказа пробивает чек) становится точкой сохранения.
 const depth = new WeakMap();
@@ -497,6 +543,9 @@ const LINE_FEE = `(CASE WHEN s.total > 0 THEN si.qty * si.price * ${SALE_FEE} / 
 
 // Хеши пароля и PIN-кода в браузер не уходят; вместо PIN — признак hasPin.
 // Виды документов: название и право, нужное, чтобы их создавать и проводить.
+// Статьи расходов, которые предлагаются при вводе (можно вписать и свою).
+const EXPENSE_CATEGORIES = ['Аренда', 'Доставка', 'Налоги', 'Коммунальные услуги', 'Реклама', 'Связь и интернет', 'Хозяйственные расходы', 'Ремонт', 'Прочее'];
+
 const DOC_KINDS = {
   sale: { name: 'Продажа', many: 'Продажи через админ-панель', right: 'docs.sale' },
   purchase: { name: 'Закупка', many: 'Закупки', right: 'arrivals' },
@@ -645,16 +694,29 @@ function createStore(file) {
   // «бакалея» в карточке товара становится уже заведённой «Бакалеей».
   const canonicalCategory = (name) => findCategory(name)?.name ?? name;
 
-  const productFields = (input, current = {}) => ({
-    name: text(input.name ?? current.name, 'Название', { required: true }),
-    category: canonicalCategory(text(input.category ?? current.category, 'Категория')),
-    barcode: text(input.barcode ?? current.barcode, 'Штрихкод', { max: 64 }),
-    code: text(input.code ?? current.code, 'Код товара', { max: 64 }),
-    description: text(input.description ?? current.description, 'Описание', { max: 2000 }),
-    unit: text(input.unit ?? current.unit ?? 'шт', 'Единица', { max: 10 }) || 'шт',
-    price: round2(number(input.price ?? current.price, 'Цена продажи')),
-    cost: round2(number(input.cost ?? current.cost ?? 0, 'Себестоимость')),
-  });
+  // Цена закупки — без неё берётся себестоимость (старые клиенты и импорт знают только её).
+  // Себестоимость — без неё равна цене закупки.
+  const productFields = (input, current = {}) => {
+    const given = (v) => v !== undefined && v !== null && v !== '';
+    const purchase = round2(number(given(input.purchase) ? input.purchase : current.purchase ?? (given(input.cost) ? input.cost : current.cost ?? 0), 'Цена закупки'));
+    let cost = round2(number(given(input.cost) ? input.cost : input.cost === '' ? 0 : current.cost ?? 0, 'Себестоимость'));
+    if (!cost && purchase) cost = purchase;
+    const discount = round2(number(given(input.discount) ? input.discount : input.discount === '' ? 0 : current.discount ?? 0, 'Скидка, %'));
+    if (discount >= 100) throw new UserError('Скидка должна быть меньше 100%');
+    const supplierId = input.supplier_id === undefined ? current.supplier_id ?? null : input.supplier_id ? Number(input.supplier_id) : null;
+    if (supplierId && !db.prepare('SELECT 1 FROM suppliers WHERE id = ?').get(supplierId)) throw new UserError('Поставщик не найден');
+    return {
+      name: text(input.name ?? current.name, 'Название', { required: true }),
+      category: canonicalCategory(text(input.category ?? current.category, 'Категория')),
+      barcode: text(input.barcode ?? current.barcode, 'Штрихкод', { max: 64 }),
+      code: text(input.code ?? current.code, 'Код товара', { max: 64 }),
+      article: text(input.article ?? current.article, 'Артикул', { max: 64 }),
+      description: text(input.description ?? current.description, 'Описание', { max: 2000 }),
+      unit: text(input.unit ?? current.unit ?? 'шт', 'Единица', { max: 10 }) || 'шт',
+      price: round2(number(input.price ?? current.price, 'Цена продажи')),
+      cost, purchase, discount, supplier_id: supplierId,
+    };
+  };
 
   // Оклад в месяц, процент от продаж и план продаж в месяц.
   const payFields = (input, current = {}) => {
@@ -730,16 +792,82 @@ function createStore(file) {
       return db.prepare('SELECT COUNT(*) AS n FROM products').get().n === 0;
     },
 
+    // received_at — дата последнего поступления (закупка, оприходование, перемещение в этот магазин).
     listProducts({ archived = false } = {}) {
-      return db.prepare(`SELECT * FROM products WHERE archived = ? AND deleted = 0 ORDER BY name COLLATE NOCASE`).all(archived ? 1 : 0);
+      return db.prepare(`SELECT p.*, s.name AS supplier_name, (SELECT MAX(d.doc_date) FROM doc_items i JOIN docs d ON d.id = i.doc_id
+          WHERE i.product_id = p.id AND d.status = 'posted' AND (d.kind IN ('purchase', 'receipt') OR (d.kind = 'transfer' AND d.direction = 'in'))) AS received_at
+        FROM products p LEFT JOIN suppliers s ON s.id = p.supplier_id
+        WHERE p.archived = ? AND p.deleted = 0 ORDER BY p.name COLLATE NOCASE`).all(archived ? 1 : 0);
+    },
+
+    // Тот же товар в этой базе (для перемещений и остатков по магазинам): по штрихкоду, по коду вместе
+    // с названием (коды в каждом магазине присваиваются свои), по названию.
+    findSameProduct(p) {
+      return (p.barcode && db.prepare('SELECT * FROM products WHERE barcode = ? AND deleted = 0 ORDER BY parent_id IS NULL, id').get(p.barcode))
+        || (p.code && db.prepare('SELECT * FROM products WHERE code = ? AND name = ? AND deleted = 0').get(p.code, p.name))
+        || db.prepare('SELECT * FROM products WHERE name = ? AND deleted = 0').get(p.name) || null;
+    },
+
+    // Остаток товара в этой базе — для раздела «Склад» карточки. variants — модификации товара
+    // из магазина, где открыта карточка: остаток основного товара — сумма остатков модификаций.
+    stockOfSame(p, variants = []) {
+      const one = (x) => {
+        const found = this.findSameProduct(x);
+        return found && !childrenOf(found.id).length ? found : null;
+      };
+      if (variants.length) {
+        const found = variants.map(one).filter(Boolean);
+        if (!found.length) return null;
+        return { stock: round2(found.reduce((s, f) => s + f.stock, 0)), price: Math.min(...found.map((f) => f.price)), archived: found.every((f) => f.archived), variants: found.length };
+      }
+      const f = one(p);
+      return f ? { stock: f.stock, price: f.price, archived: Boolean(f.archived) } : null;
+    },
+
+    getProductInfo(id) {
+      const p = getProduct(id);
+      const supplier = p.supplier_id ? db.prepare('SELECT name FROM suppliers WHERE id = ?').get(p.supplier_id)?.name ?? '' : '';
+      return { ...p, supplier_name: supplier, children: childrenOf(p.id) };
+    },
+
+    // История движения товара: продажи, возвраты, закупки, оприходования, списания, инвентаризации,
+    // перемещения — с датами. У товара с модификациями — по всем модификациям.
+    productHistory(id) {
+      const p = getProduct(id);
+      const kids = childrenOf(p.id);
+      const ids = [p.id, ...kids.map((k) => k.id)];
+      const marks = ids.map(() => '?').join(', ');
+      const events = [];
+      const label = (row) => (kids.length && row.product_id !== p.id ? row.name : '');
+      for (const r of db.prepare(`SELECT s.id, s.created_at, s.refunded_at, s.user_name, si.product_id, si.name, si.qty, si.price
+          FROM sale_items si JOIN sales s ON s.id = si.sale_id WHERE si.product_id IN (${marks}) ORDER BY s.created_at DESC LIMIT 1000`).all(...ids)) {
+        events.push({ at: r.created_at, kind: 'sale', title: `Продажа, чек №${r.id}`, qty: -r.qty, price: r.price, who: r.user_name, note: '', variant: label(r) });
+        if (r.refunded_at) events.push({ at: r.refunded_at, kind: 'refund', title: `Возврат по чеку №${r.id}`, qty: r.qty, price: r.price, who: '', note: '', variant: label(r) });
+      }
+      for (const r of db.prepare(`SELECT d.id AS doc_id, d.kind, d.number, d.doc_date, d.direction, d.branch_to, d.note, d.posted_by, d.created_by,
+            COALESCE(su.name, d.supplier_name) AS supplier, i.product_id, i.name, i.qty, i.price, i.cost, i.expected, i.actual, i.reason
+          FROM doc_items i JOIN docs d ON d.id = i.doc_id LEFT JOIN suppliers su ON su.id = d.supplier_id
+          WHERE i.product_id IN (${marks}) AND d.status = 'posted' AND d.kind <> 'sale' ORDER BY d.doc_date DESC LIMIT 1000`).all(...ids)) {
+        const sign = { purchase: 1, receipt: 1, return: 1, writeoff: -1, inventory: 1, transfer: r.direction === 'in' ? 1 : -1 }[r.kind] ?? 0;
+        const name = DOC_KINDS[r.kind]?.name || r.kind;
+        const note = r.kind === 'purchase' ? (r.supplier ? `Поставщик: ${r.supplier}` : '')
+          : r.kind === 'writeoff' ? r.reason
+          : r.kind === 'inventory' ? `было ${round2(r.expected ?? 0)}, по факту ${round2(r.actual ?? 0)}`
+          : r.note;
+        events.push({ at: r.doc_date, kind: r.kind, title: `${name}${r.kind === 'transfer' ? (r.direction === 'in' ? ' (приход)' : ' (отправка)') : ''} №${r.number}`,
+          qty: round2(sign * r.qty), price: ['return', 'transfer'].includes(r.kind) ? r.price : r.cost, who: r.posted_by || r.created_by, note: note || '', variant: label(r), docId: r.doc_id });
+      }
+      events.push({ at: p.created_at, kind: 'created', title: 'Товар заведён в программе', qty: null, price: null, who: '', note: '', variant: '' });
+      return events.sort((a, b) => b.at - a.at).slice(0, 1000);
     },
 
     createProduct(input) {
       const f = productFields(input);
       const stock = number(input.stock ?? 0, 'Остаток');
       const { lastInsertRowid } = db.prepare(`
-        INSERT INTO products (name, category, barcode, code, unit, price, cost, stock, description, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(f.name, f.category, f.barcode, f.code, f.unit, f.price, f.cost, stock, f.description, Date.now());
+        INSERT INTO products (name, category, barcode, code, unit, price, cost, stock, description, created_at, purchase, article, supplier_id, discount)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(f.name, f.category, f.barcode, f.code || nextCode(db), f.unit, f.price, f.cost, stock, f.description, Date.now(),
+        f.purchase, f.article, f.supplier_id, f.discount);
       return getProduct(lastInsertRowid);
     },
 
@@ -948,6 +1076,7 @@ function createStore(file) {
             break;
           }
           case 'price':
+          case 'purchase':
           case 'cost': {
             // mode: set — новая цена, percent — изменить на ±%, add — прибавить ±сомы,
             // markup — цена = себестоимость + наценка в % (только для цены).
@@ -958,9 +1087,9 @@ function createStore(file) {
               add: (old) => old + n,
               markup: (old, p) => p.cost * (1 + n / 100),
             }[mode];
-            if (!calc || (mode === 'markup' && action === 'cost')) throw new UserError('Неизвестный способ изменения цены');
+            if (!calc || (mode === 'markup' && action !== 'price')) throw new UserError('Неизвестный способ изменения цены');
             set(`UPDATE products SET ${action} = ? WHERE id = ?`, (p) => {
-              const next = round2(calc(p[action], p));
+              const next = round2(calc(p[action] ?? 0, p));
               if (next < 0) throw new UserError(`У товара «${p.name}» цена получится меньше нуля`);
               return [next];
             });
@@ -977,8 +1106,10 @@ function createStore(file) {
       if (current.parent_id) return this.updateVariant(current, input);
       const f = productFields(input, current);
       const archived = input.archived === undefined ? current.archived : input.archived ? 1 : 0;
-      db.prepare(`UPDATE products SET name = ?, category = ?, barcode = ?, code = ?, unit = ?, price = ?, cost = ?, description = ?, archived = ? WHERE id = ?`)
-        .run(f.name, f.category, f.barcode, f.code, f.unit, f.price, f.cost, f.description, archived, current.id);
+      db.prepare(`UPDATE products SET name = ?, category = ?, barcode = ?, code = ?, unit = ?, price = ?, cost = ?, description = ?, archived = ?,
+        purchase = ?, article = ?, supplier_id = ?, discount = ? WHERE id = ?`)
+        .run(f.name, f.category, f.barcode, f.code || current.code || nextCode(db), f.unit, f.price, f.cost, f.description, archived,
+          f.purchase, f.article, f.supplier_id, f.discount, current.id);
       // Модификации живут вместе с основным товаром: имя, категория, единица, описание и «в продаже».
       const kids = childrenOf(current.id);
       if (kids.length) {
@@ -997,8 +1128,8 @@ function createStore(file) {
       if (clash) throw new UserError(`Такая модификация уже есть: ${clash.name}`);
       const f = productFields({ ...input, name: variantName(base, opts), category: base.category, unit: base.unit, description: base.description }, current);
       const archived = input.archived === undefined ? current.archived : input.archived ? 1 : 0;
-      db.prepare('UPDATE products SET name = ?, barcode = ?, code = ?, price = ?, cost = ?, options = ?, archived = ? WHERE id = ?')
-        .run(f.name, f.barcode, f.code, f.price, f.cost, JSON.stringify(opts), archived, current.id);
+      db.prepare('UPDATE products SET name = ?, barcode = ?, code = ?, price = ?, cost = ?, options = ?, archived = ?, purchase = ?, article = ?, supplier_id = ?, discount = ? WHERE id = ?')
+        .run(f.name, f.barcode, f.code || current.code || nextCode(db), f.price, f.cost, JSON.stringify(opts), archived, f.purchase, f.article, f.supplier_id, f.discount, current.id);
       return getProduct(current.id);
     },
 
@@ -1015,8 +1146,8 @@ function createStore(file) {
         // Основной товар больше не продаётся: его остаток и штрихкод переходят к модификациям.
         if (!seen.size) db.prepare("UPDATE products SET stock = 0, barcode = '' WHERE id = ?").run(base.id);
         const insert = db.prepare(`
-          INSERT INTO products (name, category, barcode, code, unit, price, cost, stock, description, parent_id, options, archived, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+          INSERT INTO products (name, category, barcode, code, unit, price, cost, stock, description, parent_id, options, archived, created_at, purchase, supplier_id, discount)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
         const created = [];
         for (const v of variants) {
           const opts = optionsOf(v.options);
@@ -1025,9 +1156,10 @@ function createStore(file) {
           seen.add(key);
           const price = round2(number(v.price ?? base.price, 'Цена продажи'));
           const cost = round2(number(v.cost ?? base.cost, 'Себестоимость'));
+          const purchase = round2(number(v.purchase ?? base.purchase ?? cost, 'Цена закупки'));
           const barcode = text(v.barcode, 'Штрихкод', { max: 64 }) || (barcodes ? newBarcode() : '');
-          const { lastInsertRowid } = insert.run(variantName(base, opts), base.category, barcode, text(v.code, 'Код товара', { max: 64 }), base.unit,
-            price, cost, number(v.stock ?? 0, 'Остаток'), base.description, base.id, JSON.stringify(opts), base.archived, Date.now());
+          const { lastInsertRowid } = insert.run(variantName(base, opts), base.category, barcode, text(v.code, 'Код товара', { max: 64 }) || nextCode(db), base.unit,
+            price, cost, number(v.stock ?? 0, 'Остаток'), base.description, base.id, JSON.stringify(opts), base.archived, Date.now(), purchase, base.supplier_id, base.discount || 0);
           created.push(getProduct(lastInsertRowid));
         }
         return created;
@@ -1061,9 +1193,9 @@ function createStore(file) {
         };
         db.prepare('SELECT * FROM products WHERE archived = 0').all().forEach(remember);
         const insert = db.prepare(`
-          INSERT INTO products (name, category, barcode, code, unit, price, cost, stock, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-        const change = db.prepare('UPDATE products SET name = ?, category = ?, barcode = ?, unit = ?, price = ?, cost = ?, stock = ? WHERE id = ?');
+          INSERT INTO products (name, category, barcode, code, unit, price, cost, stock, created_at, purchase)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+        const change = db.prepare('UPDATE products SET name = ?, category = ?, barcode = ?, unit = ?, price = ?, cost = ?, stock = ?, purchase = ? WHERE id = ?');
 
         rows.forEach((row, i) => {
           const line = row.line || i + 1;
@@ -1081,14 +1213,16 @@ function createStore(file) {
                 unit: row.unit ? f.unit : existing.unit,
                 price: f.price,
                 cost: row.cost === '' || row.cost == null ? existing.cost : f.cost,
+                purchase: row.purchase === '' || row.purchase == null ? existing.purchase ?? existing.cost : f.purchase,
                 stock: stock ?? existing.stock,
               };
-              change.run(next.name, next.category, next.barcode, next.unit, next.price, next.cost, next.stock, existing.id);
+              change.run(next.name, next.category, next.barcode, next.unit, next.price, next.cost, next.stock, next.purchase, existing.id);
               remember(next);
               result.updated++;
             } else {
-              const { lastInsertRowid } = insert.run(f.name, f.category, f.barcode, f.code, f.unit, f.price, f.cost, stock ?? 0, Date.now());
-              remember({ ...f, id: Number(lastInsertRowid), stock: stock ?? 0 });
+              const code = f.code || nextCode(db);
+              const { lastInsertRowid } = insert.run(f.name, f.category, f.barcode, code, f.unit, f.price, f.cost, stock ?? 0, Date.now(), f.purchase);
+              remember({ ...f, code, id: Number(lastInsertRowid), stock: stock ?? 0 });
               result.created++;
             }
           } catch (err) {
@@ -1126,6 +1260,14 @@ function createStore(file) {
         const customer = customerId ? this.findCustomer(customerId) : null;
         if (customerId && !customer) throw new UserError('Покупатель не найден');
         const reasons = [];
+        // Скидка из карточки товара — в цене справочника; в заказе и документе цена уже со скидкой.
+        if (!trustPrices) {
+          for (const l of lines) {
+            if (!(l.p.discount > 0)) continue;
+            l.price = salePrice(l.p);
+            reasons.push(`${l.p.name}: скидка на товар ${l.p.discount}%`);
+          }
+        }
         // Скидка именинника уменьшает цену каждой строки: так выручка и прибыль в отчётах сходятся с чеком.
         if (useBirthday && customer?.birthdayDiscount) {
           for (const l of lines) l.price = r4(l.price * (1 - customer.birthdayDiscount / 100));
@@ -1212,10 +1354,10 @@ function createStore(file) {
             customer?.id ?? null, spent, earned, discount, reasons.join('; '), user ? this.currentShift(user.id)?.id ?? null : null, main.method.id, names);
         const addPart = db.prepare('INSERT INTO sale_payments (sale_id, method_id, method_name, kind, amount, commission) VALUES (?, ?, ?, ?, ?, ?)');
         for (const x of parts) addPart.run(saleId, x.method.id, x.method.name, x.method.kind, x.amount, x.commission);
-        const addItem = db.prepare('INSERT INTO sale_items (sale_id, product_id, name, qty, price, cost) VALUES (?, ?, ?, ?, ?, ?)');
+        const addItem = db.prepare('INSERT INTO sale_items (sale_id, product_id, name, qty, price, cost, purchase) VALUES (?, ?, ?, ?, ?, ?, ?)');
         const takeStock = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?');
         for (const l of lines) {
-          addItem.run(saleId, l.p.id, l.p.name, l.qty, l.price, l.p.cost);
+          addItem.run(saleId, l.p.id, l.p.name, l.qty, l.price, l.p.cost, l.p.purchase ?? l.p.cost);
           takeStock.run(l.qty, l.p.id);
         }
         const who = user ? user.name || user.email : '';
@@ -1324,7 +1466,7 @@ function createStore(file) {
           COUNT(CASE WHEN s.refunded_at IS NULL AND s.customer_id IS NOT NULL THEN 1 END) AS loyalty_receipts
         FROM sales s WHERE s.created_at >= ? AND s.created_at < ? GROUP BY s.user_id`).all(from, to);
       const profit = new Map(db.prepare(`
-        SELECT s.user_id AS id, SUM(si.qty * (si.price - si.cost) - ${LINE_FEE}) AS profit, SUM(si.qty) AS items
+        SELECT s.user_id AS id, SUM(si.qty * (si.price - COALESCE(si.purchase, si.cost)) - ${LINE_FEE}) AS profit, SUM(si.qty) AS items
         FROM sales s JOIN sale_items si ON si.sale_id = s.id
         WHERE s.refunded_at IS NULL AND s.created_at >= ? AND s.created_at < ? GROUP BY s.user_id`).all(from, to).map((r) => [r.id, r]));
       const byDay = db.prepare(`
@@ -1404,7 +1546,7 @@ function createStore(file) {
     reportProducts({ from, to }) {
       return db.prepare(`
         SELECT si.product_id AS id, MAX(si.name) AS name, p.category, p.unit, p.parent_id,
-          SUM(si.qty) AS qty, SUM(si.qty * si.price - ${LINE_FEE}) AS revenue, SUM(si.qty * (si.price - si.cost) - ${LINE_FEE}) AS profit, COUNT(DISTINCT s.id) AS receipts
+          SUM(si.qty) AS qty, SUM(si.qty * si.price - ${LINE_FEE}) AS revenue, SUM(si.qty * (si.price - COALESCE(si.purchase, si.cost)) - ${LINE_FEE}) AS profit, COUNT(DISTINCT s.id) AS receipts
         FROM sales s JOIN sale_items si ON si.sale_id = s.id LEFT JOIN products p ON p.id = si.product_id
         WHERE s.refunded_at IS NULL AND s.created_at >= ? AND s.created_at < ?
         GROUP BY si.product_id ORDER BY revenue DESC`).all(from, to)
@@ -1832,7 +1974,7 @@ function createStore(file) {
       const lines = (Array.isArray(input.items) ? input.items : []).map((item) => {
         const p = getProduct(item.productId);
         if (childrenOf(p.id).length) throw new UserError(`У «${p.name}» есть модификации — выберите нужную`);
-        const line = { p, qty: 0, price: p.price, cost: p.cost, actual: null, reason: '' };
+        const line = { p, qty: 0, price: kind === 'sale' ? salePrice(p) : p.price, cost: ['purchase', 'receipt'].includes(kind) ? p.purchase ?? p.cost : p.cost, actual: null, reason: '' };
         if (kind === 'inventory') {
           line.actual = item.actual === null || item.actual === undefined || item.actual === '' ? null : number(item.actual, `Факт «${p.name}»`, { min: 0 });
         } else {
@@ -1889,12 +2031,16 @@ function createStore(file) {
             user, { trustPrices: true });
           extra.sale_id = sale.id;
         } else if (d.kind === 'purchase') {
+          // Цена закупки — средневзвешенная по остатку и новой партии. Себестоимость сдвигается вместе с ней:
+          // расходы на единицу сверх закупки (доставка, налоги…) сохраняются.
           for (const i of items) {
             const p = getProduct(i.product_id);
             const old = Math.max(0, p.stock);
-            const cost = old > 0 ? round2((old * p.cost + i.qty * i.cost) / (old + i.qty)) : i.cost;
-            db.prepare('UPDATE doc_items SET prev_cost = ? WHERE id = ?').run(p.cost, i.id);
-            db.prepare('UPDATE products SET stock = stock + ?, cost = ? WHERE id = ?').run(i.qty, cost, p.id);
+            const oldPurchase = p.purchase ?? p.cost;
+            const purchase = old > 0 ? round2((old * oldPurchase + i.qty * i.cost) / (old + i.qty)) : i.cost;
+            const cost = round2(purchase + Math.max(0, p.cost - oldPurchase));
+            db.prepare('UPDATE doc_items SET prev_cost = ?, prev_purchase = ? WHERE id = ?').run(p.cost, oldPurchase, i.id);
+            db.prepare('UPDATE products SET stock = stock + ?, cost = ?, purchase = ?, supplier_id = COALESCE(supplier_id, ?) WHERE id = ?').run(i.qty, cost, purchase, d.supplier_id, p.id);
           }
         } else if (['receipt', 'return'].includes(d.kind)) {
           for (const i of items) db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?').run(i.qty, exists(i.product_id));
@@ -1904,7 +2050,7 @@ function createStore(file) {
             if (!branchLink) throw new UserError('Перемещение возможно, когда есть второй магазин');
             extra.link_doc_id = branchLink.send(d.branch_to, { fromDoc: d.id, number: d.number, note: d.note, items: items.map((i) => {
               const p = getProduct(i.product_id);
-              return { qty: i.qty, product: { name: p.name, barcode: p.barcode, code: p.code, unit: p.unit, price: p.price, cost: p.cost, category: p.category } };
+              return { qty: i.qty, product: { name: p.name, barcode: p.barcode, code: p.code, unit: p.unit, price: p.price, cost: p.cost, purchase: p.purchase, article: p.article, category: p.category } };
             }) }, user);
           }
         } else if (d.kind === 'inventory') {
@@ -1940,7 +2086,7 @@ function createStore(file) {
             add.run(-i.qty, i.product_id);
             // Себестоимость возвращается, только если после этой закупки товар больше не закупали.
             const later = db.prepare(`SELECT 1 FROM docs dd JOIN doc_items ii ON ii.doc_id = dd.id WHERE dd.kind = 'purchase' AND dd.status = 'posted' AND dd.posted_at > ? AND ii.product_id = ?`).get(d.posted_at || 0, i.product_id);
-            if (!later && i.prev_cost !== null) db.prepare('UPDATE products SET cost = ? WHERE id = ?').run(i.prev_cost, i.product_id);
+            if (!later && i.prev_cost !== null) db.prepare('UPDATE products SET cost = ?, purchase = COALESCE(?, purchase) WHERE id = ?').run(i.prev_cost, i.prev_purchase, i.product_id);
           }
         } else if (['receipt', 'return'].includes(d.kind)) {
           for (const i of d.items) if (exists(i.product_id) && i.qty > 0) add.run(-i.qty, i.product_id);
@@ -1966,13 +2112,11 @@ function createStore(file) {
     // Перемещение из другого магазина: товар находится по штрихкоду, коду или названию, а если его нет — заводится.
     receiveTransfer({ fromBranch, fromName, fromDoc, number: num, note, items }, user = null) {
       return transaction(db, () => {
-        const find = (p) => (p.barcode && db.prepare('SELECT * FROM products WHERE barcode = ? AND deleted = 0').get(p.barcode))
-          || (p.code && db.prepare('SELECT * FROM products WHERE code = ? AND deleted = 0').get(p.code))
-          || db.prepare('SELECT * FROM products WHERE name = ? AND deleted = 0').get(p.name);
         const lines = items.map((i) => {
-          let p = find(i.product);
+          let p = this.findSameProduct(i.product);
           if (!p) {
-            const made = this.createProduct({ name: i.product.name, price: i.product.price, cost: i.product.cost, unit: i.product.unit, barcode: i.product.barcode, code: i.product.code, category: i.product.category, stock: 0 });
+            const made = this.createProduct({ name: i.product.name, price: i.product.price, cost: i.product.cost, purchase: i.product.purchase, article: i.product.article,
+              unit: i.product.unit, barcode: i.product.barcode, code: i.product.code, category: i.product.category, stock: 0 });
             p = getProduct(made.id);
           }
           return { p, qty: i.qty };
@@ -2057,10 +2201,11 @@ function createStore(file) {
           returns: sumIn(`SELECT SUM(total) AS v FROM docs WHERE kind = 'return' AND status = 'posted' AND method_id = ? AND doc_date >= ? AND doc_date < ?`, m.id, a, b),
           purchases: sumIn(`SELECT SUM(total) AS v FROM docs WHERE kind = 'purchase' AND status = 'posted' AND method_id = ? AND doc_date >= ? AND doc_date < ?`, m.id, a, b),
           ops: sumIn('SELECT SUM(amount) AS v FROM account_ops WHERE method_id = ? AND at >= ? AND at < ?', m.id, a, b),
+          expenses: sumIn('SELECT SUM(amount) AS v FROM expenses WHERE method_id = ? AND at >= ? AND at < ?', m.id, a, b),
         });
         const all = flows(0, 8.64e15);
         const period = flows(from, to);
-        const net = (f) => round2(f.sales - f.commission - f.returns - f.purchases + f.ops);
+        const net = (f) => round2(f.sales - f.commission - f.returns - f.purchases - f.expenses + f.ops);
         return { id: m.id, name: m.name, kind: m.kind, active: m.active, commission: m.commission, opening: m.opening_balance,
           balance: round2(m.opening_balance + net(all)), period: { ...Object.fromEntries(Object.entries(period).map(([k, v]) => [k, round2(v)])), net: net(period) } };
       });
@@ -2110,6 +2255,48 @@ function createStore(file) {
       return { name: m.name, opening: round2(number(amount, 'Начальный остаток')) };
     },
 
+    /* ---------- Расходы ---------- */
+    expenseCategories: EXPENSE_CATEGORIES,
+
+    listExpenses({ from, to }) {
+      return db.prepare(`SELECT e.*, m.name AS account FROM expenses e LEFT JOIN payment_methods m ON m.id = e.method_id
+        WHERE e.at >= ? AND e.at < ? ORDER BY e.at DESC, e.id DESC LIMIT 500`).all(from, to);
+    },
+
+    addExpense(input, user = null) {
+      const category = text(input.category, 'Статья расхода', { required: true, max: 60 });
+      const amount = round2(number(input.amount, 'Сумма', { positive: true }));
+      const at = input.at ? number(input.at, 'Дата', { positive: true }) : Date.now();
+      const methodId = input.method_id ? Number(input.method_id) : null;
+      if (methodId && !db.prepare('SELECT 1 FROM payment_methods WHERE id = ?').get(methodId)) throw new UserError('Счёт не найден');
+      const { lastInsertRowid } = db.prepare('INSERT INTO expenses (at, category, amount, note, method_id, user_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(at, category, amount, text(input.note, 'Комментарий', { max: 300 }), methodId, user ? user.name || user.email : '', Date.now());
+      return db.prepare('SELECT * FROM expenses WHERE id = ?').get(lastInsertRowid);
+    },
+
+    deleteExpense(id) {
+      const e = db.prepare('SELECT * FROM expenses WHERE id = ?').get(Number(id));
+      if (!e) throw new UserError('Расход не найден');
+      db.prepare('DELETE FROM expenses WHERE id = ?').run(e.id);
+      return e;
+    },
+
+    // Расходы для чистой прибыли за период: зарплата (по расчёту ведомости), внесённые расходы
+    // по статьям и потери от списаний. Выручку и закупку главная считает сама по строкам продаж.
+    finance({ from, to }) {
+      const payroll = this.kpi({ from, to }).staff.filter((r) => r.user);
+      const expenses = db.prepare('SELECT category, SUM(amount) AS amount, COUNT(*) AS n FROM expenses WHERE at >= ? AND at < ? GROUP BY category ORDER BY amount DESC')
+        .all(from, to).map((r) => ({ ...r, amount: round2(r.amount) }));
+      const writeoffs = round2(this.writeoffSummary({ from, to }).reduce((sum, r) => sum + r.cost, 0));
+      return {
+        salary: round2(payroll.reduce((sum, r) => sum + r.pay, 0)),
+        staff: payroll.filter((r) => r.pay).length,
+        expenses,
+        writeoffs,
+        total: round2(payroll.reduce((sum, r) => sum + r.pay, 0) + expenses.reduce((sum, r) => sum + r.amount, 0) + writeoffs),
+      };
+    },
+
     /* ---------- Поставщики ---------- */
     listSuppliers() {
       return db.prepare(`SELECT s.*, COUNT(d.id) AS docs, COALESCE(SUM(d.total), 0) AS total, MAX(d.doc_date) AS last_at FROM suppliers s
@@ -2142,12 +2329,12 @@ function createStore(file) {
 
     // Данные для дашборда: товары и строки продаж (без возвратов) за период.
     analytics({ from, to }) {
-      const products = db.prepare(`SELECT id, name, category, code, unit, stock, price, cost FROM products p WHERE archived = 0
+      const products = db.prepare(`SELECT id, name, category, code, unit, stock, price, cost, COALESCE(purchase, cost) AS purchase FROM products p WHERE archived = 0
         AND NOT EXISTS (SELECT 1 FROM products c WHERE c.parent_id = p.id AND c.deleted = 0)`).all()
         .map((p) => ({ ...p, id: String(p.id) }));
       const sales = db.prepare(`
         SELECT s.created_at AS t, s.id AS r, s.user_id AS u, si.product_id AS p, si.name AS n, si.qty AS q,
-          si.qty * si.price - ${LINE_FEE} AS s, si.qty * si.cost AS c, ${LINE_FEE} AS f
+          si.qty * si.price - ${LINE_FEE} AS s, si.qty * COALESCE(si.purchase, si.cost) AS c, ${LINE_FEE} AS f
         FROM sales s JOIN sale_items si ON si.sale_id = s.id
         WHERE s.refunded_at IS NULL AND s.created_at >= ? AND s.created_at < ?
         ORDER BY s.created_at`).all(from, to)
@@ -2443,7 +2630,7 @@ function createStore(file) {
       const s = this.shop();
       const cats = new Set(s.categories);
       // Порядок категорий на витрине — как в справочнике.
-      const all = db.prepare(`SELECT p.id, p.name, p.category, p.unit, p.price, p.stock, p.description, p.photo_at, p.parent_id, p.options
+      const all = db.prepare(`SELECT p.id, p.name, p.category, p.unit, p.price, p.discount, p.stock, p.description, p.photo_at, p.parent_id, p.options
         FROM products p LEFT JOIN categories c ON c.name = p.category
         WHERE p.archived = 0 AND p.deleted = 0 ORDER BY p.category = '', COALESCE(c.sort, 1e9), p.category, p.name COLLATE NOCASE`).all();
       const kids = new Map();
@@ -2457,8 +2644,9 @@ function createStore(file) {
         if (kids.has(p.id) ? !variants.length : !shown(p)) continue;
         out.push(p, ...variants);
       }
-      return out.map((p) => ({
-        ...p, options: p.options ? JSON.parse(p.options) : null, hasVariants: kids.has(p.id),
+      return out.map(({ discount, ...p }) => ({
+        ...p, price: salePrice({ price: p.price, discount }), oldPrice: discount > 0 ? p.price : null,
+        options: p.options ? JSON.parse(p.options) : null, hasVariants: kids.has(p.id),
         stock: s.showStock ? Math.max(0, p.stock) : p.stock > 0 ? 1 : 0, photo: Boolean(p.photo_at),
       }));
     },

@@ -119,12 +119,17 @@ function deltaHtml(cur, prev, label, points, inverse = false) {
 function renderKpis(v) {
   const p = PERIODS[state.period];
   const c = v.cur, pr = v.prev;
+  const f = state.finance;
+  const net = (x, fin) => x.revenue - x.cost - (fin?.total || 0);
   const tiles = [
     // Выручка уже за вычетом комиссии банков (М-Банк и т.п.) — так же и прибыль.
     [c.fee >= 0.5 ? `Выручка <small class="kpi-note">без комиссии банков −${money(c.fee)}</small>` : 'Выручка', money(c.revenue), c.revenue, pr.revenue],
-    ['Себестоимость', money(c.cost), c.cost, pr.cost, false, true],
-    ['Прибыль', money(c.revenue - c.cost), c.revenue - c.cost, pr.revenue - pr.cost],
-    ['Маржа', c.revenue ? pct((c.revenue - c.cost) / c.revenue) : '—', c.revenue ? (c.revenue - c.cost) / c.revenue : 0, pr.revenue ? (pr.revenue - pr.cost) / pr.revenue : 0, true],
+    // Себестоимость проданного на главной — чистая цена закупки: расходы вычитаются ниже, в чистой прибыли.
+    ['Закупка <small class="kpi-note">цена закупки проданного</small>', money(c.cost), c.cost, pr.cost, false, true],
+    [`Валовая прибыль <small class="kpi-note">выручка − закупка${c.revenue ? ` · маржа ${pct((c.revenue - c.cost) / c.revenue)}` : ''}</small>`, money(c.revenue - c.cost), c.revenue - c.cost, pr.revenue - pr.cost],
+    ...(f ? [[`Чистая прибыль <small class="kpi-note">за вычетом ЗП и расходов −${money(f.cur.total)}</small>`, `<span class="${net(c, f.cur) < 0 ? 'neg' : ''}">${money(net(c, f.cur))}</span>`, net(c, f.cur), net(pr, f.prev)]] : []),
+    // Без данных о расходах — маржа отдельной плиткой, как раньше.
+    ...(f ? [] : [['Маржа', c.revenue ? pct((c.revenue - c.cost) / c.revenue) : '—', c.revenue ? (c.revenue - c.cost) / c.revenue : 0, pr.revenue ? (pr.revenue - pr.cost) / pr.revenue : 0, true]]),
     ['Чеков', int(c.receipts.size), c.receipts.size, pr.receipts.size],
     ['Средний чек', c.receipts.size ? money(c.revenue / c.receipts.size) : '—', c.receipts.size ? c.revenue / c.receipts.size : 0, pr.receipts.size ? pr.revenue / pr.receipts.size : 0],
   ];
@@ -207,7 +212,7 @@ function showTip(i, evt) {
     <div class="tt">${esc(b.title)}</div>
     <div class="tr"><span>Выручка</span><b>${money(b.revenue)}</b></div>
     <div class="tr"><span><i style="background: var(--series)"></i>Прибыль</span><b>${money(profit)}</b></div>
-    <div class="tr"><span><i style="background: var(--rest)"></i>Себестоимость</span><b>${money(b.cost)}</b></div>
+    <div class="tr"><span><i style="background: var(--rest)"></i>Закупка</span><b>${money(b.cost)}</b></div>
     <div class="tr"><span>Чеков</span><b>${int(b.receipts.size)}</b></div>`;
   tip.hidden = false;
   const r = tip.getBoundingClientRect();
@@ -245,7 +250,7 @@ function renderTop(el, products, key, prevKey, fmt, unit, meta = () => '') {
 const TOP_PRODUCTS = {
   revenue: ['По выручке', 'prevRevenue', money, '', 'Больше всего выручки за период'],
   qty: ['По количеству', 'prevQty', int, ' шт', 'Больше всего продано, шт.'],
-  profit: ['По прибыли', 'prevProfit', money, '', 'Выручка минус себестоимость'],
+  profit: ['По прибыли', 'prevProfit', money, '', 'Выручка минус цена закупки'],
 };
 const TOP_STAFF = {
   revenue: ['Выручка', 'prevRevenue', money, '', 'Кто больше всех продал за период'],
@@ -290,7 +295,7 @@ const COLUMNS = [
   { key: 'name', label: 'Товар', dir: 1 },
   { key: 'qty', label: 'Продано, шт' },
   { key: 'revenue', label: 'Выручка' },
-  { key: 'cost', label: 'Себестоимость' },
+  { key: 'cost', label: 'Закупка' },
   { key: 'profit', label: 'Прибыль' },
   { key: 'margin', label: 'Маржа' },
   { key: 'stock', label: 'Остаток, шт' },
@@ -376,6 +381,7 @@ function renderAll() {
   state.view = compute(state.data, state.period, Date.now());
   renderPeriods();
   renderKpis(state.view);
+  renderNetProfit(state.view);
   renderChart(state.view);
   renderTops();
   renderTable(state.view);
@@ -388,8 +394,14 @@ async function load() {
   const r = periodRange(state.period, now);
   const from = Math.min(r.prevStart, addDays(dayStart(now), -(STOCK_WINDOW_DAYS - 1)));
   try {
-    const data = await fetchData(from, now);
+    // Зарплата и расходы — за текущий и прошлый такой же период (для сравнения чистой прибыли).
+    const fin = (a, b) => api(`/api/finance?from=${Math.floor(a)}&to=${Math.ceil(b)}`);
+    const [data, cur, prev, expenses] = await Promise.all([fetchData(from, now),
+      fin(r.start, now).catch(() => null), fin(r.prevStart, r.prevEnd).catch(() => null),
+      api(`/api/expenses?from=${Math.floor(r.start)}&to=${Math.ceil(now)}`).catch(() => null)]);
     if (ticket !== loading) return;
+    state.finance = cur && prev ? { cur, prev } : null;
+    state.expenses = expenses;
     state.data = data;
     renderAll();
     renderSource(null);
@@ -449,6 +461,78 @@ $('#notice').addEventListener('click', async (e) => {
   } catch (err) {
     toast(err.message, 'error');
     e.target.disabled = false;
+  }
+});
+
+/* ---------- Чистая прибыль: выручка − закупка − зарплата − расходы ---------- */
+function renderNetProfit(v) {
+  const f = state.finance?.cur;
+  $('#net-profit').hidden = !f;
+  if (!f) return;
+  const c = v.cur;
+  const gross = c.revenue - c.cost;
+  const net = gross - f.total;
+  const line = (label, value, cls = '', note = '') => `<div class="np-line ${cls}"><span>${label}${note ? `<small>${note}</small>` : ''}</span><b class="num">${value}</b></div>`;
+  const minus = (n) => (n ? `−${money(n)}` : money(0));
+  $('#np-sub').textContent = `${PERIODS[state.period].label}: выручка минус закупка товара, зарплата и расходы`;
+  $('#np-lines').innerHTML = [
+    line('Выручка', money(c.revenue), '', c.fee >= 0.5 ? `уже без комиссии банков ${money(c.fee)}` : ''),
+    line('Закупка товара', minus(c.cost), 'np-minus', 'цена закупки проданного'),
+    line('Валовая прибыль', money(gross), 'np-sub'),
+    line(session.can('kpi') || session.can('salary') ? '<a href="#kpi">Зарплата</a>' : 'Зарплата', minus(f.salary), 'np-minus', f.staff ? `${f.staff} ${plural(f.staff, ['сотрудник', 'сотрудника', 'сотрудников'])}, по ставкам и % от продаж` : 'ставки сотрудникам не заданы'),
+    ...f.expenses.map((e) => line(esc(e.category), minus(e.amount), 'np-minus', `${e.n} ${plural(e.n, ['запись', 'записи', 'записей'])}`)),
+    f.writeoffs ? line('Списания', minus(f.writeoffs), 'np-minus', 'брак, просрочка — по себестоимости') : '',
+    line('Чистая прибыль', `<span class="${net < 0 ? 'neg' : ''}">${money(net)}</span>`, 'np-total', c.revenue > 0 ? `${pct(net / c.revenue)} от выручки` : ''),
+  ].join('');
+  const list = state.expenses?.list || [];
+  const canEdit = session.can('expenses');
+  $('#np-list').innerHTML = `<h3>Расходы за период</h3>${list.length ? `<ul class="np-items">${list.slice(0, 30).map((e) => `
+    <li><span class="np-date">${dateOnly(e.at)}</span><span><b>${esc(e.category)}</b>${e.note || e.account ? `<small>${esc([e.note, e.account ? `со счёта «${e.account}»` : ''].filter(Boolean).join(' · '))}</small>` : ''}</span>
+      <b class="num">${money(e.amount)}</b>${canEdit ? `<button type="button" class="icon-btn" data-expense-del="${e.id}" aria-label="Удалить расход" title="Удалить">×</button>` : ''}</li>`).join('')}</ul>
+    ${list.length > 30 ? `<p class="pick-meta">И ещё ${list.length - 30}</p>` : ''}`
+    : `<p class="pick-meta">${canEdit ? 'Расходов пока нет. Нажмите «+ Расход», чтобы внести аренду, доставку, налоги и т.д.' : 'Расходов за период нет.'}</p>`}`;
+}
+
+let expenseMethods = null;
+$('#np-add').addEventListener('click', async () => {
+  const f = $('#expense-form');
+  f.reset();
+  f.elements.date.value = dateInput(Date.now());
+  $('#expense-error').hidden = true;
+  $('#ex-categories').innerHTML = (state.expenses?.categories || []).map((c) => `<option value="${esc(c)}">`).join('');
+  if (!expenseMethods) {
+    try { expenseMethods = (await api('/api/payment-methods')).methods; } catch { expenseMethods = []; }
+  }
+  $('#ex-method').innerHTML = '<option value="">Не списывать со счёта</option>' + expenseMethods.map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
+  $('#expense-dialog').showModal();
+  f.elements.category.focus();
+});
+$('#expense-cancel').addEventListener('click', () => $('#expense-dialog').close());
+$('#expense-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  // Расход за сегодня — текущим временем, за прошлый день — серединой того дня.
+  const day = f.elements.date.value ? fromDateInput(f.elements.date.value) : Date.now();
+  const at = dayStart(Date.now()).getTime() === day ? Date.now() : day + 12 * 36e5;
+  try {
+    await api('/api/expenses', { method: 'POST', body: { category: f.elements.category.value, amount: f.elements.amount.value, at, method_id: f.elements.method_id.value || null, note: f.elements.note.value } });
+    $('#expense-dialog').close();
+    toast('Расход сохранён');
+    load();
+  } catch (err) {
+    showFormError('#expense-error', err);
+  }
+});
+$('#np-list').addEventListener('click', async (e) => {
+  const del = e.target.closest('[data-expense-del]');
+  if (!del) return;
+  if (!confirm('Удалить этот расход?')) return;
+  try {
+    await api(`/api/expenses/${del.dataset.expenseDel}`, { method: 'DELETE' });
+    toast('Расход удалён');
+    load();
+  } catch (err) {
+    toast(err.message, 'error');
   }
 });
 

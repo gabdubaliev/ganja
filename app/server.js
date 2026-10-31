@@ -248,6 +248,22 @@ const whatsappPublic = (s) => ({ enabled: s.enabled, verifyToken: s.verifyToken,
 const hideStock = (user, list) => (can(user, 'stock.view') ? list : list.map((p) => ({ ...p, stock: null })));
 
 // Право на вид документа: продажа, закупка, списание… — у каждого своё (см. DOC_KINDS в db.js).
+// Остаток товара во всех магазинах, где может работать сотрудник. Товар в другом магазине
+// ищется так же, как при перемещении: по штрихкоду, коду с названием или названию.
+function productStores(id, user) {
+  const here = current();
+  const p = here.store.getProductInfo(id);
+  // user — уже публичная запись: stores разобран в массив, owner — владелец ли.
+  const allowed = new Set([user?.branch || 1, ...(Array.isArray(user?.stores) ? user.stores : [])]);
+  return branchList().filter((b) => b.id === here.id || !auth.enabled || !user || user.owner || allowed.has(b.id)).map((b) => {
+    const ctx = contextOf(b.id);
+    const found = b.id === here.id
+      ? (p.children.length ? { stock: p.children.reduce((s, k) => s + k.stock, 0), price: Math.min(...p.children.map((k) => k.price)), archived: Boolean(p.archived), variants: p.children.length } : { stock: p.stock, price: p.price, archived: Boolean(p.archived) })
+      : ctx?.store.stockOfSame(p, p.children) ?? null;
+    return { id: b.id, name: b.name, current: b.id === here.id, found: Boolean(found), ...(found || {}) };
+  });
+}
+
 function docRight(user, kind) {
   const k = store.docKinds[kind];
   if (!k) throw new UserError('Неизвестный вид документа');
@@ -271,11 +287,14 @@ function createBranch(input, user) {
     const db = ctx.store.db;
     db.exec(`ATTACH DATABASE '${path.join(path.dirname(DB_FILE), path.basename(DB_FILE)).replace(/'/g, "''")}' AS src`);
     try {
+      // Товары копируются по названиям колонок; поставщики у каждого магазина свои — связь не переносится.
+      const cols = db.prepare('PRAGMA table_info(products)').all().map((c) => c.name)
+        .filter((c) => db.prepare('PRAGMA src.table_info(products)').all().some((x) => x.name === c)).join(', ');
       db.exec(`INSERT INTO categories SELECT * FROM src.categories;
         INSERT INTO images SELECT * FROM src.images WHERE id IN (SELECT image_id FROM src.categories WHERE image_id IS NOT NULL);
-        INSERT INTO products SELECT * FROM src.products WHERE deleted = 0;
+        INSERT INTO products (${cols}) SELECT ${cols} FROM src.products WHERE deleted = 0;
         INSERT INTO product_photos SELECT * FROM src.product_photos WHERE product_id IN (SELECT id FROM src.products WHERE deleted = 0);
-        UPDATE products SET stock = 0;`);
+        UPDATE products SET stock = 0, supplier_id = NULL;`);
     } finally {
       db.exec('DETACH DATABASE src');
     }
@@ -415,6 +434,12 @@ const routes = [
   ['PUT', '/api/categories/:id/image', (p, url, body) => store.setCategoryImage(p.id, body.data ? store.addImage(body).id : null), ['products', 'shop', 'photos']],
   ['POST', '/api/products/:id/variants', (p, url, body) => store.createVariants(p.id, body), 'products'],
   ['GET', '/api/barcode', () => ({ barcode: store.newBarcode() }), 'products'],
+  ['GET', '/api/products/:id/info', (p, url, body, user) => {
+    const info = store.getProductInfo(p.id);
+    return can(user, 'stock.view') ? info : { ...info, stock: null, children: info.children.map((k) => ({ ...k, stock: null })) };
+  }, ['products', 'dashboard', 'stock.view']],
+  ['GET', '/api/products/:id/history', (p) => store.productHistory(p.id), ['products', 'dashboard', 'stock.view']],
+  ['GET', '/api/products/:id/stores', (p, url, body, user) => productStores(p.id, user), 'stock.view'],
   ['PUT', '/api/products/:id/photo', (p, url, body) => store.setPhoto(p.id, body), 'photos'],
   ['DELETE', '/api/products/:id/photo', (p) => store.deletePhoto(p.id), 'photos'],
 
@@ -449,7 +474,11 @@ const routes = [
   ['POST', '/api/docs/:id/unpost', (p, url, body, user) => docRight(user, store.getDoc(p.id).kind) && store.unpostDoc(p.id, user), 'docs.unpost'],
   ['DELETE', '/api/docs/:id', (p, url, body, user) => docRight(user, store.getDoc(p.id).kind) && store.deleteDoc(p.id), ['docs.sale', 'arrivals', 'refund', 'writeoff', 'stock', 'transfer']],
   ['GET', '/api/docs-writeoff-summary', (p, url) => store.writeoffSummary(range(url)), 'writeoff'],
-  ['GET', '/api/suppliers', () => store.listSuppliers(), ['arrivals', 'transfer', 'stock', 'writeoff']],
+  ['GET', '/api/suppliers', () => store.listSuppliers(), ['arrivals', 'transfer', 'stock', 'writeoff', 'products']],
+  ['GET', '/api/finance', (p, url) => store.finance(range(url)), 'dashboard'],
+  ['GET', '/api/expenses', (p, url) => ({ list: store.listExpenses(range(url)), categories: store.expenseCategories }), ['expenses', 'dashboard']],
+  ['POST', '/api/expenses', (p, url, body, user) => store.addExpense(body, user), 'expenses'],
+  ['DELETE', '/api/expenses/:id', (p) => store.deleteExpense(p.id), 'expenses'],
   ['POST', '/api/suppliers', (p, url, body) => store.saveSupplier(null, body), 'arrivals'],
   ['PUT', '/api/suppliers/:id', (p, url, body) => store.saveSupplier(p.id, body), 'arrivals'],
   ['DELETE', '/api/suppliers/:id', (p) => store.deleteSupplier(p.id), 'arrivals'],
@@ -679,6 +708,8 @@ const AUDIT_LABELS = {
   'DELETE /api/products/:id/photo': 'Удалил фото товара',
   'POST /api/products/bulk': 'Групповое изменение товаров',
   'POST /api/products/:id/variants': 'Добавил модификации',
+  'POST /api/expenses': 'Внёс расход',
+  'DELETE /api/expenses/:id': 'Удалил расход',
   'POST /api/categories': 'Создал категорию',
   'POST /api/payment-methods': 'Добавил способ оплаты',
   'PUT /api/payment-methods/:id': 'Изменил способ оплаты',
@@ -771,6 +802,8 @@ function auditDetails(key, params, body, result) {
     case 'PUT /api/products/:id': return `${r.name}: цена ${r.price}, себестоимость ${r.cost}`;
     case 'DELETE /api/categories/:id': return `товаров перенесено: ${r.moved}${r.to ? ` в «${r.to}»` : ', остались без категории'}`;
     case 'POST /api/products/:id/variants': return `${Array.isArray(r) ? r.length : 0} шт.`;
+    case 'POST /api/expenses':
+    case 'DELETE /api/expenses/:id': return `${r.category}: ${r.amount} сом${r.note ? ` (${r.note})` : ''}`;
     case 'POST /api/docs':
     case 'PUT /api/docs/:id':
     case 'POST /api/docs/:id/post':

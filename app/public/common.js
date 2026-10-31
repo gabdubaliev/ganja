@@ -115,6 +115,9 @@ function phoneFmt(p) {
 const qtyFmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 3 });
 const qty = (v, unit = 'шт') => `${qtyFmt.format(v)} ${unit}`;
 const parseNum = (s) => Number(String(s ?? '').replace(/\s/g, '').replace(',', '.'));
+const dateOnly = (t) => new Date(t).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
+// Цена продажи со скидкой из карточки товара (так же считает сервер).
+const salePrice = (p) => (p.discount > 0 ? Math.round(p.price * (1 - p.discount / 100) * 100) / 100 : p.price);
 const dateTime = (t) => new Date(t).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
 /* ---------- Связь с сервером ---------- */

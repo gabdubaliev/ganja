@@ -55,6 +55,17 @@
 
   <section class="kpis" id="kpis" aria-label="Главные показатели"></section>
 
+  <section class="panel net-profit" id="net-profit" aria-label="Чистая прибыль">
+    <div class="panel-head">
+      <div><h2>Чистая прибыль</h2><p class="sub" id="np-sub">Выручка минус закупка товара, зарплата и расходы за период</p></div>
+      <button type="button" class="btn small primary" id="np-add" data-can="expenses" hidden>+ Расход</button>
+    </div>
+    <div class="np-body">
+      <div class="np-lines" id="np-lines"></div>
+      <div class="np-list" id="np-list"></div>
+    </div>
+  </section>
+
   <section class="panel">
     <div class="panel-head">
       <div>
@@ -63,7 +74,7 @@
       </div>
       <div class="legend">
         <span><i style="background: var(--series)"></i>Прибыль</span>
-        <span><i style="background: var(--rest)"></i>Себестоимость</span>
+        <span><i style="background: var(--rest)"></i>Закупка</span>
       </div>
     </div>
     <div class="chart" id="chart"></div>
@@ -127,6 +138,7 @@
     <div class="bulk-bar" id="bulk-bar" hidden>
       <b id="bulk-count"></b>
       <button type="button" class="btn small" data-bulk="price">Цена</button>
+      <button type="button" class="btn small" data-bulk="purchase">Закупка</button>
       <button type="button" class="btn small" data-bulk="cost">Себестоимость</button>
       <button type="button" class="btn small" data-bulk="category">Категория</button>
       <button type="button" class="btn small" data-bulk="unit">Единица</button>
@@ -139,7 +151,7 @@
     </div>
     <div class="table-wrap">
       <table class="products-table">
-        <thead><tr><th class="sel" data-can="products" hidden><input type="checkbox" id="products-all" aria-label="Выбрать все товары в списке"></th><th class="name-col">Товар</th><th>Код</th><th>Штрихкод</th><th>Цена</th><th>Себестоимость</th><th>Наценка</th><th>Остаток</th><th></th></tr></thead>
+        <thead><tr><th class="sel" data-can="products" hidden><input type="checkbox" id="products-all" aria-label="Выбрать все товары в списке"></th><th class="name-col">Товар</th><th>Код</th><th>Штрихкод</th><th>Цена</th><th>Закупка</th><th>Себестоимость</th><th>Наценка</th><th>Остаток</th><th>Поступление</th><th></th></tr></thead>
         <tbody id="products-body"></tbody>
       </table>
     </div>
@@ -1117,20 +1129,62 @@
   </form>
 </dialog>
 
+<dialog id="expense-dialog" aria-labelledby="expense-title">
+  <form id="expense-form" novalidate>
+    <h2 id="expense-title">Расход</h2>
+    <p class="sub">Аренда, доставка, налоги, коммунальные — всё, что уменьшает прибыль. Зарплату вносить не нужно: она считается сама по ставкам сотрудников.</p>
+    <div class="form-grid">
+      <div class="field wide"><label for="ex-category">Статья расхода</label><input id="ex-category" name="category" class="input" list="ex-categories" required autocomplete="off" placeholder="Например, Аренда"><datalist id="ex-categories"></datalist></div>
+      <div class="field"><label for="ex-amount">Сумма, сом</label><input id="ex-amount" name="amount" class="input num" inputmode="decimal" required autocomplete="off"></div>
+      <div class="field"><label for="ex-date">Дата</label><input id="ex-date" name="date" type="date" class="input"></div>
+      <div class="field wide"><label for="ex-method">Оплачено со счёта</label><select id="ex-method" name="method_id" class="input"></select></div>
+      <div class="field wide"><label for="ex-note">Комментарий</label><input id="ex-note" name="note" class="input" autocomplete="off" placeholder="Необязательно"></div>
+    </div>
+    <p class="form-error" id="expense-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="expense-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="product-card" class="product-card" aria-labelledby="pc-title">
   <div class="pc-head">
     <div class="pc-photo" id="pc-photo"></div>
     <div class="pc-title-box"><h2 id="pc-title"></h2><p class="sub" id="pc-sub"></p></div>
-    <button type="button" class="icon-btn" id="pc-close" aria-label="Закрыть">×</button>
+    <div class="pc-head-actions">
+      <button type="button" class="btn primary small" id="pc-edit" hidden>✎ Редактировать</button>
+      <button type="button" class="icon-btn" id="pc-close" aria-label="Закрыть">×</button>
+    </div>
   </div>
-  <div class="pc-grid" id="pc-grid"></div>
-  <div id="pc-variants"></div>
-  <div class="pc-sales" id="pc-sales"></div>
+  <div class="seg pc-tabs" id="pc-tabs" role="tablist" aria-label="Разделы карточки товара">
+    <button type="button" role="tab" data-pc-tab="info" aria-pressed="true">Информация</button>
+    <button type="button" role="tab" data-pc-tab="prices" aria-pressed="false">Цены и скидки</button>
+    <button type="button" role="tab" data-pc-tab="stock" aria-pressed="false">Склад</button>
+    <button type="button" role="tab" data-pc-tab="history" aria-pressed="false">История</button>
+  </div>
+  <div class="pc-pane" data-pc-pane="info">
+    <div class="pc-grid" id="pc-info"></div>
+    <div id="pc-variants"></div>
+    <div class="pc-sales" id="pc-sales"></div>
+  </div>
+  <div class="pc-pane" data-pc-pane="prices" hidden>
+    <div class="pc-grid" id="pc-prices"></div>
+    <p class="pick-meta" id="pc-prices-note"></p>
+    <div id="pc-prices-variants"></div>
+  </div>
+  <div class="pc-pane" data-pc-pane="stock" hidden>
+    <div id="pc-stores"></div>
+    <div class="form-actions pc-stock-actions">
+      <button type="button" class="btn" id="pc-stock" hidden>Пересчитать остаток</button>
+      <button type="button" class="btn" id="pc-writeoff" hidden>Списать</button>
+    </div>
+  </div>
+  <div class="pc-pane" data-pc-pane="history" hidden>
+    <div id="pc-history"></div>
+  </div>
   <div class="form-actions">
     <button type="button" class="btn ghost" id="pc-open">Открыть в «Товарах»</button>
-    <button type="button" class="btn" id="pc-stock" hidden>Пересчитать остаток</button>
-    <button type="button" class="btn" id="pc-writeoff" hidden>Списать</button>
-    <button type="button" class="btn primary" id="pc-edit" hidden>Изменить</button>
   </div>
 </dialog>
 
@@ -1144,14 +1198,19 @@
       <div class="field wide" id="pf-category-field"><label for="pf-category">Категория</label><input id="pf-category" name="category" class="input" list="categories" autocomplete="off"><datalist id="categories"></datalist></div>
 
       <fieldset class="prices wide">
-        <legend>Цена</legend>
-        <div class="field"><label for="pf-cost">Себестоимость, сом</label><input id="pf-cost" name="cost" class="input num" inputmode="decimal" autocomplete="off" placeholder="Закупочная"></div>
+        <legend>Цены и скидки</legend>
+        <div class="field"><label for="pf-purchase">Цена закупки, сом</label><input id="pf-purchase" name="purchase" class="input num" inputmode="decimal" autocomplete="off" placeholder="Сколько платите поставщику"></div>
+        <div class="field"><label for="pf-cost">Себестоимость, сом</label><input id="pf-cost" name="cost" class="input num" inputmode="decimal" autocomplete="off" placeholder="Закупка + расходы"></div>
         <div class="field"><label for="pf-markup">Наценка, %</label><input id="pf-markup" name="markup" class="input num" inputmode="decimal" autocomplete="off" placeholder="Например, 40"></div>
         <div class="field"><label for="pf-price">Цена продажи, сом</label><input id="pf-price" name="price" class="input num" inputmode="decimal" required autocomplete="off"></div>
+        <div class="field"><label for="pf-discount">Скидка, %</label><input id="pf-discount" name="discount" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
         <p class="pick-meta price-note" id="pf-profit">Меняете наценку — пересчитывается цена, меняете цену — пересчитывается наценка.</p>
+        <p class="pick-meta price-note">Цена закупки — только стоимость товара у поставщика. Себестоимость — закупка плюс расходы на единицу: доставка, зарплата, налоги. Наценка и маржа считаются от себестоимости.</p>
       </fieldset>
 
-      <div class="field"><label for="pf-code">Код товара</label><input id="pf-code" name="code" class="input" autocomplete="off" placeholder="Необязательно"></div>
+      <div class="field"><label for="pf-code">Код товара</label><input id="pf-code" name="code" class="input" autocomplete="off" placeholder="Программа присвоит сама"></div>
+      <div class="field"><label for="pf-article">Артикул</label><input id="pf-article" name="article" class="input" autocomplete="off" placeholder="Артикул производителя"></div>
+      <div class="field wide" id="pf-supplier-field"><label for="pf-supplier">Поставщик</label><select id="pf-supplier" name="supplier_id" class="input"></select></div>
       <div class="field"><label for="pf-barcode">Штрихкод</label>
         <div class="input-row"><input id="pf-barcode" name="barcode" class="input" inputmode="numeric" autocomplete="off" placeholder="Отсканируйте или создайте">
         <button type="button" class="btn" id="pf-barcode-new" title="Создать уникальный штрихкод EAN-13">Создать</button></div>
