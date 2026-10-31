@@ -93,6 +93,14 @@ async function openProductCard(id, stats = null) {
   $('#pc-history').innerHTML = '';
   $('#pc-edit').hidden = !session.can('products');
   $('#pc-gallery').hidden = !session.can('photos') || typeof openGallery !== 'function';
+  // Счётчик на кнопке: сколько всего фото у товара (основное + дополнительные).
+  $('#pc-gallery').textContent = '🖼 Фото товара';
+  if (!$('#pc-gallery').hidden) {
+    api(`/api/products/${p.id}/gallery`).then((g) => {
+      const n = (g.main ? 1 : 0) + g.images.length;
+      if (cardProduct?.id === p.id && n) $('#pc-gallery').textContent = `🖼 Фото товара · ${n}`;
+    }).catch(() => {});
+  }
   $('#pc-stock').hidden = !session.can('stock') || kids.length > 0 || stock === null;
   $('#pc-writeoff').hidden = !session.can('writeoff') || kids.length > 0;
   $('#pc-open').hidden = currentView === 'products' || (!session.can('products') && !session.can('photos'));
@@ -258,7 +266,7 @@ $('#pc-open').addEventListener('click', () => {
 async function renderProducts() {
   let list;
   try {
-    [list] = await Promise.all([productsView.archived ? api('/api/products?archived=1') : catalog.load(), categories.load()]);
+    [list] = await Promise.all([productsView.archived ? api('/api/products?archived=1') : catalog.load(), categories.load(), loadGalleryCounts()]);
   } catch (err) {
     return toast(err.message, 'error');
   }

@@ -674,6 +674,7 @@ const routes = [
   ['GET', '/api/products/:id/stores', (p, url, body, user) => productStores(p.id, user), 'stock.view'],
   ['PUT', '/api/products/:id/photo', (p, url, body) => store.setPhoto(p.id, body), 'photos'],
   ['DELETE', '/api/products/:id/photo', (p) => store.deletePhoto(p.id), 'photos'],
+  ['GET', '/api/products/gallery-counts', () => store.galleryCounts(), 'photos'],
   ['GET', '/api/products/:id/gallery', (p) => store.listGallery(p.id), 'photos'],
   ['PUT', '/api/products/:id/gallery', (p, url, body) => store.saveGallery(p.id, body), 'photos'],
 

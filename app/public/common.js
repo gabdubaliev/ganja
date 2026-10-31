@@ -466,12 +466,20 @@ $('#bell')?.addEventListener('click', async () => {
 /* ---------- Фото товаров ---------- */
 const photoUrl = (p) => (p.photo_at ? `/api/products/${p.id}/photo?v=${p.photo_at}` : '');
 
+// Сколько дополнительных фото у товаров (галерея) — для значка «+N» на миниатюре. Только у кого есть право «Фото».
+let galleryCounts = {};
+async function loadGalleryCounts() {
+  if (!session.can('photos')) return;
+  try { galleryCounts = await api('/api/products/gallery-counts'); } catch { galleryCounts = {}; }
+}
+const galleryBadge = (p) => (galleryCounts[p.id] ? `<span class="thumb-more" title="Ещё фото в галерее: ${galleryCounts[p.id]}">+${galleryCounts[p.id]}</span>` : '');
+
 // Миниатюра товара с кнопками «добавить / заменить / удалить» фото.
 function photoCell(p) {
   const url = photoUrl(p);
   const img = url ? `<img src="${url}" alt="" loading="lazy">` : '<span aria-hidden="true">📷</span>';
   if (!session.can('photos')) return `<span class="thumb">${img}</span>`;
-  return `<span class="thumb-wrap">
+  return `<span class="thumb-wrap">${galleryBadge(p)}
     <button type="button" class="thumb" data-photo="${p.id}" title="${url ? 'Заменить фото' : 'Добавить фото'}" aria-label="${url ? 'Заменить фото' : 'Добавить фото'} ${esc(p.name)}">${img}</button>
     ${url ? `<button type="button" class="thumb-del" data-photo-del="${p.id}" title="Удалить фото" aria-label="Удалить фото ${esc(p.name)}">×</button>` : ''}
   </span>`;

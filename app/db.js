@@ -2887,6 +2887,11 @@ function createStore(file) {
       };
     },
 
+    // Сколько дополнительных фото у каждого товара: { id: n } (только у кого они есть) — для счётчика в списках.
+    galleryCounts() {
+      return Object.fromEntries(db.prepare('SELECT product_id, COUNT(*) AS n FROM product_images GROUP BY product_id').all().map((r) => [r.product_id, r.n]));
+    },
+
     // Файл дополнительного фото — только своего товара.
     getGalleryImage(productId, imageId) {
       return db.prepare('SELECT mime, data FROM product_images WHERE id = ? AND product_id = ?').get(Number(imageId), Number(productId)) || null;

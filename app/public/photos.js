@@ -5,7 +5,7 @@
 const photosView = { query: '', missing: false };
 
 async function renderPhotos() {
-  try { await catalog.load(); } catch (err) { return toast(err.message, 'error'); }
+  try { await Promise.all([catalog.load(), loadGalleryCounts()]); } catch (err) { return toast(err.message, 'error'); }
   const q = photosView.query.trim().toLowerCase();
   const list = catalog.list.filter((p) => (!photosView.missing || !p.photo_at)
     && (!q || p.name.toLowerCase().includes(q) || p.barcode.includes(q) || p.code.toLowerCase().includes(q)));
