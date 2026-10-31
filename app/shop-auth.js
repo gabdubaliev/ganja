@@ -280,9 +280,12 @@ function createShopAuth(store, { onCodeRequested } = {}) {
       return sales.map((s) => ({ ...s, items: items.filter((i) => i.sale_id === s.id).map(({ sale_id, ...i }) => i) }));
     },
 
-    // История бонусов для покупателя — без имён сотрудников.
+    // История бонусов для покупателя: только по его чекам (начислено, оплачено, возврат) — без имён сотрудников.
+    // Ручные изменения администратора и следы удалённых чеков покупатель не видит (решение владельца).
     myBonusLog(c) {
-      return db.prepare('SELECT id, created_at, delta, reason, sale_id FROM bonus_log WHERE customer_id = ? ORDER BY created_at DESC, id DESC LIMIT 200').all(c.id);
+      return db.prepare(`SELECT b.id, b.created_at, b.delta, b.reason, b.sale_id FROM bonus_log b
+        WHERE b.customer_id = ? AND b.sale_id IS NOT NULL AND EXISTS (SELECT 1 FROM sales s WHERE s.id = b.sale_id)
+        ORDER BY b.created_at DESC, b.id DESC LIMIT 200`).all(c.id);
     },
 
     updateProfile(c, input) {

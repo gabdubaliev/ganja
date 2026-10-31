@@ -375,6 +375,8 @@ async function loadMe() {
     state.purchases = d.purchases || [];
     state.bonusLog = d.bonusLog || [];
     state.loyalty = d.loyalty || null;
+    state.bonusByStore = d.bonusByStore || [];
+    state.manyStores = (d.stores || 1) > 1;
     if ($('#account').open && !$('#account [data-view="profile"]').hidden) renderProfile();
   } catch {
     state.me = null;
@@ -484,7 +486,7 @@ function renderPurchases() {
     : '';
   $('#profile-purchases').innerHTML = list.length ? list.map((s) => `
     <div class="profile-order${s.refunded_at ? ' refunded' : ''}">
-      <div class="row"><span><b>Чек №${s.id}</b> · ${dayText(s.created_at)}${s.order_id ? ` <span class="status">заказ №${s.order_id}</span>` : ''}${s.refunded_at ? ' <span class="status s-cancelled">Возврат</span>' : ''}</span><b>${rub(s.total)}</b></div>
+      <div class="row"><span><b>Чек №${s.id}</b> · ${dayText(s.created_at)}${state.manyStores ? `<br><span class="bonus-tag">🏬 ${esc(s.store)}</span>` : ''}${s.order_id ? ` <span class="status">заказ №${s.order_id}</span>` : ''}${s.refunded_at ? ' <span class="status s-cancelled">Возврат</span>' : ''}</span><b>${rub(s.total)}</b></div>
       <div class="small left">${s.items.map((i) => `${esc(i.name)} × ${qtyFmt.format(i.qty)} — ${rub(i.price)}`).join('<br>')}</div>
       ${s.bonus_spent || s.bonus_earned ? `<div class="bonus-tag">${s.bonus_spent ? `<span class="bonus-minus">−${bonusFmt(s.bonus_spent)}</span> бонусов списано` : ''}${s.bonus_spent && s.bonus_earned ? ' · ' : ''}${s.bonus_earned ? `<span class="bonus-plus">+${bonusFmt(s.bonus_earned)}</span> бонусов начислено` : ''}</div>` : ''}
     </div>`).join('') : '<p class="small left">Покупок пока нет. Назовите номер телефона на кассе — покупка появится здесь, и вам начислятся бонусы.</p>';
@@ -496,10 +498,16 @@ function renderBonusLog() {
   $('#profile-bonus-rules').textContent = l && l.enabled
     ? `С каждой покупки возвращается ${l.percent}% бонусами. 1 бонус = 1 сом: бонусами можно оплатить до ${l.maxPay}% покупки. Назовите номер телефона на кассе.`
     : 'Бонусная программа сейчас не действует.';
+  // В филиалах бонусы копятся отдельно и тратятся там же.
+  const other = state.bonusByStore || [];
+  $('#profile-bonus-stores').hidden = !other.length;
+  $('#profile-bonus-stores').innerHTML = other.length
+    ? `Бонусы в других магазинах (тратятся там же): ${other.map((x) => `<b>${esc(x.store)}</b> — ${bonusFmt(x.bonus)}`).join(', ')}`
+    : '';
   const log = state.bonusLog || [];
   $('#profile-bonus-log').innerHTML = log.length ? log.map((b) => `
     <div class="profile-order"><div class="row">
-      <span>${esc(b.reason || (b.delta > 0 ? 'Начислено' : 'Списано'))}<br><span class="bonus-tag">${dayText(b.created_at)}</span></span>
+      <span>${esc(b.reason || (b.delta > 0 ? 'Начислено' : 'Списано'))}<br><span class="bonus-tag">${dayText(b.created_at)}${state.manyStores ? ` · ${esc(b.store)}` : ''}</span></span>
       <span class="${b.delta > 0 ? 'bonus-plus' : 'bonus-minus'}">${b.delta > 0 ? '+' : '−'}${bonusFmt(Math.abs(b.delta))}</span>
     </div></div>`).join('') : '<p class="small left">Начислений и списаний пока не было.</p>';
 }
@@ -582,6 +590,7 @@ $('#logout').addEventListener('click', async () => {
   state.orders = [];
   state.purchases = [];
   state.bonusLog = [];
+  state.bonusByStore = [];
   renderAccountButton();
   renderCart();
   $('#account').close();

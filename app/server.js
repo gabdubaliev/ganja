@@ -1156,10 +1156,22 @@ async function shopAccount(req, res, url) {
       if (!c) return sendJson(res, 200, { customer: null });
       const full = store.findCustomer(c.id);
       const { enabled, percent, maxPay } = store.loyalty();
+      // Покупки и бонусы во всех магазинах: в филиале у покупателя своя запись (ищется по телефону) и свои бонусы.
+      const purchases = [], bonusLog = [], bonusByStore = [];
+      for (const b of branchList()) {
+        const ctx = contextOf(b.id);
+        const bc = b.main ? c : ctx?.store.findCustomerByPhone(c.phone);
+        if (!bc) continue;
+        const tag = (list) => list.map((x) => ({ ...x, store: b.name, storeId: b.id }));
+        purchases.push(...tag(ctx.shopAuth.myPurchases(bc)));
+        bonusLog.push(...tag(ctx.shopAuth.myBonusLog(bc)));
+        if (!b.main && bc.bonus) bonusByStore.push({ store: b.name, bonus: bc.bonus });
+      }
+      const newest = (a, b) => b.created_at - a.created_at;
       return sendJson(res, 200, {
         customer: { ...shopAuth.publicCustomer(c), birthdayDiscount: full.birthdayDiscount },
-        orders: shopAuth.myOrders(c), purchases: shopAuth.myPurchases(c), bonusLog: shopAuth.myBonusLog(c),
-        loyalty: { enabled, percent, maxPay },
+        orders: shopAuth.myOrders(c), purchases: purchases.sort(newest).slice(0, 100), bonusLog: bonusLog.sort(newest).slice(0, 200),
+        bonusByStore, stores: branchList().length, loyalty: { enabled, percent, maxPay },
       });
     }
     if (req.method !== 'POST' && req.method !== 'PUT') return sendJson(res, 405, { error: 'Неверный запрос' });
