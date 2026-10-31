@@ -41,7 +41,7 @@
       <div id="pos-results" class="pick-list"></div>
     </section>
     <section class="panel pos-cart" aria-label="Чек">
-      <div class="panel-head"><h2>Чек</h2><div class="tools"><button type="button" class="btn small cert-btn" id="cert-sell-open" data-can="certificates.sell" hidden>🎁 Сертификат</button><button type="button" class="btn small ghost" id="cart-clear" hidden>Очистить</button></div></div>
+      <div class="panel-head"><h2>Чек</h2><div class="tools"><button type="button" class="btn small cert-btn" id="cert-sell-open" data-can="certificates.sell" hidden>🎁 Сертификат</button><button type="button" class="btn small" id="cart-print" hidden title="Напечатать чек покупателю по последней продаже">🖨️ Печать чека</button><button type="button" class="btn small ghost" id="cart-clear" hidden>Очистить</button></div></div>
       <div id="cart" class="cart"></div>
       <div class="customer-box" id="customer-box" hidden>
         <div class="customer-find" id="customer-find">
@@ -395,6 +395,7 @@
 
 <script src="common.js"></script>
 <script src="barcode.js"></script>
+<script src="print.js"></script>
 <script src="pos.js"></script>
 <script src="sales.js"></script>
 <script src="photos.js"></script>

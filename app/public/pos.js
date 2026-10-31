@@ -696,6 +696,7 @@ $('#checkout').addEventListener('click', async () => {
     toast(`Чек №${sale.id} на ${money2(sale.total)} (${how}) пробит${sale.discount ? `, скидка ${money2(sale.discount)}` : ''}${sale.bonusEarned ? `, начислено ${sale.bonusEarned} бонусов` : ''}${sale.certificate ? `. На сертификате осталось ${money2(sale.certificate.balance)}` : ''}`);
     loadShift();
     resetCheck();
+    afterSalePrint(sale.id);
     await catalog.load();
   } catch (err) {
     toast(err.message, 'error');
@@ -705,6 +706,24 @@ $('#checkout').addEventListener('click', async () => {
     renderPick();
     $('#pos-search').focus();
   }
+});
+
+/* ---------- Печать чека покупателю (шаблон — «Чеки и этикетки») ---------- */
+async function afterSalePrint(saleId) {
+  pos.lastSale = saleId;
+  const btn = $('#cart-print');
+  btn.hidden = false;
+  btn.textContent = `🖨️ Печать чека №${saleId}`;
+  let mode = 'off';
+  try { mode = (await printDesigns()).receipt.autoPrint; } catch { /* шаблон не загрузился — только кнопка */ }
+  btn.classList.toggle('primary', mode === 'ask');
+  if (mode === 'always') printReceipt(saleId);
+  if (mode === 'ask') toast(`Чек №${saleId}: нажмите «🖨️ Печать чека», если покупателю нужен чек`);
+}
+$('#cart-print').addEventListener('click', () => {
+  if (!pos.lastSale) return;
+  $('#cart-print').classList.remove('primary');
+  printReceipt(pos.lastSale);
 });
 
 /* ---------- Смена ---------- */

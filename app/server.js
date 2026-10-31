@@ -634,6 +634,10 @@ const routes = [
     return sh ? store.getShift(sh.id) : null;
   }, 'pos'],
   ['POST', '/api/shift/open', (p, url, body, user) => cashAlert(store.openShift(user, body.register_id, { cash: body.cash, note: body.note }), 'открытии'), 'pos'],
+  // Конструктор чеков и этикеток: настройки нужны всем, кто печатает; менять — право «Конструктор чеков и этикеток».
+  ['GET', '/api/print-designs', () => store.printDesigns(), 'any'],
+  ['PUT', '/api/print-designs/:kind', (p, url, body) => store.setPrintDesign(p.kind, body), 'print.design'],
+  ['GET', '/api/sales/:id/receipt', (p) => store.receiptData(p.id), ['pos', 'sales']],
   ['GET', '/api/shift/info', (p, url, body, user) => store.shiftInfo(user), 'pos'],
   ['GET', '/api/registers', (p, url) => (url.searchParams.get('overview') === '1' ? store.registersOverview() : store.listRegisters()), 'any'],
   ['POST', '/api/registers', (p, url, body) => store.saveRegister(null, body), 'settings'],
@@ -816,7 +820,7 @@ const routes = [
     if (auth.enabled && user?.role !== 'owner') throw new UserError('Расположение разделов меняет владелец');
     return saveLayout(body);
   }, 'any'],
-  ['POST', '/api/images', (p, url, body) => store.addImage(body), 'shop'],
+  ['POST', '/api/images', (p, url, body) => store.addImage(body), ['shop', 'print.design']],
   ['GET', '/api/shop', () => store.shop(), 'shop'],
   ['PUT', '/api/shop', (p, url, body) => store.setShop(body), 'shop'],
   ['GET', '/api/orders', (p, url) => store.listOrders({ status: url.searchParams.get('status') || '' }), 'orders'],
@@ -952,6 +956,7 @@ const AUDIT_LABELS = {
   'DELETE /api/suppliers/:id': 'Удалил поставщика',
   'POST /api/demo': 'Загрузил пример магазина',
   'POST /api/shift/open': 'Открыл смену',
+  'PUT /api/print-designs/:kind': 'Изменил шаблон чека или этикетки',
   'POST /api/shift/close': 'Закрыл смену',
   'POST /api/shifts': 'Добавил смену вручную',
   'PUT /api/shifts/:id': 'Исправил смену',

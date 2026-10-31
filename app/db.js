@@ -579,6 +579,16 @@ function open(file) {
   // чтобы после обновления никто не потерял то, что уже видел.
   // Сертификаты: продавать и принимать — у кого была «Касса», список — у кого были «Покупатели».
   // Подтверждать оплату заказов с витрины — у кого были «Заказы с витрины».
+  // Конструктор чеков и этикеток — у кого было «Оформление» или «Настройки».
+  if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v7'").get()) {
+    const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
+    for (const u of db.prepare('SELECT id, rights FROM users WHERE rights IS NOT NULL').all()) {
+      let list;
+      try { list = JSON.parse(u.rights); } catch { continue; }
+      if (Array.isArray(list) && (list.includes('design') || list.includes('settings')) && !list.includes('print.design')) set.run(JSON.stringify([...list, 'print.design']), u.id);
+    }
+    db.prepare("INSERT INTO settings (key, value) VALUES ('rights_v7', '1')").run();
+  }
   if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v6'").get()) {
     const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
     for (const u of db.prepare('SELECT id, rights FROM users WHERE rights IS NOT NULL').all()) {
@@ -846,6 +856,30 @@ const SHOP_DEFAULTS = {
   css: '',
 };
 const FONTS = ['system', 'serif', 'rounded', 'mono', 'condensed'];
+
+// Конструктор чека покупателю (товарный чек, не фискальный) и этикеток на товар.
+const RECEIPT_DEFAULTS = {
+  paper: 58, fontSize: 'normal', logoId: null, title: '', header: '', footer: 'Спасибо за покупку!',
+  showNumber: true, showDate: true, showCashier: true, showRegister: false, showCustomer: true, showBonus: true,
+  showPayments: true, showDiscount: true, showItemCodes: false, autoPrint: 'off', copies: 1,
+};
+const LABEL_FIELDS = ['shop', 'name', 'options', 'article', 'code', 'category', 'price', 'oldPrice', 'barcode', 'text'];
+const LABEL_DEFAULTS = {
+  size: '58x40', width: 58, height: 40, align: 'center', border: false, barcodeHeight: 13, text: '',
+  fields: [
+    { key: 'shop', on: true, size: 7, bold: false },
+    { key: 'name', on: true, size: 8.5, bold: true },
+    { key: 'options', on: true, size: 7.5, bold: false },
+    { key: 'article', on: false, size: 7, bold: false },
+    { key: 'code', on: false, size: 7, bold: false },
+    { key: 'category', on: false, size: 7, bold: false },
+    { key: 'price', on: true, size: 15, bold: true },
+    { key: 'oldPrice', on: true, size: 8, bold: false },
+    { key: 'barcode', on: true, size: 8, bold: false },
+    { key: 'text', on: false, size: 7, bold: false },
+  ],
+};
+const LABEL_SIZES = { '58x40': [58, 40], '58x30': [58, 30], '40x30': [40, 30], '30x20': [30, 20], '43x25': [43, 25] };
 const COLOR_RE = /^#[0-9a-f]{6}$/i;
 
 function color(value, field, { optional = false } = {}) {
@@ -3575,6 +3609,75 @@ function createStore(file) {
     },
 
     /* ---------- Интернет-витрина ---------- */
+
+    /* ---------- Конструктор чеков и этикеток ---------- */
+    printDesigns() {
+      const receipt = { ...RECEIPT_DEFAULTS, ...JSON.parse(this.setting('receipt_design', '{}')) };
+      const savedLabel = JSON.parse(this.setting('label_design', '{}'));
+      // Новые поля этикетки, которых не было в сохранённых настройках, добавляются выключенными в конец.
+      const fields = Array.isArray(savedLabel.fields) ? savedLabel.fields : LABEL_DEFAULTS.fields;
+      const known = new Set(fields.map((f) => f.key));
+      const label = { ...LABEL_DEFAULTS, ...savedLabel, fields: [...fields, ...LABEL_DEFAULTS.fields.filter((f) => !known.has(f.key)).map((f) => ({ ...f, on: false }))] };
+      return { receipt, label, labelSizes: LABEL_SIZES };
+    },
+
+    setPrintDesign(kind, input = {}) {
+      const bool = (v) => Boolean(v);
+      const imageId = (x) => (x ? (this.getImage(x) ? Number(x) : null) : null);
+      if (kind === 'receipt') {
+        const v = { ...RECEIPT_DEFAULTS, ...input };
+        const next = {
+          paper: Number(v.paper) === 80 ? 80 : 58,
+          fontSize: ['small', 'normal', 'large'].includes(v.fontSize) ? v.fontSize : 'normal',
+          logoId: imageId(v.logoId),
+          title: text(v.title, 'Заголовок', { max: 80 }),
+          header: text(v.header, 'Текст сверху', { max: 500 }),
+          footer: text(v.footer, 'Текст внизу', { max: 500 }),
+          autoPrint: ['off', 'ask', 'always'].includes(v.autoPrint) ? v.autoPrint : 'off',
+          copies: Math.max(1, Math.min(3, Math.round(number(v.copies || 1, 'Копий', { positive: true })))),
+        };
+        for (const k of ['showNumber', 'showDate', 'showCashier', 'showRegister', 'showCustomer', 'showBonus', 'showPayments', 'showDiscount', 'showItemCodes']) next[k] = bool(v[k]);
+        this.setSetting('receipt_design', JSON.stringify(next));
+        return this.printDesigns();
+      }
+      if (kind === 'label') {
+        const v = { ...LABEL_DEFAULTS, ...input };
+        const size = v.size === 'custom' || LABEL_SIZES[v.size] ? v.size : '58x40';
+        const [w, h] = size === 'custom'
+          ? [Math.round(number(v.width, 'Ширина, мм', { positive: true })), Math.round(number(v.height, 'Высота, мм', { positive: true }))]
+          : LABEL_SIZES[size];
+        if (w < 20 || w > 120 || h < 15 || h > 120) throw new UserError('Размер этикетки — от 20×15 до 120×120 мм');
+        const seen = new Set();
+        const fields = (Array.isArray(v.fields) ? v.fields : []).filter((f) => LABEL_FIELDS.includes(f?.key) && !seen.has(f.key) && seen.add(f.key))
+          .map((f) => ({ key: f.key, on: bool(f.on), bold: bool(f.bold), size: Math.max(5, Math.min(40, round2(number(f.size || 8, 'Размер шрифта', { positive: true })))) }));
+        for (const k of LABEL_FIELDS) if (!seen.has(k)) fields.push({ ...LABEL_DEFAULTS.fields.find((f) => f.key === k), on: false });
+        const next = {
+          size, width: w, height: h, align: v.align === 'left' ? 'left' : 'center', border: bool(v.border),
+          barcodeHeight: Math.max(5, Math.min(40, round2(number(v.barcodeHeight || 13, 'Высота штрихкода')))),
+          text: text(v.text, 'Свой текст', { max: 120 }), fields,
+        };
+        this.setSetting('label_design', JSON.stringify(next));
+        return this.printDesigns();
+      }
+      throw new UserError('Неизвестный вид');
+    },
+
+    // Всё для печати чека покупателю: товары, оплаты, кассир, касса, покупатель и его бонусы.
+    receiptData(id) {
+      const s = db.prepare('SELECT * FROM sales WHERE id = ?').get(Number(id));
+      if (!s) throw new UserError('Чек не найден');
+      const items = db.prepare(`SELECT si.name, si.qty, si.price, p.code, p.unit FROM sale_items si LEFT JOIN products p ON p.id = si.product_id
+        WHERE si.sale_id = ? ORDER BY si.id`).all(s.id);
+      const payments = db.prepare('SELECT method_name AS name, amount, kind FROM sale_payments WHERE sale_id = ? ORDER BY id').all(s.id);
+      const reg = s.shift_id ? db.prepare('SELECT r.name FROM shifts sh JOIN registers r ON r.id = sh.register_id WHERE sh.id = ?').get(s.shift_id) : null;
+      const c = s.customer_id ? this.findCustomer(s.customer_id) : null;
+      return {
+        id: s.id, created_at: s.created_at, total: s.total, discount: s.discount, discount_reason: s.discount_reason,
+        bonus_spent: s.bonus_spent, bonus_earned: s.bonus_earned, refunded_at: s.refunded_at, cashier: s.user_name, register: reg?.name || '',
+        items, payments, customer: c ? { name: c.name, phone: c.phone, card: c.card, bonus: c.bonus } : null,
+        shop: this.design().name || '',
+      };
+    },
 
     shop() {
       return { ...SHOP_DEFAULTS, ...JSON.parse(this.setting('shop', '{}')) };

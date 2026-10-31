@@ -380,6 +380,79 @@
   </section>
 </main>
 
+<main class="page" data-view="print" hidden>
+  <header class="top">
+    <div class="title"><h1>🖨️ Чеки и этикетки</h1><span class="source">Как выглядит чек покупателю и этикетка на товар</span></div>
+    <div class="tools">
+      <div class="seg" id="pd-tabs" role="group" aria-label="Что настраиваем"><button type="button" data-pd-tab="receipt" aria-pressed="true">🧾 Чек</button><button type="button" data-pd-tab="label" aria-pressed="false">🏷️ Этикетка</button></div>
+    </div>
+  </header>
+  <div class="builder pd">
+    <form class="builder-form" id="pd-form" novalidate>
+      <div id="pd-receipt">
+        <details open><summary>Бумага и шрифт</summary>
+          <div class="field"><label>Ширина ленты</label><select name="paper" class="input"><option value="58">58 мм</option><option value="80">80 мм</option></select></div>
+          <div class="field"><label>Размер шрифта</label><select name="fontSize" class="input"><option value="small">Мелкий</option><option value="normal">Обычный</option><option value="large">Крупный</option></select></div>
+        </details>
+        <details open><summary>Шапка</summary>
+          <div class="field"><label>Логотип (лучше чёрно-белый)</label><div class="image-pick" id="pd-logo"></div></div>
+          <div class="field"><label>Заголовок (пусто — название магазина)</label><input name="title" class="input" maxlength="80"></div>
+          <div class="field"><label>Текст под заголовком</label><textarea name="header" class="input" rows="3" placeholder="Адрес, телефон, Instagram, ИНН"></textarea></div>
+        </details>
+        <details open><summary>Что печатать</summary>
+          <label class="check"><input type="checkbox" name="showNumber"> Номер чека</label>
+          <label class="check"><input type="checkbox" name="showDate"> Дата и время</label>
+          <label class="check"><input type="checkbox" name="showCashier"> Кассир</label>
+          <label class="check"><input type="checkbox" name="showRegister"> Касса</label>
+          <label class="check"><input type="checkbox" name="showItemCodes"> Коды товаров</label>
+          <label class="check"><input type="checkbox" name="showDiscount"> Скидка</label>
+          <label class="check"><input type="checkbox" name="showPayments"> Способы оплаты</label>
+          <label class="check"><input type="checkbox" name="showCustomer"> Покупатель и номер карты</label>
+          <label class="check"><input type="checkbox" name="showBonus"> Бонусы: списано, начислено, остаток</label>
+        </details>
+        <details open><summary>Низ чека</summary>
+          <div class="field"><label>Текст внизу</label><textarea name="footer" class="input" rows="3" placeholder="Спасибо за покупку! Обмен и возврат — 14 дней с чеком."></textarea></div>
+        </details>
+        <details open><summary>Печать на кассе</summary>
+          <div class="field"><label>После продажи</label><select name="autoPrint" class="input"><option value="off">Не печатать — только кнопкой «Печать чека»</option><option value="ask">Спрашивать кассира</option><option value="always">Печатать сразу</option></select></div>
+          <div class="field"><label>Сколько копий</label><select name="copies" class="input"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></div>
+        </details>
+      </div>
+      <div id="pd-label" hidden>
+        <details open><summary>Размер</summary>
+          <div class="field"><label>Этикетка</label><select name="size" class="input" id="pd-size"></select></div>
+          <div class="input-row" id="pd-custom" hidden>
+            <div class="field"><label>Ширина, мм</label><input name="width" class="input num" inputmode="numeric"></div>
+            <div class="field"><label>Высота, мм</label><input name="height" class="input num" inputmode="numeric"></div>
+          </div>
+          <div class="field"><label>Выравнивание</label><select name="align" class="input"><option value="center">По центру</option><option value="left">Слева</option></select></div>
+          <label class="check"><input type="checkbox" name="border"> Рамка по краю</label>
+        </details>
+        <details open><summary>Что на этикетке</summary>
+          <p class="sub">Галочка — печатать. Число — размер шрифта (пт). <b>Ж</b> — жирный. Стрелки — порядок сверху вниз.</p>
+          <div class="pd-fields" id="pd-fields"></div>
+          <div class="field"><label>Высота штрихкода, мм</label><input name="barcodeHeight" class="input num" inputmode="decimal"></div>
+          <div class="field"><label>Свой текст (например, «Обмен 14 дней»)</label><input name="text" class="input" maxlength="120"></div>
+        </details>
+        <details open><summary>Пример</summary>
+          <div class="field"><label>Товар для предпросмотра</label><select id="pd-sample" class="input"></select></div>
+        </details>
+      </div>
+      <p class="form-error" id="pd-error" role="alert" hidden></p>
+      <div class="form-actions pd-actions">
+        <span class="pick-meta" id="pd-dirty"></span>
+        <button type="button" class="btn" id="pd-test">🖨️ Пробная печать</button>
+        <button type="submit" class="btn primary">Сохранить</button>
+      </div>
+    </form>
+    <section class="pd-preview" aria-label="Предпросмотр">
+      <div class="pd-preview-title" id="pd-preview-title">Предпросмотр</div>
+      <div class="pd-stage"><div class="pd-paper" id="pd-paper"><iframe id="pd-frame" title="Предпросмотр"></iframe></div></div>
+      <p class="pick-meta" id="pd-preview-note"></p>
+    </section>
+  </div>
+</main>
+
 <main class="page" data-view="certificates" hidden>
   <header class="top">
     <div class="title"><h1>🎁 Сертификаты</h1><span class="source" id="cert-sub"></span></div>
@@ -1691,7 +1764,9 @@
 <script src="refs.js"></script>
 <script src="branches.js"></script>
 <script src="sales.js"></script>
+<script src="print.js"></script>
 <script src="labels.js"></script>
+<script src="print-designer.js"></script>
 <script src="xlsx.js"></script>
 <script src="import.js"></script>
 <script src="more.js"></script>

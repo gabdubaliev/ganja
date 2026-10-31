@@ -583,6 +583,24 @@ tr.variant-row .pname { font-weight: 500; }
 /* Конструктор витрины и оформление */
 .shop-create { text-align: center; padding: 40px 24px; display: grid; gap: 12px; justify-items: center; }
 .shop-create .sub { max-width: 640px; }
+.pd-preview { position: sticky; top: 72px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; display: grid; gap: 10px; justify-items: center; }
+.pd-preview-title { font-weight: 700; justify-self: start; }
+.pd-stage { width: 100%; display: grid; place-items: center; padding: 24px; border-radius: 12px; background: repeating-linear-gradient(45deg, #eceef3, #eceef3 10px, #e4e7ee 10px, #e4e7ee 20px); overflow: auto; max-height: calc(100vh - 220px); }
+.pd-paper { background: #fff; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18); transform-origin: top center; }
+.pd-paper iframe { display: block; border: 0; background: #fff; }
+.pd .builder-form { overflow-x: hidden; }
+.pd .builder-form > div, .pd .builder-form details { min-width: 0; }
+.pd .builder-form label.check { display: flex; gap: 8px; align-items: center; margin: 4px 0; }
+.pd .builder-form .input { width: 100%; max-width: 100%; }
+.pd .pd-field .input.num { width: 64px; }
+.pd-fields { display: grid; gap: 6px; margin-bottom: 10px; }
+.pd-field { display: grid; grid-template-columns: auto minmax(0, 1fr) 64px auto auto auto; gap: 6px; align-items: center; font-size: 14px; }
+.pd-field.off span { color: var(--ink-2); }
+.pd-field input.num { padding: 6px 8px; }
+.pd-field button { min-width: 32px; padding: 4px 8px; }
+.pd-field button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+.pd-actions { position: sticky; bottom: 0; background: var(--surface); padding-top: 10px; flex-wrap: wrap; }
+.pd-actions #pd-dirty { flex-basis: 100%; text-align: right; }
 .builder { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 16px; align-items: start; }
 .builder-form { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 16px 16px; display: grid; max-height: calc(100vh - 140px); overflow-y: auto; position: sticky; top: 72px; }
 .builder-form details { border-bottom: 1px solid var(--grid); padding: 10px 0; }

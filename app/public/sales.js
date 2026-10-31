@@ -74,6 +74,7 @@ async function renderSales() {
             ${salesView.confirm === s.id ? 'Нажмите ещё раз, чтобы вернуть' : 'Оформить возврат'}
           </button>
         </div>`}
+      <div class="doc-actions"><button type="button" class="btn small" data-sale-print="${s.id}">🖨️ Печать чека</button></div>
       ${del ? `<div class="doc-actions"><button type="button" class="btn small ghost danger-text" data-sale-delete="${s.id}">Удалить чек</button></div>` : ''}
     </details>
     </div>`).join('') : '<p class="empty">Чеков за этот период нет</p>';
@@ -168,6 +169,8 @@ $('#sales-ranges').addEventListener('click', (e) => {
   renderSales();
 });
 $('#sales-list').addEventListener('click', async (e) => {
+  const printBtn = e.target.closest('[data-sale-print]');
+  if (printBtn) return printReceipt(Number(printBtn.dataset.salePrint));
   const pick = e.target.closest('[data-sale-select]');
   if (pick) {
     const id = Number(pick.dataset.saleSelect);
