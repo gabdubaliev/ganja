@@ -96,6 +96,20 @@ say "Скачиваю программу"
 id shop >/dev/null 2>&1 || useradd --system --home "$DATA_DIR" --shell /usr/sbin/nologin shop
 if [[ -d $APP_DIR/.git ]]; then
   git -C "$APP_DIR" fetch -q origin "$BRANCH"
+  # Повторная установка на работающий сервер — это тоже обновление: сначала копия всех баз с проверкой.
+  if [[ -f $DATA_DIR/shop.db ]]; then
+    say "Делаю копию баз перед обновлением"
+    tool=$(mktemp --suffix=.js)
+    git -C "$APP_DIR" show "origin/$BRANCH:deploy/db-backup.js" > "$tool" || fail "нет инструмента резервного копирования"
+    chmod 644 "$tool"
+    systemctl stop shop 2>/dev/null || true
+    if ! runuser -u shop -- node --disable-warning=ExperimentalWarning "$tool" backup "$DATA_DIR" "$BACKUP_DIR/before-update" install; then
+      rm -f "$tool"
+      systemctl start shop 2>/dev/null || true
+      fail "резервная копия не создана или не прошла проверку. Программа не обновлена и снова запущена."
+    fi
+    rm -f "$tool"
+  fi
   git -C "$APP_DIR" checkout -q -B "$BRANCH" "origin/$BRANCH"
 else
   git clone -q --branch "$BRANCH" "$REPO" "$APP_DIR"
@@ -199,17 +213,10 @@ Persistent=true
 WantedBy=timers.target
 EOF
 
-# Обновление программы одной командой: shop-update
-cat > /usr/local/bin/shop-update <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-runuser -u shop -- /usr/local/bin/shop-backup || true
-git -C $APP_DIR fetch -q origin $BRANCH
-git -C $APP_DIR checkout -q -B $BRANCH origin/$BRANCH
-systemctl restart shop
-echo "Программа обновлена: \$(git -C $APP_DIR log -1 --format='%h %s')"
-EOF
-chmod 755 /usr/local/bin/shop-update
+# Обновление программы одной командой: shop-update (deploy/shop-update.sh).
+# Сначала копия всех баз с проверкой; не удалась — обновление отменяется, прежняя версия работает дальше.
+install -m 755 "$APP_DIR/deploy/shop-update.sh" /usr/local/bin/shop-update
+sed -i "s|^APP_DIR=.*|APP_DIR=\${SHOP_APP_DIR:-$APP_DIR}|; s|^DATA_DIR=.*|DATA_DIR=\${SHOP_DATA_DIR:-$DATA_DIR}|; s|^BACKUP_DIR=.*|BACKUP_DIR=\${SHOP_BACKUP_DIR:-$BACKUP_DIR}|; s|^BRANCH=.*|BRANCH=\${SHOP_BRANCH:-$BRANCH}|" /usr/local/bin/shop-update
 
 systemctl daemon-reload
 systemctl enable -q shop shop-backup.timer
