@@ -9,6 +9,7 @@ loadEnv(path.join(__dirname, '.env'));
 process.env.TZ ||= 'Asia/Bishkek';
 const { createStore, UserError, phone: normalizePhone } = require('./db');
 const { seedDemo } = require('./demo');
+const invoice = require('./invoice');
 const crypto = require('node:crypto');
 const { AsyncLocalStorage } = require('node:async_hooks');
 const { createAuth, hashPassword, checkPassword } = require('./auth');
@@ -475,6 +476,24 @@ const routes = [
   ['DELETE', '/api/docs/:id', (p, url, body, user) => docRight(user, store.getDoc(p.id).kind) && store.deleteDoc(p.id), ['docs.sale', 'arrivals', 'refund', 'writeoff', 'stock', 'transfer']],
   ['GET', '/api/docs-writeoff-summary', (p, url) => store.writeoffSummary(range(url)), 'writeoff'],
   ['GET', '/api/suppliers', () => store.listSuppliers(), ['arrivals', 'transfer', 'stock', 'writeoff', 'products']],
+  // Приход по фото накладной: распознать, подобрать товары, провести.
+  ['GET', '/api/invoice/status', () => ({ configured: Boolean(invoice.apiKey(mainStore)), fromEnv: Boolean(process.env.ANTHROPIC_API_KEY), model: invoice.MODEL,
+    rate: Number(store.setting('usd_rate', '0')) || null }), ['arrivals', 'settings']],
+  ['PUT', '/api/invoice/key', (p, url, body) => {
+    const key = String(body.key ?? '').trim();
+    if (key && !/^sk-ant-[\w-]{20,}$/.test(key)) throw new UserError('Ключ Claude API начинается с sk-ant-');
+    mainStore.setSetting('anthropic_api_key', key);
+    return { configured: Boolean(invoice.apiKey(mainStore)) };
+  }, 'settings'],
+  ['POST', '/api/invoice/recognize', async (p, url, body) => {
+    const r = await invoice.recognize(mainStore, body.images, UserError);
+    const lines = Array.isArray(r.lines) ? r.lines : [];
+    const matches = store.matchInvoiceLines(lines);
+    const supplier = r.supplier ? store.listSuppliers().find((s) => s.name.toLowerCase() === String(r.supplier).toLowerCase().trim()) : null;
+    return { ...r, supplier_id: supplier?.id ?? null, lines: lines.map((l, i) => ({ ...l, match: matches[i].product, how: matches[i].how })) };
+  }, 'arrivals'],
+  ['POST', '/api/invoice/match', (p, url, body) => store.matchInvoiceLines(Array.isArray(body.lines) ? body.lines : []), 'arrivals'],
+  ['POST', '/api/invoice/receive', (p, url, body, user) => store.receiveInvoice(body, user), 'arrivals'],
   ['GET', '/api/finance', (p, url) => store.finance(range(url)), 'dashboard'],
   ['GET', '/api/expenses', (p, url) => ({ list: store.listExpenses(range(url)), categories: store.expenseCategories }), ['expenses', 'dashboard']],
   ['POST', '/api/expenses', (p, url, body, user) => store.addExpense(body, user), 'expenses'],
@@ -728,6 +747,8 @@ const AUDIT_LABELS = {
   'POST /api/expenses': 'Внёс расход',
   'DELETE /api/expenses/:id': 'Удалил расход',
   'PUT /api/timesheet/marks': 'Изменил табель',
+  'POST /api/invoice/receive': 'Оприходовал накладную по фото',
+  'PUT /api/invoice/key': 'Изменил ключ распознавания накладных',
   'POST /api/recurring-expenses': 'Добавил постоянный расход',
   'PUT /api/recurring-expenses/:id': 'Изменил постоянный расход',
   'DELETE /api/recurring-expenses/:id': 'Удалил постоянный расход',
@@ -825,6 +846,8 @@ function auditDetails(key, params, body, result) {
     case 'POST /api/products/:id/variants': return `${Array.isArray(r) ? r.length : 0} шт.`;
     case 'POST /api/expenses':
     case 'DELETE /api/expenses/:id': return `${r.category}: ${r.amount} сом${r.note ? ` (${r.note})` : ''}`;
+    case 'POST /api/invoice/receive': return `закупка №${r.doc?.number}, строк ${r.lines}, новых товаров ${r.created}, на ${r.total} сом${r.extras ? `, доп. расходы ${r.extras}` : ''}${r.posted ? '' : ', не проведена'}`;
+    case 'PUT /api/invoice/key': return r.configured ? 'ключ задан' : 'ключ убран';
     case 'PUT /api/timesheet/marks': return `дней: ${r.count}${r.clear ? ', правки сняты' : ''}${r.status !== undefined ? `, ${{ work: 'рабочий', off: 'выходной' }[r.status] || 'по сменам'}` : ''}${r.amount !== undefined ? `, сумма ${r.amount ?? 'по расчёту'}` : ''}${r.color !== undefined ? `, цвет ${r.color || 'без цвета'}` : ''}`;
     case 'POST /api/recurring-expenses':
     case 'PUT /api/recurring-expenses/:id':

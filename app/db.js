@@ -2435,6 +2435,110 @@ function createStore(file) {
       });
     },
 
+    /* ---------- Приход по накладной (фото) ---------- */
+    // Подбирает товар в базе к строке накладной: штрихкод, артикул, код, точное название, похожее название.
+    matchInvoiceLines(lines) {
+      const all = db.prepare(`SELECT id, name, code, barcode, article, unit, price, cost, COALESCE(purchase, cost) AS purchase FROM products p
+        WHERE deleted = 0 AND NOT EXISTS (SELECT 1 FROM products c WHERE c.parent_id = p.id AND c.deleted = 0)`).all();
+      // «95г» и «95 г», «Кофе,растворимый» и «кофе растворимый» — одно и то же.
+      const norm = (v) => String(v ?? '').toLowerCase().replace(/ё/g, 'е').replace(/(\d)([a-zа-я])/gi, '$1 $2').replace(/([a-zа-я])(\d)/gi, '$1 $2')
+        .replace(/[^a-zа-я0-9%.,]+/gi, ' ').replace(/\s+/g, ' ').trim();
+      // Слова без единиц измерения; «гр» = «г». Сокращение («раствор.») совпадает с началом слова.
+      const UNITS = new Set(['г', 'гр', 'кг', 'л', 'мл', 'шт', 'уп', 'м', 'см', 'мм', 'pcs', 'g', 'kg', 'ml']);
+      const words = (v) => new Set(norm(v).replace(/[.,]+(\s|$)/g, ' ').split(' ').filter((w) => w && !UNITS.has(w) && (w.length > 1 || /\d/.test(w))));
+      const same = (a, b) => a === b || (Math.min(a.length, b.length) >= 4 && (a.startsWith(b) || b.startsWith(a)));
+      const prepared = all.map((p) => ({ p, n: norm(p.name), w: words(p.name) }));
+      return lines.map((l) => {
+        const bc = String(l.barcode || '').replace(/\D/g, '');
+        const art = norm(l.article);
+        let hit = bc.length >= 8 && all.find((p) => p.barcode === bc);
+        let how = hit ? 'штрихкод' : '';
+        if (!hit && art) { hit = all.find((p) => (p.article && norm(p.article) === art) || (p.code && norm(p.code) === art)); how = hit ? 'артикул' : ''; }
+        if (!hit) { const n = norm(l.name); hit = prepared.find((x) => x.n === n)?.p; how = hit ? 'название' : ''; }
+        if (!hit) {
+          // Похожее название: доля общих слов (Жаккар). Ниже 0.6 — считаем новым товаром.
+          const lw = words(l.name);
+          let best = null, score = 0;
+          for (const x of prepared) {
+            let common = 0;
+            for (const w of lw) if (x.w.has(w) || [...x.w].some((w2) => same(w, w2))) common++;
+            const sc = common / (lw.size + x.w.size - common || 1);
+            if (sc > score) { score = sc; best = x.p; }
+          }
+          if (score >= 0.6) { hit = best; how = `похоже на ${Math.round(score * 100)}%`; }
+        }
+        return hit ? { product: hit, how } : { product: null, how: '' };
+      });
+    },
+
+    // Приход по накладной: цены из валюты накладной переводятся в сомы по курсу, доп. расходы
+    // (зарплата, доставка…) делятся по строкам пропорционально сумме и входят в себестоимость.
+    // Новые товары заводятся, документ «Закупка» создаётся и, если post, проводится.
+    // lines — [{ product_id | null, name, category, unit, barcode, article, qty, price_cur, price (продажи) }].
+    receiveInvoice(input, user = null) {
+      const currency = ['USD', 'KGS', 'RUB', 'CNY', 'KZT', 'EUR'].includes(input.currency) ? input.currency : 'KGS';
+      const rate = currency === 'KGS' ? 1 : number(input.rate, 'Курс', { positive: true });
+      const lines = Array.isArray(input.lines) ? input.lines.filter((l) => l && Number(l.qty) > 0) : [];
+      if (!lines.length) throw new UserError('В накладной нет строк с количеством');
+      if (lines.length > 500) throw new UserError('Слишком много строк за раз');
+      const extras = (Array.isArray(input.extras) ? input.extras : [])
+        .map((e) => ({ name: text(e.name, 'Расход', { max: 60 }) || 'Доп. расход', amount: round2(number(e.amount || 0, 'Сумма расхода')) }))
+        .filter((e) => e.amount > 0);
+      const extrasTotal = round2(extras.reduce((s, e) => s + e.amount, 0));
+      const prepared = lines.map((l, i) => {
+        const qty = number(l.qty, `Количество в строке ${i + 1}`, { positive: true });
+        const priceCur = number(l.price_cur ?? 0, `Цена в строке ${i + 1}`);
+        const purchase = round2(priceCur * rate);
+        const sale = round2(number(l.price ?? 0, `Цена продажи в строке ${i + 1}`));
+        const p = l.product_id ? getProduct(l.product_id) : null;
+        if (p && childrenOf(p.id).length) throw new UserError(`У «${p.name}» есть модификации — выберите нужную`);
+        return { l, p, qty, purchase, sale, sum: purchase * qty };
+      });
+      const total = prepared.reduce((s, x) => s + x.sum, 0);
+      for (const x of prepared) x.extra = total > 0 ? round2(extrasTotal * (x.sum / total) / x.qty) : 0;
+      const when = input.date ? number(input.date, 'Дата', { positive: true }) : Date.now();
+      const num = text(input.number, 'Номер накладной', { max: 40 });
+      return transaction(db, () => {
+        let supplierId = input.supplier_id ? Number(input.supplier_id) : null;
+        const supplierName = text(input.supplier_name, 'Поставщик', { max: 120 });
+        if (!supplierId && supplierName) {
+          const found = db.prepare('SELECT id, name FROM suppliers').all().find((s) => s.name.toLowerCase() === supplierName.toLowerCase());
+          supplierId = found ? found.id : this.saveSupplier(null, { name: supplierName }).id;
+        }
+        let created = 0;
+        for (const x of prepared) {
+          if (x.p) continue;
+          const name = text(x.l.name, 'Название товара', { required: true });
+          x.p = this.createProduct({ name, category: x.l.category || '', unit: x.l.unit || 'шт', barcode: String(x.l.barcode || '').replace(/\D/g, '').slice(0, 64),
+            article: x.l.article || '', purchase: x.purchase, cost: round2(x.purchase + x.extra), price: x.sale, supplier_id: supplierId, stock: 0 });
+          x.isNew = true;
+          created++;
+        }
+        const rateNote = currency === 'KGS' ? '' : `курс 1 ${currency} = ${rate} сом`;
+        const note = [num ? `Накладная №${num}` : 'Приход по фото накладной', rateNote,
+          extras.length ? `доп. расходы: ${extras.map((e) => `${e.name} ${e.amount}`).join(', ')}` : ''].filter(Boolean).join(' · ');
+        const doc = this.saveDoc(null, { kind: 'purchase', supplier_id: supplierId, doc_date: when, note: note.slice(0, 500),
+          items: prepared.map((x) => ({ productId: x.p.id, qty: x.qty, cost: x.purchase })) }, user);
+        let updated = 0;
+        if (input.post !== false) {
+          this.postDoc(doc.id, user);
+          // После проведения: себестоимость = цена закупки (средняя) + доп. расходы этой партии на единицу; цена продажи — новая.
+          for (const x of prepared) {
+            const p = getProduct(x.p.id);
+            const price = x.isNew || input.updatePrices !== false ? (x.sale > 0 ? x.sale : p.price) : p.price;
+            db.prepare('UPDATE products SET cost = ?, price = ? WHERE id = ?').run(round2((p.purchase ?? p.cost) + x.extra), price, p.id);
+            if (!x.isNew && price !== p.price) updated++;
+          }
+        }
+        if (input.recordExpenses !== false) {
+          const who = supplierId ? db.prepare('SELECT name FROM suppliers WHERE id = ?').get(supplierId)?.name || '' : '';
+          for (const e of extras) this.addExpense({ category: e.name, amount: e.amount, at: when, note: `${num ? `Накладная №${num}` : 'Приход по накладной'}${who ? `, ${who}` : ''}` }, user);
+        }
+        if (currency === 'USD') this.setSetting('usd_rate', String(rate));
+        return { doc: this.getDoc(doc.id), created, updated, lines: prepared.length, total: round2(total), extras: extrasTotal, posted: input.post !== false };
+      });
+    },
+
     /* ---------- Постоянные расходы ---------- */
     listRecurring() {
       return db.prepare('SELECT * FROM recurring_expenses ORDER BY sort, id').all().map((r) => ({ ...r, active: Boolean(r.active) }));

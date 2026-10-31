@@ -57,10 +57,15 @@ async function renderAbc() {
 const abcNum = (id, def) => { const v = parseNum($(id).value); return Number.isFinite(v) && v > 0 ? v : def; };
 
 function abcCompute() {
-  const d = abc.data;
+  abc.rows = abcClassify(abc.data, abc.by);
+  abc.total = abc.rows.reduce((s, p) => s + p.value, 0);
+}
+
+// Делит товары на группы ABC и XYZ. d — ответ /api/reports/abc, by — revenue | profit | qty.
+function abcClassify(d, by) {
   const A = abcNum('#abc-a', 80) / 100, B = Math.max(A, abcNum('#abc-b', 95) / 100);
   const X = abcNum('#abc-x', 20) / 100, Y = Math.max(X, abcNum('#abc-y', 40) / 100);
-  const val = (p) => Math.max(0, p[abc.by]);
+  const val = (p) => Math.max(0, p[by]);
   const list = d.products.map((p) => ({ ...p, value: val(p) })).sort((a, b) => b.value - a.value);
   const total = list.reduce((s, p) => s + p.value, 0);
   let acc = 0;
@@ -82,11 +87,56 @@ function abcCompute() {
     p.fewData = s.length < 3;
     p.frozen = p.stock > 0 ? p.stock * (p.purchase || 0) : 0;
   }
-  abc.rows = list;
-  abc.total = total;
+  return list;
 }
 
 const ABC_COLORS = { A: 'a', B: 'b', C: 'c' };
+
+// Матрица 3×3: число товаров, доля и сумма в остатке. selected — выделенная клетка.
+function abcMatrixHtml(rows, by, selected = '') {
+  const total = rows.reduce((s, p) => s + p.value, 0);
+  const cellOf = (a, x) => rows.filter((p) => p.abc === a && p.xyz === x);
+  return `<div class="abc-corner"></div>${['X', 'Y', 'Z'].map((x) => `<div class="abc-colhead">${x}<small>${{ X: 'ровно', Y: 'колеблется', Z: 'рывками' }[x]}</small></div>`).join('')}
+    ${['A', 'B', 'C'].map((a) => `<div class="abc-rowhead">${a}<small>${{ A: '80% денег', B: '15%', C: '5%' }[a]}</small></div>
+      ${['X', 'Y', 'Z'].map((x) => {
+        const list = cellOf(a, x);
+        const value = list.reduce((s, p) => s + p.value, 0);
+        const frozen = list.reduce((s, p) => s + p.frozen, 0);
+        const key = a + x;
+        return `<button type="button" class="abc-cell abc-${key.toLowerCase()} ${selected === key ? 'on' : ''}" data-abc-cell="${key}" aria-pressed="${selected === key}" title="${esc(ABC_ADVICE[key][0] + ': ' + ABC_ADVICE[key][1])}">
+          <span class="abc-key">${key}</span>
+          <b class="num">${int(list.length)}</b><span class="abc-cell-sub">${plural(list.length, ['товар', 'товара', 'товаров'])}</span>
+          <span class="abc-cell-meta">${total ? pct(value / total) : '0%'} ${ABC_BY[by]}${frozen >= 1 ? ` · в остатке ${moneyShort(frozen)}` : ''}</span>
+        </button>`;
+      }).join('')}`).join('')}`;
+}
+
+// Матрица на главной: 13 полных недель по выручке. Клетка открывает полный анализ с её товарами.
+async function renderHomeAbc() {
+  const box = $('#home-abc');
+  if (!box) return;
+  const saved = abc.period;
+  abc.period = 'w13';
+  const { from, to } = abcRange();
+  abc.period = saved;
+  let d;
+  try { d = await api(`/api/reports/abc?from=${from}&to=${to}&bucket=week`); } catch { box.hidden = true; return; }
+  box.hidden = false;
+  const rows = abcClassify(d, 'revenue');
+  const a = rows.filter((p) => p.abc === 'A');
+  const cz = rows.filter((p) => p.abc === 'C' && p.xyz === 'Z');
+  $('#home-abc-sub').textContent = `13 полных недель по выручке: ${a.length} ${plural(a.length, ['товар', 'товара', 'товаров'])} группы A дают ${pct(a.reduce((s, p) => s + p.share, 0))} выручки${cz.length ? ` · ${cz.length} в CZ — кандидаты на распродажу` : ''}. Нажмите на клетку — откроется подробный анализ.`;
+  $('#home-abc-matrix').innerHTML = abcMatrixHtml(rows, 'revenue');
+}
+document.addEventListener('click', (e) => {
+  const cell = e.target.closest('#home-abc [data-abc-cell]');
+  if (!cell) return;
+  abc.cell = cell.dataset.abcCell;
+  abc.filter = '';
+  abc.by = 'revenue';
+  abc.period = 'w13';
+  location.hash = 'abc';
+});
 
 function abcDraw() {
   const rows = abc.rows;
@@ -95,21 +145,9 @@ function abcDraw() {
   $('#abc-by').innerHTML = Object.entries(ABC_BY).map(([k, l]) => `<button type="button" class="chip" data-abc-by="${k}" aria-pressed="${k === abc.by}">${l[0].toUpperCase() + l.slice(1)}</button>`).join('');
   const fmtVal = (v) => (abc.by === 'qty' ? `${qtyFmt.format(Math.round(v))} шт` : money(v));
 
-  // Матрица 3×3: число товаров, доля и сумма в остатке.
   const cellOf = (a, x) => rows.filter((p) => p.abc === a && p.xyz === x);
-  $('#abc-matrix').innerHTML = `<div class="abc-corner"></div>${['X', 'Y', 'Z'].map((x) => `<div class="abc-colhead">${x}<small>${{ X: 'ровно', Y: 'колеблется', Z: 'рывками' }[x]}</small></div>`).join('')}
-    ${['A', 'B', 'C'].map((a) => `<div class="abc-rowhead">${a}<small>${{ A: '80% денег', B: '15%', C: '5%' }[a]}</small></div>
-      ${['X', 'Y', 'Z'].map((x) => {
-        const list = cellOf(a, x);
-        const value = list.reduce((s, p) => s + p.value, 0);
-        const frozen = list.reduce((s, p) => s + p.frozen, 0);
-        const key = a + x;
-        return `<button type="button" class="abc-cell abc-${key.toLowerCase()} ${abc.cell === key ? 'on' : ''}" data-abc-cell="${key}" aria-pressed="${abc.cell === key}">
-          <span class="abc-key">${key}</span>
-          <b class="num">${int(list.length)}</b><span class="abc-cell-sub">${plural(list.length, ['товар', 'товара', 'товаров'])}</span>
-          <span class="abc-cell-meta">${abc.total ? pct(value / abc.total) : '0%'} ${by}${frozen >= 1 ? ` · в остатке ${moneyShort(frozen)}` : ''}</span>
-        </button>`;
-      }).join('')}`).join('')}`;
+  $('#abc-matrix').innerHTML = abcMatrixHtml(rows, abc.by, abc.cell);
+
 
   // Советы: по выбранной клетке или по всем.
   const counts = (key) => cellOf(key[0], key[1]).length;

@@ -103,6 +103,14 @@
     </div>
   </section>
 
+  <section class="panel home-abc" id="home-abc" hidden>
+    <div class="panel-head">
+      <div><h2>ABC / XYZ матрица</h2><p class="sub" id="home-abc-sub"></p></div>
+      <a class="btn small ghost" href="#abc">Подробный анализ</a>
+    </div>
+    <div class="abc-matrix" id="home-abc-matrix"></div>
+  </section>
+
   <section class="panel">
     <div class="panel-head">
       <div>
@@ -311,6 +319,81 @@
 <main class="page" data-view="more" hidden>
   <header class="top"><div class="title"><h1>Ещё</h1></div></header>
   <div class="more-groups" id="more-groups"></div>
+</main>
+
+<main class="page" data-view="receive" hidden>
+  <header class="top">
+    <div class="title"><h1>Приход по накладной</h1><span class="source" id="rc-sub">Сфотографируйте накладную — программа сама разнесёт товар</span></div>
+  </header>
+
+  <section class="panel rc-key" id="rc-key" hidden>
+    <h2>Распознавание фото</h2>
+    <p class="sub">Фото накладной читает нейросеть Claude. Нужен ключ Claude API: зарегистрируйтесь на <b>console.anthropic.com</b>, пополните баланс и создайте ключ в разделе API Keys (начинается с <code>sk-ant-</code>). Одна накладная стоит примерно 1–5 центов. Ключ хранится в программе и нужен один раз для всех магазинов.</p>
+    <form id="rc-key-form" class="rc-key-form" novalidate>
+      <input class="input" name="key" type="password" autocomplete="off" placeholder="sk-ant-..." aria-label="Ключ Claude API">
+      <button type="submit" class="btn primary">Сохранить ключ</button>
+    </form>
+    <p class="pick-meta" id="rc-key-note"></p>
+  </section>
+
+  <section class="panel rc-head">
+    <div class="rc-grid">
+      <div class="field"><label for="rc-supplier">Поставщик</label><input id="rc-supplier" class="input" list="rc-suppliers" autocomplete="off" placeholder="Выберите или впишите нового"><datalist id="rc-suppliers"></datalist></div>
+      <div class="field"><label for="rc-number">№ накладной</label><input id="rc-number" class="input" autocomplete="off"></div>
+      <div class="field"><label for="rc-date">Дата</label><input id="rc-date" type="date" class="input"></div>
+      <div class="field"><label for="rc-currency">Валюта накладной</label>
+        <select id="rc-currency" class="input"><option value="USD">Доллар $</option><option value="KGS">Сом</option><option value="RUB">Рубль</option><option value="CNY">Юань</option><option value="KZT">Тенге</option><option value="EUR">Евро</option></select></div>
+      <div class="field rc-rate-field"><label for="rc-rate">Курс: 1 <span id="rc-cur-label">$</span> = … сом</label><input id="rc-rate" class="input num big" inputmode="decimal" autocomplete="off" placeholder="Например, 87,5"></div>
+      <div class="field"><label>Наценка</label>
+        <div class="rc-markup"><input id="rc-markup" class="input num" inputmode="decimal" autocomplete="off" placeholder="40">
+          <div class="seg small" id="rc-markup-mode"><button type="button" data-mode="pct" aria-pressed="true">%</button><button type="button" data-mode="sum" aria-pressed="false">сом</button></div></div>
+      </div>
+    </div>
+    <div class="rc-extras">
+      <div class="rc-extras-head"><b>Доп. расходы на этот приход</b><span class="pick-meta">зарплата грузчикам, доставка, растаможка — делятся по товарам пропорционально сумме и входят в себестоимость</span></div>
+      <div id="rc-extras"></div>
+      <button type="button" class="link" id="rc-extra-add">+ добавить расход</button>
+    </div>
+    <div class="rc-options">
+      <label class="check"><input type="checkbox" id="rc-markup-cost"> Наценку считать с учётом доп. расходов (от себестоимости)</label>
+      <label class="check"><input type="checkbox" id="rc-update-prices" checked> Менять цену продажи у товаров, которые уже есть</label>
+      <label class="check"><input type="checkbox" id="rc-expenses" checked> Записать доп. расходы в расходы магазина (для чистой прибыли)</label>
+    </div>
+  </section>
+
+  <section class="panel rc-photos">
+    <div class="panel-head">
+      <div><h2>Фото накладной</h2><p class="sub">Можно несколько страниц. Снимайте ровно, при хорошем свете, чтобы читались все строки.</p></div>
+      <div class="tools">
+        <label class="btn" for="rc-file">📷 Сфотографировать / выбрать</label>
+        <input type="file" id="rc-file" accept="image/*" capture="environment" multiple hidden>
+        <button type="button" class="btn primary" id="rc-recognize" disabled>Распознать</button>
+      </div>
+    </div>
+    <div class="rc-thumbs" id="rc-thumbs"></div>
+    <p class="pick-meta" id="rc-status"></p>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div><h2>Товары</h2><p class="sub" id="rc-lines-sub">Строки появятся после распознавания. Можно добавить и вручную.</p></div>
+      <div class="tools"><button type="button" class="btn small" id="rc-line-add">+ Строка вручную</button></div>
+    </div>
+    <datalist id="rc-products"></datalist>
+    <div class="table-wrap">
+      <table class="rc-table">
+        <thead><tr><th>Товар</th><th>Кол-во</th><th>Цена, <span class="rc-cur">$</span></th><th>Закупка, сом</th><th>+ расходы</th><th>Себестоимость</th><th>Цена продажи</th><th></th></tr></thead>
+        <tbody id="rc-lines"></tbody>
+      </table>
+    </div>
+    <div class="rc-totals" id="rc-totals"></div>
+    <p class="form-error" id="rc-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="rc-clear">Очистить</button>
+      <button type="button" class="btn" id="rc-save-draft">Сохранить черновиком</button>
+      <button type="button" class="btn primary" id="rc-save">Оприходовать</button>
+    </div>
+  </section>
 </main>
 
 <main class="page" data-view="abc" hidden>
@@ -1429,6 +1512,7 @@
 <script src="more.js"></script>
 <script src="kpi.js"></script>
 <script src="abc.js"></script>
+<script src="receive.js"></script>
 <script src="staff-time.js"></script>
 <script src="timesheet.js"></script>
 <script src="tasks.js"></script>

@@ -671,5 +671,5 @@ $('#tbody').addEventListener('click', (e) => {
   openProductCard(Number(tr.dataset.card), stats);
 });
 
-views.home = { show: () => { renderPeriods(); load(); loadCashDesk(); }, right: 'dashboard' };
+views.home = { show: () => { renderPeriods(); load(); loadCashDesk(); if (typeof renderHomeAbc === 'function') renderHomeAbc(); }, right: 'dashboard' };
 setInterval(() => { if (currentView === 'home') load(); }, REFRESH_MS);
