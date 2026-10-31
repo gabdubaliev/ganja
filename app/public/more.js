@@ -50,16 +50,39 @@ const MORE_GROUPS = [
 
 const canAny = (rights) => [rights].flat().some((r) => session.can(r));
 
+// Все разделы программы для админ-панели владельца: верхнее меню и «Ещё».
+const MAIN_SECTIONS = [
+  ['home', 'dashboard', '🏠', 'Главная', 'Выручка, расходы, чистая прибыль, матрица, остатки'],
+  ['products', 'products', '📦', 'Товары', 'Справочник товаров и карточки'],
+  ['sales', 'sales', '🧾', 'Продажи', 'Журнал чеков'],
+  ['kassa', 'pos', '🖥️', 'Касса', 'Окно кассира'],
+];
+function allSections() {
+  return [['Верхнее меню', MAIN_SECTIONS], ...MORE_GROUPS];
+}
+// Раздел с настройками владельца: своё название, значок, скрыт ли.
+function sectionView([key, right, icon, title, about]) {
+  const s = session.layout?.sections?.[key] || {};
+  return { key, right, icon: s.icon || icon, title: s.name || title, about, hidden: Boolean(s.hidden), origIcon: icon, origTitle: title };
+}
+// Порядок разделов внутри группы — как расставил владелец.
+function orderedItems(group, items) {
+  const order = session.layout?.order?.[group];
+  if (!order?.length) return items;
+  const pos = (k) => { const i = order.indexOf(k); return i < 0 ? 1e3 : i; };
+  return [...items].sort((a, b) => pos(a[0]) - pos(b[0]));
+}
+
 function renderMore() {
   $('#more-groups').innerHTML = MORE_GROUPS.map(([group, items]) => {
-    const visible = items.filter(([, right]) => canAny(right));
+    const visible = orderedItems(group, items).map(sectionView).filter((x) => canAny(x.right) && (!x.hidden || session.isOwner));
     if (!visible.length) return '';
     return `<section class="more-group">
       <h2>${group}</h2>
-      <div class="more-tiles">${visible.map(([view, , icon, title, about]) => `
-        <a class="more-tile" href="#${view.split(':')[0]}" ${view.includes(':') ? `data-doc-kind="${view.split(':')[1]}"` : ''}>
-          <span class="more-icon" aria-hidden="true">${icon}</span>
-          <span class="more-text"><b>${title}${view === 'orders' ? ' <span class="badge" data-orders-badge hidden></span>' : view === 'tasks' ? ' <span class="badge" data-task-badge hidden></span>' : ''}</b><span>${about}</span></span>
+      <div class="more-tiles">${visible.map(({ key: view, icon, title, about, hidden }) => `
+        <a class="more-tile ${hidden ? 'layout-dim' : ''}" href="#${view.split(':')[0]}" ${view.includes(':') ? `data-doc-kind="${view.split(':')[1]}"` : ''}>
+          <span class="more-icon" aria-hidden="true">${esc(icon)}</span>
+          <span class="more-text"><b>${esc(title)}${hidden ? ' <span class="role-tag">скрыт от сотрудников</span>' : ''}${view === 'orders' ? ' <span class="badge" data-orders-badge hidden></span>' : view === 'tasks' ? ' <span class="badge" data-task-badge hidden></span>' : ''}</b><span>${about}</span></span>
         </a>`).join('')}
       </div>
     </section>`;
@@ -73,6 +96,28 @@ $('#more-groups').addEventListener('click', (e) => {
   const a = e.target.closest('[data-doc-kind]');
   if (a) docsView.kind = a.dataset.docKind;
 });
+
+// Разделы, которые владелец закрепил в верхнем меню (рядом с «Главная», «Товары», «Продажи»).
+function renderPinned() {
+  for (const a of document.querySelectorAll('.nav a.nav-pinned')) a.remove();
+  const all = new Map(allSections().flatMap(([, items]) => items).map((x) => [x[0], x]));
+  const more = $('#nav-more');
+  if (!more) return;
+  for (const key of session.layout?.pinned || []) {
+    const item = all.get(key);
+    if (!item) continue;
+    const x = sectionView(item);
+    if (!canAny(x.right) || (x.hidden && !session.isOwner)) continue;
+    const a = document.createElement('a');
+    a.className = 'nav-pinned';
+    a.href = `#${key.split(':')[0]}`;
+    if (key.includes(':')) a.dataset.docKind = key.split(':')[1];
+    a.innerHTML = `<span class="nav-emoji" aria-hidden="true">${esc(x.icon)}</span><span>${esc(x.title)}</span>`;
+    a.addEventListener('click', () => { if (a.dataset.docKind) docsView.kind = a.dataset.docKind; });
+    more.before(a);
+  }
+}
+session.ready.then(renderPinned);
 
 // Раздел открыт, если есть хоть одно право на что-то внутри.
 views.more = { show: renderMore, right: null };

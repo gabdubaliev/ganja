@@ -673,5 +673,21 @@ $('#tbody').addEventListener('click', (e) => {
   openProductCard(Number(tr.dataset.card), stats);
 });
 
-views.home = { show: () => { renderPeriods(); load(); loadCashDesk(); if (typeof renderHomeAbc === 'function') renderHomeAbc(); }, right: 'dashboard' };
+// Блоки главной — их порядок и видимость настраивает владелец в админ-панели.
+const HOME_BLOCKS = [
+  ['cash-desk', 'Касса сейчас'], ['kpis', 'Плитки: выручка, расходы, прибыль, чеки'], ['net-profit', 'Расходы и чистая прибыль'],
+  ['home-chart', 'График выручки'], ['home-hits', 'Топ товаров и сотрудников'], ['home-abc', 'ABC / XYZ матрица'], ['home-stock', 'Товары и остатки'],
+];
+function applyHomeLayout() {
+  const page = document.querySelector('main[data-view="home"]');
+  const cfg = session.layout?.home || {};
+  const order = [...(cfg.order || []), ...HOME_BLOCKS.map(([id]) => id).filter((id) => !(cfg.order || []).includes(id))];
+  for (const id of order) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    page.append(el);
+    el.classList.toggle('layout-hidden', (cfg.hidden || []).includes(id));
+  }
+}
+views.home = { show: () => { applyHomeLayout(); renderPeriods(); load(); loadCashDesk(); if (typeof renderHomeAbc === 'function') renderHomeAbc(); }, right: 'dashboard' };
 setInterval(() => { if (currentView === 'home') load(); }, REFRESH_MS);

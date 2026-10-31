@@ -448,6 +448,8 @@ function open(file) {
   addColumns('sale_items', [['purchase', 'REAL']]);
   db.exec('UPDATE sale_items SET purchase = cost WHERE purchase IS NULL');
   addColumns('doc_items', [['prev_purchase', 'REAL']]);
+  // Зашифрованные копии пароля и PIN, заданных владельцем или администратором (для просмотра владельцем).
+  addColumns('users', [['secret_pw', 'TEXT'], ['secret_pin', 'TEXT']]);
   db.exec(`
     CREATE INDEX IF NOT EXISTS doc_items_product ON doc_items(product_id);
     CREATE INDEX IF NOT EXISTS sale_items_product ON sale_items(product_id);
@@ -608,7 +610,8 @@ const DOC_KINDS = {
   transfer: { name: 'Перемещение', many: 'Перемещения', right: 'transfer' },
 };
 
-const publicUser = ({ password_hash, pin_hash, ...u }) => ({ ...u, hasPin: Boolean(pin_hash), disabled: Boolean(u.disabled), rights: u.rights ? JSON.parse(u.rights) : null,
+const publicUser = ({ password_hash, pin_hash, secret_pw, secret_pin, ...u }) => ({ ...u, hasPin: Boolean(pin_hash), hasPassCopy: Boolean(secret_pw), hasPinCopy: Boolean(secret_pin),
+  disabled: Boolean(u.disabled), rights: u.rights ? JSON.parse(u.rights) : null,
   payment_methods: u.payment_methods ? JSON.parse(u.payment_methods) : null, stores: u.stores ? JSON.parse(u.stores) : [] });
 
 function rightsList(value) {
@@ -954,7 +957,7 @@ function createStore(file) {
     allowedPaymentMethods(user) {
       const active = this.listPaymentMethods();
       const own = user?.payment_methods ? JSON.parse(user.payment_methods) : null;
-      return Array.isArray(own) && user.role !== 'admin' ? active.filter((m) => own.includes(m.id)) : active;
+      return Array.isArray(own) && !['admin', 'owner'].includes(user.role) ? active.filter((m) => own.includes(m.id)) : active;
     },
 
     // Способ оплаты для чека: по id или, для старых запросов, первый способ нужного типа.
@@ -2699,8 +2702,8 @@ function createStore(file) {
       const pay = payFields(input, current);
       const other = this.findUserByEmail(next.email);
       if (other && other.id !== current.id) throw new UserError('Сотрудник с таким email уже есть');
-      if (current.role === 'admin' && !current.disabled && (next.role !== 'admin' || next.disabled) && this.activeAdmins() <= 1) {
-        throw new UserError('Это единственный администратор. Сначала назначьте другого.');
+      if (current.role === 'owner' && !current.disabled && (next.role !== 'owner' || next.disabled) && this.activeOwners() <= 1) {
+        throw new UserError('Это единственный владелец. Сначала назначьте владельцем другого сотрудника.');
       }
       const rights = input.rights === undefined ? current.rights : rightsList(input.rights);
       const maxDiscount = input.max_discount === undefined ? current.max_discount
@@ -2755,7 +2758,7 @@ function createStore(file) {
     shadowOf(src, { owner = false } = {}) {
       const cur = db.prepare('SELECT * FROM users WHERE email = ?').get(src.email);
       if (cur && !cur.owner_shadow && !cur.moved_to) throw new UserError(`В этом магазине уже есть сотрудник с email ${src.email}`);
-      const f = owner ? { role: 'admin', rights: null, max_discount: null } : { role: src.role, rights: src.rights, max_discount: src.max_discount };
+      const f = owner ? { role: 'owner', rights: null, max_discount: null } : { role: src.role, rights: src.rights, max_discount: src.max_discount };
       if (cur) {
         db.prepare('UPDATE users SET name = ?, password_hash = ?, pin_hash = ?, role = ?, rights = ?, max_discount = ?, disabled = 0, owner_shadow = 1, moved_to = NULL WHERE id = ?')
           .run(src.name, src.password_hash, src.pin_hash ?? null, f.role, f.rights, f.max_discount, cur.id);
@@ -2787,7 +2790,7 @@ function createStore(file) {
       const u = this.findUser(id);
       if (!u) throw new UserError('Сотрудник не найден');
       if (this.currentShift(u.id)) throw new UserError('У сотрудника открыта смена — сначала закройте её');
-      if (u.role === 'admin' && !u.disabled && this.activeAdmins() <= 1) throw new UserError('Это единственный администратор магазина. Сначала назначьте другого.');
+      if (u.role === 'owner') throw new UserError('Владельца нельзя перевести в другой магазин — он работает во всех');
       db.prepare('UPDATE users SET disabled = 1, moved_to = ? WHERE id = ?').run(to, u.id);
       return u;
     },
@@ -2810,18 +2813,47 @@ function createStore(file) {
     deleteUser(id) {
       const current = this.findUser(id);
       if (!current) throw new UserError('Сотрудник не найден');
-      if (current.role === 'admin' && !current.disabled && this.activeAdmins() <= 1) {
-        throw new UserError('Это единственный администратор. Сначала назначьте другого.');
+      if (current.role === 'owner' && !current.disabled && this.activeOwners() <= 1) {
+        throw new UserError('Это единственный владелец. Сначала назначьте владельцем другого сотрудника.');
       }
       db.prepare('DELETE FROM users WHERE id = ?').run(current.id);
       return { ok: true };
     },
 
+    // Кто может управлять программой: владельцы и администраторы.
     activeAdmins() {
-      return db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND disabled = 0").get().n;
+      return db.prepare("SELECT COUNT(*) AS n FROM users WHERE role IN ('owner', 'admin') AND disabled = 0").get().n;
     },
 
-    // Администратор из переменных ADMIN_EMAIL и ADMIN_PASSWORD. Пароль записывается, когда сотрудника
+    activeOwners() {
+      return db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'owner' AND disabled = 0 AND owner_shadow = 0").get().n;
+    },
+
+    // Основной магазин: если владельца ещё нет (базы до разделения ролей), им становится первый администратор.
+    ensureOwner() {
+      if (this.activeOwners() || !this.countUsers()) return null;
+      const first = db.prepare("SELECT * FROM users WHERE role = 'admin' AND disabled = 0 AND owner_shadow = 0 AND moved_to IS NULL ORDER BY created_at, id LIMIT 1").get();
+      if (first) db.prepare("UPDATE users SET role = 'owner', rights = NULL, name = CASE WHEN name IN ('', 'Администратор') THEN 'Владелец' ELSE name END WHERE id = ?").run(first.id);
+      return first || null;
+    },
+
+    // Копия пароля и PIN, которые задал владелец или администратор, — зашифрованно, чтобы владелец мог посмотреть.
+    // Пароль, который сотрудник сменил сам, не хранится: копия стирается.
+    setUserSecrets(id, { password, pin } = {}, encrypt) {
+      const u = this.findUser(id);
+      if (!u) return;
+      if (password !== undefined) db.prepare('UPDATE users SET secret_pw = ? WHERE id = ?').run(password === null ? null : encrypt(password), u.id);
+      if (pin !== undefined) db.prepare('UPDATE users SET secret_pin = ? WHERE id = ?').run(pin === null ? null : encrypt(pin), u.id);
+    },
+
+    // Последний вход каждого сотрудника: когда, с какого IP и устройства.
+    lastLogins() {
+      return Object.fromEntries(db.prepare(`SELECT a.user_id, a.at, a.ip, a.device FROM audit a
+        JOIN (SELECT user_id, MAX(at) AS at FROM audit WHERE kind = 'login' AND user_id IS NOT NULL GROUP BY user_id) m ON m.user_id = a.user_id AND m.at = a.at
+        WHERE a.kind = 'login'`).all().map((r) => [r.user_id, { at: r.at, ip: r.ip, device: r.device }]));
+    },
+
+    // Владелец из переменных ADMIN_EMAIL и ADMIN_PASSWORD. Пароль записывается, когда сотрудника
     // ещё нет или когда пароль в переменной поменяли (fingerprint — отпечаток пары email и пароля):
     // так пароль, сменённый в программе, не сбрасывается при каждом перезапуске сервера.
     ensureAdmin(adminEmail, makeHash, fingerprint) {
@@ -2829,10 +2861,10 @@ function createStore(file) {
       const current = this.findUserByEmail(e);
       const applied = db.prepare("SELECT value FROM settings WHERE key = 'admin_env'").get()?.value;
       let user;
-      if (!current) user = this.createUser({ email: e, name: 'Администратор', role: 'admin' }, makeHash());
+      if (!current) user = this.createUser({ email: e, name: 'Владелец', role: 'owner' }, makeHash());
       else {
         const hash = applied === fingerprint ? current.password_hash : makeHash();
-        db.prepare("UPDATE users SET role = 'admin', disabled = 0, password_hash = ? WHERE id = ?").run(hash, current.id);
+        db.prepare("UPDATE users SET role = 'owner', rights = NULL, disabled = 0, password_hash = ?, name = CASE WHEN name IN ('', 'Администратор') THEN 'Владелец' ELSE name END WHERE id = ?").run(hash, current.id);
         user = publicUser(this.findUser(current.id));
       }
       this.setSetting('admin_env', fingerprint);

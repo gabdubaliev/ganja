@@ -7,6 +7,7 @@
 const crypto = require('node:crypto');
 
 const COOKIE = 'shop_session';
+const OWNER_COOKIE = 'shop_owner';
 const SESSION_DAYS = 30;
 const MAX_FAILURES = 10;
 const FAILURE_WINDOW_MS = 15 * 60_000;
@@ -41,12 +42,27 @@ function createAuth(users, secret) {
     return crypto.timingSafeEqual(x, y);
   }
 
-  function readCookie(req) {
+  function readCookie(req, cookie = COOKIE) {
     for (const part of String(req.headers.cookie || '').split(';')) {
       const [name, ...rest] = part.trim().split('=');
-      if (name === COOKIE) return rest.join('=');
+      if (name === cookie) return rest.join('=');
     }
     return '';
+  }
+
+  // Сотрудник по значению cookie сессии (подпись проверяется).
+  function userFromValue(value) {
+    const [id, expires, signature] = String(value || '').split('.');
+    if (!id || !expires || !signature || Number(expires) < Date.now()) return null;
+    const user = users.findUser(id);
+    if (!user || user.disabled) return null;
+    return sameText(signature, sign(`${id}.${expires}.${user.password_hash}`)) ? user : null;
+  }
+
+  function sessionCookie(req, user) {
+    const expires = String(Date.now() + SESSION_DAYS * 864e5);
+    const value = `${keyOf(user)}.${expires}`;
+    return `${COOKIE}=${value}.${sign(`${value}.${user.password_hash}`)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${isSecure(req) ? '; Secure' : ''}`;
   }
 
   function isSecure(req) {
@@ -65,11 +81,23 @@ function createAuth(users, secret) {
 
     // Сотрудник текущей сессии или null.
     currentUser(req) {
-      const [id, expires, signature] = readCookie(req).split('.');
-      if (!id || !expires || !signature || Number(expires) < Date.now()) return null;
-      const user = users.findUser(id);
-      if (!user || user.disabled) return null;
-      return sameText(signature, sign(`${id}.${expires}.${user.password_hash}`)) ? user : null;
+      return userFromValue(readCookie(req));
+    },
+
+    // Вход владельца от имени сотрудника: сессия сотрудника, а сессия владельца бережётся в cookie shop_owner,
+    // чтобы вернуться одной кнопкой. ownerOf — владелец, который сейчас смотрит от имени сотрудника.
+    actAsCookies(req, target) {
+      const own = readCookie(req, OWNER_COOKIE) || readCookie(req);
+      const secure = isSecure(req) ? '; Secure' : '';
+      return [sessionCookie(req, target), `${OWNER_COOKIE}=${own}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${86400}${secure}`];
+    },
+    ownerOf(req) {
+      return userFromValue(readCookie(req, OWNER_COOKIE));
+    },
+    returnCookies(req) {
+      const own = readCookie(req, OWNER_COOKIE);
+      const secure = isSecure(req) ? '; Secure' : '';
+      return [`${COOKIE}=${own}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${secure}`, `${OWNER_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`];
     },
 
     // Возвращает { ok, cookie, user } или { ok: false, error, status }.
@@ -123,7 +151,8 @@ function createAuth(users, secret) {
     },
 
     logoutCookie(req) {
-      return `${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${isSecure(req) ? '; Secure' : ''}`;
+      const secure = isSecure(req) ? '; Secure' : '';
+      return [`${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`, `${OWNER_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`];
     },
   };
 }

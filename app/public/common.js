@@ -210,8 +210,50 @@ const KASSA_TOO = new Set(['orders', 'tasks']);
 const views = {};
 let currentView = null;
 
+// Скрытый владельцем раздел не открывается никому, кроме владельца.
+const sectionHidden = (key) => Boolean(session.layout?.sections?.[key]?.hidden) && !session.isOwner;
+
+// Настройки владельца в меню: скрытые разделы, свои названия.
+function applyLayout() {
+  const sections = session.layout?.sections || {};
+  for (const a of document.querySelectorAll('.nav a[href^="#"], .nav a.nav-kassa')) {
+    const key = a.classList.contains('nav-kassa') ? 'kassa' : a.getAttribute('href').slice(1);
+    const s = sections[key];
+    if (!s) continue;
+    if (s.hidden) {
+      if (session.isOwner) a.classList.add('layout-dim'); else a.classList.add('layout-hidden');
+    }
+    const label = a.querySelector('span:not(.badge)');
+    if (s.name && label) label.textContent = s.name;
+  }
+}
+
+// Владелец смотрит программу от имени сотрудника: полоса сверху и кнопка «Вернуться».
+function showActingBanner(user) {
+  const bar = document.createElement('div');
+  bar.className = 'acting-bar';
+  bar.innerHTML = `<span>👁 Вы смотрите программу как <b>${esc(user.name || user.email)}</b> (${esc(session.roleName(user.role))}) — так её видит сотрудник. Ваши действия запишутся в журнал с пометкой.</span>
+    <button type="button" class="btn small">Вернуться к владельцу</button>`;
+  bar.querySelector('button').addEventListener('click', async () => {
+    try {
+      await api('/api/act-as/stop', { method: 'POST' });
+      // Полная перезагрузка: сменилось, кто вошёл.
+      location.replace(`/?back=${Date.now()}#users`);
+    } catch (err) { toast(err.message, 'error'); }
+  });
+  document.body.prepend(bar);
+}
+
+// Открыть программу от имени сотрудника (только владелец).
+async function actAsUser(id, branch = null) {
+  try {
+    const r = await api('/api/act-as', { method: 'POST', body: { id, branch } });
+    location.replace(r.kassa ? '/kassa.html' : '/');
+  } catch (err) { toast(err.message, 'error'); }
+}
+
 function route() {
-  const allowed = Object.keys(views).filter((name) => [views[name].right].flat().some((r) => session.can(r)));
+  const allowed = Object.keys(views).filter((name) => [views[name].right].flat().some((r) => session.can(r)) && !sectionHidden(name));
   // Если всё доступное сотруднику есть и в окне кассы (заказы), ему туда: «Ещё» не в счёт.
   const ownWork = allowed.filter((name) => name !== 'more' && (IS_KASSA || !KASSA_TOO.has(name)));
   if (!ownWork.length) {
@@ -238,7 +280,13 @@ const session = {
   roleName(role) { return this.roles[role]?.name || role; },
 };
 session.ready = api('/api/status').then((s) => {
-  Object.assign(session, { user: s.user, rights: new Set(s.can), roles: s.roles, rightsList: s.rights, loyalty: s.loyalty, design: s.design, shop: s.shop, branch: s.branch });
+  Object.assign(session, { user: s.user, rights: new Set(s.can), roles: s.roles, rightsList: s.rights, loyalty: s.loyalty, design: s.design, shop: s.shop, branch: s.branch,
+    auth: s.auth, layout: s.layout || {} });
+  // Владелец (или программа без входа) — админ-панель и скрытые разделы видны только ему.
+  session.isOwner = !s.auth || s.user?.role === 'owner';
+  if (session.isOwner) session.rights.add('__owner');
+  applyLayout();
+  if (s.user?.actingAs) showActingBanner(s.user);
   applyBrand(s.design.name);
   setOrdersBadge(s.newOrders);
   for (const el of document.querySelectorAll('[data-can]')) el.hidden = !session.can(el.dataset.can);

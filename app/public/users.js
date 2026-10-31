@@ -10,6 +10,10 @@ const multiStore = () => (session.branch?.count || 1) > 1;
 const canManageStores = () => multiStore() && session.user?.owner;
 const branchName = (id) => session.branch?.allowed?.find((b) => b.id === id)?.name || `Магазин №${id}`;
 const branchQuery = (id) => (id && id !== session.branch?.id ? `?branch=${id}` : '');
+// Владелец (или программа без входа) — может всё: назначать администраторов, смотреть пароли, входить от имени сотрудника.
+const iAmOwner = () => !session.auth || session.user?.role === 'owner';
+const seesSecrets = () => iAmOwner() || session.can('staff.passwords');
+const loginText = (l) => (l ? `${dateTime(l.at)}${l.ip ? ` · IP ${l.ip}` : ''}${l.device ? ` · ${l.device}` : ''}` : 'ещё не входил');
 
 async function renderUsers() {
   if (usersView.branch === null) usersView.branch = session.branch?.id || 1;
@@ -25,18 +29,26 @@ async function renderUsers() {
     return toast(err.message, 'error');
   }
   const admins = usersList.filter((u) => u.role === 'admin' && !u.disabled).length;
-  $('#users-summary').textContent = `${usersList.length} ${plural(usersList.length, ['сотрудник', 'сотрудника', 'сотрудников'])} · ${admins} ${plural(admins, ['администратор', 'администратора', 'администраторов'])}`;
+  const owners = usersList.filter((u) => u.role === 'owner' && !u.disabled).length;
+  $('#users-summary').textContent = `${usersList.length} ${plural(usersList.length, ['сотрудник', 'сотрудника', 'сотрудников'])}${owners ? ` · владелец` : ''} · ${admins} ${plural(admins, ['администратор', 'администратора', 'администраторов'])}`;
+  const showLogin = usersList.some((u) => 'lastLogin' in u);
+  for (const th of document.querySelectorAll('.users-login-col')) th.hidden = !showLogin;
   $('#roles-help').innerHTML = Object.values(session.roles).map((r) => `<li><b>${esc(r.name)}</b> — ${esc(r.about)}</li>`).join('');
   $('#users-body').innerHTML = usersList.length ? usersList.map((u) => `<tr>
       <td><div class="pname">${esc(u.name || u.email)}${session.user?.id === u.id ? ' <span class="muted">(вы)</span>' : ''}</div>${u.name ? `<div class="pcat">${esc(u.email)}</div>` : ''}</td>
       ${multiStore() ? `<td>${esc(u.branchName || '')}${u.stores?.length ? `<div class="pcat">также: ${u.stores.map((id) => esc(branchName(id))).join(', ')}</div>` : ''}</td>` : ''}
-      <td><span class="role-tag">${esc(session.roleName(u.role))}</span>${u.rights && u.role !== 'admin' ? '<div class="pcat">свои права</div>' : ''}</td>
+      <td><span class="role-tag ${u.role === 'owner' ? 'owner-tag' : ''}">${esc(session.roleName(u.role))}</span>${u.rights && u.role !== 'owner' ? '<div class="pcat">свои права</div>' : ''}</td>
       <td>${u.shift_rate ? money(u.shift_rate) : '—'}${u.salary ? `<div class="pcat">+ ${money(u.salary)} в месяц</div>` : ''}</td>
       <td>${u.percent ? u.percent + '%' : '—'}</td>
       <td>${u.plan ? money(u.plan) : '—'}</td>
       <td>${u.disabled ? '<span class="muted">Закрыт</span>' : 'Открыт'}</td>
-      <td><button type="button" class="btn small ghost" data-user="${u.id}" data-user-branch="${u.branch || ''}">Изменить</button></td>
-    </tr>`).join('') : '<tr><td colspan="8" class="empty">Сотрудников пока нет. Пока их нет, программа открывается без входа.</td></tr>';
+      ${showLogin ? `<td class="pcat users-login">${esc(loginText(u.lastLogin))}</td>` : ''}
+      <td><div class="actions">
+        <button type="button" class="btn small ghost" data-user="${u.id}" data-user-branch="${u.branch || ''}">Изменить</button>
+        ${seesSecrets() && (u.role !== 'owner' || iAmOwner()) ? `<button type="button" class="btn small ghost" data-secrets="${u.id}" data-user-branch="${u.branch || ''}" title="Пароль и PIN">🔑</button>` : ''}
+        ${iAmOwner() && session.auth && u.role !== 'owner' && !u.disabled ? `<button type="button" class="btn small ghost" data-as-user="${u.id}" data-user-branch="${u.branch || ''}" title="Открыть программу от имени сотрудника">👁 Войти как</button>` : ''}
+      </div></td>
+    </tr>`).join('') : '<tr><td colspan="9" class="empty">Сотрудников пока нет. Пока их нет, программа открывается без входа.</td></tr>';
 }
 
 function openUserDialog(user = null) {
@@ -53,7 +65,9 @@ function openUserDialog(user = null) {
   $('#user-delete').className = 'btn ghost';
   $('#user-delete').textContent = 'Удалить';
   $('#user-error').hidden = true;
-  f.elements.role.innerHTML = Object.entries(session.roles).map(([key, r]) => `<option value="${key}">${esc(r.name)}</option>`).join('');
+  // Владельца и администраторов назначает только владелец.
+  const roleKeys = Object.keys(session.roles).filter((k) => iAmOwner() || !['owner', 'admin'].includes(k) || k === user?.role);
+  f.elements.role.innerHTML = roleKeys.map((key) => `<option value="${key}">${esc(session.roles[key].name)}</option>`).join('');
   f.elements.role.value = 'cashier';
   if (user) {
     f.elements.email.value = user.email;
@@ -68,7 +82,7 @@ function openUserDialog(user = null) {
     f.elements.max_discount.value = user.max_discount ?? '';
   }
   showRoleAbout();
-  renderRights(user && user.role !== 'admin' ? user.rights : null);
+  renderRights(user && user.role !== 'owner' ? user.rights : null);
   renderUserMethods(user);
   // Магазин сотрудника — у владельца, когда магазинов несколько.
   $('#uf-branch').hidden = !canManageStores();
@@ -111,17 +125,17 @@ let userMethods = [];
 
 async function renderUserMethods(user) {
   try { userMethods = (await api('/api/payment-methods')).methods; } catch { userMethods = []; }
-  const isAdmin = $('#uf-role').value === 'admin';
+  const isAdmin = ['admin', 'owner'].includes($('#uf-role').value);
   const own = user?.payment_methods;
   $('#uf-methods-list').innerHTML = userMethods.map((m) => `
     <label class="check"><input type="checkbox" value="${m.id}" ${isAdmin || !own || own.includes(m.id) ? 'checked' : ''} ${isAdmin ? 'disabled' : ''}> ${esc(m.name)}</label>`).join('')
-    + (isAdmin ? '<p class="pcat">Администратор принимает оплату любым способом.</p>' : '');
+    + (isAdmin ? '<p class="pcat">Владелец и администратор принимают оплату любым способом.</p>' : '');
   $('#uf-methods-all').hidden = isAdmin;
 }
 
 // Все галочки стоят — значит «все способы», в том числе те, что добавят позже.
 function methodsForSave() {
-  if ($('#uf-role').value === 'admin') return null;
+  if (['admin', 'owner'].includes($('#uf-role').value)) return null;
   const checked = [...document.querySelectorAll('#uf-methods-list input:checked')].map((i) => Number(i.value));
   if (!checked.length) return [];
   return checked.length === userMethods.length ? null : checked;
@@ -135,7 +149,8 @@ $('#uf-methods-all').addEventListener('click', () => {
 // custom — личный набор прав сотрудника или null (права роли).
 function renderRights(custom) {
   const role = $('#uf-role').value;
-  const isAdmin = role === 'admin';
+  // У владельца все права и галочки не меняются; права администратора владелец настраивает как у всех.
+  const isAdmin = role === 'owner';
   const checked = new Set(isAdmin ? session.rightsList.map((r) => r.key) : custom || session.roles[role].can);
   const groups = groupBy(session.rightsList);
   $('#uf-rights-list').innerHTML = [...groups].map(([group, rights]) => `
@@ -159,7 +174,7 @@ function checkedRights() {
 // Если галочки совпадают с ролью, сохраняем «как у роли»: тогда изменения роли в будущих версиях дойдут и до сотрудника.
 function rightsForSave() {
   const role = $('#uf-role').value;
-  if (role === 'admin') return null;
+  if (role === 'owner') return null;
   const mine = checkedRights().sort().join();
   return mine === [...session.roles[role].can].sort().join() ? null : checkedRights();
 }
@@ -228,9 +243,32 @@ $('#user-delete').addEventListener('click', async (e) => {
 $('#user-cancel').addEventListener('click', () => $('#user-dialog').close());
 $('#user-add').addEventListener('click', () => openUserDialog());
 $('#users-body').addEventListener('click', (e) => {
+  const sec = e.target.closest('[data-secrets]');
+  if (sec) return showSecrets(Number(sec.dataset.secrets), Number(sec.dataset.userBranch) || null);
+  const as = e.target.closest('[data-as-user]');
+  if (as) return actAsUser(Number(as.dataset.asUser), Number(as.dataset.userBranch) || null);
   const btn = e.target.closest('[data-user]');
   // В списке «Все магазины» id повторяются — сотрудник ищется вместе с магазином.
   if (btn) openUserDialog(usersList.find((u) => u.id === Number(btn.dataset.user) && String(u.branch || '') === btn.dataset.userBranch));
 });
+
+/* ---------- Пароль и PIN сотрудника ---------- */
+async function showSecrets(id, branch) {
+  let s;
+  try { s = await api(`/api/users/${id}/secrets${branchQuery(branch)}`); } catch (err) { return toast(err.message, 'error'); }
+  const row = (label, value, none) => `<div class="secret-row"><span>${label}</span>${value ? `<code class="secret-value">${esc(value)}</code><button type="button" class="btn small ghost" data-copy="${esc(value)}">Копировать</button>` : `<span class="pick-meta">${none}</span>`}</div>`;
+  $('#secrets-title').textContent = s.name;
+  $('#secrets-body').innerHTML = `<p class="pick-meta">Email для входа: <b>${esc(s.email)}</b></p>
+    ${row('Пароль', s.password, 'не сохранён: задан до этой функции или сотрудник сменил его сам. Задайте новый в карточке — он будет виден здесь.')}
+    ${row('PIN-код кассы', s.pin, s.hasPin ? 'не сохранён: задан до этой функции или сотрудник сменил его сам.' : 'PIN не задан')}
+    <p class="pick-meta">Просмотр записан в журнал действий.</p>`;
+  $('#secrets-dialog').showModal();
+}
+$('#secrets-body').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-copy]');
+  if (!b) return;
+  try { await navigator.clipboard.writeText(b.dataset.copy); toast('Скопировано'); } catch { toast('Не получилось скопировать — выделите вручную', 'error'); }
+});
+$('#secrets-close').addEventListener('click', () => $('#secrets-dialog').close());
 
 views.users = { show: renderUsers, right: 'staff' };

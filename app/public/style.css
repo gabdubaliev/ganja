@@ -1368,3 +1368,42 @@ th.ts-name.ts-editable:hover, th.ts-day.ts-editable:hover { color: var(--series)
 .fb-bonus .fb-sum { color: var(--good-ink); }
 @media (max-width: 560px) { .fb-list li { grid-template-columns: 1fr auto; } .fb-date { grid-column: 1 / -1; } }
 .fines-table th:nth-child(3), .fines-table td:nth-child(3) { text-align: left; }
+
+/* ---------- Владелец, пароли сотрудников ---------- */
+.role-tag.owner-tag { background: linear-gradient(135deg, #f7c948, #f08c2b); color: #3b2300; }
+.users-login { max-width: 220px; }
+.secret-row { display: grid; grid-template-columns: 120px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--grid); }
+.secret-value { font-size: 18px; font-weight: 700; padding: 4px 10px; border-radius: 8px; background: var(--surface-2); user-select: all; overflow-wrap: anywhere; }
+.secret-row .pick-meta { grid-column: 2 / -1; }
+
+/* ---------- Настройки владельца: скрытые разделы и блоки ---------- */
+.layout-hidden { display: none !important; }
+.layout-dim { opacity: .5; }
+.nav-emoji { font-size: 17px; line-height: 1; }
+.nav-owner { background: linear-gradient(135deg, #fff4d6, #ffe2b8); color: #6b3d00 !important; }
+.acting-bar { position: sticky; top: 0; z-index: 60; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: center; padding: 8px 14px; background: #2d1f6e; color: #fff; font-size: 13.5px; }
+.acting-bar .btn { background: #fff; color: #2d1f6e; border-color: transparent; }
+
+/* ---------- Админ-панель владельца ---------- */
+.owner-tabs { grid-template-columns: repeat(4, auto); }
+.owner-tools { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.owner-group h2 { font-size: 16px; margin: 0 0 8px; }
+.owner-row { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 10px 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--grid); }
+.owner-row:last-child { border-bottom: 0; }
+.owner-row.is-hidden .owner-name, .owner-row.is-hidden .owner-icon { opacity: .5; }
+.owner-icon { text-align: center; font-size: 20px; padding: 6px; }
+.owner-name { display: grid; gap: 2px; min-width: 0; }
+.owner-name small { font-size: 12px; color: var(--muted); }
+.owner-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.owner-who { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 14px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
+.owner-who .pick-meta { grid-column: 1 / -1; margin: 4px 0 0; }
+#owner-home .owner-row { grid-template-columns: minmax(0, 1fr) auto; }
+.owner-staff { min-width: 640px; }
+.owner-staff th:last-child, .owner-staff td:last-child { text-align: right; }
+.owner-look { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.owner-look h2, .owner-look p { flex-basis: 100%; margin: 0; }
+@media (max-width: 760px) {
+  .owner-tabs { grid-template-columns: repeat(2, 1fr); width: 100%; }
+  .owner-row { grid-template-columns: 48px minmax(0, 1fr); }
+  .owner-actions { grid-column: 1 / -1; justify-content: flex-start; }
+}

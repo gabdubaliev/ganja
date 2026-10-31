@@ -117,6 +117,30 @@ if (ADMIN_EMAIL && ADMIN_PASSWORD) {
   const fingerprint = crypto.createHash('sha256').update(`${ADMIN_EMAIL.toLowerCase()}\n${ADMIN_PASSWORD}`).digest('hex');
   store.ensureAdmin(ADMIN_EMAIL, () => hashPassword(ADMIN_PASSWORD), fingerprint);
 }
+// Владелец — отдельная роль. В базах до разделения ролей им становится первый администратор.
+const madeOwner = mainStore.ensureOwner();
+if (madeOwner) console.log(`Владельцем назначен ${madeOwner.email}`);
+
+// Копии паролей и PIN, заданных владельцем или администратором, шифруются (AES-256-GCM) своим ключом.
+const SECRETS_KEY = crypto.createHash('sha256').update(mainStore.setting('secrets_key', crypto.randomBytes(32).toString('base64url'))).digest();
+function encryptSecret(text) {
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv('aes-256-gcm', SECRETS_KEY, iv);
+  const data = Buffer.concat([c.update(String(text), 'utf8'), c.final()]);
+  return `v1:${iv.toString('base64url')}:${c.getAuthTag().toString('base64url')}:${data.toString('base64url')}`;
+}
+function decryptSecret(value) {
+  try {
+    const [v, iv, tag, data] = String(value || '').split(':');
+    if (v !== 'v1') return null;
+    const d = crypto.createDecipheriv('aes-256-gcm', SECRETS_KEY, Buffer.from(iv, 'base64url'));
+    d.setAuthTag(Buffer.from(tag, 'base64url'));
+    return Buffer.concat([d.update(Buffer.from(data, 'base64url')), d.final()]).toString('utf8');
+  } catch {
+    return null;
+  }
+}
+
 if (process.env.REQUIRE_PASSWORD === '1' && store.activeAdmins() === 0) {
   console.error('Задайте администратора в переменных ADMIN_EMAIL и ADMIN_PASSWORD. Без него программа на сервере не запускается.');
   process.exit(1);
@@ -143,7 +167,7 @@ const staffDirectory = {
   },
 };
 const auth = createAuth(staffDirectory, process.env.SESSION_SECRET || mainStore.setting('session_secret', crypto.randomBytes(32).toString('base64url')));
-const isOwner = (u) => u && (u.branch || 1) === 1 && u.role === 'admin';
+const isOwner = (u) => u && (u.branch || 1) === 1 && u.role === 'owner';
 // В каких магазинах сотрудник может работать: владелец — во всех, остальные — в своём и отмеченных в карточке.
 function allowedBranches(u) {
   const all = branchList().map((b) => b.id);
@@ -265,6 +289,30 @@ function productStores(id, user) {
   });
 }
 
+// Расположение: названия, значки, скрытые разделы, порядок, закреплённые в верхнем меню, блоки главной.
+function readLayout() {
+  try { return JSON.parse(mainStore.setting('layout', '{}')) || {}; } catch { return {}; }
+}
+function saveLayout(input) {
+  const key = (k) => typeof k === 'string' && /^[a-z.:_-]{1,40}$/i.test(k);
+  const str = (v, max) => String(v ?? '').trim().slice(0, max);
+  const out = { sections: {}, order: {}, pinned: [], home: { order: [], hidden: [] } };
+  for (const [k, v] of Object.entries(input?.sections || {})) {
+    if (!key(k) || !v || typeof v !== 'object') continue;
+    const s = {};
+    if (str(v.name, 60)) s.name = str(v.name, 60);
+    if (str(v.icon, 8)) s.icon = str(v.icon, 8);
+    if (v.hidden) s.hidden = true;
+    if (Object.keys(s).length) out.sections[k] = s;
+  }
+  for (const [g, list] of Object.entries(input?.order || {})) if (Array.isArray(list)) out.order[str(g, 40)] = list.filter(key).slice(0, 60);
+  out.pinned = (Array.isArray(input?.pinned) ? input.pinned : []).filter(key).slice(0, 8);
+  out.home.order = (Array.isArray(input?.home?.order) ? input.home.order : []).filter(key).slice(0, 20);
+  out.home.hidden = (Array.isArray(input?.home?.hidden) ? input.home.hidden : []).filter(key).slice(0, 20);
+  mainStore.setSetting('layout', JSON.stringify(out));
+  return out;
+}
+
 function docRight(user, kind) {
   const k = store.docKinds[kind];
   if (!k) throw new UserError('Неизвестный вид документа');
@@ -318,11 +366,20 @@ function updateBranch(id, input, user) {
   return b;
 }
 
+// Владельца и администраторов назначает и меняет только владелец. Администратор не даёт прав, которых нет у него самого,
+// и не меняет свои права.
 function guardAdmin(user, target, body) {
-  if (!user || user.role === 'admin') return;
-  if (target?.role === 'admin' || body.role === 'admin') throw new UserError('Администраторов назначает и меняет только администратор');
-  if (target && target.id === user.id && body.rights !== undefined) throw new UserError('Свои права может поменять только администратор');
+  if (!user || user.role === 'owner') return;
+  const high = (r) => r === 'owner' || r === 'admin';
+  if (high(target?.role) || high(body.role)) throw new UserError('Администраторов и владельца назначает и меняет только владелец');
+  if (target && target.id === user.id && body.rights !== undefined) throw new UserError('Свои права может поменять только владелец');
+  if (Array.isArray(body.rights)) {
+    const mine = rightsOf(user);
+    const extra = body.rights.filter((r) => !mine.includes(r));
+    if (extra.length) throw new UserError('Нельзя дать сотруднику права, которых нет у вас самого');
+  }
 }
+const seesSecrets = (user) => !auth.enabled || user?.role === 'owner' || can(user, 'staff.passwords');
 
 // PIN для смены кассира: 4–6 цифр; пустой — убрать PIN.
 function pinHash(value) {
@@ -383,6 +440,8 @@ const routes = [
     rights: RIGHTS,
     loyalty: store.loyalty(),
     design: store.design(),
+    // Расположение разделов и блоков главной — настраивает владелец, одно на все магазины.
+    layout: readLayout(),
     shop: { enabled: store.shop().enabled },
     newOrders: can(user, 'orders') ? store.countNewOrders() : 0,
   }), 'any'],
@@ -397,12 +456,14 @@ const routes = [
     if (!user) throw new UserError('Сначала заведите сотрудников');
     if (!checkPassword(body.current, store.findUser(user.id).password_hash)) throw new UserError('Текущий пароль указан неверно');
     store.setUserPin(user.id, pinHash(body.pin));
+    store.setUserSecrets(user.id, { pin: null }, encryptSecret); // свой PIN сотрудник никому не показывает
     return { ok: true };
   }, 'any'],
   ['PUT', '/api/me/password', (p, url, body, user) => {
     if (!user) throw new UserError('Сначала заведите сотрудников');
     if (!checkPassword(body.current, store.findUser(user.id).password_hash)) throw new UserError('Текущий пароль указан неверно');
     store.updateUser(user.id, {}, password(body.password));
+    store.setUserSecrets(user.id, { password: null }, encryptSecret); // свой пароль сотрудник никому не показывает
     return { ok: true };
   }, 'any'],
 
@@ -633,9 +694,23 @@ const routes = [
   ['GET', '/api/users', (p, url, body, user) => {
     const names = Object.fromEntries(branchList().map((b) => [b.id, b.name]));
     const tag = (list, id) => list.map((u) => ({ ...u, branch: id, branchName: names[id] }));
-    if (url.searchParams.get('all') === '1' && (user?.owner || !auth.enabled)) return branchList().flatMap((b) => tag(contextOf(b.id).store.listUsers(), b.id));
-    return inBranch(url, user, () => tag(store.listUsers(), current().id));
+    // Последний вход (время, IP, устройство) — владельцу и тем, кому он дал галочку.
+    const withLogin = (list, st) => {
+      if (!seesSecrets(user) && !can(user, 'audit')) return list;
+      const last = st.lastLogins();
+      return list.map((u) => ({ ...u, lastLogin: last[u.id] || null }));
+    };
+    if (url.searchParams.get('all') === '1' && (user?.owner || !auth.enabled)) return branchList().flatMap((b) => tag(withLogin(contextOf(b.id).store.listUsers(), contextOf(b.id).store), b.id));
+    return inBranch(url, user, () => tag(withLogin(store.listUsers(), store), current().id));
   }, 'staff'],
+  // Пароль и PIN сотрудника — владельцу и тем, у кого галочка «Видеть пароли». Просмотр пишется в журнал.
+  ['GET', '/api/users/:id/secrets', (p, url, body, user) => inBranch(url, user, () => {
+    if (!seesSecrets(user)) throw new UserError('Пароли сотрудников видит владелец и тот, кому он дал это право');
+    const u = store.findUser(p.id);
+    if (!u) throw new UserError('Сотрудник не найден');
+    if (u.role === 'owner' && user?.role !== 'owner') throw new UserError('Пароль владельца не показывается');
+    return { id: u.id, name: u.name || u.email, email: u.email, password: decryptSecret(u.secret_pw), pin: decryptSecret(u.secret_pin), hasPin: Boolean(u.pin_hash) };
+  }), 'staff'],
   ['POST', '/api/users/:id/branch', (p, url, body, user) => inBranch(url, user, () => setEmployeeBranch(p.id, body, user)), 'staff'],
   ['POST', '/api/users', (p, url, body, user) => inBranch(url, user, () => {
     guardAdmin(user, null, body);
@@ -647,12 +722,17 @@ const routes = [
     }
     const pin = body.pin ? pinHash(body.pin) : null;
     const made = store.createUser(body, password(body.password));
+    if (made.role !== 'owner') store.setUserSecrets(made.id, { password: String(body.password), pin: body.pin ? String(body.pin).trim() : undefined }, encryptSecret);
     return pin ? store.setUserPin(made.id, pin) : made;
   }), 'staff'],
   ['PUT', '/api/users/:id', (p, url, body, user) => inBranch(url, user, () => {
     guardAdmin(user, store.findUser(p.id), body);
     const pin = body.clearPin ? null : body.pin ? pinHash(body.pin) : undefined;
     const saved = store.updateUser(p.id, body, body.password ? password(body.password) : null);
+    // Копия для просмотра: что задал владелец или администратор. Пароль владельца не хранится.
+    if (saved.role !== 'owner') {
+      store.setUserSecrets(p.id, { password: body.password ? String(body.password) : undefined, pin: body.clearPin ? null : body.pin ? String(body.pin).trim() : undefined }, encryptSecret);
+    } else store.setUserSecrets(p.id, { password: null, pin: null }, encryptSecret);
     return pin === undefined ? saved : store.setUserPin(p.id, pin);
   }), 'staff'],
   ['DELETE', '/api/users/:id', (p, url, body, user) => inBranch(url, user, () => {
@@ -662,6 +742,10 @@ const routes = [
   }), 'staff'],
 
   ['PUT', '/api/design', (p, url, body) => store.setDesign(body), 'design'],
+  ['PUT', '/api/layout', (p, url, body, user) => {
+    if (auth.enabled && user?.role !== 'owner') throw new UserError('Расположение разделов меняет владелец');
+    return saveLayout(body);
+  }, 'any'],
   ['POST', '/api/images', (p, url, body) => store.addImage(body), 'shop'],
   ['GET', '/api/shop', () => store.shop(), 'shop'],
   ['PUT', '/api/shop', (p, url, body) => store.setShop(body), 'shop'],
@@ -797,9 +881,11 @@ const AUDIT_LABELS = {
   'POST /api/customers/:id/bonus': 'Изменил бонусы покупателя',
   'PUT /api/loyalty': 'Изменил правила бонусов и скидок',
   'POST /api/users': 'Добавил сотрудника',
+  'GET /api/users/:id/secrets': 'Посмотрел пароль и PIN сотрудника',
   'PUT /api/users/:id': 'Изменил сотрудника',
   'DELETE /api/users/:id': 'Удалил сотрудника',
   'PUT /api/design': 'Изменил оформление',
+  'PUT /api/layout': 'Изменил расположение разделов',
   'POST /api/images': 'Загрузил картинку для витрины',
   'PUT /api/shop': 'Изменил витрину',
   'PUT /api/orders/:id': 'Изменил статус заказа',
@@ -878,6 +964,7 @@ function auditDetails(key, params, body, result) {
     case 'PUT /api/users/:id/pay': return `${r.name || r.email}: за смену ${r.shift_rate}, оклад ${r.salary}, ${r.percent}%, план ${r.plan}, бонус за план ${r.plan_bonus}`;
     case 'POST /api/customers/:id/bonus': return `${r.name || '+' + r.phone}: ${body.delta > 0 ? '+' : ''}${body.delta}${body.reason ? ` (${body.reason})` : ''}`;
     case 'PUT /api/orders/:id': return `Заказ №${params.id} ${ORDER_NAMES[body.status] || body.status}`;
+    case 'GET /api/users/:id/secrets': return `${r.name}${r.email ? ` (${r.email})` : ''}`;
     case 'PUT /api/users/:id': return `${r.name || r.email}${body.password ? ', новый пароль' : ''}${body.pin ? ', новый PIN' : body.clearPin ? ', PIN убран' : ''}${body.rights !== undefined ? ', права' : ''}`;
     case 'POST /api/shift/close': return `чеков ${r.receipts} на ${r.revenue} сом`;
     case 'PUT /api/shifts/:id':
@@ -895,7 +982,8 @@ async function handleAuth(req, res, url) {
       store.audit({ ...who, kind: 'login_failed', userName: String(body.email || '').slice(0, 120), action: 'Неудачная попытка входа', details: result.error });
       return sendJson(res, result.status, { error: result.error });
     }
-    store.audit({ ...who, kind: 'login', user: result.user, action: 'Вход в программу' });
+    // Вход пишется в журнал магазина сотрудника: там и ищется его «последний вход».
+    (contextOf(result.user.branch || 1)?.store || store).audit({ ...who, kind: 'login', user: result.user, action: 'Вход в программу' });
     res.setHeader('Set-Cookie', result.cookie);
     return sendJson(res, 200, { ok: true, user: store.publicUser(result.user) });
   }
@@ -928,6 +1016,28 @@ async function handleAuth(req, res, url) {
     res.setHeader('Set-Cookie', `shop_branch=${ctx.id}; Path=/; SameSite=Lax; Max-Age=${365 * 86400}`);
     mainStore.audit({ kind: 'change', user: me, ip: clientIp(req), device: device(req), action: 'Перешёл в магазин', details: branchList().find((b) => b.id === ctx.id)?.name || '' });
     return sendJson(res, 200, { ok: true, id: ctx.id });
+  }
+  // Владелец открывает программу от имени сотрудника — видит ровно то, что видит сотрудник.
+  if (url.pathname === '/api/act-as' && req.method === 'POST') {
+    const me = auth.ownerOf(req) || auth.currentUser(req);
+    if (!me || !isOwner(me)) return sendJson(res, 403, { error: 'Входить от имени сотрудника может только владелец' });
+    const body = await readBody(req);
+    const b = Number(body.branch) || 1;
+    const ctx = contextOf(b);
+    const target = ctx?.store.findUser(body.id);
+    if (!target || target.disabled || target.owner_shadow || target.moved_to) return sendJson(res, 400, { error: 'Сотрудник не найден или закрыт' });
+    if (target.role === 'owner') return sendJson(res, 400, { error: 'Это владелец' });
+    res.setHeader('Set-Cookie', [...auth.actAsCookies(req, { ...target, branch: ctx.id }), `shop_branch=${ctx.id}; Path=/; SameSite=Lax; Max-Age=${365 * 86400}`]);
+    mainStore.audit({ kind: 'change', user: me, ip: clientIp(req), device: device(req), action: 'Вошёл от имени сотрудника', details: `${target.name || target.email}${ctx.id !== 1 ? `, ${branchList().find((x) => x.id === ctx.id)?.name || ''}` : ''}` });
+    return sendJson(res, 200, { ok: true, kassa: !can(target, 'dashboard') && can(target, 'pos') });
+  }
+  if (url.pathname === '/api/act-as/stop' && req.method === 'POST') {
+    const owner = auth.ownerOf(req);
+    if (!owner) return sendJson(res, 400, { error: 'Вы и так работаете под своим именем' });
+    const was = auth.currentUser(req);
+    res.setHeader('Set-Cookie', auth.returnCookies(req));
+    mainStore.audit({ kind: 'change', user: owner, ip: clientIp(req), device: device(req), action: 'Вернулся к своему имени', details: was ? `был в программе как ${was.name || was.email}` : '' });
+    return sendJson(res, 200, { ok: true });
   }
   if (url.pathname === '/api/logout' && req.method === 'POST') {
     const user = auth.currentUser(req);
@@ -1190,12 +1300,16 @@ async function handleRequest(req, res, url, user, owner) {
   }
   try {
     const body = req.method === 'GET' ? {} : await readBody(req);
-    const result = await route.handler(route.params, url, body, user && { ...store.publicUser(user), owner: Boolean(owner) });
+    // actingAs — владелец, который смотрит программу от имени этого сотрудника.
+    const actor = auth.ownerOf(req);
+    const result = await route.handler(route.params, url, body, user && { ...store.publicUser(user), owner: Boolean(owner), actingAs: actor && isOwner(actor) ? actor.name || actor.email : null });
     const key = `${req.method} ${route.pattern}`;
     // Предварительный подсчёт (dryRun) ничего не меняет — в журнал не пишем.
     if (AUDIT_LABELS[key] && !body.dryRun) {
       try {
-        store.audit({ kind: 'change', user, ip: clientIp(req), device: device(req), action: AUDIT_LABELS[key], details: auditDetails(key, route.params, body, result) });
+        // Действия, сделанные владельцем от имени сотрудника, помечаются — чтобы было видно, кто на самом деле.
+        const prefix = actor && isOwner(actor) ? `[владелец ${actor.name || actor.email} от имени сотрудника] ` : '';
+        store.audit({ kind: 'change', user, ip: clientIp(req), device: device(req), action: AUDIT_LABELS[key], details: prefix + auditDetails(key, route.params, body, result) });
       } catch (err) {
         console.error('Журнал действий:', err.message);
       }
