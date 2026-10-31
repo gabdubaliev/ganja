@@ -41,12 +41,12 @@
       <div id="pos-results" class="pick-list"></div>
     </section>
     <section class="panel pos-cart" aria-label="Чек">
-      <div class="panel-head"><h2>Чек</h2><button type="button" class="btn small ghost" id="cart-clear" hidden>Очистить</button></div>
+      <div class="panel-head"><h2>Чек</h2><div class="tools"><button type="button" class="btn small cert-btn" id="cert-sell-open" data-can="certificates.sell" hidden>🎁 Сертификат</button><button type="button" class="btn small ghost" id="cart-clear" hidden>Очистить</button></div></div>
       <div id="cart" class="cart"></div>
       <div class="customer-box" id="customer-box" hidden>
         <div class="customer-find" id="customer-find">
           <div class="suggest-wrap grow">
-            <input id="customer-phone" class="input" type="search" placeholder="Покупатель: телефон, ФИО или номер карты" autocomplete="off" aria-label="Найти покупателя">
+            <input id="customer-phone" class="input" type="search" placeholder="Клиент: телефон, ФИО, карта" autocomplete="off" aria-label="Найти покупателя">
             <div id="customer-results" class="suggest-list" hidden></div>
           </div>
           <button type="button" class="btn" id="customer-lookup">Найти</button>
@@ -70,8 +70,9 @@
         <span class="pick-meta" id="discount-info"></span>
       </div>
       <div class="cart-total"><span>Итого</span><b id="cart-total" class="num">0 сом</b></div>
+      <div class="cert-use" id="cert-use" hidden></div>
       <div class="cart-topay" id="cart-topay" hidden><span>К оплате деньгами</span><b id="cart-paid" class="num"></b></div>
-      <div class="pay-head"><span>Оплата</span><button type="button" class="btn small ghost" id="split-toggle" hidden>Разделить оплату</button></div>
+      <div class="pay-head"><span>Оплата</span><span class="tools"><button type="button" class="btn small ghost" id="cert-pay-open" data-can="certificates.accept" hidden>🎁 Сертификатом</button><button type="button" class="btn small ghost" id="split-toggle" hidden>Разделить оплату</button></span></div>
       <div class="pay-methods" id="pay" role="group" aria-label="Способ оплаты"></div>
       <p class="pick-meta pay-fee" id="pay-fee" hidden></p>
       <div class="field" id="cash-row" hidden>
@@ -120,6 +121,61 @@
     <div id="photos-cats" class="photo-cats"></div>
   </section>
 </main>
+
+<dialog id="cert-sell-dialog" aria-labelledby="cs-title">
+  <form id="cs-form" novalidate>
+    <h2 id="cs-title">🎁 Продать сертификат</h2>
+    <div id="cs-fields">
+      <div class="form-grid">
+        <div class="field"><label for="cs-amount">Сумма сертификата, сом</label><input id="cs-amount" name="amount" class="input big num" inputmode="decimal" autocomplete="off" placeholder="Например, 3000" required></div>
+        <div class="field"><label for="cs-number">Номер сертификата</label>
+          <div class="input-row"><input id="cs-number" name="number" class="input num" inputmode="numeric" autocomplete="off" placeholder="Сканируйте сертификат"><button type="button" class="btn" id="cs-number-new" title="Программа выдаст номер и напечатает сертификат">Новый</button></div>
+        </div>
+        <div class="field wide"><label for="cs-cust">Покупатель</label>
+          <div class="cs-cust-row">
+            <div class="suggest-wrap grow">
+              <input id="cs-cust" class="input" type="search" autocomplete="off" placeholder="Телефон, ФИО или номер карты">
+              <div id="cs-cust-results" class="suggest-list" hidden></div>
+            </div>
+            <button type="button" class="btn" id="cs-cust-new" data-can="customers.create" hidden>+ Новый клиент</button>
+          </div>
+          <div class="cs-cust-chosen" id="cs-cust-chosen" hidden></div>
+        </div>
+        <div class="field wide"><span class="label">Оплата</span><div class="pay-methods" id="cs-methods" role="group" aria-label="Способ оплаты сертификата"></div></div>
+        <div class="field" id="cs-cash-row" hidden><label for="cs-given">Получено наличными</label><input id="cs-given" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"><span class="change num" id="cs-change"></span></div>
+      </div>
+      <p class="sub" id="cs-note">Деньги за сертификат приходят на счёт сразу, товар со склада не уходит. Товар спишется, когда по сертификату что-то купят.</p>
+      <p class="form-error" id="cs-error" role="alert" hidden></p>
+      <div class="form-actions">
+        <button type="button" class="btn ghost" id="cs-cancel">Отмена</button>
+        <button type="submit" class="btn primary" id="cs-submit">Продать сертификат</button>
+      </div>
+    </div>
+    <div id="cs-done" hidden>
+      <div class="cs-done-box" id="cs-done-box"></div>
+      <div class="form-actions">
+        <button type="button" class="btn" id="cs-print">🖨 Печать сертификата</button>
+        <button type="button" class="btn primary" id="cs-close">Готово</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="cert-pay-dialog" aria-labelledby="cp-title">
+  <form id="cp-form" novalidate>
+    <h2 id="cp-title">🎁 Оплата сертификатом</h2>
+    <div class="field"><label for="cp-number">Номер сертификата</label>
+      <div class="input-row"><input id="cp-number" class="input big num" inputmode="numeric" autocomplete="off" placeholder="Сканируйте или введите номер"><button type="button" class="btn" id="cp-find">Найти</button></div>
+    </div>
+    <div class="cp-info" id="cp-info" hidden></div>
+    <div class="field" id="cp-amount-row" hidden><label for="cp-amount">Списать с сертификата, сом</label><input id="cp-amount" class="input num" inputmode="decimal" autocomplete="off"></div>
+    <p class="form-error" id="cp-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="cp-cancel">Отмена</button>
+      <button type="submit" class="btn primary" id="cp-apply" disabled>Применить к чеку</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="cust-dialog" aria-labelledby="cust-title">
   <form id="cust-form" novalidate>
@@ -287,12 +343,14 @@
 <div id="toasts" class="toasts" aria-live="polite"></div>
 
 <script src="common.js"></script>
+<script src="barcode.js"></script>
 <script src="pos.js"></script>
 <script src="sales.js"></script>
 <script src="photos.js"></script>
 <script src="orders.js"></script>
 <script src="tasks.js"></script>
 <script src="my-timesheet.js"></script>
+<script src="certificates-kassa.js"></script>
 <script>session.ready.then(route);</script>
 </body>
 </html>

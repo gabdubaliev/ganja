@@ -380,6 +380,40 @@
   </section>
 </main>
 
+<main class="page" data-view="certificates" hidden>
+  <header class="top">
+    <div class="title"><h1>🎁 Сертификаты</h1><span class="source" id="cert-sub"></span></div>
+    <div class="tools">
+      <label class="cert-months">Срок действия
+        <select id="cert-months" class="input"><option value="3">3 месяца</option><option value="6">6 месяцев</option><option value="12">1 год</option><option value="24">2 года</option><option value="0">Без срока</option></select></label>
+    </div>
+  </header>
+  <section class="stock-totals as-tiles" id="cert-tiles"></section>
+  <section class="panel">
+    <div class="panel-head">
+      <div class="chips" id="cert-states"></div>
+      <input id="cert-search" class="input search" type="search" placeholder="Номер, покупатель или телефон" aria-label="Найти сертификат">
+    </div>
+    <div class="table-wrap">
+      <table class="cert-table">
+        <thead><tr><th>Сертификат</th><th>Покупатель</th><th>Продан</th><th>Номинал</th><th>Остаток</th><th>Действует до</th><th>Состояние</th></tr></thead>
+        <tbody id="cert-body"></tbody>
+      </table>
+    </div>
+    <p class="sub">Продают сертификаты на кассе кнопкой «🎁 Сертификат». Деньги приходят на счёт сразу, а в выручку и прибыль на главной сумма попадает, когда по сертификату покупают товар.</p>
+  </section>
+</main>
+
+<dialog id="cert-dialog" class="wide" aria-labelledby="cd-title">
+  <h2 id="cd-title">Сертификат</h2>
+  <div id="cd-body"></div>
+  <p class="form-error" id="cd-error" role="alert" hidden></p>
+  <div class="form-actions">
+    <button type="button" class="btn ghost danger-text" id="cd-block"></button>
+    <button type="button" class="btn primary" id="cd-close">Закрыть</button>
+  </div>
+</dialog>
+
 <main class="page" data-view="receive" hidden>
   <header class="top">
     <div class="title"><h1>Приход по накладной</h1><span class="source" id="rc-sub">Сфотографируйте накладную — программа сама разнесёт товар</span></div>
@@ -1604,6 +1638,7 @@
 <div id="toasts" class="toasts" aria-live="polite"></div>
 
 <script src="common.js"></script>
+<script src="barcode.js"></script>
 <script src="dashboard.js"></script>
 <script src="products.js"></script>
 <script src="docs.js"></script>
@@ -1618,6 +1653,7 @@
 <script src="abc.js"></script>
 <script src="receive.js"></script>
 <script src="owner.js"></script>
+<script src="certificates.js"></script>
 <script src="staff-time.js"></script>
 <script src="timesheet.js"></script>
 <script src="tasks.js"></script>

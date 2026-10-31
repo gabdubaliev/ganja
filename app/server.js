@@ -677,6 +677,18 @@ const routes = [
 
   // Кассир ищет покупателя по телефону и заводит нового прямо на кассе.
   ['GET', '/api/customers/by-phone', (p, url) => store.findCustomerByPhone(url.searchParams.get('phone')), ['pos', 'docs.sale', 'refund']],
+  // Подарочные сертификаты.
+  ['GET', '/api/certificates/new-number', () => ({ number: store.newCertificateNumber() }), ['certificates.sell', 'certificates']],
+  ['GET', '/api/certificates/lookup', (p, url) => {
+    const c = store.getCertificate(url.searchParams.get('number'));
+    if (!c) throw new UserError('Сертификат с таким номером не найден');
+    return c;
+  }, ['certificates.accept', 'certificates.sell', 'certificates']],
+  ['POST', '/api/certificates', (p, url, body, user) => store.sellCertificate(body, user), 'certificates.sell'],
+  ['GET', '/api/certificates', (p, url) => ({ list: store.listCertificates({ q: url.searchParams.get('q') || '', state: url.searchParams.get('state') || '' }), settings: store.certificateSettings() }), 'certificates'],
+  ['GET', '/api/certificates/:id', (p) => store.certificateHistory(p.id), 'certificates'],
+  ['PUT', '/api/certificates/:id/block', (p, url, body, user) => store.setCertificateBlocked(p.id, Boolean(body.blocked), user, body.note), 'certificates'],
+  ['PUT', '/api/certificates-settings', (p, url, body) => store.setCertificateSettings(body), 'certificates'],
   ['GET', '/api/customers/search', (p, url) => store.searchCustomers(url.searchParams.get('q')), ['pos', 'customers.create', 'docs.sale', 'refund', 'customers']],
   ['GET', '/api/customers/new-card', () => ({ card: store.newCustomerCard() }), ['customers.create', 'loyalty']],
   ['POST', '/api/customers', (p, url, body) => store.createCustomer(body), ['customers.create', 'loyalty']],
@@ -833,6 +845,9 @@ const AUDIT_LABELS = {
   'POST /api/expenses': 'Внёс расход',
   'DELETE /api/expenses/:id': 'Удалил расход',
   'PUT /api/timesheet/marks': 'Изменил табель',
+  'POST /api/certificates': 'Продал подарочный сертификат',
+  'PUT /api/certificates/:id/block': 'Изменил сертификат',
+  'PUT /api/certificates-settings': 'Изменил срок сертификатов',
   'POST /api/invoice/receive': 'Оприходовал накладную по фото',
   'PUT /api/invoice/key': 'Изменил ключ распознавания накладных',
   'POST /api/recurring-expenses': 'Добавил постоянный расход',
@@ -936,6 +951,9 @@ function auditDetails(key, params, body, result) {
     case 'DELETE /api/expenses/:id': return `${r.category}: ${r.amount} сом${r.note ? ` (${r.note})` : ''}`;
     case 'POST /api/invoice/receive': return `закупка №${r.doc?.number}, строк ${r.lines}, новых товаров ${r.created}, на ${r.total} сом${r.extras ? `, доп. расходы ${r.extras}` : ''}${r.posted ? '' : ', не проведена'}`;
     case 'PUT /api/invoice/key': return r.configured ? 'ключ задан' : 'ключ убран';
+    case 'POST /api/certificates': return `№${r.number} на ${r.amount} сом, покупатель ${r.customer_name || r.customer_phone || ''}`;
+    case 'PUT /api/certificates/:id/block': return `№${r.number}: ${r.status === 'blocked' ? 'заблокирован' : 'разблокирован'}${body.note ? ` — ${body.note}` : ''}`;
+    case 'PUT /api/certificates-settings': return `срок ${r.months} мес.`;
     case 'PUT /api/timesheet/marks': return `дней: ${r.count}${r.clear ? ', правки сняты' : ''}${r.status !== undefined ? `, ${{ work: 'рабочий', off: 'выходной' }[r.status] || 'по сменам'}` : ''}${r.amount !== undefined ? `, сумма ${r.amount ?? 'по расчёту'}` : ''}${r.color !== undefined ? `, цвет ${r.color || 'без цвета'}` : ''}`;
     case 'POST /api/recurring-expenses':
     case 'PUT /api/recurring-expenses/:id':

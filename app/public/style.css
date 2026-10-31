@@ -1414,3 +1414,33 @@ th.ts-name.ts-editable:hover, th.ts-day.ts-editable:hover { color: var(--series)
 #customer-results { z-index: 20; }
 #customer-results .suggest { width: 100%; }
 .cu-gender { grid-template-columns: 1fr 1fr; }
+
+/* ---------- Сертификаты на кассе ---------- */
+.cert-btn { background: linear-gradient(135deg, #fff1d6, #ffe0ec); border-color: #f3c9a8; }
+.cert-use { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 8px 10px; margin: 6px 0; border-radius: 12px; background: color-mix(in srgb, #f08c2b 10%, var(--surface)); }
+.cert-use small { display: block; font-size: 12px; color: var(--muted); }
+.cs-cust-row { display: flex; gap: 8px; align-items: flex-start; }
+.cs-cust-row .grow { flex: 1; }
+.cs-cust-chosen { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 12px; background: var(--surface-2); }
+#cs-cust-results { z-index: 30; }
+.cs-done-box { text-align: center; padding: 10px 0; }
+.cs-done-amount { font-size: 40px; font-weight: 800; letter-spacing: -0.02em; }
+.cs-barcode svg { max-width: 260px; height: auto; }
+.cp-info { margin: 8px 0; text-align: center; }
+.cp-balance { font-size: 32px; font-weight: 800; }
+.cp-balance small { display: block; font-size: 13px; font-weight: 500; color: var(--muted); }
+.cert-months { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--ink-2); }
+.cert-months select { width: auto; }
+.cert-table { min-width: 820px; }
+.cert-state { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 650; }
+.cert-state.ok { background: color-mix(in srgb, #1a9d55 15%, var(--surface)); color: var(--good-ink); }
+.cert-state.muted { background: var(--surface-2); color: var(--muted); }
+.cert-state.warn { background: color-mix(in srgb, #e0a100 18%, var(--surface)); color: #8a5a00; }
+.cert-state.bad { background: color-mix(in srgb, var(--critical) 12%, var(--surface)); color: var(--critical); }
+#cert-dialog h3 { font-size: 14px; margin: 16px 0 8px; }
+.np-cert { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.np-cert > div { display: grid; gap: 2px; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, #f08c2b 8%, var(--surface)); font-size: 13px; }
+.np-cert small { font-size: 11.5px; color: var(--muted); }
+@media (max-width: 640px) { .np-cert { grid-template-columns: 1fr; } }
+.customer-find .suggest-wrap { min-width: 0; }
+.customer-find .suggest-wrap .input { width: 100%; flex: none; }

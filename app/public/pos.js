@@ -96,11 +96,12 @@ function renderCart() {
     </div>`;
   }).join('') : '<p class="empty">Выберите товары слева или отсканируйте штрихкод</p>';
   const total = calc.total;
-  const paid = r2(total - bonusSpend());
+  const paid = r2(total - bonusSpend() - certUse());
+  renderCertUse();
   $('#cart-total').innerHTML = total < calc.full ? `<s class="old-price">${money2(calc.full)}</s> ${money2(total)}` : money2(total);
   renderDiscountBar(calc);
   renderCustomer();
-  $('#cart-topay').hidden = !bonusSpend();
+  $('#cart-topay').hidden = !bonusSpend() && !certUse();
   $('#cart-paid').textContent = money2(paid);
   $('#checkout').disabled = !pos.cart.length || pos.busy;
   $('#cart-clear').hidden = !pos.cart.length;
@@ -287,6 +288,16 @@ function bonusLimit() {
   return Math.max(0, Math.min(pos.customer.bonus, Math.floor(cartTotal() * session.loyalty.maxPay / 100)));
 }
 const bonusSpend = () => Math.min(pos.spend, bonusLimit());
+// Сколько списать с сертификата: не больше остатка на нём и не больше суммы чека после бонусов.
+const certUse = () => (pos.cert ? Math.max(0, Math.min(pos.cert.amount, r2(cartTotal() - bonusSpend()))) : 0);
+function renderCertUse() {
+  const el = $('#cert-use');
+  el.hidden = !pos.cert;
+  if (!pos.cert) return;
+  const use = certUse();
+  el.innerHTML = `<span>🎁 Сертификат №${esc(pos.cert.number)}${pos.cert.customer_name ? ` · ${esc(pos.cert.customer_name)}` : ''}<small>на сертификате ${money2(pos.cert.balance)} · останется ${money2(r2(pos.cert.balance - use))}</small></span>
+    <b class="num">−${money2(use)}</b><button type="button" class="icon-btn" id="cert-use-clear" aria-label="Убрать сертификат из оплаты">×</button>`;
+}
 
 function renderCustomer() {
   $('#customer-box').hidden = !session.loyalty.enabled && !session.can('customers.create');
@@ -366,6 +377,7 @@ document.addEventListener('click', (e) => { if (!e.target.closest('#customer-fin
 
 /* ---------- Новый клиент: ФИО, телефон, карта, дата рождения, пол ---------- */
 let custGender = '';
+let custOnSaved = null; // куда отдать нового клиента (окно сертификата) вместо чека
 function openCustomerDialog(q = '') {
   const f = $('#cust-form');
   f.reset();
@@ -382,7 +394,7 @@ function openCustomerDialog(q = '') {
   (f.elements.name.value ? f.elements.phone : f.elements.name).focus();
 }
 $('#customer-add').addEventListener('click', () => openCustomerDialog($('#customer-phone').value.trim()));
-$('#cust-cancel').addEventListener('click', () => $('#cust-dialog').close());
+$('#cust-cancel').addEventListener('click', () => { custOnSaved = null; $('#cust-dialog').close(); });
 $('#cu-gender').addEventListener('click', (e) => {
   const b = e.target.closest('[data-g]');
   if (!b) return;
@@ -406,6 +418,8 @@ $('#cust-form').addEventListener('submit', async (e) => {
     const c = await api('/api/customers', { method: 'POST', body: { name: f.elements.name.value, phone: f.elements.phone.value, card: f.elements.card.value, birthday: f.elements.birthday.value, gender: custGender } });
     $('#cust-dialog').close();
     toast(`Клиент заведён, карта ${c.card}`);
+    // Клиента заводили из окна сертификата — он становится покупателем сертификата, а не чека.
+    if (custOnSaved) { const fn = custOnSaved; custOnSaved = null; return fn(c); }
     $('#customer-phone').value = '';
     pickCustomer(c);
   } catch (err) {
@@ -616,6 +630,7 @@ $('#cart-clear').addEventListener('click', () => { resetCheck(); renderCart(); r
 
 function resetCheck() {
   pos.cart = [];
+  pos.cert = null;
   pos.checkDiscount = null;
   pos.split = null;
   $('#cash-given').value = '';
@@ -623,7 +638,7 @@ function resetCheck() {
 }
 
 $('#checkout').addEventListener('click', async () => {
-  const paid = r2(cartTotal() - bonusSpend());
+  const paid = r2(cartTotal() - bonusSpend() - certUse());
   if (!currentMethod()) return toast('Выберите способ оплаты', 'error');
   const parts = payParts(paid);
   if (pos.split && parts.some((x) => x.amount < 0)) return toast('Суммы частей больше суммы чека', 'error');
@@ -643,10 +658,11 @@ $('#checkout').addEventListener('click', async () => {
         items: pos.cart.map((l) => ({ productId: l.productId, qty: l.qty, discount: l.discount || undefined })),
         checkDiscount: pos.checkDiscount || undefined,
         customerId: pos.customer?.id, bonusSpend: bonusSpend(), birthday: birthdayRate() > 0,
+        certificate: pos.cert ? { number: pos.cert.number, amount: certUse() } : undefined,
       },
     });
     const how = sale.payments.length > 1 ? sale.payments.map((x) => `${x.name} ${money2(x.amount)}`).join(' + ') : sale.method;
-    toast(`Чек №${sale.id} на ${money2(sale.total)} (${how}) пробит${sale.discount ? `, скидка ${money2(sale.discount)}` : ''}${sale.bonusEarned ? `, начислено ${sale.bonusEarned} бонусов` : ''}`);
+    toast(`Чек №${sale.id} на ${money2(sale.total)} (${how}) пробит${sale.discount ? `, скидка ${money2(sale.discount)}` : ''}${sale.bonusEarned ? `, начислено ${sale.bonusEarned} бонусов` : ''}${sale.certificate ? `. На сертификате осталось ${money2(sale.certificate.balance)}` : ''}`);
     loadShift();
     resetCheck();
     await catalog.load();

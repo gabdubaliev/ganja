@@ -452,6 +452,47 @@ function open(file) {
   addColumns('users', [['secret_pw', 'TEXT'], ['secret_pin', 'TEXT']]);
   // Карта покупателя (номер — 8 цифр, печатается штрихкодом) и пол: 'm' — мужской, 'f' — женский.
   addColumns('customers', [['card', "TEXT NOT NULL DEFAULT ''"], ['gender', "TEXT NOT NULL DEFAULT ''"]]);
+  // Подарочные сертификаты. Продажа сертификата — деньги на счёт, товар не уходит; выручка и прибыль считаются,
+  // когда по сертификату покупают товар (часть оплаты чека с kind 'certificate', без счёта и комиссии).
+  // status: active — действует, blocked — заблокирован (утерян). Остаток тратится частями; срок — expires_at.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS certificates (
+      id INTEGER PRIMARY KEY,
+      number TEXT NOT NULL UNIQUE,
+      amount REAL NOT NULL,
+      balance REAL NOT NULL,
+      customer_id INTEGER,
+      sold_at INTEGER NOT NULL,
+      expires_at INTEGER,
+      user_id INTEGER,
+      user_name TEXT NOT NULL DEFAULT '',
+      shift_id INTEGER,
+      status TEXT NOT NULL DEFAULT 'active',
+      note TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS certificates_sold ON certificates(sold_at);
+    CREATE TABLE IF NOT EXISTS certificate_payments (
+      id INTEGER PRIMARY KEY,
+      certificate_id INTEGER NOT NULL,
+      method_id INTEGER,
+      method_name TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'card',
+      amount REAL NOT NULL,
+      commission REAL NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS certificate_ops (
+      id INTEGER PRIMARY KEY,
+      certificate_id INTEGER NOT NULL,
+      at INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      amount REAL NOT NULL DEFAULT 0,
+      sale_id INTEGER,
+      user_name TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS certificate_ops_cert ON certificate_ops(certificate_id);
+  `);
+  addColumns('sale_payments', [['certificate_id', 'INTEGER']]);
   db.exec("CREATE INDEX IF NOT EXISTS customers_card ON customers(card)");
   db.exec(`
     CREATE INDEX IF NOT EXISTS doc_items_product ON doc_items(product_id);
@@ -499,6 +540,20 @@ function open(file) {
   fillCodes(db);
   // Новые права (галочки): тем, у кого права настроены вручную, добавляем их по смыслу — один раз,
   // чтобы после обновления никто не потерял то, что уже видел.
+  // Сертификаты: продавать и принимать — у кого была «Касса», список — у кого были «Покупатели».
+  if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v5'").get()) {
+    const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
+    for (const u of db.prepare('SELECT id, rights FROM users WHERE rights IS NOT NULL').all()) {
+      let list;
+      try { list = JSON.parse(u.rights); } catch { continue; }
+      if (!Array.isArray(list)) continue;
+      const add = [];
+      if (list.includes('pos')) add.push('certificates.sell', 'certificates.accept');
+      if (list.includes('customers')) add.push('certificates');
+      if (add.length) set.run(JSON.stringify([...new Set([...list, ...add])]), u.id);
+    }
+    db.prepare("INSERT INTO settings (key, value) VALUES ('rights_v5', '1')").run();
+  }
   // Заводить покупателей на кассе — отдельная галочка: у кого была «Касса», тому она добавляется.
   if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v4'").get()) {
     const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
@@ -1041,9 +1096,19 @@ function createStore(file) {
         SELECT sp.method_id AS id, sp.method_name AS name, sp.kind, COUNT(DISTINCT s.id) AS receipts,
           SUM(sp.amount) AS money, SUM(sp.commission) AS commission, COALESCE(m.commission, 0) AS rate
         FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id LEFT JOIN payment_methods m ON m.id = sp.method_id
-        WHERE s.created_at >= ? AND s.created_at < ? AND s.refunded_at IS NULL
-        GROUP BY sp.method_id, sp.method_name ORDER BY money DESC`).all(from, to)
-        .map((r) => ({ ...r, money: round2(r.money), commission: round2(r.commission), net: round2(r.money - r.commission) }));
+        WHERE s.created_at >= ? AND s.created_at < ? AND s.refunded_at IS NULL AND sp.kind <> 'certificate'
+        GROUP BY sp.method_id, sp.method_name`).all(from, to)
+        // Проданные сертификаты — тоже деньги, пришедшие этим способом.
+        .concat(db.prepare(`SELECT cp.method_id AS id, cp.method_name AS name, cp.kind, COUNT(DISTINCT c.id) AS receipts, SUM(cp.amount) AS money, SUM(cp.commission) AS commission, COALESCE(m.commission, 0) AS rate
+          FROM certificate_payments cp JOIN certificates c ON c.id = cp.certificate_id LEFT JOIN payment_methods m ON m.id = cp.method_id
+          WHERE c.sold_at >= ? AND c.sold_at < ? GROUP BY cp.method_id, cp.method_name`).all(from, to))
+        .reduce((acc, r) => {
+          const x = acc.find((y) => y.id === r.id && y.name === r.name);
+          if (x) { x.receipts += r.receipts; x.money += r.money; x.commission += r.commission; } else acc.push({ ...r });
+          return acc;
+        }, [])
+        .map((r) => ({ ...r, money: round2(r.money), commission: round2(r.commission), net: round2(r.money - r.commission) }))
+        .sort((a, b) => b.money - a.money);
     },
 
     /* ---------- Категории ---------- */
@@ -1346,7 +1411,7 @@ function createStore(file) {
     //   customerId, bonusSpend, birthday — программа лояльности.
     // Цены берёт сервер: из справочника, а при выдаче заказа — из заказа (trustPrices).
     // Скидки кассира требуют права «Скидки на кассе» и не больше max_discount % от чека.
-    createSale({ items, payment, methodId, payments, at, customerId, bonusSpend = 0, birthday: useBirthday = false, checkDiscount }, user = null, { trustPrices = false } = {}) {
+    createSale({ items, payment, methodId, payments, at, customerId, bonusSpend = 0, birthday: useBirthday = false, checkDiscount, certificate }, user = null, { trustPrices = false } = {}) {
       if (!Array.isArray(items) || !items.length) throw new UserError('В чеке нет товаров');
       const staff = user ? this.findUser(user.id) : null;
       return transaction(db, () => {
@@ -1429,7 +1494,18 @@ function createStore(file) {
           if (spent > limit) throw new UserError(`Бонусами можно оплатить не больше ${loyalty.maxPay}% чека — ${limit} сом`);
           earned = Math.floor((total - spent) * loyalty.percent / 100);
         }
-        const paid = round2(total - spent);
+        const toPay = round2(total - spent);
+        // Часть чека — подарочным сертификатом: деньги за него уже получены, поэтому эта часть не идёт ни на какой счёт.
+        let cert = null, certAmount = 0;
+        if (certificate?.number) {
+          if (!can(staff, 'certificates.accept')) throw new UserError('У вас нет права принимать сертификаты в оплату');
+          cert = this.usableCertificate(certificate.number);
+          certAmount = round2(certificate.amount === undefined || certificate.amount === null || certificate.amount === ''
+            ? Math.min(cert.balance, toPay) : number(certificate.amount, 'Сумма по сертификату', { positive: true }));
+          if (certAmount > cert.balance + 0.001) throw new UserError(`На сертификате осталось только ${cert.balance} сом`);
+          if (certAmount > toPay + 0.001) throw new UserError(`По сертификату можно оплатить не больше суммы чека — ${toPay} сом`);
+        }
+        const paid = round2(toPay - certAmount);
 
         // Оплата: частями или одним способом на всю сумму. Части должны сойтись с суммой к оплате.
         // Часть без суммы (amount пустой) получает остаток — так копейки округления не мешают пробить чек.
@@ -1450,7 +1526,7 @@ function createStore(file) {
         if (Math.abs(given - paid) > 0.01) throw new UserError(`Части оплаты (${given} сом) не сходятся с суммой к оплате (${paid} сом)`);
         for (const x of parts) x.commission = round2(x.amount * (x.method.commission || 0) / 100);
         const main = parts.reduce((a, x) => (x.amount > a.amount ? x : a), parts[0]);
-        const names = [...new Set(parts.map((x) => x.method.name))].join(' + ');
+        const names = [...new Set([...(cert ? ['Сертификат'] : []), ...parts.filter((x) => x.amount > 0 || !cert).map((x) => x.method.name)])].join(' + ');
 
         const { lastInsertRowid: saleId } = db.prepare(`
           INSERT INTO sales (created_at, payment, total, user_id, user_name, customer_id, bonus_spent, bonus_earned, discount, discount_reason, shift_id, method_id, method_name)
@@ -1458,7 +1534,13 @@ function createStore(file) {
           .run(at || Date.now(), parts.every((x) => x.method.kind === 'cash') ? 'cash' : 'card', total, user?.id ?? null, user ? user.name || user.email : '',
             customer?.id ?? null, spent, earned, discount, reasons.join('; '), user ? this.currentShift(user.id)?.id ?? null : null, main.method.id, names);
         const addPart = db.prepare('INSERT INTO sale_payments (sale_id, method_id, method_name, kind, amount, commission) VALUES (?, ?, ?, ?, ?, ?)');
-        for (const x of parts) addPart.run(saleId, x.method.id, x.method.name, x.method.kind, x.amount, x.commission);
+        for (const x of parts) if (x.amount > 0 || !cert) addPart.run(saleId, x.method.id, x.method.name, x.method.kind, x.amount, x.commission);
+        if (cert) {
+          db.prepare("INSERT INTO sale_payments (sale_id, method_id, method_name, kind, amount, commission, certificate_id) VALUES (?, NULL, 'Сертификат', 'certificate', ?, 0, ?)").run(saleId, certAmount, cert.id);
+          db.prepare('UPDATE certificates SET balance = ROUND(balance - ?, 2) WHERE id = ?').run(certAmount, cert.id);
+          db.prepare("INSERT INTO certificate_ops (certificate_id, at, kind, amount, sale_id, user_name) VALUES (?, ?, 'redeem', ?, ?, ?)")
+            .run(cert.id, Date.now(), -certAmount, saleId, user ? user.name || user.email : '');
+        }
         const addItem = db.prepare('INSERT INTO sale_items (sale_id, product_id, name, qty, price, cost, purchase) VALUES (?, ?, ?, ?, ?, ?, ?)');
         const takeStock = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?');
         for (const l of lines) {
@@ -1469,7 +1551,8 @@ function createStore(file) {
         if (spent) changeBonus(customer.id, -spent, `Оплата чека №${saleId}`, who, saleId);
         if (earned) changeBonus(customer.id, earned, `Начислено за чек №${saleId}`, who, saleId);
         return { id: Number(saleId), method: names, total, paid, bonusSpent: spent, bonusEarned: earned, discount, discountReason: reasons.join('; '),
-          payments: parts.map((x) => ({ name: x.method.name, amount: x.amount, commission: x.commission })),
+          certificate: cert ? { number: cert.number, used: certAmount, balance: round2(cert.balance - certAmount) } : null,
+          payments: [...(cert ? [{ name: `Сертификат №${cert.number}`, amount: certAmount, commission: 0 }] : []), ...parts.filter((x) => x.amount > 0 || !cert).map((x) => ({ name: x.method.name, amount: x.amount, commission: x.commission }))],
           items: lines.map((l) => ({ name: l.p.name, qty: l.qty, price: l.price })), customer: customer && this.findCustomer(customer.id) };
       });
     },
@@ -1481,6 +1564,7 @@ function createStore(file) {
         if (!sale) throw new UserError('Чек не найден');
         if (sale.refunded_at) throw new UserError('По этому чеку уже оформлен возврат');
         db.prepare('UPDATE sales SET refunded_at = ? WHERE id = ?').run(Date.now(), sale.id);
+        this.returnToCertificates(sale.id, `Возврат чека №${sale.id}`, user ? user.name || user.email : '');
         db.prepare(`UPDATE products SET stock = stock + (SELECT COALESCE(SUM(qty), 0) FROM sale_items WHERE sale_id = ? AND product_id = products.id)
                     WHERE id IN (SELECT product_id FROM sale_items WHERE sale_id = ?)`).run(sale.id, sale.id);
         if (sale.customer_id && (sale.bonus_spent || sale.bonus_earned)) {
@@ -1524,6 +1608,7 @@ function createStore(file) {
         const unlinkOrder = db.prepare('UPDATE orders SET sale_id = NULL WHERE sale_id = ?');
         for (const sale of rows) {
           if (!sale.refunded_at) {
+            this.returnToCertificates(sale.id, `Чек №${sale.id} удалён`, who);
             if (restock) back.run(sale.id, sale.id);
             if (sale.customer_id && (sale.bonus_spent || sale.bonus_earned)) {
               const c = db.prepare('SELECT * FROM customers WHERE id = ?').get(sale.customer_id);
@@ -1732,14 +1817,25 @@ function createStore(file) {
       const args = [sh.id, sh.user_id, sh.opened_at, sh.closed_at || Date.now()];
       const t = db.prepare(`SELECT COUNT(*) AS receipts, COALESCE(SUM(total), 0) AS revenue FROM sales s WHERE ${inShift}`).get(...args);
       // Деньги смены по способам оплаты — из частей оплаты, поэтому смешанный чек делится правильно.
-      const byMethod = db.prepare(`SELECT sp.method_name AS name, sp.kind, COUNT(DISTINCT s.id) AS receipts, SUM(sp.amount) AS sum, SUM(sp.commission) AS commission
-        FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id WHERE ${inShift}
-        GROUP BY sp.method_id, sp.method_name ORDER BY sum DESC`).all(...args)
-        .map((r) => ({ ...r, sum: round2(r.sum), commission: round2(r.commission) }));
+      // Оплата сертификатом — не деньги смены (их получили при продаже сертификата), а проданные сертификаты — деньги.
+      const byMethodRaw = db.prepare(`SELECT sp.method_name AS name, sp.kind, COUNT(DISTINCT s.id) AS receipts, SUM(sp.amount) AS sum, SUM(sp.commission) AS commission
+        FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id WHERE ${inShift} AND sp.kind <> 'certificate'
+        GROUP BY sp.method_id, sp.method_name`).all(...args);
+      const certPays = db.prepare(`SELECT cp.method_name AS name, cp.kind, COUNT(DISTINCT c.id) AS receipts, SUM(cp.amount) AS sum, SUM(cp.commission) AS commission
+        FROM certificate_payments cp JOIN certificates c ON c.id = cp.certificate_id
+        WHERE c.shift_id = ? OR (c.shift_id IS NULL AND c.user_id = ? AND c.sold_at >= ? AND c.sold_at < ?) GROUP BY cp.method_id, cp.method_name`).all(...args);
+      const merged = new Map();
+      for (const r of [...byMethodRaw, ...certPays]) {
+        const x = merged.get(r.name) || { name: r.name, kind: r.kind, receipts: 0, sum: 0, commission: 0 };
+        x.receipts += r.receipts; x.sum += r.sum; x.commission += r.commission;
+        merged.set(r.name, x);
+      }
+      const byMethod = [...merged.values()].map((r) => ({ ...r, sum: round2(r.sum), commission: round2(r.commission) })).sort((a, b) => b.sum - a.sum);
+      const certSold = certPays.reduce((s, r) => s + r.sum, 0);
       const cashSum = byMethod.filter((m) => m.kind === 'cash').reduce((a, m) => a + m.sum, 0);
       t.cash = cashSum;
       t.card = byMethod.reduce((a, m) => a + m.sum, 0) - cashSum;
-      return { ...sh, receipts: t.receipts, revenue: round2(t.revenue), cash: round2(t.cash), card: round2(t.card), byMethod };
+      return { ...sh, receipts: t.receipts, revenue: round2(t.revenue), cash: round2(t.cash), card: round2(t.card), byMethod, certificatesSold: round2(certSold) };
     },
 
     /* ---------- Табель ---------- */
@@ -2396,10 +2492,11 @@ function createStore(file) {
           purchases: sumIn(`SELECT SUM(total) AS v FROM docs WHERE kind = 'purchase' AND status = 'posted' AND method_id = ? AND doc_date >= ? AND doc_date < ?`, m.id, a, b),
           ops: sumIn('SELECT SUM(amount) AS v FROM account_ops WHERE method_id = ? AND at >= ? AND at < ?', m.id, a, b),
           expenses: sumIn('SELECT SUM(amount) AS v FROM expenses WHERE method_id = ? AND at >= ? AND at < ?', m.id, a, b),
+          certificates: sumIn('SELECT SUM(cp.amount - cp.commission) AS v FROM certificate_payments cp JOIN certificates c ON c.id = cp.certificate_id WHERE cp.method_id = ? AND c.sold_at >= ? AND c.sold_at < ?', m.id, a, b),
         });
         const all = flows(0, 8.64e15);
         const period = flows(from, to);
-        const net = (f) => round2(f.sales - f.commission - f.returns - f.purchases - f.expenses + f.ops);
+        const net = (f) => round2(f.sales - f.commission - f.returns - f.purchases - f.expenses + f.ops + f.certificates);
         return { id: m.id, name: m.name, kind: m.kind, active: m.active, commission: m.commission, opening: m.opening_balance,
           balance: round2(m.opening_balance + net(all)), period: { ...Object.fromEntries(Object.entries(period).map(([k, v]) => [k, round2(v)])), net: net(period) } };
       });
@@ -2449,6 +2546,122 @@ function createStore(file) {
       return { name: m.name, opening: round2(number(amount, 'Начальный остаток')) };
     },
 
+    /* ---------- Подарочные сертификаты ---------- */
+    certificateSettings() {
+      return { months: Number(this.setting('cert_months', '12')) || 0 };
+    },
+    setCertificateSettings(input) {
+      const months = Math.round(number(input.months ?? 12, 'Срок действия, месяцев'));
+      if (months > 120) throw new UserError('Срок — не больше 10 лет');
+      this.setSetting('cert_months', String(months));
+      return this.certificateSettings();
+    },
+
+    // Свободный номер: EAN-13 с префиксом 299 — печатается штрихкодом и не путается с картами покупателей (8 цифр).
+    newCertificateNumber() {
+      const taken = db.prepare('SELECT 1 FROM certificates WHERE number = ?');
+      for (let i = 0; i < 1000; i++) {
+        const code = ean13('299' + String(Math.floor(Math.random() * 1e9)).padStart(9, '0'));
+        if (!taken.get(code)) return code;
+      }
+      throw new UserError('Не получилось подобрать номер сертификата');
+    },
+
+    // Сертификат с покупателем и состоянием: active / used (остаток 0) / expired / blocked.
+    getCertificate(numberOrId, { byId = false } = {}) {
+      const c = db.prepare(`SELECT c.*, cu.name AS customer_name, cu.phone AS customer_phone, cu.card AS customer_card
+        FROM certificates c LEFT JOIN customers cu ON cu.id = c.customer_id WHERE ${byId ? 'c.id = ?' : 'c.number = ?'}`).get(byId ? Number(numberOrId) : String(numberOrId ?? '').trim());
+      if (!c) return null;
+      const state = c.status === 'blocked' ? 'blocked' : c.balance <= 0.004 ? 'used' : c.expires_at && c.expires_at < Date.now() ? 'expired' : 'active';
+      return { ...c, state };
+    },
+
+    usableCertificate(num) {
+      const c = this.getCertificate(num);
+      if (!c) throw new UserError('Сертификат с таким номером не найден');
+      if (c.state === 'blocked') throw new UserError(`Сертификат №${c.number} заблокирован`);
+      if (c.state === 'used') throw new UserError(`Сертификат №${c.number} уже потрачен полностью`);
+      if (c.state === 'expired') throw new UserError(`Срок сертификата №${c.number} истёк ${new Date(c.expires_at).toLocaleDateString('ru-RU')}`);
+      return c;
+    },
+
+    // Продажа сертификата: покупатель обязателен (он появляется в «Клиентах»), деньги — способом оплаты на счёт.
+    sellCertificate({ number: num, amount, customerId, methodId, payments, note }, user = null) {
+      const sum = round2(number(amount, 'Сумма сертификата', { positive: true }));
+      if (sum > 1e6) throw new UserError('Слишком большая сумма сертификата');
+      const code = String(num ?? '').trim() || this.newCertificateNumber();
+      if (!/^[0-9A-Za-z-]{4,32}$/.test(code)) throw new UserError('Номер сертификата — от 4 до 32 цифр или букв');
+      if (db.prepare('SELECT 1 FROM certificates WHERE number = ?').get(code)) throw new UserError(`Сертификат №${code} уже продан`);
+      const customer = customerId ? this.findCustomer(customerId) : null;
+      if (!customer) throw new UserError('Выберите покупателя или заведите нового — сертификат записывается на него');
+      let parts = [{ method: this.paymentMethodFor(methodId, null, user), amount: sum }];
+      if (Array.isArray(payments) && payments.length) {
+        parts = payments.map((x) => ({ method: this.paymentMethodFor(x.methodId, null, user), amount: x.amount === null || x.amount === undefined || x.amount === '' ? null : round2(number(x.amount, 'Сумма оплаты')) }));
+        const open = parts.filter((x) => x.amount === null);
+        if (open.length > 1) throw new UserError('Укажите сумму для всех способов, кроме одного');
+        if (open.length) open[0].amount = round2(sum - parts.reduce((s, x) => s + (x.amount || 0), 0));
+        parts = parts.filter((x) => x.amount > 0);
+        if (Math.abs(parts.reduce((s, x) => s + x.amount, 0) - sum) > 0.01) throw new UserError('Части оплаты не сходятся с суммой сертификата');
+      }
+      const months = this.certificateSettings().months;
+      const exp = months ? new Date() : null;
+      if (exp) { exp.setMonth(exp.getMonth() + months); exp.setHours(23, 59, 59, 999); }
+      const who = user ? user.name || user.email : '';
+      return transaction(db, () => {
+        const id = Number(db.prepare(`INSERT INTO certificates (number, amount, balance, customer_id, sold_at, expires_at, user_id, user_name, shift_id, note)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(code, sum, sum, customer.id, Date.now(), exp ? exp.getTime() : null, user?.id ?? null, who,
+          user ? this.currentShift(user.id)?.id ?? null : null, text(note, 'Комментарий', { max: 200 })).lastInsertRowid);
+        const add = db.prepare('INSERT INTO certificate_payments (certificate_id, method_id, method_name, kind, amount, commission) VALUES (?, ?, ?, ?, ?, ?)');
+        for (const x of parts) add.run(id, x.method.id, x.method.name, x.method.kind, x.amount, round2(x.amount * (x.method.commission || 0) / 100));
+        db.prepare("INSERT INTO certificate_ops (certificate_id, at, kind, amount, user_name, note) VALUES (?, ?, 'sale', ?, ?, ?)")
+          .run(id, Date.now(), sum, who, parts.map((x) => `${x.method.name} ${x.amount}`).join(' + '));
+        return this.getCertificate(id, { byId: true });
+      });
+    },
+
+    // Возврат или удаление чека, оплаченного сертификатом: сумма возвращается на сертификат.
+    returnToCertificates(saleId, reason, who = '') {
+      for (const p of db.prepare("SELECT * FROM sale_payments WHERE sale_id = ? AND kind = 'certificate' AND certificate_id IS NOT NULL").all(saleId)) {
+        db.prepare('UPDATE certificates SET balance = ROUND(balance + ?, 2) WHERE id = ?').run(p.amount, p.certificate_id);
+        db.prepare("INSERT INTO certificate_ops (certificate_id, at, kind, amount, sale_id, user_name, note) VALUES (?, ?, 'refund', ?, ?, ?, ?)")
+          .run(p.certificate_id, Date.now(), p.amount, saleId, who, reason);
+      }
+    },
+
+    listCertificates({ q = '', state = '' } = {}) {
+      const s = String(q).trim().toLowerCase();
+      const digits = s.replace(/\D/g, '');
+      return db.prepare(`SELECT c.*, cu.name AS customer_name, cu.phone AS customer_phone FROM certificates c LEFT JOIN customers cu ON cu.id = c.customer_id
+        ORDER BY c.sold_at DESC LIMIT 2000`).all()
+        .map((c) => this.getCertificate(c.id, { byId: true }))
+        .filter((c) => (!state || c.state === state) && (!s || c.number.includes(s) || (c.customer_name || '').toLowerCase().includes(s) || (digits.length >= 3 && (c.customer_phone || '').includes(digits))));
+    },
+
+    certificateHistory(id) {
+      const c = this.getCertificate(id, { byId: true });
+      if (!c) throw new UserError('Сертификат не найден');
+      return { ...c, ops: db.prepare('SELECT * FROM certificate_ops WHERE certificate_id = ? ORDER BY at DESC, id DESC').all(c.id),
+        payments: db.prepare('SELECT method_name, amount, commission FROM certificate_payments WHERE certificate_id = ?').all(c.id) };
+    },
+
+    setCertificateBlocked(id, blocked, user = null, note = '') {
+      const c = this.getCertificate(id, { byId: true });
+      if (!c) throw new UserError('Сертификат не найден');
+      db.prepare('UPDATE certificates SET status = ? WHERE id = ?').run(blocked ? 'blocked' : 'active', c.id);
+      db.prepare('INSERT INTO certificate_ops (certificate_id, at, kind, amount, user_name, note) VALUES (?, ?, ?, 0, ?, ?)')
+        .run(c.id, Date.now(), blocked ? 'block' : 'unblock', user ? user.name || user.email : '', text(note, 'Причина', { max: 200 }));
+      return this.getCertificate(c.id, { byId: true });
+    },
+
+    // Для главной: продано сертификатов и потрачено по ним за период, не потрачено сейчас (действующие).
+    certificateStats({ from, to }) {
+      const sold = db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(amount), 0) AS v FROM certificates WHERE sold_at >= ? AND sold_at < ?').get(from, to);
+      const redeemed = db.prepare(`SELECT COALESCE(SUM(sp.amount), 0) AS v FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
+        WHERE sp.kind = 'certificate' AND s.refunded_at IS NULL AND s.created_at >= ? AND s.created_at < ?`).get(from, to).v;
+      const open = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(balance), 0) AS v FROM certificates WHERE status = 'active' AND balance > 0 AND (expires_at IS NULL OR expires_at >= ?)").get(Date.now());
+      return { soldCount: sold.n, sold: round2(sold.v), redeemed: round2(redeemed), openCount: open.n, outstanding: round2(open.v) };
+    },
+
     /* ---------- Расходы ---------- */
     expenseCategories: EXPENSE_CATEGORIES,
 
@@ -2495,7 +2708,7 @@ function createStore(file) {
       const salary = round2(staff.reduce((sum, r) => sum + r.pay, 0));
       const fixed = round2(recurring.reduce((sum, r) => sum + r.amount, 0));
       const other = round2(expenses.reduce((sum, r) => sum + r.amount, 0));
-      return { salary, staff, recurring, fixed, expenses, other, writeoffs, total: round2(salary + fixed + other + writeoffs) };
+      return { salary, staff, recurring, fixed, expenses, other, writeoffs, total: round2(salary + fixed + other + writeoffs), certificates: this.certificateStats({ from, to }) };
     },
 
     // Правка табеля для одного или многих дней сразу. cells — [{ user_id, day: 'ГГГГ-ММ-ДД' }].

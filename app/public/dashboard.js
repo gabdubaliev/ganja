@@ -496,6 +496,12 @@ function renderNetProfit(v) {
     f.writeoffs ? line('Списания', minus(f.writeoffs), 'np-minus', 'брак, просрочка — по себестоимости') : '',
     line('Расходы всего', minus(f.total), 'np-sub', 'зарплата + постоянные + разовые'),
     line('Чистая прибыль', `<span class="${net < 0 ? 'neg' : ''}">${money(net)}</span>`, 'np-total', c.revenue > 0 ? `${pct(net / c.revenue)} от выручки` : ''),
+    // Сертификаты — справочно: деньги за них уже на счёте, в выручку они идут, когда по ним покупают товар.
+    f.certificates && (f.certificates.sold || f.certificates.outstanding || f.certificates.redeemed) ? `<div class="np-cert">
+      <div><span>🎁 Продано сертификатов</span><b class="num">${money(f.certificates.sold)}</b><small>${f.certificates.soldCount} шт. · деньги на счёте, в выручку пока не входят</small></div>
+      <div><span>Куплено по сертификатам</span><b class="num">${money(f.certificates.redeemed)}</b><small>уже в выручке выше</small></div>
+      <div><span>Не потрачено по сертификатам</span><b class="num">${money(f.certificates.outstanding)}</b><small>${f.certificates.openCount} действующих — столько товара ещё должны выдать</small></div>
+    </div>` : '',
   ].join('');
   const canEdit = session.can('expenses');
   const fixed = state.recurring || [];
