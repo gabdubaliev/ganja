@@ -124,9 +124,10 @@ function renderFrame() {
   $('#wa-float').hidden = !wa || s.whatsappButton === false;
   if (wa) $('#wa-float').href = `https://wa.me/${wa}`;
   // Преимущества под баннером.
-  const perks = s.perks || [];
+  // Старый формат — строки, новый — {icon, text, on}.
+  const perks = (s.perks || []).map((x, i) => (typeof x === 'string' ? { icon: PERK_ICONS[i] || '✓', text: x, on: true } : x)).filter((x) => x.on !== false && x.text);
   $('#perks').hidden = !perks.length;
-  $('#perks').innerHTML = perks.map((t, i) => `<div class="perk"><i>${PERK_ICONS[i] || '✓'}</i><span>${esc(t)}</span></div>`).join('');
+  $('#perks').innerHTML = perks.map((x) => `<div class="perk">${x.icon ? `<i>${esc(x.icon)}</i>` : ''}<span>${esc(x.text)}</span></div>`).join('');
   $('#head-contacts').innerHTML = phone ? `<a href="tel:${esc(phone)}">${ICONS.phone.replace('<svg', '<svg width="15" height="15"')}${esc(s.phone)}</a>` : '';
   $('#foot-title').textContent = s.title;
   $('#about').textContent = s.about;
@@ -193,11 +194,12 @@ function badgesHtml(p) {
 // Показывается у товаров с вариантами (размерами).
 function sizeChartHtml(chart, p, open) {
   if (!chart || !p.hasVariants) return '';
-  const rows = chart.split('\n').map((l) => l.split(/\s*[;|\t]\s*/));
+  const rows = chart.split('\n').map((l) => l.split(/\s*[;|\t]\s*/)).filter((r) => r.some(Boolean));
+  if (rows.length < 2) return '';
   const [head, ...body] = rows;
   return `<details class="size-chart" ${open ? 'open' : ''}><summary>📏 Таблица размеров</summary>
     <div class="size-wrap"><table><thead><tr>${head.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead>
-    <tbody>${body.map((r) => `<tr>${r.map((c, i) => (i ? `<td>${esc(c)}</td>` : `<th>${esc(c)}</th>`)).join('')}</tr>`).join('')}</tbody></table></div></details>`;
+    <tbody>${body.map((r) => `<tr>${head.map((_, i) => r[i] ?? '').map((c, i) => (i ? `<td>${esc(c)}</td>` : `<th>${esc(c)}</th>`)).join('')}</tr>`).join('')}</tbody></table></div></details>`;
 }
 
 function cardHtml(p, i = 0) {
@@ -298,7 +300,7 @@ function openProduct(id) {
   }).join('') : '';
   const can = v && v.stock > 0;
   const old = v && v !== p ? v.oldPrice : !p.hasVariants ? p.oldPrice : null;
-  const perks = (s.perks || []).slice(0, 3);
+  const perks = (s.productNotes || []).filter((x) => x.on !== false && x.text).map((x) => x.text);
   const chartOpen = Boolean($('#product-body .size-chart')?.open);
   $('#product-body').innerHTML = `<div class="pd">
     <div class="pd-pic">${pic ? `<img src="${pic}" alt="${esc(p.name)}">` : initial(p)}${badgesHtml(p)}</div>

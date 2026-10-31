@@ -950,6 +950,7 @@ const SHOP_DEFAULTS = {
   mobileColumns: 2,
   announce: '',
   perks: [],
+  productNotes: [],
   showSaleBadge: true,
   newDays: 14,
   instagram: '',
@@ -959,6 +960,15 @@ const SHOP_DEFAULTS = {
   sizeChart: '',
 };
 const FONTS = ['system', 'serif', 'rounded', 'mono', 'condensed'];
+// Преимущества под баннером: значок, текст, показывать ли. Старые настройки — просто строки.
+const PERK_ICONS = ['🚚', '💳', '↺', '★', '✓', '✓', '✓', '✓'];
+const normPerks = (list) => (Array.isArray(list) ? list : []).slice(0, 8).map((x, i) => (typeof x === 'string'
+  ? { icon: PERK_ICONS[i], text: x.trim().slice(0, 80), on: true }
+  : { icon: String(x?.icon ?? '').trim().slice(0, 8), text: String(x?.text ?? '').trim().slice(0, 80), on: x?.on !== false })).filter((p) => p.text);
+// Строки в окне товара (под ценой): свой текст, каждую можно выключить.
+const normNotes = (list) => (Array.isArray(list) ? list : []).slice(0, 8).map((x) => (typeof x === 'string'
+  ? { text: x.trim().slice(0, 200), on: true }
+  : { text: String(x?.text ?? '').trim().slice(0, 200), on: x?.on !== false })).filter((n) => n.text);
 const SHOP_FONTS = ['Inter', 'Manrope', 'Montserrat', 'Rubik', 'Nunito', 'Raleway', 'Open Sans', 'Roboto', 'Unbounded', 'Comfortaa',
   'Playfair Display', 'Cormorant Garamond', 'Lora', 'PT Serif', 'Oswald', 'Roboto Condensed', 'Prata', 'Jost'];
 
@@ -4280,7 +4290,12 @@ function createStore(file) {
     },
 
     shop() {
-      return { ...SHOP_DEFAULTS, ...JSON.parse(this.setting('shop', '{}')) };
+      const raw = JSON.parse(this.setting('shop', '{}'));
+      const s = { ...SHOP_DEFAULTS, ...raw };
+      s.perks = normPerks(s.perks);
+      // Строки в окне товара раньше брались из первых трёх преимуществ — пока их не меняли, так и остаётся.
+      s.productNotes = raw.productNotes === undefined ? s.perks.slice(0, 3).map((p) => ({ text: p.text, on: p.on })) : normNotes(raw.productNotes);
+      return s;
     },
 
     setShop(input) {
@@ -4343,14 +4358,16 @@ function createStore(file) {
         look: v.look === 'minimal' ? 'minimal' : 'modern',
         mobileColumns: Number(v.mobileColumns) === 1 ? 1 : 2,
         announce: t('announce', 'Бегущая строка', 200),
-        perks: (Array.isArray(v.perks) ? v.perks : []).map((x) => String(x ?? '').trim().slice(0, 80)).filter(Boolean).slice(0, 4),
+        perks: normPerks(v.perks),
+        productNotes: normNotes(v.productNotes),
         showSaleBadge: v.showSaleBadge !== false,
         newDays: Math.max(0, Math.min(90, Math.round(number(v.newDays || 0, 'Дней «Новинка»')))),
         instagram: t('instagram', 'Instagram', 60).replace(/^@/, '').replace(/^https?:\/\/(www\.)?instagram\.com\//, '').replace(/\/.*$/, ''),
         tiktok: t('tiktok', 'TikTok', 60).replace(/^@/, '').replace(/^https?:\/\/(www\.)?tiktok\.com\/@?/, '').replace(/\/.*$/, ''),
         whatsappButton: v.whatsappButton !== false,
         footerNote: t('footerNote', 'Подпись внизу', 200),
-        sizeChart: String(v.sizeChart ?? '').replace(/\r/g, '').split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 20).join('\n').slice(0, 2000),
+        sizeChart: String(v.sizeChart ?? '').replace(/\r/g, '').split('\n').map((l) => l.trim()).filter((l) => l.replace(/[;|\s]/g, ''))
+          .slice(0, 30).map((l) => l.split(/\s*[;|\t]\s*/).slice(0, 10).join('; ')).join('\n').slice(0, 4000),
       };
       if (!next.delivery && !next.pickup) throw new UserError('Включите доставку или самовывоз');
       this.setSetting('shop', JSON.stringify(next));

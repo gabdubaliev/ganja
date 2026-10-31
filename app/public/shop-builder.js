@@ -18,7 +18,10 @@ const SHOP_TEMPLATES = {
 const MENSWEAR_FILL = {
   heroButton: 'Смотреть коллекцию',
   announce: 'Новая коллекция уже в магазине · Примерка при получении · Обмен и возврат 14 дней',
-  perks: ['Доставка по городу за 1 день', 'Примерка при получении', 'Обмен и возврат 14 дней', 'Размеры от S до 4XL'],
+  perks: [{ icon: '🚚', text: 'Доставка по городу за 1 день', on: true }, { icon: '👔', text: 'Примерка при получении', on: true },
+    { icon: '↺', text: 'Обмен и возврат 14 дней', on: true }, { icon: '📏', text: 'Размеры от S до 4XL', on: true }],
+  productNotes: [{ text: 'Доставка по городу за 1 день', on: true }, { text: 'Примерка при получении — не подошло, вернёте курьеру', on: true },
+    { text: 'Обмен и возврат 14 дней', on: true }],
   sizeChart: 'Размер; Грудь, см; Талия, см; Рост, см\nS; 88–92; 76–80; 170–176\nM; 96–100; 84–88; 176–182\nL; 104–108; 92–96; 176–182\nXL; 112–116; 100–104; 182–188\nXXL; 120–124; 108–112; 182–188\n3XL; 128–132; 116–120; 188–194',
 };
 const MINIMAL = { look: 'minimal', bg: '#ffffff', surface: '#f4f4f4', ink: '#1b1b1b', headingFont: 'Roboto', bodyFont: 'Roboto', radius: 0, buttonStyle: 'square', cardShadow: 'none', heroStyle: 'image', heroHeight: 'large', heroAlign: 'left', headerStyle: 'left', cardRatio: '3:4', imageFit: 'cover', columns: 4, mobileColumns: 2, fill: MENSWEAR_FILL };
@@ -82,7 +85,8 @@ function fillShopForm() {
     if (el.type === 'checkbox') el.checked = Boolean(d[el.name]);
     else el.value = d[el.name] ?? '';
   }
-  for (const el of document.querySelectorAll('#shop-form [data-perk]')) el.value = (d.perks || [])[Number(el.dataset.perk)] || '';
+  renderLists();
+  renderSizeEdit();
   const cats = [...new Set(builder.products.map((p) => p.category).filter(Boolean))].sort();
   $('#shop-cats').innerHTML = cats.length ? cats.map((c) => `<label class="check"><input type="checkbox" data-cat="${esc(c)}" ${d.categories.includes(c) ? 'checked' : ''}> ${esc(c)}</label>`).join('') : '<span class="pick-meta">У товаров пока нет категорий</span>';
   renderImagePicks();
@@ -202,7 +206,101 @@ function readShopForm() {
     else d[el.name] = el.value;
   }
   d.categories = [...document.querySelectorAll('#shop-cats [data-cat]:checked')].map((i) => i.dataset.cat);
-  d.perks = [...document.querySelectorAll('#shop-form [data-perk]')].map((i) => i.value.trim()).filter(Boolean);
+  readLists();
+  readSizeEdit();
+}
+
+/* ---------- Списки строк (преимущества, строки в окне товара) ---------- */
+const LIST_MAX = 8;
+function renderLists() {
+  for (const box of document.querySelectorAll('#shop-form .list-edit')) {
+    const icon = box.dataset.icon !== undefined;
+    const items = builder.draft[box.dataset.list] || [];
+    box.innerHTML = items.map((x, i) => `
+      <div class="le-row ${x.on === false ? 'off' : ''}">
+        <input type="checkbox" data-le="on" ${x.on === false ? '' : 'checked'} title="Показывать строку" aria-label="Показывать строку">
+        ${icon ? `<input class="input le-icon" data-le="icon" value="${esc(x.icon || '')}" maxlength="8" list="perk-icons" placeholder="—" aria-label="Значок">` : ''}
+        <input class="input le-text" data-le="text" value="${esc(x.text || '')}" maxlength="${icon ? 80 : 200}" placeholder="Текст строки">
+        <span class="le-tools">
+          <button type="button" class="btn small ghost" data-le-move="-1" data-i="${i}" ${i ? '' : 'disabled'} title="Выше">↑</button>
+          <button type="button" class="btn small ghost" data-le-move="1" data-i="${i}" ${i < items.length - 1 ? '' : 'disabled'} title="Ниже">↓</button>
+          <button type="button" class="btn small ghost" data-le-del data-i="${i}" title="Удалить">✕</button>
+        </span>
+      </div>`).join('')
+      + (items.length < LIST_MAX ? '<button type="button" class="btn small" data-le-add>+ Добавить строку</button>' : '');
+  }
+}
+function readLists() {
+  for (const box of document.querySelectorAll('#shop-form .list-edit')) {
+    builder.draft[box.dataset.list] = [...box.querySelectorAll('.le-row')].map((r) => ({
+      ...(box.dataset.icon !== undefined && { icon: r.querySelector('[data-le="icon"]').value.trim() }),
+      text: r.querySelector('[data-le="text"]').value,
+      on: r.querySelector('[data-le="on"]').checked,
+    }));
+    box.querySelectorAll('.le-row').forEach((r) => r.classList.toggle('off', !r.querySelector('[data-le="on"]').checked));
+  }
+}
+
+/* ---------- Таблица размеров: каждая ячейка, строка и столбец ---------- */
+const parseChart = (s) => {
+  const rows = String(s || '').split('\n').filter((l) => l.trim()).map((l) => l.split(/\s*[;|\t]\s*/));
+  const w = Math.max(0, ...rows.map((r) => r.length));
+  return rows.map((r) => Array.from({ length: w }, (_, i) => r[i] ?? ''));
+};
+const cleanCell = (v) => v.replace(/[;|\t\n]/g, ' ').trim();
+let sizeRows = [];
+function renderSizeEdit() {
+  sizeRows = parseChart(builder.draft.sizeChart);
+  const box = $('#size-edit');
+  if (!sizeRows.length) {
+    box.innerHTML = `<div class="se-empty">Таблицы нет — в товарах её не будет.
+      <button type="button" class="btn small" data-se="seed">Создать мужскую таблицу</button>
+      <button type="button" class="btn small ghost" data-se="blank">Пустая таблица</button></div>`;
+    return;
+  }
+  const cols = sizeRows[0].length;
+  const colTools = Array.from({ length: cols }, (_, c) => `<th><span class="se-tools">
+      <button type="button" data-se="col-left" data-c="${c}" ${c ? '' : 'disabled'} title="Левее">←</button>
+      <button type="button" data-se="col-del" data-c="${c}" ${cols > 1 ? '' : 'disabled'} title="Удалить столбец">✕</button>
+      <button type="button" data-se="col-right" data-c="${c}" ${c < cols - 1 ? '' : 'disabled'} title="Правее">→</button></span></th>`).join('');
+  box.innerHTML = `<div class="se-scroll"><table class="se-table">
+    <thead><tr>${colTools}<th></th></tr></thead>
+    <tbody>${sizeRows.map((r, ri) => `<tr class="${ri ? '' : 'se-head'}">${r.map((v, c) => `<td><input class="input" data-r="${ri}" data-c="${c}" value="${esc(v)}" placeholder="${ri ? '—' : 'Заголовок'}"></td>`).join('')}
+      <td><span class="se-tools">
+        <button type="button" data-se="row-up" data-r="${ri}" ${ri ? '' : 'disabled'} title="Выше">↑</button>
+        <button type="button" data-se="row-down" data-r="${ri}" ${ri < sizeRows.length - 1 ? '' : 'disabled'} title="Ниже">↓</button>
+        <button type="button" data-se="row-del" data-r="${ri}" title="Удалить строку">✕</button></span></td></tr>`).join('')}</tbody>
+  </table></div>
+  <div class="se-actions">
+    <button type="button" class="btn small" data-se="row-add">+ Строка</button>
+    <button type="button" class="btn small" data-se="col-add">+ Столбец</button>
+    <button type="button" class="btn small ghost" data-se="clear">Удалить таблицу</button>
+  </div>`;
+}
+function readSizeEdit() {
+  for (const inp of document.querySelectorAll('#size-edit input[data-r]')) sizeRows[inp.dataset.r][inp.dataset.c] = cleanCell(inp.value);
+  builder.draft.sizeChart = sizeRows.map((r) => r.join('; ')).join('\n');
+}
+function sizeAction(act, r, c) {
+  const swap = (a, i, j) => { [a[i], a[j]] = [a[j], a[i]]; };
+  const cols = sizeRows[0]?.length || 0;
+  if (act === 'seed') sizeRows = parseChart(MENSWEAR_FILL.sizeChart);
+  else if (act === 'blank') sizeRows = [['Размер', 'Грудь, см', 'Талия, см'], ['', '', '']];
+  else if (act === 'clear') { if (!confirm('Удалить таблицу размеров целиком?')) return; sizeRows = []; }
+  else if (act === 'row-add') { if (sizeRows.length < 30) sizeRows.push(Array(cols).fill('')); }
+  else if (act === 'col-add') { if (cols < 10) sizeRows.forEach((row) => row.push('')); }
+  else if (act === 'row-del') sizeRows.splice(r, 1);
+  else if (act === 'row-up') swap(sizeRows, r, r - 1);
+  else if (act === 'row-down') swap(sizeRows, r, r + 1);
+  else if (act === 'col-del') sizeRows.forEach((row) => row.splice(c, 1));
+  else if (act === 'col-left') sizeRows.forEach((row) => swap(row, c, c - 1));
+  else if (act === 'col-right') sizeRows.forEach((row) => swap(row, c, c + 1));
+  builder.draft.sizeChart = sizeRows.map((row) => row.join('; ')).join('\n');
+  renderSizeEdit();
+  if (act === 'row-add' || act === 'col-add') {
+    const inputs = document.querySelectorAll('#size-edit input[data-r]');
+    (act === 'row-add' ? inputs[inputs.length - (sizeRows[0]?.length || 1)] : document.querySelector(`#size-edit input[data-r="0"][data-c="${(sizeRows[0]?.length || 1) - 1}"]`))?.focus();
+  }
 }
 
 function onShopChange() {
@@ -215,6 +313,27 @@ function onShopChange() {
 $('#shop-form').addEventListener('input', onShopChange);
 $('#shop-form').addEventListener('change', onShopChange);
 $('#shop-form').addEventListener('click', async (e) => {
+  // Редакторы строк и таблицы размеров.
+  const le = e.target.closest('[data-le-add], [data-le-move], [data-le-del]');
+  const se = e.target.closest('[data-se]');
+  if (le || se) {
+    e.preventDefault();
+    readShopForm();
+    if (se) sizeAction(se.dataset.se, Number(se.dataset.r), Number(se.dataset.c));
+    else {
+      const box = le.closest('.list-edit');
+      const list = builder.draft[box.dataset.list];
+      const i = Number(le.dataset.i);
+      if (le.dataset.leAdd !== undefined) list.push({ ...(box.dataset.icon !== undefined && { icon: '✓' }), text: '', on: true });
+      else if (le.dataset.leDel !== undefined) list.splice(i, 1);
+      else { const j = i + Number(le.dataset.leMove); [list[i], list[j]] = [list[j], list[i]]; }
+      renderLists();
+      if (le.dataset.leAdd !== undefined) [...box.querySelectorAll('.le-text')].at(-1)?.focus();
+    }
+    renderOutputs();
+    markDirty();
+    return pushPreview();
+  }
   const t = e.target.closest('[data-template]');
   if (t) {
     const { name, fill = {}, ...preset } = SHOP_TEMPLATES[t.dataset.template];

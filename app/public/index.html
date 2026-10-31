@@ -1491,11 +1491,13 @@
       </details>
       <details><summary>Акции и значки</summary>
         <div class="field"><label>Бегущая строка сверху (пусто — нет)</label><input name="announce" class="input" maxlength="200" placeholder="Бесплатная доставка от 5 000 сом"></div>
-        <div class="field"><label>Преимущества под баннером (до 4)</label>
-          <input class="input" data-perk="0" maxlength="80" placeholder="Доставка по Бишкеку за 1 день">
-          <input class="input" data-perk="1" maxlength="80" placeholder="Оплата переводом по QR">
-          <input class="input" data-perk="2" maxlength="80" placeholder="Обмен и возврат 14 дней">
-          <input class="input" data-perk="3" maxlength="80" placeholder="Бонусы с каждой покупки"></div>
+        <div class="field"><label>Преимущества под баннером</label>
+          <small class="sub">Значок (можно любой смайлик или пусто), текст, галочка — показывать строку. Стрелками меняется порядок.</small>
+          <div class="list-edit" data-list="perks" data-icon></div></div>
+        <div class="field"><label>Строки в окне товара (под ценой, с галочкой ✓)</label>
+          <small class="sub">Пишите что угодно: про доставку, примерку, уход за вещью. Лишнюю строку выключите галочкой или удалите.</small>
+          <div class="list-edit" data-list="productNotes"></div></div>
+        <datalist id="perk-icons"><option value="🚚"><option value="💳"><option value="↺"><option value="★"><option value="✂️"><option value="👔"><option value="👕"><option value="👖"><option value="🧥"><option value="👞"><option value="📦"><option value="🎁"><option value="📏"><option value="🔥"><option value="⏱"><option value="✓"><option value="💯"><option value="🏷"></datalist>
         <label class="check"><input type="checkbox" name="showSaleBadge"> Значок скидки на фото (−20%)</label>
         <div class="field"><label>Значок «Новинка» — товарам, заведённым за последние … дней (0 — не показывать)</label><input name="newDays" class="input num" inputmode="numeric"></div>
       </details>
@@ -1503,8 +1505,8 @@
         <div class="field"><label>Вид карточек</label>
           <select name="cardStyle" class="input"><option value="photo">Большое фото</option><option value="compact">Компактно</option><option value="list">Списком</option></select></div>
         <div class="field"><label>Таблица размеров — показывается в товарах с размерами</label>
-          <textarea name="sizeChart" class="input" rows="6" spellcheck="false" placeholder="Размер; Грудь, см; Талия, см; Рост, см&#10;S; 88–92; 76–80; 170–176&#10;M; 96–100; 84–88; 176–182&#10;L; 104–108; 92–96; 176–182"></textarea>
-          <small class="sub">Первая строка — заголовки, столбцы через «;». Пусто — таблицы нет.</small></div>
+          <small class="sub">Первая строка — заголовки. Любую ячейку можно поправить; кнопками добавляются, удаляются и двигаются строки и столбцы.</small>
+          <div class="size-edit" id="size-edit"></div></div>
         <div class="field"><label>Форма фото</label><select name="cardRatio" class="input"><option value="4:5">Вертикальная 4:5 (одежда)</option><option value="3:4">Вертикальная 3:4</option><option value="1:1">Квадрат</option><option value="4:3">Горизонтальная 4:3</option></select></div>
         <div class="field"><label>Фото в карточке</label><select name="imageFit" class="input"><option value="cover">Заполнить карточку</option><option value="contain">Целиком, с полями</option></select></div>
         <div class="field"><label>Тень карточек</label><select name="cardShadow" class="input"><option value="soft">Мягкая</option><option value="strong">Заметная</option><option value="outline">Тонкая рамка</option><option value="none">Без тени</option></select></div>

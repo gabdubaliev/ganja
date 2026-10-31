@@ -1621,3 +1621,34 @@ th.ts-name.ts-editable:hover, th.ts-day.ts-editable:hover { color: var(--series)
 .font-upload label.btn { cursor: pointer; }
 @media (max-width: 760px) { .font-list li { grid-template-columns: 1fr auto auto; } .font-list .font-sample, .font-list small, .font-list [data-f="family"] { grid-column: 1 / -1; } .font-list small { text-align: left; } }
 .font-list [data-font-del] { justify-self: end; }
+
+/* Конструктор витрины: списки строк и таблица размеров */
+.list-edit { display: grid; gap: 6px; margin-top: 6px; }
+.le-row { display: grid; grid-template-columns: auto 54px minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+.list-edit:not([data-icon]) .le-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+.le-row.off .le-text, .le-row.off .le-icon { opacity: .45; text-decoration: line-through; }
+.le-row input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--series); }
+.le-icon { text-align: center; font-size: 18px; padding-left: 4px !important; padding-right: 4px !important; }
+.le-tools { display: inline-flex; gap: 2px; }
+.le-tools .btn { padding: 6px 8px; min-width: 30px; }
+.list-edit > .btn { justify-self: start; }
+.size-edit { margin-top: 6px; }
+.se-empty { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--ink-2); font-size: 13px; }
+.se-scroll { overflow-x: auto; border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent); border-radius: calc(var(--radius) - 4px); }
+.se-table { border-collapse: collapse; width: 100%; }
+.se-table th, .se-table td { padding: 3px; border: 0; }
+.se-table td .input { min-width: 74px; width: 100%; padding: 7px 8px; font-size: 13px; text-align: center; }
+.se-table .se-head .input { font-weight: 700; background: color-mix(in srgb, var(--series) 9%, var(--surface)); }
+.se-tools { display: flex; gap: 2px; justify-content: center; }
+.se-tools button { border: 0; background: none; color: var(--ink-2); font-size: 12px; padding: 4px 5px; border-radius: 6px; cursor: pointer; }
+.se-tools button:hover:not(:disabled) { background: color-mix(in srgb, var(--series) 12%, transparent); color: var(--ink); }
+.se-tools button:disabled { opacity: .25; cursor: default; }
+.se-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.size-edit, .list-edit { min-width: 0; max-width: 100%; overflow: hidden; }
+.size-edit .se-scroll { overflow-x: auto; }
+.le-row { grid-template-columns: auto 48px minmax(0, 1fr); row-gap: 2px; padding-bottom: 6px; border-bottom: 1px dashed color-mix(in srgb, var(--ink) 10%, transparent); }
+.list-edit:not([data-icon]) .le-row { grid-template-columns: auto minmax(0, 1fr); }
+.le-tools { grid-column: 2 / -1; justify-self: end; }
+.list-edit:not([data-icon]) .le-tools { grid-column: 1 / -1; }
+.le-tools .btn { padding: 3px 9px; min-width: 0; font-size: 12px; }
+.se-table td .input { min-width: 62px; }
