@@ -1609,6 +1609,36 @@ function createStore(file) {
         .map((r) => ({ ...r, revenue: round2(r.revenue), profit: round2(r.profit) }));
     },
 
+    // Данные для ABC/XYZ-анализа: по каждому продаваемому товару — продано, выручка, прибыль (от цены закупки)
+    // и количество по неделям или месяцам периода (для XYZ — насколько ровно продаётся).
+    // Товары без продаж тоже возвращаются: они попадают в C/Z и видны как «не продаются».
+    abcData({ from, to, bucket = 'week' }) {
+      const starts = [];
+      const d = new Date(from);
+      d.setHours(0, 0, 0, 0);
+      if (bucket === 'month') d.setDate(1);
+      else d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // с понедельника
+      for (; d.getTime() < to; bucket === 'month' ? d.setMonth(d.getMonth() + 1) : d.setDate(d.getDate() + 7)) starts.push(d.getTime());
+      const idx = (t) => { let i = starts.length - 1; while (i > 0 && starts[i] > t) i--; return i; };
+      const products = new Map(db.prepare(`SELECT id, name, category, unit, stock, price, COALESCE(purchase, cost) AS purchase, created_at FROM products p
+        WHERE archived = 0 AND deleted = 0 AND NOT EXISTS (SELECT 1 FROM products c WHERE c.parent_id = p.id AND c.deleted = 0)`).all()
+        .map((p) => [p.id, { ...p, qty: 0, revenue: 0, profit: 0, receipts: new Set(), series: starts.map(() => 0) }]));
+      for (const l of db.prepare(`SELECT s.id AS sale, s.created_at AS t, si.product_id AS id, si.name, si.qty, si.qty * si.price - ${LINE_FEE} AS revenue,
+          si.qty * (si.price - COALESCE(si.purchase, si.cost)) - ${LINE_FEE} AS profit
+        FROM sales s JOIN sale_items si ON si.sale_id = s.id WHERE s.refunded_at IS NULL AND s.created_at >= ? AND s.created_at < ?`).all(from, to)) {
+        let p = products.get(l.id);
+        if (!p) { p = { id: l.id, name: l.name, category: '', unit: 'шт', stock: null, price: 0, purchase: 0, gone: true, qty: 0, revenue: 0, profit: 0, receipts: new Set(), series: starts.map(() => 0) }; products.set(l.id, p); }
+        p.qty += l.qty; p.revenue += l.revenue; p.profit += l.profit; p.receipts.add(l.sale);
+        p.series[idx(l.t)] += l.qty;
+      }
+      // Конец каждого отрезка; неполные (обрезанные периодом) для XYZ не берутся.
+      const ends = starts.map((t) => { const e = new Date(t); if (bucket === 'month') e.setMonth(e.getMonth() + 1); else e.setDate(e.getDate() + 7); return e.getTime(); });
+      return {
+        from, to, bucket, buckets: starts, ends, full: starts.map((t, i) => t >= from && ends[i] <= to),
+        products: [...products.values()].map(({ receipts, ...p }) => ({ ...p, receipts: receipts.size, revenue: round2(p.revenue), profit: round2(p.profit), series: p.series.map((q) => Math.round(q * 1000) / 1000) })),
+      };
+    },
+
     /* ---------- Смены ---------- */
 
     currentShift(userId) {

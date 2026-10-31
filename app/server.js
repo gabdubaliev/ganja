@@ -492,6 +492,10 @@ const routes = [
     return { ...a, products: hideStock(user, a.products) };
   }, 'dashboard'],
   ['GET', '/api/kpi', (p, url) => store.kpi(range(url)), ['kpi', 'salary']],
+  ['GET', '/api/reports/abc', (p, url, body, user) => {
+    const r = store.abcData({ ...range(url), bucket: url.searchParams.get('bucket') === 'month' ? 'month' : 'week' });
+    return can(user, 'stock.view') ? r : { ...r, products: r.products.map((x) => ({ ...x, stock: null })) };
+  }, ['kpi', 'dashboard']],
   ['GET', '/api/reports/products', (p, url) => store.reportProducts(range(url)), 'kpi'],
 
   // Своя смена — у любого, кто работает на кассе; чужие смены — у права «Смены».

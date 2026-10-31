@@ -313,6 +313,55 @@
   <div class="more-groups" id="more-groups"></div>
 </main>
 
+<main class="page" data-view="abc" hidden>
+  <header class="top">
+    <div class="title"><h1>ABC / XYZ анализ</h1><span class="source" id="abc-sub"></span></div>
+    <div class="tools"><button type="button" class="btn" id="abc-export">Скачать для Excel</button></div>
+  </header>
+  <section class="panel abc-settings">
+    <div class="abc-set"><span class="abc-set-label">Период</span><div class="chips" id="abc-periods"></div></div>
+    <div class="abc-set"><span class="abc-set-label">ABC по</span><div class="chips" id="abc-by"></div></div>
+    <details class="abc-thresholds">
+      <summary>Границы групп</summary>
+      <div class="abc-th-grid">
+        <label>A — до <input class="input num" id="abc-a" inputmode="decimal" value="80"> % накопленной доли</label>
+        <label>B — до <input class="input num" id="abc-b" inputmode="decimal" value="95"> %, остальное — C</label>
+        <label>X — разброс до <input class="input num" id="abc-x" inputmode="decimal" value="20"> %</label>
+        <label>Y — до <input class="input num" id="abc-y" inputmode="decimal" value="40"> %, больше — Z</label>
+      </div>
+    </details>
+  </section>
+  <section class="abc-explain">
+    <div><b>ABC — сколько приносит.</b> Товары сортируются по выручке (или прибыли, количеству). <b>A</b> — те, что вместе дают первые 80% денег, <b>B</b> — следующие 15%, <b>C</b> — последние 5%.</div>
+    <div><b>XYZ — насколько ровно продаётся.</b> Смотрим продажи по неделям (месяцам): <b>X</b> — каждую неделю примерно одинаково, <b>Y</b> — с колебаниями, <b>Z</b> — то густо, то пусто или совсем не продаётся.</div>
+  </section>
+  <section class="abc-top">
+    <div class="panel abc-matrix-panel">
+      <div class="panel-head"><div><h2>Матрица</h2><p class="sub">Нажмите на клетку — в таблице останутся её товары</p></div></div>
+      <div class="abc-matrix" id="abc-matrix"></div>
+    </div>
+    <div class="panel abc-advice-panel">
+      <div class="panel-head"><div><h2 id="abc-advice-title">Что делать</h2><p class="sub" id="abc-advice-sub"></p></div></div>
+      <div id="abc-advice"></div>
+    </div>
+  </section>
+  <section class="panel">
+    <div class="panel-head">
+      <div><h2>Товары</h2><p class="sub" id="abc-table-sub"></p></div>
+      <div class="tools">
+        <div class="chips" id="abc-filter"></div>
+        <input id="abc-search" class="input search" type="search" placeholder="Найти товар" aria-label="Найти товар">
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="abc-table">
+        <thead><tr id="abc-head"></tr></thead>
+        <tbody id="abc-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
 <main class="page" data-view="kpi" hidden>
   <header class="top">
     <div class="title"><h1>Отчёты</h1><span class="source" id="kpi-sub"></span></div>
@@ -1379,6 +1428,7 @@
 <script src="import.js"></script>
 <script src="more.js"></script>
 <script src="kpi.js"></script>
+<script src="abc.js"></script>
 <script src="staff-time.js"></script>
 <script src="timesheet.js"></script>
 <script src="tasks.js"></script>
