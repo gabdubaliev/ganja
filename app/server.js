@@ -128,6 +128,19 @@ try {
 } catch (err) {
   console.error('Не получилось настроить оплату по QR:', err.message);
 }
+// Деньги в кассе не сошлись при открытии или закрытии смены — владельцу в Telegram.
+function cashAlert(sh, when) {
+  const diff = when === 'открытии' ? sh.open_diff : sh.close_diff;
+  if (diff) {
+    const tg = notifier.telegramSettings();
+    const text = `⚠️ Деньги в кассе не сошлись при ${when} смены №${sh.id}${sh.register_name ? ` (${sh.register_name})` : ''}\n`
+      + `Кассир: ${sh.user_name}\n${diff < 0 ? 'Недостача' : 'Излишек'}: ${Math.abs(diff)} сом`
+      + `\nДолжно быть: ${when === 'открытии' ? sh.open_expected : sh.close_expected} сом, насчитано: ${when === 'открытии' ? sh.open_cash : sh.close_counted} сом`
+      + `\nПричина: ${(when === 'открытии' ? sh.open_note : sh.close_note) || '—'}`;
+    if (tg.enabled) notifier.sendTelegram(text, tg).catch((err) => console.error('Уведомление в Telegram не отправлено:', err.message));
+  }
+  return sh;
+}
 const storeName = (id) => branchList().find((b) => b.id === (id || 1))?.name || '';
 
 // Администратор из переменных. APP_PASSWORD — пароль из прошлых версий, где вход был без email.
@@ -620,7 +633,8 @@ const routes = [
     const sh = user && store.currentShift(user.id);
     return sh ? store.getShift(sh.id) : null;
   }, 'pos'],
-  ['POST', '/api/shift/open', (p, url, body, user) => store.openShift(user, body.register_id), 'pos'],
+  ['POST', '/api/shift/open', (p, url, body, user) => cashAlert(store.openShift(user, body.register_id, { cash: body.cash, note: body.note }), 'открытии'), 'pos'],
+  ['GET', '/api/shift/info', (p, url, body, user) => store.shiftInfo(user), 'pos'],
   ['GET', '/api/registers', (p, url) => (url.searchParams.get('overview') === '1' ? store.registersOverview() : store.listRegisters()), 'any'],
   ['POST', '/api/registers', (p, url, body) => store.saveRegister(null, body), 'settings'],
   ['PUT', '/api/registers/:id', (p, url, body) => store.saveRegister(p.id, body), 'settings'],
@@ -628,7 +642,7 @@ const routes = [
   ['POST', '/api/accounts/ops', (p, url, body, user) => store.addAccountOp(body, user), 'accounts'],
   ['DELETE', '/api/accounts/ops/:id', (p) => store.deleteAccountOp(p.id), 'accounts'],
   ['PUT', '/api/accounts/:id/opening', (p, url, body) => store.setOpeningBalance(p.id, body.opening), 'accounts'],
-  ['POST', '/api/shift/close', (p, url, body, user) => store.closeShift(user), 'pos'],
+  ['POST', '/api/shift/close', (p, url, body, user) => cashAlert(store.closeShift(user, body), 'закрытии'), 'pos'],
   ['GET', '/api/shifts', (p, url) => store.listShifts(range(url)), ['shifts', 'kpi']],
   ['POST', '/api/shifts', (p, url, body, user) => store.saveShift(null, body, user), 'shifts'],
   ['PUT', '/api/shifts/:id', (p, url, body, user) => store.saveShift(p.id, body, user), 'shifts'],
@@ -1048,7 +1062,8 @@ function auditDetails(key, params, body, result) {
     case 'PUT /api/orders/:id': return `Заказ №${params.id} ${ORDER_NAMES[body.status] || body.status}`;
     case 'GET /api/users/:id/secrets': return `${r.name}${r.email ? ` (${r.email})` : ''}`;
     case 'PUT /api/users/:id': return `${r.name || r.email}${body.password ? ', новый пароль' : ''}${body.pin ? ', новый PIN' : body.clearPin ? ', PIN убран' : ''}${body.rights !== undefined ? ', права' : ''}`;
-    case 'POST /api/shift/close': return `чеков ${r.receipts} на ${r.revenue} сом`;
+    case 'POST /api/shift/open': return r.open_cash === null || r.open_cash === undefined ? 'касса уже открыта другим сотрудником' : `в кассе ${r.open_cash} сом${r.open_diff ? `, ${r.open_diff < 0 ? 'недостача' : 'излишек'} ${Math.abs(r.open_diff)} сом: ${r.open_note}` : ''}`;
+    case 'POST /api/shift/close': return `чеков ${r.receipts} на ${r.revenue} сом${r.close_counted !== null && r.close_counted !== undefined ? `; насчитано ${r.close_counted}, сдано ${r.deposited || 0}, оставлено ${r.left_cash} сом${r.close_diff ? `, ${r.close_diff < 0 ? 'недостача' : 'излишек'} ${Math.abs(r.close_diff)} сом: ${r.close_note}` : ''}` : ''}`;
     case 'PUT /api/shifts/:id':
     case 'POST /api/shifts': return `${r.user_name}: ${new Date(r.opened_at).toLocaleString('ru-RU')}${r.closed_at ? ' — ' + new Date(r.closed_at).toLocaleString('ru-RU') : ''}`;
     default: return r.name || r.email || r.title || (params.id ? `№${params.id}` : '');
@@ -1450,7 +1465,7 @@ async function handleRequest(req, res, url, user, owner) {
     if (result?.__file) return sendBytes(res, result.__file.mime, Buffer.from(result.__file.data), 'private, max-age=3600');
     sendJson(res, 200, result);
   } catch (err) {
-    if (err instanceof UserError) return sendJson(res, 400, { error: err.message });
+    if (err instanceof UserError) return sendJson(res, 400, { error: err.message, ...(err.data || {}) });
     console.error(err);
     sendJson(res, 500, { error: 'Внутренняя ошибка, подробности в окне программы' });
   }

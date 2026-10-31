@@ -7,7 +7,13 @@ const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const { RIGHTS, ROLES, can } = require('./roles');
 
-class UserError extends Error {}
+// data — подробности для окна программы (например, суммы при расхождении денег в кассе).
+class UserError extends Error {
+  constructor(message, data) {
+    super(message);
+    if (data) this.data = data;
+  }
+}
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
@@ -452,6 +458,12 @@ function open(file) {
   // Колонки таблиц, которые создаются выше в этой же функции: на новой базе их добавляем после создания таблиц.
   addColumns('fines', [['kind', "TEXT NOT NULL DEFAULT 'fine'"]]);
   addColumns('shifts', [['register_id', 'INTEGER']]);
+  // Деньги в кассе по смене. Открытие: сколько насчитали (open_cash), сколько должно было быть (open_expected —
+  // оставили при прошлом закрытии), разница и причина. Закрытие: насчитали, должно быть, разница, причина,
+  // сколько сдали на счёт (deposited → deposit_method_id) и сколько оставили в кассе на завтра (left_cash).
+  addColumns('shifts', [['open_cash', 'REAL'], ['open_expected', 'REAL'], ['open_diff', 'REAL'], ['open_note', "TEXT NOT NULL DEFAULT ''"],
+    ['close_counted', 'REAL'], ['close_expected', 'REAL'], ['close_diff', 'REAL'], ['close_note', "TEXT NOT NULL DEFAULT ''"],
+    ['deposited', 'REAL'], ['deposit_method_id', 'INTEGER'], ['left_cash', 'REAL']]);
   // Карточка товара: цена закупки (чистая стоимость товара у поставщика), артикул, поставщик, скидка в %.
   // Себестоимость (cost) — закупка плюс расходы на единицу: доставка, зарплата, налоги и т.д.
   addColumns('products', [['purchase', 'REAL'], ['article', "TEXT NOT NULL DEFAULT ''"], ['supplier_id', 'INTEGER'], ['discount', 'REAL NOT NULL DEFAULT 0']]);
@@ -1986,21 +1998,140 @@ function createStore(file) {
       return db.prepare('SELECT * FROM shifts WHERE user_id = ? AND closed_at IS NULL ORDER BY opened_at DESC LIMIT 1').get(Number(userId)) || null;
     },
 
-    openShift(user, registerId = null) {
+    /* ---------- Деньги в кассе ---------- */
+    // Счёт наличных, куда идут деньги кассы (первый включённый способ «наличные»).
+    cashAccount() {
+      return db.prepare("SELECT * FROM payment_methods WHERE kind = 'cash' AND active = 1 ORDER BY sort, id LIMIT 1").get() || null;
+    },
+    // Наличные не от продаж между моментами a и b: расходы из кассы и ручные внесения/изъятия.
+    // Считаются, только когда касса одна — иначе непонятно, из какой кассы взяли.
+    cashMovesBetween(a, b) {
+      if (this.listRegisters().length !== 1) return 0;
+      const ids = db.prepare("SELECT id FROM payment_methods WHERE kind = 'cash'").all().map((r) => r.id);
+      if (!ids.length) return 0;
+      const marks = ids.map(() => '?').join(',');
+      const ops = db.prepare(`SELECT COALESCE(SUM(amount), 0) AS v FROM account_ops WHERE method_id IN (${marks}) AND at > ? AND at <= ?`).get(...ids, a, b).v;
+      const spent = db.prepare(`SELECT COALESCE(SUM(amount), 0) AS v FROM expenses WHERE method_id IN (${marks}) AND at > ? AND at <= ?`).get(...ids, a, b).v;
+      return round2(ops - spent);
+    },
+    // Другой сотрудник уже работает на этой кассе — ящик с деньгами общий, пересчитывать не нужно.
+    drawerBusy(registerId, exceptUserId = null) {
+      return db.prepare('SELECT COUNT(*) AS n FROM shifts WHERE register_id = ? AND closed_at IS NULL AND user_id <> ?').get(Number(registerId), Number(exceptUserId) || 0).n > 0;
+    },
+    // Сколько должно быть в кассе при открытии: что оставили при прошлом закрытии ± движения после него.
+    expectedOpenCash(registerId) {
+      const prev = db.prepare('SELECT * FROM shifts WHERE register_id = ? AND left_cash IS NOT NULL AND closed_at IS NOT NULL ORDER BY closed_at DESC LIMIT 1').get(Number(registerId));
+      return prev ? round2(prev.left_cash + this.cashMovesBetween(prev.closed_at, Date.now())) : null;
+    },
+    // Сколько должно быть в кассе сейчас: насчитали при открытии + наличные всех смен на этой кассе с того момента ± движения.
+    expectedDrawerCash(sh) {
+      const start = db.prepare('SELECT * FROM shifts WHERE register_id = ? AND open_cash IS NOT NULL AND opened_at <= ? ORDER BY opened_at DESC LIMIT 1').get(sh.register_id, sh.opened_at);
+      if (!start) return null;
+      const cash = db.prepare('SELECT id FROM shifts WHERE register_id = ? AND opened_at >= ?').all(sh.register_id, start.opened_at)
+        .reduce((s, r) => s + this.getShift(r.id).cash, 0);
+      return round2(start.open_cash + cash + this.cashMovesBetween(start.opened_at, Date.now()));
+    },
+    // Запись расхождения на счёт наличных: остаток счёта остаётся равен деньгам в кассе.
+    cashDiffOp(diff, note, who, at) {
+      const acc = this.cashAccount();
+      if (!acc || !diff) return;
+      db.prepare("INSERT INTO account_ops (method_id, at, amount, kind, note, user_name) VALUES (?, ?, ?, 'shift_diff', ?, ?)").run(acc.id, at, diff, note, who);
+    },
+
+    openShift(user, registerId = null, { cash, note } = {}) {
       if (!user) throw new UserError('Смену открывает сотрудник: сначала войдите');
       if (this.currentShift(user.id)) throw new UserError('Смена уже открыта');
       const registers = this.listRegisters();
       const reg = registerId ? registers.find((r) => r.id === Number(registerId)) : registers.length === 1 ? registers[0] : null;
       if (!reg) throw new UserError(registerId ? 'Касса не найдена или выключена' : 'Выберите кассу');
-      const { lastInsertRowid } = db.prepare('INSERT INTO shifts (user_id, opened_at, register_id) VALUES (?, ?, ?)').run(user.id, Date.now(), reg.id);
-      return this.getShift(lastInsertRowid);
+      const now = Date.now();
+      // На кассе уже работает другой сотрудник — деньги в ящике те же, их не пересчитывают.
+      if (this.drawerBusy(reg.id, user.id)) {
+        const { lastInsertRowid } = db.prepare('INSERT INTO shifts (user_id, opened_at, register_id) VALUES (?, ?, ?)').run(user.id, now, reg.id);
+        return this.getShift(lastInsertRowid);
+      }
+      if (cash === undefined || cash === null || cash === '') throw new UserError('Посчитайте наличные в кассе и введите сумму');
+      const counted = round2(number(cash, 'Наличные в кассе'));
+      const expected = this.expectedOpenCash(reg.id);
+      const diff = expected === null ? null : round2(counted - expected);
+      const why = text(note, 'Причина', { max: 300 });
+      if (diff && !why) {
+        throw new UserError(`Деньги не сходятся: при закрытии в кассе оставили ${expected} сом, сейчас вы насчитали ${counted} сом — ${diff < 0 ? 'не хватает' : 'лишние'} ${Math.abs(diff)} сом. Пересчитайте деньги. Если сумма верная — напишите причину.`,
+          { cashMismatch: { expected, counted, diff } });
+      }
+      const who = user.name || user.email;
+      return transaction(db, () => {
+        const id = Number(db.prepare('INSERT INTO shifts (user_id, opened_at, register_id, open_cash, open_expected, open_diff, open_note) VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .run(user.id, now, reg.id, counted, expected, diff, why).lastInsertRowid);
+        if (diff) this.cashDiffOp(diff, `Смена №${id}, открытие: ${diff < 0 ? 'недостача' : 'излишек'} — ${why}`, who, now);
+        // Первый пересчёт на этой кассе: счёт «Наличные» приравнивается к деньгам в ящике (касса одна).
+        if (expected === null && registers.length === 1) {
+          const acc = this.cashAccount();
+          const bal = acc && this.accounts({ from: 0, to: 0 }).find((x) => x.id === acc.id)?.balance;
+          const fix = acc ? round2(counted - (bal || 0)) : 0;
+          if (fix) db.prepare("INSERT INTO account_ops (method_id, at, amount, kind, note, user_name) VALUES (?, ?, ?, 'shift_start', ?, ?)")
+            .run(acc.id, now, fix, `Смена №${id}: в кассе ${counted} сом — остаток счёта выровнен по пересчёту`, who);
+        }
+        return this.getShift(id);
+      });
     },
 
-    closeShift(user) {
+    // Закрытие: кассир пересчитывает наличные, часть сдаёт на счёт (терминал → МБАНК), остальное оставляет в кассе.
+    // Насчитано = сдано + оставлено. Насчитанное сверяется с тем, что должно быть; расхождение — только с причиной.
+    closeShift(user, { counted, deposited, depositMethodId, left, note } = {}) {
       const sh = user && this.currentShift(user.id);
       if (!sh) throw new UserError('Открытой смены нет');
-      db.prepare('UPDATE shifts SET closed_at = ? WHERE id = ?').run(Date.now(), sh.id);
-      return this.getShift(sh.id);
+      const now = Date.now();
+      // На кассе остаётся другой сотрудник — деньги посчитает тот, кто закроет последним.
+      if (!sh.register_id || this.drawerBusy(sh.register_id, user.id)) {
+        db.prepare('UPDATE shifts SET closed_at = ? WHERE id = ?').run(now, sh.id);
+        return this.getShift(sh.id);
+      }
+      if (counted === undefined || counted === null || counted === '') throw new UserError('Посчитайте наличные в кассе и введите сумму');
+      const c = round2(number(counted, 'Насчитано в кассе'));
+      const d = round2(number(deposited || 0, 'Сдано на счёт'));
+      const l = round2(number(left ?? 0, 'Оставлено в кассе'));
+      if (Math.abs(c - d - l) > 0.009) throw new UserError(`Суммы не сходятся: насчитали ${c} сом, а сдаёте ${d} + оставляете ${l} = ${round2(d + l)} сом`);
+      let target = null;
+      if (d > 0) {
+        target = db.prepare("SELECT * FROM payment_methods WHERE id = ? AND kind <> 'cash'").get(Number(depositMethodId));
+        if (!target) throw new UserError('Выберите счёт, куда сдаёте деньги (например, МБАНК)');
+      }
+      const expected = this.expectedDrawerCash(sh);
+      const diff = expected === null ? null : round2(c - expected);
+      const why = text(note, 'Причина', { max: 300 });
+      if (diff && !why) {
+        throw new UserError(`Деньги не сходятся: по программе в кассе должно быть ${expected} сом, вы насчитали ${c} сом — ${diff < 0 ? 'не хватает' : 'лишние'} ${Math.abs(diff)} сом. Пересчитайте деньги. Если сумма верная — напишите причину.`,
+          { cashMismatch: { expected, counted: c, diff } });
+      }
+      const who = user.name || user.email;
+      return transaction(db, () => {
+        db.prepare(`UPDATE shifts SET closed_at = ?, close_counted = ?, close_expected = ?, close_diff = ?, close_note = ?, deposited = ?, deposit_method_id = ?, left_cash = ? WHERE id = ?`)
+          .run(now, c, expected, diff, why, d, target?.id ?? null, l, sh.id);
+        if (diff) this.cashDiffOp(diff, `Смена №${sh.id}, закрытие: ${diff < 0 ? 'недостача' : 'излишек'} — ${why}`, who, now);
+        const acc = this.cashAccount();
+        if (d > 0 && acc) {
+          const add = db.prepare('INSERT INTO account_ops (method_id, at, amount, kind, note, pair_id, user_name) VALUES (?, ?, ?, ?, ?, ?, ?)');
+          const out = Number(add.run(acc.id, now, -d, 'transfer', `→ ${target.name}: сдано при закрытии смены №${sh.id}`, null, who).lastInsertRowid);
+          const inn = Number(add.run(target.id, now, d, 'transfer', `← ${acc.name}: сдано при закрытии смены №${sh.id}`, out, who).lastInsertRowid);
+          db.prepare('UPDATE account_ops SET pair_id = ? WHERE id = ?').run(inn, out);
+          this.setSetting('shift_deposit_method', String(target.id));
+        }
+        return this.getShift(sh.id);
+      });
+    },
+
+    // Для окна кассы: куда можно сдать деньги, куда сдавали в прошлый раз, занята ли касса другим сотрудником.
+    shiftInfo(user) {
+      const sh = user && this.currentShift(user.id);
+      const accounts = this.listPaymentMethods().filter((m) => m.kind !== 'cash').map((m) => ({ id: m.id, name: m.name }));
+      const last = Number(this.setting('shift_deposit_method', '0'));
+      const guess = accounts.find((a) => a.id === last) || accounts.find((a) => /м\s*-?\s*банк|mbank/i.test(a.name)) || accounts[0] || null;
+      return {
+        accounts, defaultDeposit: guess?.id ?? null,
+        busyRegisters: this.listRegisters().filter((r) => this.drawerBusy(r.id, user?.id)).map((r) => r.id),
+        sharedDrawer: Boolean(sh && sh.register_id && this.drawerBusy(sh.register_id, user.id)),
+      };
     },
 
     // Смена с итогами: сколько чеков и на какую сумму пробито.

@@ -178,6 +178,55 @@
   </form>
 </dialog>
 
+<dialog id="shift-open-dialog" aria-labelledby="so-title">
+  <form id="so-form" novalidate>
+    <h2 id="so-title">Открыть смену</h2>
+    <div class="form-grid">
+      <div class="field wide" id="so-register-row" hidden><label for="so-register">Касса</label><select id="so-register" class="input"></select></div>
+      <div class="field wide" id="so-cash-row"><label for="so-cash">Сколько наличных в кассе сейчас? Пересчитайте, сом</label>
+        <input id="so-cash" name="cash" class="input big num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+      <p class="sub wide" id="so-busy" hidden>На этой кассе уже работает другой сотрудник — деньги пересчитывать не нужно.</p>
+      <div class="cash-mismatch wide" id="so-mismatch" hidden></div>
+      <div class="field wide" id="so-note-row" hidden><label for="so-note">Причина расхождения (увидит владелец)</label>
+        <textarea id="so-note" class="input" rows="2" placeholder="Например: владелец взял 1 000 сом на покупку пакетов"></textarea></div>
+    </div>
+    <p class="form-error" id="so-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="so-cancel">Отмена</button>
+      <button type="submit" class="btn primary" id="so-submit">Открыть смену</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="shift-close-dialog" aria-labelledby="sc-title">
+  <form id="sc-form" novalidate>
+    <h2 id="sc-title">Закрыть смену</h2>
+    <p class="sub" id="sc-summary"></p>
+    <div id="sc-count">
+      <div class="form-grid">
+        <div class="field wide"><label for="sc-counted">1. Пересчитайте наличные в кассе — сколько всего, сом</label>
+          <input id="sc-counted" class="input big num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+        <div class="field"><label for="sc-deposited">2. Сколько сдаёте через терминал на счёт</label>
+          <input id="sc-deposited" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+        <div class="field"><label for="sc-account">На какой счёт</label><select id="sc-account" class="input"></select></div>
+        <div class="field wide"><label for="sc-left">3. Сколько оставляете в кассе на завтра</label>
+          <input id="sc-left" class="input num" inputmode="decimal" autocomplete="off" placeholder="0">
+          <span class="pick-meta" id="sc-left-hint"></span></div>
+        <div class="cash-mismatch wide" id="sc-mismatch" hidden></div>
+        <div class="field wide" id="sc-note-row" hidden><label for="sc-note">Причина расхождения (увидит владелец)</label>
+          <textarea id="sc-note" class="input" rows="2"></textarea></div>
+      </div>
+      <p class="sub">Завтра при открытии смены сумма в кассе должна совпасть с той, что вы оставляете сейчас.</p>
+    </div>
+    <p class="sub" id="sc-busy" hidden>На этой кассе остаётся другой сотрудник — деньги посчитает тот, кто закроет смену последним.</p>
+    <p class="form-error" id="sc-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="sc-cancel">Отмена</button>
+      <button type="submit" class="btn primary" id="sc-submit">Закрыть смену</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="cust-dialog" aria-labelledby="cust-title">
   <form id="cust-form" novalidate>
     <h2 id="cust-title">Новый клиент</h2>

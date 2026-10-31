@@ -2,7 +2,7 @@
 
 // Прочее: счета (где лежат деньги и сколько) и кассы (рабочие места, на которых открываются смены).
 
-const ACCOUNT_OPS = { deposit: 'Внесение', withdraw: 'Изъятие', transfer: 'Перевод' };
+const ACCOUNT_OPS = { deposit: 'Внесение', withdraw: 'Изъятие', transfer: 'Перевод', shift_diff: 'Расхождение в кассе', shift_start: 'Пересчёт кассы' };
 const accView = { range: 'month', accounts: [] };
 
 async function renderAccounts() {

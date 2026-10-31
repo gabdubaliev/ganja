@@ -720,7 +720,6 @@ async function loadShift() {
   let saved = null;
   try { saved = Number(localStorage.getItem('kassa.register')) || null; } catch {}
   const regs = pos.registers;
-  const regSelect = regs.length > 1 ? `<select id="shift-register" class="input" aria-label="Касса">${regs.map((r) => `<option value="${r.id}" ${r.id === saved ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}</select>` : '';
   const bar = $('#shift-bar');
   bar.hidden = false;
   bar.className = 'shift-bar ' + (sh ? 'open' : 'closed');
@@ -728,27 +727,132 @@ async function loadShift() {
     ? `<span>${sh.register_name ? `<b>${esc(sh.register_name)}</b> · ` : ''}Смена открыта с <b>${new Date(sh.opened_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</b> · ${int(sh.receipts)} ${plural(sh.receipts, ['чек', 'чека', 'чеков'])} на <b>${money2(sh.revenue)}</b>${sh.byMethod.length ? ' · ' + sh.byMethod.map((m) => `${esc(m.name)} <b>${money2(m.sum)}</b>${m.commission ? ` <small>(комиссия −${money2(m.commission)})</small>` : ''}`).join(', ') : ''}</span>
        <button type="button" class="btn small" id="shift-close">Закрыть смену</button>`
     : `<span>Смена не открыта. Откройте её в начале рабочего дня — по сменам считается зарплата.</span>
-       <span class="shift-actions">${regSelect}<button type="button" class="btn small primary" id="shift-open">Открыть смену</button></span>`;
+       <span class="shift-actions"><button type="button" class="btn small primary" id="shift-open">Открыть смену</button></span>`;
+  pos.savedRegister = saved;
 }
 
-$('#shift-bar').addEventListener('click', async (e) => {
-  const open = e.target.closest('#shift-open');
-  const close = e.target.closest('#shift-close');
-  if (!open && !close) return;
-  if (close && !close.classList.contains('danger')) {
-    close.classList.add('danger');
-    close.textContent = 'Нажмите ещё раз, чтобы закрыть';
-    return;
-  }
+/* Открытие: кассир пересчитывает наличные. Не сходится с тем, что оставили при закрытии, — ошибка с разницей;
+   открыть можно, только пересчитав или написав причину (её увидит владелец). */
+const moneyNum = (v) => Number(String(v ?? '').replace(/\s/g, '').replace(',', '.'));
+function mismatchHtml(m, when) {
+  return `${m.diff < 0 ? 'Не хватает' : 'Лишние'} <b>${money2(Math.abs(m.diff))}</b><br>
+    ${when === 'open' ? 'При закрытии оставили' : 'По программе должно быть'} ${money2(m.expected)}, вы насчитали ${money2(m.counted)}.<br>
+    Пересчитайте деньги ещё раз. Если сумма верная — напишите причину.`;
+}
+function resetCashForm(prefix) {
+  for (const id of ['mismatch', 'note-row', 'error']) $(`#${prefix}-${id}`).hidden = true;
+  $(`#${prefix}-note`).value = '';
+  $(`#${prefix}-submit`).classList.remove('danger');
+}
+async function openShiftCashDialog() {
+  let info = { busyRegisters: [] };
+  try { info = await api('/api/shift/info'); } catch {}
+  pos.shiftInfo = info;
+  const regs = pos.registers || [];
+  $('#so-register-row').hidden = regs.length < 2;
+  $('#so-register').innerHTML = regs.map((r) => `<option value="${r.id}" ${r.id === pos.savedRegister ? 'selected' : ''}>${esc(r.name)}${info.busyRegisters.includes(r.id) ? ' — уже открыта' : ''}</option>`).join('');
+  $('#so-cash').value = '';
+  resetCashForm('so');
+  $('#so-submit').textContent = 'Открыть смену';
+  syncOpenBusy();
+  $('#shift-open-dialog').showModal();
+  if (!$('#so-cash-row').hidden) $('#so-cash').focus();
+}
+function syncOpenBusy() {
+  const reg = Number($('#so-register').value) || pos.registers?.[0]?.id;
+  const busy = (pos.shiftInfo?.busyRegisters || []).includes(reg);
+  $('#so-cash-row').hidden = busy;
+  $('#so-busy').hidden = !busy;
+}
+$('#so-register').addEventListener('change', () => { resetCashForm('so'); syncOpenBusy(); });
+$('#so-cash').addEventListener('input', () => { if (!$('#so-mismatch').hidden) { resetCashForm('so'); $('#so-submit').textContent = 'Открыть смену'; } });
+$('#so-cancel').addEventListener('click', () => $('#shift-open-dialog').close());
+$('#so-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const registerId = Number($('#so-register').value) || null;
+  const busy = !$('#so-busy').hidden;
+  if (!busy && $('#so-cash').value.trim() === '') return showFormError('#so-error', new Error('Пересчитайте наличные и введите сумму (если денег нет — 0)'));
   try {
-    const registerId = Number($('#shift-register')?.value) || null;
     if (registerId) try { localStorage.setItem('kassa.register', registerId); } catch {}
-    const sh = await api(open ? '/api/shift/open' : '/api/shift/close', { method: 'POST', body: open ? { register_id: registerId } : undefined });
-    toast(open ? `Смена открыта${sh.register_name ? ` на «${sh.register_name}»` : ''}. Хорошей работы!` : `Смена закрыта: ${sh.receipts} ${plural(sh.receipts, ['чек', 'чека', 'чеков'])} на ${money2(sh.revenue)}, в кассе наличными ${money2(sh.cash)}`);
+    const sh = await api('/api/shift/open', { method: 'POST', body: { register_id: registerId, cash: busy ? undefined : moneyNum($('#so-cash').value), note: $('#so-note').value } });
+    $('#shift-open-dialog').close();
+    toast(`Смена открыта${sh.register_name ? ` на «${sh.register_name}»` : ''}${sh.open_diff ? ` с расхождением ${money2(sh.open_diff)} — владелец увидит причину` : ''}. Хорошей работы!`);
     loadShift();
   } catch (err) {
-    toast(err.message, 'error');
+    if (err.data?.cashMismatch) {
+      $('#so-error').hidden = true;
+      $('#so-mismatch').innerHTML = mismatchHtml(err.data.cashMismatch, 'open');
+      $('#so-mismatch').hidden = false;
+      $('#so-note-row').hidden = false;
+      $('#so-submit').textContent = 'Открыть с расхождением';
+      $('#so-submit').classList.add('danger');
+      return $('#so-note').focus();
+    }
+    showFormError('#so-error', err);
   }
+});
+
+/* Закрытие: насчитано = сдано на счёт + оставлено в кассе. Насчитанное сверяется с программой. */
+async function closeShiftCashDialog() {
+  let info = { accounts: [] };
+  try { info = await api('/api/shift/info'); } catch {}
+  const sh = pos.shift;
+  $('#sc-summary').textContent = `${int(sh.receipts)} ${plural(sh.receipts, ['чек', 'чека', 'чеков'])} на ${money2(sh.revenue)}${sh.byMethod.length ? ' · ' + sh.byMethod.map((m) => `${m.name} ${money2(m.sum)}`).join(', ') : ''}`;
+  $('#sc-count').hidden = info.sharedDrawer;
+  $('#sc-busy').hidden = !info.sharedDrawer;
+  $('#sc-account').innerHTML = info.accounts.length ? info.accounts.map((a) => `<option value="${a.id}" ${a.id === info.defaultDeposit ? 'selected' : ''}>${esc(a.name)}</option>`).join('') : '<option value="">Нет безналичных счетов</option>';
+  for (const id of ['#sc-counted', '#sc-deposited', '#sc-left']) $(id).value = '';
+  $('#sc-left').dataset.touched = '';
+  $('#sc-left-hint').textContent = '';
+  resetCashForm('sc');
+  $('#sc-submit').textContent = 'Закрыть смену';
+  $('#shift-close-dialog').showModal();
+  if (!info.sharedDrawer) $('#sc-counted').focus();
+}
+// «Оставляю» подставляется само: насчитано − сдано (можно поправить вручную).
+function syncLeft() {
+  const c = moneyNum($('#sc-counted').value) || 0;
+  const d = moneyNum($('#sc-deposited').value) || 0;
+  if (!$('#sc-left').dataset.touched) $('#sc-left').value = $('#sc-counted').value.trim() ? String(Math.round((c - d) * 100) / 100) : '';
+  const l = moneyNum($('#sc-left').value) || 0;
+  const off = Math.round((c - d - l) * 100) / 100;
+  $('#sc-left-hint').textContent = off ? `Не сходится: ${money2(c)} − ${money2(d)} − ${money2(l)} = ${money2(off)}` : '';
+  $('#sc-left-hint').className = off ? 'neg' : 'pick-meta';
+}
+$('#sc-counted').addEventListener('input', () => { if (!$('#sc-mismatch').hidden) { resetCashForm('sc'); $('#sc-submit').textContent = 'Закрыть смену'; } syncLeft(); });
+$('#sc-deposited').addEventListener('input', syncLeft);
+$('#sc-left').addEventListener('input', () => { $('#sc-left').dataset.touched = '1'; syncLeft(); });
+$('#sc-cancel').addEventListener('click', () => $('#shift-close-dialog').close());
+$('#sc-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const shared = !$('#sc-busy').hidden;
+  if (!shared && $('#sc-counted').value.trim() === '') return showFormError('#sc-error', new Error('Пересчитайте наличные и введите сумму'));
+  try {
+    const body = shared ? {} : { counted: moneyNum($('#sc-counted').value), deposited: moneyNum($('#sc-deposited').value) || 0,
+      depositMethodId: Number($('#sc-account').value) || null, left: moneyNum($('#sc-left').value) || 0, note: $('#sc-note').value };
+    const sh = await api('/api/shift/close', { method: 'POST', body });
+    $('#shift-close-dialog').close();
+    toast(`Смена закрыта: ${sh.receipts} ${plural(sh.receipts, ['чек', 'чека', 'чеков'])} на ${money2(sh.revenue)}`
+      + (sh.close_counted !== null && sh.close_counted !== undefined ? `. Сдано ${money2(sh.deposited || 0)}, в кассе оставлено ${money2(sh.left_cash)}` : '')
+      + (sh.close_diff ? `. Расхождение ${money2(sh.close_diff)} — владелец увидит причину` : ''));
+    loadShift();
+  } catch (err) {
+    if (err.data?.cashMismatch) {
+      $('#sc-error').hidden = true;
+      $('#sc-mismatch').innerHTML = mismatchHtml(err.data.cashMismatch, 'close');
+      $('#sc-mismatch').hidden = false;
+      $('#sc-note-row').hidden = false;
+      $('#sc-submit').textContent = 'Закрыть с расхождением';
+      $('#sc-submit').classList.add('danger');
+      return $('#sc-note').focus();
+    }
+    showFormError('#sc-error', err);
+  }
+});
+
+$('#shift-bar').addEventListener('click', (e) => {
+  if (e.target.closest('#shift-open')) return openShiftCashDialog();
+  if (e.target.closest('#shift-close')) return closeShiftCashDialog();
 });
 
 /* ---------- Категории с фото над товарами ---------- */

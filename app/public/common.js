@@ -158,7 +158,11 @@ async function api(url, { method = 'GET', body } = {}) {
     throw new Error('Нужно войти');
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Ошибка ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(data.error || `Ошибка ${res.status}`);
+    err.data = data;
+    throw err;
+  }
   return data;
 }
 

@@ -44,8 +44,20 @@ async function renderShifts() {
       <td>${int(s.receipts)}</td>
       <td>${money(s.revenue)}</td>
       <td class="pcat">${money(s.cash)} / ${money(s.card)}</td>
+      <td class="shift-cash">${shiftCashCell(s)}</td>
       <td>${edit ? `<button type="button" class="btn small ghost" data-shift="${s.id}">Изменить</button>` : ''}</td>
-    </tr>`).join('') : '<tr><td colspan="8" class="empty">За этот период смен нет</td></tr>';
+    </tr>`).join('') : '<tr><td colspan="9" class="empty">За этот период смен нет</td></tr>';
+}
+
+// Деньги в кассе: при открытии насчитали, при закрытии насчитали / сдали на счёт / оставили; расхождения красным.
+function shiftCashCell(s) {
+  const diff = (d, note) => (d ? `<div class="${d < 0 ? 'neg' : 'pos'}">${d < 0 ? 'недостача' : 'излишек'} ${money2(Math.abs(d))}${note ? `: ${esc(note)}` : ''}</div>` : '');
+  const lines = [];
+  if (s.open_cash !== null && s.open_cash !== undefined) lines.push(`<div>открыли: ${money2(s.open_cash)}</div>${diff(s.open_diff, s.open_note)}`);
+  if (s.close_counted !== null && s.close_counted !== undefined) {
+    lines.push(`<div>насчитали: ${money2(s.close_counted)}</div>${s.deposited ? `<div>сдали на счёт: ${money2(s.deposited)}</div>` : ''}<div>оставили: ${money2(s.left_cash)}</div>${diff(s.close_diff, s.close_note)}`);
+  }
+  return lines.join('') || '<span class="pcat">—</span>';
 }
 
 async function openShiftDialog(shift = null) {

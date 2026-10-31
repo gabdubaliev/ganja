@@ -787,6 +787,9 @@ input[type="range"] { width: 100%; accent-color: var(--series); }
 tr.audit-login_failed, tr.audit-denied { background: rgba(208, 59, 59, 0.06); }
 
 /* Смена и скидка на кассе */
+.shift-cash { font-size: 12px; text-align: left !important; min-width: 170px; }
+.cash-mismatch { padding: 12px 14px; border-radius: 12px; background: rgba(208, 59, 59, 0.1); border: 1px solid rgba(208, 59, 59, 0.35); color: var(--critical); font-weight: 600; line-height: 1.4; }
+.cash-mismatch b { font-size: 18px; }
 .shift-bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; padding: 12px 18px; border-radius: calc(var(--radius) + 2px); margin-bottom: 14px; border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
 .shift-bar.open { background: linear-gradient(90deg, rgba(22, 163, 74, 0.12), rgba(22, 163, 74, 0.04)); border-color: rgba(22, 163, 74, 0.25); }
 .shift-bar.closed { background: linear-gradient(90deg, rgba(245, 158, 11, 0.18), rgba(245, 158, 11, 0.06)); border-color: rgba(245, 158, 11, 0.35); }
