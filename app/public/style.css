@@ -1594,3 +1594,17 @@ th.ts-name.ts-editable:hover, th.ts-day.ts-editable:hover { color: var(--series)
 .au-preview div { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; border-bottom: 1px dashed var(--grid); }
 @media (max-width: 900px) { .au-grid { grid-template-columns: 1fr; } }
 .au-card > .btn, .au-card > button { justify-self: start; }
+
+/* ---------- ДДС и прибыль ---------- */
+.mn-wrap { overflow-x: auto; }
+.mn-table { min-width: 100%; border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums; }
+.mn-table th, .mn-table td { white-space: nowrap; padding: 7px 10px; text-align: right; }
+.mn-table th:first-child, .mn-table td:first-child { position: sticky; left: 0; z-index: 1; background: var(--surface); text-align: left; min-width: 230px; white-space: normal; }
+.mn-table td.tot, .mn-table th.tot { font-weight: 800; background: color-mix(in srgb, var(--series) 6%, var(--surface)); }
+.mn-table tr.h td { font-weight: 800; background: var(--grid); }
+.mn-table tr.h td:first-child { background: var(--grid); }
+.mn-table tr.sub td:first-child { padding-left: 24px; color: var(--ink-2); }
+.mn-table tr.key td { font-weight: 800; border-top: 2px solid var(--ink); }
+.mn-table tr.pct td { color: var(--ink-2); font-size: 12px; }
+.mn-table td.neg { color: var(--critical); }
+.mn-table td.pos { color: #15803d; }

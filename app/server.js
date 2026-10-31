@@ -196,6 +196,21 @@ async function runJob(ctx, job, { manual = false } = {}) {
       r.list.map((x) => [x.name, x.category, x.code, x.open, x.in, x.out, x.inv, x.other, x.close, x.cost, x.closeCost, x.closeRetail]));
     st.addAutoReport({ kind: 'monthly', title, summary: `на конец ${t.close} шт, ${rubs(t.closeCost)}`, data: { from, to, totals: t, list: r.list.slice(0, 3000) } });
     const sent = await deliver(ctx, { title, text, file: `tovarnyj-otchet-${new Date(from).toISOString().slice(0, 7)}.csv`, csv });
+    // Итоги месяца по деньгам: прибыль и движение денег.
+    try {
+      const pr = st.profitByMonth({ from, to })[0];
+      const cf = st.cashFlow({ from, to }).months[0];
+      if (pr && cf) {
+        const ftitle = `Итоги ${month} «${shop}»`;
+        const ftext = `💹 ${ftitle}\nВыручка: ${rubs(pr.revenue)} (${pr.receipts} чеков)\nЦена закупки: −${rubs(pr.cost)}\nВаловая прибыль: ${rubs(pr.gross)}`
+          + `\nЗарплата: −${rubs(pr.salary)}\nРасходы и списания: −${rubs(pr.costs - pr.salary)}\nЧистая прибыль: ${rubs(pr.net)}${pr.revenue ? ` (${Math.round((pr.net / pr.revenue) * 100)}% от выручки)` : ''}`
+          + `\n\nДеньги на счетах: было ${rubs(cf.start)}, пришло +${rubs(cf.inflow)}, ушло −${rubs(cf.outflow)}, стало ${rubs(cf.end)}.\nПодробно: Отчёты → ДДС и прибыль.`;
+        st.addAutoReport({ kind: 'money', title: ftitle, summary: `чистая прибыль ${rubs(pr.net)}, на счетах ${rubs(cf.end)}`, data: { profit: pr, cash: cf } });
+        await deliver(ctx, { title: ftitle, text: ftext });
+      }
+    } catch (err) {
+      console.error('Итоги месяца:', err.message);
+    }
     return { title, sent };
   }
   if (job === 'markdown') {
@@ -739,6 +754,8 @@ const routes = [
   // Конструктор чеков и этикеток: настройки нужны всем, кто печатает; менять — право «Конструктор чеков и этикеток».
   // Товарный отчёт, неликвиды, автоматика.
   ['GET', '/api/reports/stock', (p, url) => store.stockReport({ ...range(url), category: url.searchParams.get('category') || '', q: url.searchParams.get('q') || '' }), 'reports.stock'],
+  ['GET', '/api/reports/profit', (p, url) => store.profitByMonth(range(url)), 'reports.money'],
+  ['GET', '/api/reports/cashflow', (p, url) => store.cashFlow({ ...range(url), methodId: url.searchParams.get('account') || null }), 'reports.money'],
   ['GET', '/api/reports/dead', (p, url) => store.deadStock({ days: Number(url.searchParams.get('days')) || 30 }), 'reports.stock'],
   ['POST', '/api/reports/dead/discount', (p, url, body) => store.setDiscountBulk(body.ids, body.discount), 'products'],
   ['GET', '/api/automation', () => ({ settings: store.automation(), preview: store.autoMarkdown({ dryRun: true }), telegram: notifier.telegramSettings().enabled }), 'automation'],

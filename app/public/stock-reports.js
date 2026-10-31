@@ -151,7 +151,7 @@ function renderDeadRows() {
 async function renderArchive() {
   let list = [];
   try { list = await api('/api/auto-reports'); } catch { /* без архива */ }
-  const ICON = { weekly: '🐌', monthly: '📦', markdown: '🏷️' };
+  const ICON = { weekly: '🐌', monthly: '📦', markdown: '🏷️', money: '💹' };
   $('#ds-archive').innerHTML = list.length ? list.slice(0, 20).map((r) => `<div class="ar-item"><span>${ICON[r.kind] || '📄'}</span>
       <span><b>${esc(r.title)}</b><br><small>${esc(r.summary)} · ${dateTime(r.created_at)}</small></span>
       <button type="button" class="btn small" data-ar="${r.id}">Скачать для Excel</button></div>`).join('')
@@ -165,7 +165,12 @@ $('#ds-archive').addEventListener('click', async (e) => {
     const r = await api(`/api/auto-reports/${b.dataset.ar}`);
     if (r.kind === 'weekly') csvDownload(`${r.title}.csv`, ['Товар', 'Категория', 'Остаток', 'Дней без продаж', 'Заморожено', 'Цена', 'Скидка %'], r.data.list.map((x) => [x.name, x.category, x.stock, x.idle, x.frozen, x.price, x.discount || 0]));
     else if (r.kind === 'monthly') csvDownload(`${r.title}.csv`, ['Товар', 'Категория', 'На начало', 'Приход', 'Расход', 'Инвентаризация', 'Прочее', 'На конец', 'На конец по закупке'], r.data.list.map((x) => [x.name, x.category, x.open, x.in, x.out, x.inv, x.other, x.close, x.closeCost]));
-    else csvDownload(`${r.title}.csv`, ['Товар', 'Категория', 'Дней без продаж', 'Скидка была %', 'Скидка стала %', 'Цена', 'Цена со скидкой'], r.data.changes.map((c) => [c.name, c.category, c.idle, c.from, c.to, c.price, c.newPrice]));
+    else if (r.kind === 'money') {
+      const p = r.data.profit, c = r.data.cash;
+      csvDownload(`${r.title}.csv`, ['Статья', 'Сумма'], [['Выручка', p.revenue], ['Цена закупки', -p.cost], ['Валовая прибыль', p.gross], ['Зарплата', -p.salary],
+        ...p.recurring.map((x) => [x.name, -x.amount]), ...p.expenses.map((x) => [x.category, -x.amount]), ['Списания', -p.writeoffs], ['Чистая прибыль', p.net],
+        ['', ''], ['Деньги на начало', c.start], ...c.rows.map((x) => [x.label, x.group === 'in' ? x.amount : -x.amount]), ['Деньги на конец', c.end]]);
+    } else csvDownload(`${r.title}.csv`, ['Товар', 'Категория', 'Дней без продаж', 'Скидка была %', 'Скидка стала %', 'Цена', 'Цена со скидкой'], r.data.changes.map((c) => [c.name, c.category, c.idle, c.from, c.to, c.price, c.newPrice]));
   } catch (err) {
     toast(err.message, 'error');
   }

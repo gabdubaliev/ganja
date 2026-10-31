@@ -579,6 +579,16 @@ function open(file) {
   // чтобы после обновления никто не потерял то, что уже видел.
   // Сертификаты: продавать и принимать — у кого была «Касса», список — у кого были «Покупатели».
   // Подтверждать оплату заказов с витрины — у кого были «Заказы с витрины».
+  // ДДС и прибыль по месяцам — у кого были «Расходы и чистая прибыль» или «Счета».
+  if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v9'").get()) {
+    const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
+    for (const u of db.prepare('SELECT id, rights FROM users WHERE rights IS NOT NULL').all()) {
+      let list;
+      try { list = JSON.parse(u.rights); } catch { continue; }
+      if (Array.isArray(list) && (list.includes('finance') || list.includes('accounts')) && !list.includes('reports.money')) set.run(JSON.stringify([...list, 'reports.money']), u.id);
+    }
+    db.prepare("INSERT INTO settings (key, value) VALUES ('rights_v9', '1')").run();
+  }
   // Товарный отчёт и неликвиды — у кого были «Отчёты» или «Главная»; автоматика — у кого были «Настройки».
   if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v8'").get()) {
     const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
@@ -3288,7 +3298,10 @@ function createStore(file) {
       const payroll = this.kpi({ from, to: Math.max(to, dayEnd.getTime()) }).staff.filter((r) => r.user && (r.pay || r.shifts || r.salary || r.bonus));
       const staff = payroll.map((r) => ({ name: r.user.name || r.user.email, shifts: r.shifts, salary: r.salary, bonus: round2(r.bonus + r.planBonus + r.extra), fines: r.fines, pay: r.pay, percent: r.user.percent || 0 }));
       const recurring = this.listRecurring().filter((r) => r.active).map((r) => {
-        const { share, days } = dayShare(from, to, r.since);
+        // Без даты «с какого дня» — с начала месяца, когда расход завели: в прошлые месяцы он не уходит.
+        const created = r.created_at ? new Date(r.created_at) : null;
+        const since = r.since || (created ? new Date(created.getFullYear(), created.getMonth(), 1).getTime() : null);
+        const { share, days } = dayShare(from, to, since);
         return { id: r.id, name: r.name, monthly: r.amount, amount: round2(r.amount * share), days };
       }).filter((r) => r.amount > 0);
       const expenses = db.prepare('SELECT category, SUM(amount) AS amount, COUNT(*) AS n FROM expenses WHERE at >= ? AND at < ? GROUP BY category ORDER BY amount DESC')
@@ -3298,6 +3311,101 @@ function createStore(file) {
       const fixed = round2(recurring.reduce((sum, r) => sum + r.amount, 0));
       const other = round2(expenses.reduce((sum, r) => sum + r.amount, 0));
       return { salary, staff, recurring, fixed, expenses, other, writeoffs, total: round2(salary + fixed + other + writeoffs), certificates: this.certificateStats({ from, to }) };
+    },
+
+    // Месяцы периода [from, to): [{ key: 'ГГГГ-ММ', from, to, label }].
+    monthsOf(from, to) {
+      const out = [];
+      let d = new Date(from);
+      d = new Date(d.getFullYear(), d.getMonth(), 1);
+      while (d.getTime() < to && out.length < 36) {
+        const next = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+        out.push({ key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, from: Math.max(d.getTime(), from), to: Math.min(next.getTime(), to),
+          label: d.toLocaleDateString('ru-RU', { month: 'short', year: 'numeric' }).replace(' г.', '') });
+        d = next;
+      }
+      return out;
+    },
+
+    // Прибыль по месяцам (отчёт о прибылях и убытках): как блок «Чистая прибыль» на главной, только помесячно.
+    profitByMonth({ from, to }) {
+      const months = this.monthsOf(number(from, 'Начало'), number(to, 'Конец'));
+      const sales = db.prepare(`SELECT COUNT(DISTINCT s.id) AS receipts, COALESCE(SUM(si.qty * si.price - ${LINE_FEE}), 0) AS revenue, COALESCE(SUM(${LINE_FEE}), 0) AS fee,
+          COALESCE(SUM(si.qty * COALESCE(si.purchase, si.cost)), 0) AS cost
+        FROM sale_items si JOIN sales s ON s.id = si.sale_id WHERE s.refunded_at IS NULL AND s.created_at >= ? AND s.created_at < ?`);
+      return months.map((m) => {
+        const s = sales.get(m.from, m.to);
+        const f = this.finance({ from: m.from, to: m.to });
+        const gross = round2(s.revenue - s.cost);
+        return { ...m, receipts: s.receipts, revenue: round2(s.revenue), fee: round2(s.fee), cost: round2(s.cost), gross,
+          salary: f.salary, recurring: f.recurring.map((r) => ({ name: r.name, amount: r.amount })), expenses: f.expenses.map((e) => ({ category: e.category, amount: e.amount })),
+          writeoffs: f.writeoffs, costs: f.total, net: round2(gross - f.total) };
+      });
+    },
+
+    // ДДС — движение денег по месяцам: поступления и выплаты по статьям, остаток на начало и конец.
+    // methodId — один счёт (тогда видны и переводы между счетами), иначе все. Сходится с «Счетами».
+    cashFlow({ from, to, methodId = null }) {
+      const months = this.monthsOf(number(from, 'Начало'), number(to, 'Конец'));
+      const all = this.listPaymentMethods({ all: true });
+      const ids = methodId ? all.filter((m) => m.id === Number(methodId)).map((m) => m.id) : all.map((m) => m.id);
+      if (!ids.length) throw new UserError('Счёт не найден');
+      const IN = `(${ids.join(',')})`;
+      const names = Object.fromEntries(all.map((m) => [m.id, m.name]));
+      const flows = (a, b) => {
+        const rows = [];
+        const add = (group, key, label, amount) => { const v = round2(amount || 0); if (v) rows.push({ group, key, label, amount: v }); };
+        for (const r of db.prepare(`SELECT sp.method_id AS id, SUM(sp.amount) AS v, SUM(sp.commission) AS c FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
+            WHERE sp.method_id IN ${IN} AND s.refunded_at IS NULL AND s.created_at >= ? AND s.created_at < ? GROUP BY sp.method_id`).all(a, b)) {
+          add('in', `sales:${r.id}`, `Оплаты покупателей · ${names[r.id]}`, r.v);
+          add('out', 'fee', 'Комиссия банков', r.c);
+        }
+        for (const r of db.prepare(`SELECT SUM(amount) AS v, SUM(commission) AS c FROM certificate_payments WHERE method_id IN ${IN} AND at >= ? AND at < ?`).all(a, b)) {
+          add('in', 'certs', 'Продажа сертификатов', r.v);
+          add('out', 'fee', 'Комиссия банков', r.c);
+        }
+        const docs = (kind) => db.prepare(`SELECT COALESCE(SUM(total), 0) AS v FROM docs WHERE kind = ? AND status = 'posted' AND method_id IN ${IN} AND doc_date >= ? AND doc_date < ?`).get(kind, a, b).v;
+        add('out', 'purchases', 'Оплата поставщикам (закупки)', docs('purchase'));
+        add('out', 'returns', 'Возвраты покупателям', docs('return'));
+        for (const r of db.prepare(`SELECT category, SUM(amount) AS v FROM expenses WHERE method_id IN ${IN} AND at >= ? AND at < ? GROUP BY category ORDER BY v DESC`).all(a, b)) {
+          add('out', `exp:${r.category}`, r.category, r.v);
+        }
+        for (const r of db.prepare(`SELECT kind, SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS plus, SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END) AS minus
+            FROM account_ops WHERE method_id IN ${IN} AND at >= ? AND at < ? GROUP BY kind`).all(a, b)) {
+          if (r.kind === 'deposit') add('in', 'deposit', 'Внесения на счёт', r.plus);
+          else if (r.kind === 'withdraw') add('out', 'withdraw', 'Изъятия (владелец, на нужды)', r.minus);
+          else if (r.kind === 'transfer') {
+            // Перевод между счетами: по всем счетам — ноль, по одному счёту — приход или уход.
+            if (methodId) { add('in', 'transfer', 'Переводы с других счетов', r.plus); add('out', 'transfer', 'Переводы на другие счета', r.minus); }
+          } else if (r.kind === 'shift_diff') { add('in', 'surplus', 'Излишки в кассе', r.plus); add('out', 'shortage', 'Недостачи в кассе', r.minus); }
+          else { add('in', 'adjust', 'Выравнивание остатка (пересчёт кассы)', r.plus); add('out', 'adjust', 'Выравнивание остатка (пересчёт кассы)', r.minus); }
+        }
+        // Одинаковые статьи (комиссия с чеков и сертификатов) — одной строкой.
+        const merged = new Map();
+        for (const r of rows) {
+          const k = `${r.group}|${r.key}`;
+          const x = merged.get(k);
+          if (x) x.amount = round2(x.amount + r.amount); else merged.set(k, { ...r });
+        }
+        return [...merged.values()];
+      };
+      const net = (list) => round2(list.reduce((s2, r) => s2 + (r.group === 'in' ? r.amount : -r.amount), 0));
+      const opening = round2(all.filter((m) => ids.includes(m.id)).reduce((s2, m) => s2 + (m.opening_balance || 0), 0));
+      let balance = round2(opening + (months.length ? net(flows(0, months[0].from)) : 0));
+      const noAccount = db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(amount), 0) AS v FROM expenses WHERE method_id IS NULL AND at >= ? AND at < ?');
+      return {
+        accounts: all.map((m) => ({ id: m.id, name: m.name })),
+        months: months.map((m) => {
+          const rows = flows(m.from, m.to);
+          const start = balance;
+          const flow = net(rows);
+          balance = round2(balance + flow);
+          const na = noAccount.get(m.from, m.to);
+          return { ...m, rows, start, inflow: round2(rows.filter((r) => r.group === 'in').reduce((a, r) => a + r.amount, 0)),
+            outflow: round2(rows.filter((r) => r.group === 'out').reduce((a, r) => a + r.amount, 0)), flow, end: balance,
+            noAccount: methodId ? null : { count: na.n, amount: round2(na.v) } };
+        }),
+      };
     },
 
     // Правка табеля для одного или многих дней сразу. cells — [{ user_id, day: 'ГГГГ-ММ-ДД' }].

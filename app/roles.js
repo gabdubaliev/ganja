@@ -13,6 +13,7 @@ const RIGHTS = [
   { key: 'kpi', group: 'Отчёты', label: 'Отчёты: хиты товаров, топ продавцов, зарплата' },
   { key: 'finance', group: 'Отчёты', label: 'Главная: расходы, зарплата сотрудников и чистая прибыль' },
   { key: 'abc', group: 'Отчёты', label: 'ABC / XYZ анализ ассортимента (и матрица на главной)' },
+  { key: 'reports.money', group: 'Отчёты', label: 'ДДС (движение денег) и прибыль по месяцам' },
   { key: 'reports.stock', group: 'Отчёты', label: 'Товарный отчёт, остатки на дату и неликвиды' },
   { key: 'pos', group: 'Касса', label: 'Продавать на кассе и находить покупателя по телефону' },
   { key: 'customers.create', group: 'Касса', label: 'Заводить и искать покупателей на кассе: ФИО, телефон, номер карты, дата рождения, пол' },
@@ -82,7 +83,7 @@ const ROLES = {
   manager: {
     name: 'Управляющий',
     about: 'Видит всё и ведёт магазин, выписывает штрафы, правит смены, ведёт табель, даёт и проверяет задания. По умолчанию не меняет сотрудников, бонусы, оформление, настройки и не видит журнал действий.',
-    can: ['dashboard', 'kpi', 'pos', 'customers.create', 'certificates.sell', 'certificates.accept', 'certificates', 'sales', 'refund', 'discount', 'products', 'stock.view', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'orders.payment', 'notify', 'shifts', 'fines', 'timesheet', 'timesheet.edit', 'tasks', 'writeoff', 'docs.sale', 'transfer', 'docs.unpost', 'expenses', 'finance', 'abc', 'reports.stock', 'products.history', 'receive.photo', 'mytimesheet'],
+    can: ['dashboard', 'kpi', 'pos', 'customers.create', 'certificates.sell', 'certificates.accept', 'certificates', 'sales', 'refund', 'discount', 'products', 'stock.view', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'orders.payment', 'notify', 'shifts', 'fines', 'timesheet', 'timesheet.edit', 'tasks', 'writeoff', 'docs.sale', 'transfer', 'docs.unpost', 'expenses', 'finance', 'abc', 'reports.stock', 'reports.money', 'products.history', 'receive.photo', 'mytimesheet'],
   },
   cashier: {
     name: 'Кассир',

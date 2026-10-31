@@ -636,6 +636,26 @@
   </section>
 </main>
 
+<main class="page" data-view="money" hidden>
+  <header class="top">
+    <div class="title"><h1>💹 ДДС и прибыль</h1><span class="source" id="mn-sub"></span></div>
+    <div class="tools">
+      <div class="seg" id="mn-tabs" role="group"><button type="button" data-mn-tab="profit" aria-pressed="true">Прибыль</button><button type="button" data-mn-tab="cash" aria-pressed="false">ДДС — движение денег</button></div>
+      <button type="button" class="btn" id="mn-export">Скачать для Excel</button>
+    </div>
+  </header>
+  <section class="panel sr-settings">
+    <select id="mn-period" class="input" aria-label="Период"></select>
+    <select id="mn-account" class="input" aria-label="Счёт" hidden></select>
+    <span class="pick-meta" id="mn-hint"></span>
+  </section>
+  <section class="stock-totals as-tiles" id="mn-tiles"></section>
+  <section class="panel">
+    <div class="table-wrap mn-wrap"><table class="mn-table"><thead id="mn-head"></thead><tbody id="mn-body"></tbody></table></div>
+    <p class="pick-meta" id="mn-note"></p>
+  </section>
+</main>
+
 <main class="page" data-view="stockreport" hidden>
   <header class="top">
     <div class="title"><h1>📦 Товарный отчёт</h1><span class="source" id="sr-sub"></span></div>
@@ -1911,6 +1931,7 @@
 <script src="kpi.js"></script>
 <script src="abc.js"></script>
 <script src="stock-reports.js"></script>
+<script src="money-reports.js"></script>
 <script src="receive.js"></script>
 <script src="owner.js"></script>
 <script src="certificates.js"></script>
