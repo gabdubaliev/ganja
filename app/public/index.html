@@ -481,7 +481,28 @@
       <button type="button" class="icon-btn" id="ts-next" aria-label="Следующий месяц">›</button>
     </div>
     <div class="periods" id="ts-parts" role="group" aria-label="Выплатный период"></div>
-    <div class="ts-legend"><span class="lg worked">8 ч / 1 200</span> рабочий день: часы и заработок за день <span class="lg off">В</span> выходной <span class="lg noshift">без смены</span> продажи без открытой смены <i class="plus"></i> бонус <i class="minus"></i> штраф</div>
+    <div class="ts-legend"><span class="lg worked">8 ч / 1 200</span> рабочий день: часы и заработок за день <span class="lg off">В</span> выходной <span class="lg noshift">без смены</span> продажи без открытой смены <i class="plus"></i> бонус <i class="minus"></i> штраф <span class="lg">✎</span> изменено вручную</div>
+  </section>
+  <section class="panel ts-editbar" id="ts-editbar" hidden>
+    <div class="ts-edit-hint" id="ts-edit-hint">Чтобы изменить табель, нажмите на дни — можно выбрать сразу несколько. Нажмите на имя сотрудника — выберется вся строка, на число месяца — весь столбец.</div>
+    <div class="ts-edit-actions" id="ts-edit-actions" hidden>
+      <b id="ts-sel-count"></b>
+      <button type="button" class="btn small" data-ts-act="work">Рабочий день</button>
+      <button type="button" class="btn small" data-ts-act="off">Выходной</button>
+      <button type="button" class="btn small" data-ts-act="auto" title="Выход считается по открытым сменам">По сменам</button>
+      <button type="button" class="btn small" data-ts-act="amount">Сумма за день…</button>
+      <span class="ts-swatches" role="group" aria-label="Цвет ячеек">
+        <button type="button" class="ts-swatch" data-ts-color="" title="Без цвета" aria-label="Без цвета">⌀</button>
+        <button type="button" class="ts-swatch ts-c-green" data-ts-color="green" title="Зелёный" aria-label="Зелёный"></button>
+        <button type="button" class="ts-swatch ts-c-yellow" data-ts-color="yellow" title="Жёлтый" aria-label="Жёлтый"></button>
+        <button type="button" class="ts-swatch ts-c-red" data-ts-color="red" title="Красный" aria-label="Красный"></button>
+        <button type="button" class="ts-swatch ts-c-blue" data-ts-color="blue" title="Синий" aria-label="Синий"></button>
+        <button type="button" class="ts-swatch ts-c-purple" data-ts-color="purple" title="Фиолетовый" aria-label="Фиолетовый"></button>
+        <button type="button" class="ts-swatch ts-c-gray" data-ts-color="gray" title="Серый" aria-label="Серый"></button>
+      </span>
+      <button type="button" class="btn small ghost danger-text" data-ts-act="clear">Сбросить правки</button>
+      <button type="button" class="btn small ghost" data-ts-act="unselect">Снять выбор</button>
+    </div>
   </section>
   <section class="panel ts-panel">
     <div class="ts-wrap"><table class="ts-table" id="ts-table"></table></div>
@@ -1130,6 +1151,24 @@
     <div class="form-actions">
       <button type="button" class="btn ghost" id="supplier-delete" hidden>Удалить</button>
       <button type="button" class="btn ghost" id="supplier-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="ts-amount-dialog" aria-labelledby="ts-amount-title">
+  <form id="ts-amount-form" novalidate>
+    <h2 id="ts-amount-title">Сумма за день</h2>
+    <p class="sub" id="ts-amount-sub"></p>
+    <div class="form-grid">
+      <div class="field wide"><label for="tsa-amount">Заработок за день, сом</label><input id="tsa-amount" name="amount" class="input num" inputmode="decimal" autocomplete="off" placeholder="Например, 1500"></div>
+      <div class="field wide"><label for="tsa-note">Комментарий</label><input id="tsa-note" name="note" class="input" autocomplete="off" placeholder="Необязательно: за что"></div>
+    </div>
+    <p class="pick-meta">Сумма заменяет расчёт дня (ставка за выход + % от выручки) и сразу входит в зарплату к выплате и в расходы на главной. Оставьте поле пустым и нажмите «Вернуть расчёт», чтобы снова считать по ставке.</p>
+    <p class="form-error" id="ts-amount-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="ts-amount-reset">Вернуть расчёт</button>
+      <button type="button" class="btn ghost" id="ts-amount-cancel">Отмена</button>
       <button type="submit" class="btn primary">Сохранить</button>
     </div>
   </form>

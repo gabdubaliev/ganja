@@ -516,7 +516,8 @@ const routes = [
   ['GET', '/api/bonuses', (p, url) => store.listFines({ ...range(url), kind: 'bonus' }), ['salary', 'kpi', 'fines']],
   ['POST', '/api/bonuses', (p, url, body, user) => store.addFine(body, user, 'bonus'), 'salary'],
   ['DELETE', '/api/bonuses/:id', (p) => store.deleteFine(p.id, 'bonus'), 'salary'],
-  ['GET', '/api/timesheet', (p, url) => store.timesheet({ year: url.searchParams.get('year'), month: url.searchParams.get('month') }), 'timesheet'],
+  ['GET', '/api/timesheet', (p, url) => store.timesheet({ year: url.searchParams.get('year'), month: url.searchParams.get('month') }), ['timesheet', 'timesheet.edit']],
+  ['PUT', '/api/timesheet/marks', (p, url, body, user) => store.setTimesheetMarks(body, user), 'timesheet.edit'],
   ['GET', '/api/tasks', (p, url, body, user) => {
     // Без входа (сотрудников ещё нет) программа открыта как администратору.
     const all = url.searchParams.get('all') === '1' && can(user, 'tasks');
@@ -714,6 +715,7 @@ const AUDIT_LABELS = {
   'POST /api/products/:id/variants': 'Добавил модификации',
   'POST /api/expenses': 'Внёс расход',
   'DELETE /api/expenses/:id': 'Удалил расход',
+  'PUT /api/timesheet/marks': 'Изменил табель',
   'POST /api/recurring-expenses': 'Добавил постоянный расход',
   'PUT /api/recurring-expenses/:id': 'Изменил постоянный расход',
   'DELETE /api/recurring-expenses/:id': 'Удалил постоянный расход',
@@ -811,6 +813,7 @@ function auditDetails(key, params, body, result) {
     case 'POST /api/products/:id/variants': return `${Array.isArray(r) ? r.length : 0} шт.`;
     case 'POST /api/expenses':
     case 'DELETE /api/expenses/:id': return `${r.category}: ${r.amount} сом${r.note ? ` (${r.note})` : ''}`;
+    case 'PUT /api/timesheet/marks': return `дней: ${r.count}${r.clear ? ', правки сняты' : ''}${r.status !== undefined ? `, ${{ work: 'рабочий', off: 'выходной' }[r.status] || 'по сменам'}` : ''}${r.amount !== undefined ? `, сумма ${r.amount ?? 'по расчёту'}` : ''}${r.color !== undefined ? `, цвет ${r.color || 'без цвета'}` : ''}`;
     case 'POST /api/recurring-expenses':
     case 'PUT /api/recurring-expenses/:id':
     case 'DELETE /api/recurring-expenses/:id': return `${r.name}: ${r.amount} сом в месяц${r.active === 0 ? ' (выключен)' : ''}`;

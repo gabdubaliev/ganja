@@ -36,6 +36,7 @@ const RIGHTS = [
   { key: 'shifts', group: 'Персонал', label: 'Смены всех сотрудников: открыть, закрыть, исправить' },
   { key: 'fines', group: 'Персонал', label: 'Штрафы: выписывать и отменять' },
   { key: 'timesheet', group: 'Персонал', label: 'Табель: кто в какой день работал и сколько заработал' },
+  { key: 'timesheet.edit', group: 'Персонал', label: 'Табель: менять — рабочие дни и выходные, сумма за день, цвет ячеек (в том числе группами)' },
   { key: 'tasks', group: 'Персонал', label: 'Задания: давать сотрудникам и проверять выполнение (свои задания видит каждый)' },
   { key: 'salary', group: 'Персонал', label: 'Зарплата: менять ставку, оклад, процент, план и бонус за план; начислять бонусы' },
   { key: 'expenses', group: 'Управление', label: 'Расходы: аренда, доставка, налоги и другие — для чистой прибыли на главной' },
@@ -56,7 +57,7 @@ const ROLES = {
   manager: {
     name: 'Управляющий',
     about: 'Видит всё и ведёт магазин, выписывает штрафы, правит смены, ведёт табель, даёт и проверяет задания. По умолчанию не меняет сотрудников, бонусы, оформление, настройки и не видит журнал действий.',
-    can: ['dashboard', 'kpi', 'pos', 'sales', 'refund', 'discount', 'products', 'stock.view', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'notify', 'shifts', 'fines', 'timesheet', 'tasks', 'writeoff', 'docs.sale', 'transfer', 'docs.unpost', 'expenses'],
+    can: ['dashboard', 'kpi', 'pos', 'sales', 'refund', 'discount', 'products', 'stock.view', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'notify', 'shifts', 'fines', 'timesheet', 'timesheet.edit', 'tasks', 'writeoff', 'docs.sale', 'transfer', 'docs.unpost', 'expenses'],
   },
   cashier: {
     name: 'Кассир',
@@ -75,7 +76,9 @@ function rightsOf(user) {
   if (!user) return ALL; // сотрудников ещё нет — программа открыта, как у администратора
   if (user.role === 'admin') return ALL;
   const custom = typeof user.rights === 'string' && user.rights ? JSON.parse(user.rights) : user.rights;
-  return Array.isArray(custom) ? custom.filter((r) => ALL.includes(r)) : ROLES[user.role]?.can || [];
+  const list = Array.isArray(custom) ? custom.filter((r) => ALL.includes(r)) : ROLES[user.role]?.can || [];
+  // Кто может менять табель, тот его и видит.
+  return list.includes('timesheet.edit') && !list.includes('timesheet') ? [...list, 'timesheet'] : list;
 }
 
 const can = (user, right) => rightsOf(user).includes(right);

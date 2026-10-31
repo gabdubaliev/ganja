@@ -466,6 +466,20 @@ function open(file) {
     CREATE INDEX IF NOT EXISTS expenses_at ON expenses(at);
     -- Постоянные расходы, которые владелец заводит сам: аренда, таргет… Сумма в месяц делится
     -- на число дней этого месяца, и каждый день периода несёт свою долю. since — с какого дня действует.
+    -- Правки табеля: день сотрудника (day — 'ГГГГ-ММ-ДД'). status: 'work' — рабочий день (выход
+    -- считается, даже без открытой смены), 'off' — выходной (выход не считается), NULL — как по сменам.
+    -- amount — своя сумма за день вместо расчёта (ставка + % от выручки дня), color — цвет ячейки.
+    CREATE TABLE IF NOT EXISTS timesheet_marks (
+      user_id INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      status TEXT,
+      amount REAL,
+      color TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      updated_by TEXT NOT NULL DEFAULT '',
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, day)
+    );
     CREATE TABLE IF NOT EXISTS recurring_expenses (
       id INTEGER PRIMARY KEY,
       name TEXT NOT NULL,
@@ -679,6 +693,11 @@ function css(value) {
   if (/<\/?\s*style|@import|javascript:|expression\s*\(/i.test(s)) throw new UserError('В своём CSS нельзя использовать @import, javascript: и теги <style>');
   return s;
 }
+
+// День для табеля: 'ГГГГ-ММ-ДД' по местному времени.
+const dayKey = (t) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const dayFromKey = (k) => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d).getTime(); };
+const TS_COLORS = ['', 'green', 'yellow', 'red', 'blue', 'purple', 'gray'];
 
 // Доля месяцев по календарным дням: каждый день, который задевает период, — 1/(дней в его месяце).
 // Сегодняшний день считается целиком: аренда за сегодня — полная дневная доля.
@@ -1500,17 +1519,29 @@ function createStore(file) {
       const stats = new Map(rows.map((r) => [r.id, r]));
       // Выход на смену считается по дням: две смены в один день — один выход.
       const shiftDays = new Map();
-      for (const sh of db.prepare('SELECT user_id, opened_at FROM shifts WHERE opened_at >= ? AND opened_at < ?').all(from, to)) {
-        const d = new Date(sh.opened_at);
-        const days = shiftDays.get(sh.user_id) || new Set();
-        days.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
-        shiftDays.set(sh.user_id, days);
+      const daysOf = (id) => { if (!shiftDays.has(id)) shiftDays.set(id, new Set()); return shiftDays.get(id); };
+      for (const sh of db.prepare('SELECT user_id, opened_at FROM shifts WHERE opened_at >= ? AND opened_at < ?').all(from, to)) daysOf(sh.user_id).add(dayKey(sh.opened_at));
+      // Правки табеля: рабочий день / выходной меняют число выходов, своя сумма за день заменяет расчёт дня.
+      const marks = db.prepare('SELECT * FROM timesheet_marks WHERE day >= ? AND day <= ?').all(dayKey(from), dayKey(to - 1))
+        .filter((mk) => { const t = dayFromKey(mk.day); return t + 864e5 > from && t < to; });
+      for (const mk of marks) {
+        if (mk.status === 'work') daysOf(mk.user_id).add(mk.day);
+        if (mk.status === 'off') daysOf(mk.user_id).delete(mk.day);
       }
+      const dayRevenue = db.prepare(`SELECT COALESCE(SUM(s.total - ${SALE_FEE}), 0) AS v FROM sales s WHERE s.user_id = ? AND s.refunded_at IS NULL AND s.created_at >= ? AND s.created_at < ?`);
+      const fixedDays = new Map();
+      for (const mk of marks.filter((x) => x.amount !== null)) fixedDays.set(mk.user_id, [...(fixedDays.get(mk.user_id) || []), mk]);
+      // Сколько добавить к расчёту: своя сумма дня минус то, что насчитано за этот день.
+      const dayFix = (u, rate) => (fixedDays.get(u.id) || []).reduce((sum, mk) => {
+        const t = dayFromKey(mk.day);
+        const calc = (shiftDays.get(u.id)?.has(mk.day) ? rate : 0) + dayRevenue.get(u.id, t, t + 864e5).v * (u.percent || 0) / 100;
+        return sum + mk.amount - calc;
+      }, 0);
       const fines = new Map(db.prepare("SELECT user_id, SUM(amount) AS sum, COUNT(*) AS n FROM fines WHERE kind = 'fine' AND at >= ? AND at < ? GROUP BY user_id").all(from, to).map((r) => [r.user_id, r]));
       const extras = new Map(db.prepare("SELECT user_id, SUM(amount) AS sum, COUNT(*) AS n FROM fines WHERE kind = 'bonus' AND at >= ? AND at < ? GROUP BY user_id").all(from, to).map((r) => [r.user_id, r]));
       const users = db.prepare('SELECT * FROM users ORDER BY name, email').all();
       const result = users
-        .filter((u) => stats.has(u.id) || shiftDays.has(u.id) || fines.has(u.id) || extras.has(u.id) || (!u.disabled && (can(u, 'pos') || u.shift_rate > 0 || u.salary > 0)))
+        .filter((u) => stats.has(u.id) || shiftDays.get(u.id)?.size || fixedDays.has(u.id) || fines.has(u.id) || extras.has(u.id) || (!u.disabled && (can(u, 'pos') || u.shift_rate > 0 || u.salary > 0)))
         .map((u) => ({ user: publicUser(u), ...stats.get(u.id) }));
       if (stats.has(null)) result.push({ user: null, ...stats.get(null) });
       const overrides = new Map();
@@ -1527,7 +1558,7 @@ function createStore(file) {
           // 'rate' — ставка за выход только в этом периоде.
           const fixed = (field) => (r.user ? overrides.get(`${r.user.id}:${field}`) : null);
           const rate = r.user ? (fixed('rate') ? fixed('rate').amount : r.user.shift_rate) : 0;
-          const calcSalary = r.user ? round2(rate * shifts + r.user.salary * months) : 0;
+          const calcSalary = r.user ? round2(rate * shifts + r.user.salary * months + dayFix(r.user, rate)) : 0;
           const calcBonus = r.user ? round2(revenue * r.user.percent / 100) : 0;
           const salary = fixed('salary') ? fixed('salary').amount : calcSalary;
           const bonus = fixed('bonus') ? fixed('bonus').amount : calcBonus;
@@ -1646,6 +1677,9 @@ function createStore(file) {
       for (const f of db.prepare('SELECT user_id, at, amount, kind FROM fines WHERE at >= ? AND at < ?').all(start, end)) {
         cell(f.user_id, dayOf(f.at))[f.kind === 'bonus' ? 'bonuses' : 'fines'] += f.amount;
       }
+      for (const mk of db.prepare('SELECT * FROM timesheet_marks WHERE day >= ? AND day < ?').all(dayKey(start), dayKey(end))) {
+        cell(mk.user_id, dayOf(dayFromKey(mk.day))).mark = { status: mk.status, amount: mk.amount, color: mk.color, note: mk.note, by: mk.updated_by, at: mk.updated_at };
+      }
       const staff = new Map();
       for (const [i, h] of halves.entries()) {
         for (const r of h.staff) {
@@ -1661,9 +1695,12 @@ function createStore(file) {
           const h = s.halves[Number(d) < 16 ? 0 : 1];
           const rate = h ? h.rate : s.user.shift_rate;
           c.revenue = round2(c.revenue);
-          c.worked = c.shifts.length > 0;
-          // Заработок за день по расчёту: ставка за выход + процент от выручки дня. Оклад и бонус за план — в итогах периода.
-          c.earned = round2((c.worked ? rate : 0) + c.revenue * s.user.percent / 100);
+          // Отметка в табеле главнее смен: «рабочий» — выход есть, «выходной» — выхода нет.
+          c.worked = c.mark?.status === 'work' || (c.mark?.status !== 'off' && c.shifts.length > 0);
+          // Заработок за день: своя сумма из табеля или расчёт — ставка за выход + процент от выручки дня.
+          // Оклад и бонус за план — в итогах периода.
+          c.calc = round2((c.worked ? rate : 0) + c.revenue * s.user.percent / 100);
+          c.earned = c.mark?.amount ?? c.calc;
         }
         return { ...s, days };
       });
@@ -2327,6 +2364,45 @@ function createStore(file) {
       const fixed = round2(recurring.reduce((sum, r) => sum + r.amount, 0));
       const other = round2(expenses.reduce((sum, r) => sum + r.amount, 0));
       return { salary, staff, recurring, fixed, expenses, other, writeoffs, total: round2(salary + fixed + other + writeoffs) };
+    },
+
+    // Правка табеля для одного или многих дней сразу. cells — [{ user_id, day: 'ГГГГ-ММ-ДД' }].
+    // Меняется только то, что передано: status ('work' | 'off' | '' — как по сменам), amount (число или null —
+    // вернуть расчёт), color, note. clear — убрать все правки с этих дней.
+    setTimesheetMarks({ cells, status, amount, color, note, clear = false }, by = null) {
+      if (!Array.isArray(cells) || !cells.length) throw new UserError('Выберите дни в табеле');
+      if (cells.length > 3000) throw new UserError('Слишком много дней за раз');
+      if (status !== undefined && !['work', 'off', '', null].includes(status)) throw new UserError('Неизвестная отметка');
+      if (color !== undefined && !TS_COLORS.includes(color || '')) throw new UserError('Неизвестный цвет');
+      const sum = amount === undefined || amount === null || amount === '' ? amount === undefined ? undefined : null : round2(number(amount, 'Сумма за день'));
+      const why = note === undefined ? undefined : text(note, 'Комментарий', { max: 200 });
+      const who = by ? by.name || by.email : '';
+      const users = new Set(db.prepare('SELECT id FROM users').all().map((u) => u.id));
+      return transaction(db, () => {
+        const get = db.prepare('SELECT * FROM timesheet_marks WHERE user_id = ? AND day = ?');
+        const put = db.prepare(`INSERT INTO timesheet_marks (user_id, day, status, amount, color, note, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT (user_id, day) DO UPDATE SET status = excluded.status, amount = excluded.amount, color = excluded.color, note = excluded.note,
+          updated_by = excluded.updated_by, updated_at = excluded.updated_at`);
+        const del = db.prepare('DELETE FROM timesheet_marks WHERE user_id = ? AND day = ?');
+        let count = 0;
+        for (const c of cells) {
+          const userId = Number(c.user_id);
+          const day = String(c.day || '');
+          if (!users.has(userId) || !/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new UserError('Неверный день или сотрудник');
+          count++;
+          if (clear) { del.run(userId, day); continue; }
+          const cur = get.get(userId, day) || { status: null, amount: null, color: '', note: '' };
+          const next = {
+            status: status === undefined ? cur.status : status || null,
+            amount: sum === undefined ? cur.amount : sum,
+            color: color === undefined ? cur.color : color || '',
+            note: why === undefined ? cur.note : why,
+          };
+          if (!next.status && next.amount === null && !next.color && !next.note) del.run(userId, day);
+          else put.run(userId, day, next.status, next.amount, next.color, next.note, who, Date.now());
+        }
+        return { count, status, amount: sum, color, clear };
+      });
     },
 
     /* ---------- Постоянные расходы ---------- */
