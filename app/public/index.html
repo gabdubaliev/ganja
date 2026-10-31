@@ -384,6 +384,7 @@
   <header class="top">
     <div class="title"><h1>🎁 Сертификаты</h1><span class="source" id="cert-sub"></span></div>
     <div class="tools">
+      <button type="button" class="btn primary" id="cert-issue-open" data-can="certificates.manage" hidden>+ Новый сертификат</button>
       <label class="cert-months">Срок действия
         <select id="cert-months" class="input"><option value="3">3 месяца</option><option value="6">6 месяцев</option><option value="12">1 год</option><option value="24">2 года</option><option value="0">Без срока</option></select></label>
     </div>
@@ -407,11 +408,50 @@
 <dialog id="cert-dialog" class="wide" aria-labelledby="cd-title">
   <h2 id="cd-title">Сертификат</h2>
   <div id="cd-body"></div>
+  <form id="cd-edit" class="cd-edit" data-can="certificates.manage" hidden novalidate>
+    <h3>Изменить</h3>
+    <div class="form-grid">
+      <div class="field"><label for="cd-balance">Остаток, сом</label><input id="cd-balance" name="balance" class="input num" inputmode="decimal" autocomplete="off"></div>
+      <div class="field"><label for="cd-expires">Действует до</label><input id="cd-expires" name="expires" type="date" class="input"></div>
+      <div class="field wide"><label for="cd-note">Причина</label><input id="cd-note" name="note" class="input" autocomplete="off" placeholder="Например, ошибка кассира, продление по просьбе клиента"></div>
+    </div>
+    <p class="pick-meta">Номинал сдвигается на ту же разницу. Деньги на счетах не меняются. Пустая дата — без срока.</p>
+    <div class="form-actions"><button type="submit" class="btn">Сохранить изменения</button></div>
+  </form>
   <p class="form-error" id="cd-error" role="alert" hidden></p>
   <div class="form-actions">
+    <button type="button" class="btn ghost danger-text" id="cd-delete" data-can="certificates.manage" hidden>Удалить сертификат</button>
     <button type="button" class="btn ghost danger-text" id="cd-block"></button>
     <button type="button" class="btn primary" id="cd-close">Закрыть</button>
   </div>
+</dialog>
+
+<dialog id="cert-issue-dialog" aria-labelledby="ci-title">
+  <form id="ci-form" novalidate>
+    <h2 id="ci-title">+ Новый сертификат</h2>
+    <div class="form-grid">
+      <div class="field"><label for="ci-amount">Сумма, сом</label><input id="ci-amount" name="amount" class="input big num" inputmode="decimal" autocomplete="off" required></div>
+      <div class="field"><label for="ci-number">Номер</label>
+        <div class="input-row"><input id="ci-number" name="number" class="input num" autocomplete="off" placeholder="Сканируйте или «Новый»"><button type="button" class="btn" id="ci-number-new">Новый</button></div></div>
+      <div class="field wide"><label for="ci-cust">Покупатель</label>
+        <div class="suggest-wrap"><input id="ci-cust" class="input" type="search" autocomplete="off" placeholder="Телефон, ФИО или номер карты"><div id="ci-cust-results" class="suggest-list" hidden></div></div>
+        <div class="cs-cust-chosen" id="ci-cust-chosen" hidden></div>
+      </div>
+      <div class="field wide" id="ci-newcust" hidden>
+        <span class="label">Новый покупатель</span>
+        <div class="form-grid"><input class="input" name="newName" placeholder="ФИО" data-capitalize autocomplete="off"><input class="input" name="newPhone" inputmode="tel" placeholder="Телефон" autocomplete="off"></div>
+      </div>
+      <div class="field"><label for="ci-pay">Оплата</label><select id="ci-pay" name="pay" class="input"></select></div>
+      <div class="field"><label for="ci-expires">Действует до</label><input id="ci-expires" name="expires" type="date" class="input"></div>
+      <div class="field wide"><label for="ci-note">Комментарий</label><input id="ci-note" name="note" class="input" autocomplete="off" placeholder="Например, подарок постоянному клиенту"></div>
+    </div>
+    <p class="sub">«Без оплаты» — подарок от магазина: денег нет, а то, что по нему купят, уйдёт в расходы «Сертификаты в подарок».</p>
+    <p class="form-error" id="ci-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="ci-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Создать сертификат</button>
+    </div>
+  </form>
 </dialog>
 
 <main class="page" data-view="receive" hidden>

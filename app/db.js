@@ -493,6 +493,9 @@ function open(file) {
     CREATE INDEX IF NOT EXISTS certificate_ops_cert ON certificate_ops(certificate_id);
   `);
   addColumns('sale_payments', [['certificate_id', 'INTEGER']]);
+  // free — выдан бесплатно (подарок от магазина): покупки по нему уходят в расходы «Сертификаты в подарок».
+  // deleted_at — удалён: скрыт из списков, деньги за него и история чеков остаются.
+  addColumns('certificates', [['free', 'INTEGER NOT NULL DEFAULT 0'], ['deleted_at', 'INTEGER']]);
   db.exec("CREATE INDEX IF NOT EXISTS customers_card ON customers(card)");
   db.exec(`
     CREATE INDEX IF NOT EXISTS doc_items_product ON doc_items(product_id);
@@ -708,6 +711,8 @@ const PAYMENT_KINDS = { cash: 'Наличные', card: 'Карта', transfer: 
 const LOYALTY_DEFAULTS = { enabled: true, percent: 5, maxPay: 30, birthdayDiscount: 10, birthdayDays: 3 };
 
 // Дата рождения как ДД.ММ.ГГГГ, ДД.ММ или ГГГГ-ММ-ДД → 'ГГГГ-ММ-ДД' (год 0000, если не указан).
+const freeCertNote = (num, saleId) => `Сертификат-подарок №${num}, чек №${saleId}`;
+
 // ФИО: каждое слово (и часть через дефис) — с заглавной буквы, лишние пробелы убираются.
 function personName(value) {
   const s = text(value, 'ФИО', { max: 80 }).replace(/\s+/g, ' ');
@@ -1540,6 +1545,8 @@ function createStore(file) {
           db.prepare('UPDATE certificates SET balance = ROUND(balance - ?, 2) WHERE id = ?').run(certAmount, cert.id);
           db.prepare("INSERT INTO certificate_ops (certificate_id, at, kind, amount, sale_id, user_name) VALUES (?, ?, 'redeem', ?, ?, ?)")
             .run(cert.id, Date.now(), -certAmount, saleId, user ? user.name || user.email : '');
+          // Бесплатный сертификат: денег за него не было — покупка по нему идёт в расходы, чтобы чистая прибыль была честной.
+          if (cert.free) this.addExpense({ category: 'Сертификаты в подарок', amount: certAmount, at: Date.now(), note: freeCertNote(cert.number, saleId) }, user);
         }
         const addItem = db.prepare('INSERT INTO sale_items (sale_id, product_id, name, qty, price, cost, purchase) VALUES (?, ?, ?, ?, ?, ?, ?)');
         const takeStock = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?');
@@ -2572,13 +2579,13 @@ function createStore(file) {
       const c = db.prepare(`SELECT c.*, cu.name AS customer_name, cu.phone AS customer_phone, cu.card AS customer_card
         FROM certificates c LEFT JOIN customers cu ON cu.id = c.customer_id WHERE ${byId ? 'c.id = ?' : 'c.number = ?'}`).get(byId ? Number(numberOrId) : String(numberOrId ?? '').trim());
       if (!c) return null;
-      const state = c.status === 'blocked' ? 'blocked' : c.balance <= 0.004 ? 'used' : c.expires_at && c.expires_at < Date.now() ? 'expired' : 'active';
+      const state = c.status === 'deleted' ? 'deleted' : c.status === 'blocked' ? 'blocked' : c.balance <= 0.004 ? 'used' : c.expires_at && c.expires_at < Date.now() ? 'expired' : 'active';
       return { ...c, state };
     },
 
     usableCertificate(num) {
       const c = this.getCertificate(num);
-      if (!c) throw new UserError('Сертификат с таким номером не найден');
+      if (!c || c.state === 'deleted') throw new UserError('Сертификат с таким номером не найден');
       if (c.state === 'blocked') throw new UserError(`Сертификат №${c.number} заблокирован`);
       if (c.state === 'used') throw new UserError(`Сертификат №${c.number} уже потрачен полностью`);
       if (c.state === 'expired') throw new UserError(`Срок сертификата №${c.number} истёк ${new Date(c.expires_at).toLocaleDateString('ru-RU')}`);
@@ -2586,7 +2593,8 @@ function createStore(file) {
     },
 
     // Продажа сертификата: покупатель обязателен (он появляется в «Клиентах»), деньги — способом оплаты на счёт.
-    sellCertificate({ number: num, amount, customerId, methodId, payments, note }, user = null) {
+    // free — выдать бесплатно (без оплаты), expiresAt — свой срок (иначе по настройке).
+    sellCertificate({ number: num, amount, customerId, methodId, payments, note, free = false, expiresAt }, user = null) {
       const sum = round2(number(amount, 'Сумма сертификата', { positive: true }));
       if (sum > 1e6) throw new UserError('Слишком большая сумма сертификата');
       const code = String(num ?? '').trim() || this.newCertificateNumber();
@@ -2594,8 +2602,8 @@ function createStore(file) {
       if (db.prepare('SELECT 1 FROM certificates WHERE number = ?').get(code)) throw new UserError(`Сертификат №${code} уже продан`);
       const customer = customerId ? this.findCustomer(customerId) : null;
       if (!customer) throw new UserError('Выберите покупателя или заведите нового — сертификат записывается на него');
-      let parts = [{ method: this.paymentMethodFor(methodId, null, user), amount: sum }];
-      if (Array.isArray(payments) && payments.length) {
+      let parts = free ? [] : [{ method: this.paymentMethodFor(methodId, null, user), amount: sum }];
+      if (!free && Array.isArray(payments) && payments.length) {
         parts = payments.map((x) => ({ method: this.paymentMethodFor(x.methodId, null, user), amount: x.amount === null || x.amount === undefined || x.amount === '' ? null : round2(number(x.amount, 'Сумма оплаты')) }));
         const open = parts.filter((x) => x.amount === null);
         if (open.length > 1) throw new UserError('Укажите сумму для всех способов, кроме одного');
@@ -2604,17 +2612,18 @@ function createStore(file) {
         if (Math.abs(parts.reduce((s, x) => s + x.amount, 0) - sum) > 0.01) throw new UserError('Части оплаты не сходятся с суммой сертификата');
       }
       const months = this.certificateSettings().months;
-      const exp = months ? new Date() : null;
+      let exp = months ? new Date() : null;
       if (exp) { exp.setMonth(exp.getMonth() + months); exp.setHours(23, 59, 59, 999); }
+      if (expiresAt !== undefined) exp = expiresAt ? new Date(number(expiresAt, 'Действует до', { positive: true })) : null;
       const who = user ? user.name || user.email : '';
       return transaction(db, () => {
-        const id = Number(db.prepare(`INSERT INTO certificates (number, amount, balance, customer_id, sold_at, expires_at, user_id, user_name, shift_id, note)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(code, sum, sum, customer.id, Date.now(), exp ? exp.getTime() : null, user?.id ?? null, who,
-          user ? this.currentShift(user.id)?.id ?? null : null, text(note, 'Комментарий', { max: 200 })).lastInsertRowid);
+        const id = Number(db.prepare(`INSERT INTO certificates (number, amount, balance, customer_id, sold_at, expires_at, user_id, user_name, shift_id, note, free)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(code, sum, sum, customer.id, Date.now(), exp ? exp.getTime() : null, user?.id ?? null, who,
+          user && !free ? this.currentShift(user.id)?.id ?? null : null, text(note, 'Комментарий', { max: 200 }), free ? 1 : 0).lastInsertRowid);
         const add = db.prepare('INSERT INTO certificate_payments (certificate_id, method_id, method_name, kind, amount, commission) VALUES (?, ?, ?, ?, ?, ?)');
         for (const x of parts) add.run(id, x.method.id, x.method.name, x.method.kind, x.amount, round2(x.amount * (x.method.commission || 0) / 100));
         db.prepare("INSERT INTO certificate_ops (certificate_id, at, kind, amount, user_name, note) VALUES (?, ?, 'sale', ?, ?, ?)")
-          .run(id, Date.now(), sum, who, parts.map((x) => `${x.method.name} ${x.amount}`).join(' + '));
+          .run(id, Date.now(), sum, who, free ? 'бесплатно — подарок от магазина' : parts.map((x) => `${x.method.name} ${x.amount}`).join(' + '));
         return this.getCertificate(id, { byId: true });
       });
     },
@@ -2623,6 +2632,8 @@ function createStore(file) {
     returnToCertificates(saleId, reason, who = '') {
       for (const p of db.prepare("SELECT * FROM sale_payments WHERE sale_id = ? AND kind = 'certificate' AND certificate_id IS NOT NULL").all(saleId)) {
         db.prepare('UPDATE certificates SET balance = ROUND(balance + ?, 2) WHERE id = ?').run(p.amount, p.certificate_id);
+        const cert = db.prepare('SELECT number, free FROM certificates WHERE id = ?').get(p.certificate_id);
+        if (cert?.free) db.prepare("DELETE FROM expenses WHERE category = 'Сертификаты в подарок' AND note = ?").run(freeCertNote(cert.number, saleId));
         db.prepare("INSERT INTO certificate_ops (certificate_id, at, kind, amount, sale_id, user_name, note) VALUES (?, ?, 'refund', ?, ?, ?, ?)")
           .run(p.certificate_id, Date.now(), p.amount, saleId, who, reason);
       }
@@ -2634,7 +2645,7 @@ function createStore(file) {
       return db.prepare(`SELECT c.*, cu.name AS customer_name, cu.phone AS customer_phone FROM certificates c LEFT JOIN customers cu ON cu.id = c.customer_id
         ORDER BY c.sold_at DESC LIMIT 2000`).all()
         .map((c) => this.getCertificate(c.id, { byId: true }))
-        .filter((c) => (!state || c.state === state) && (!s || c.number.includes(s) || (c.customer_name || '').toLowerCase().includes(s) || (digits.length >= 3 && (c.customer_phone || '').includes(digits))));
+        .filter((c) => (state ? c.state === state : c.state !== 'deleted') && (!s || c.number.includes(s) || (c.customer_name || '').toLowerCase().includes(s) || (digits.length >= 3 && (c.customer_phone || '').includes(digits))));
     },
 
     certificateHistory(id) {
@@ -2642,6 +2653,45 @@ function createStore(file) {
       if (!c) throw new UserError('Сертификат не найден');
       return { ...c, ops: db.prepare('SELECT * FROM certificate_ops WHERE certificate_id = ? ORDER BY at DESC, id DESC').all(c.id),
         payments: db.prepare('SELECT method_name, amount, commission FROM certificate_payments WHERE certificate_id = ?').all(c.id) };
+    },
+
+    // Изменить остаток (номинал сдвигается на ту же разницу) и срок. Деньги на счетах не меняются — это правка владельца.
+    updateCertificate(id, { balance, expires_at: expiresAt, note }, user = null) {
+      const c = this.getCertificate(id, { byId: true });
+      if (!c || c.state === 'deleted') throw new UserError('Сертификат не найден');
+      const why = text(note, 'Причина', { max: 200 });
+      const who = user ? user.name || user.email : '';
+      return transaction(db, () => {
+        if (balance !== undefined && balance !== null && balance !== '') {
+          const next = round2(number(balance, 'Остаток', { min: 0 }));
+          const delta = round2(next - c.balance);
+          if (delta) {
+            db.prepare('UPDATE certificates SET balance = ?, amount = ROUND(amount + ?, 2) WHERE id = ?').run(next, delta, c.id);
+            db.prepare("INSERT INTO certificate_ops (certificate_id, at, kind, amount, user_name, note) VALUES (?, ?, 'adjust', ?, ?, ?)")
+              .run(c.id, Date.now(), delta, who, why || `остаток ${c.balance} → ${next}`);
+          }
+        }
+        if (expiresAt !== undefined) {
+          const exp = expiresAt ? number(expiresAt, 'Действует до', { positive: true }) : null;
+          if (exp !== c.expires_at) {
+            db.prepare('UPDATE certificates SET expires_at = ? WHERE id = ?').run(exp, c.id);
+            db.prepare("INSERT INTO certificate_ops (certificate_id, at, kind, amount, user_name, note) VALUES (?, ?, 'expires', 0, ?, ?)")
+              .run(c.id, Date.now(), who, `срок: ${exp ? new Date(exp).toLocaleDateString('ru-RU') : 'без срока'}${why ? ` · ${why}` : ''}`);
+          }
+        }
+        return this.getCertificate(c.id, { byId: true });
+      });
+    },
+
+    // Удаление: сертификат пропадает из списков и на кассе не принимается. Покупатель остаётся в «Клиентах»,
+    // деньги за сертификат — в истории счетов, покупки по нему — в продажах. Номер освобождается.
+    deleteCertificate(id, user = null, note = '') {
+      const c = this.getCertificate(id, { byId: true });
+      if (!c || c.state === 'deleted') throw new UserError('Сертификат не найден');
+      db.prepare("UPDATE certificates SET status = 'deleted', deleted_at = ?, number = ? WHERE id = ?").run(Date.now(), `${c.number}#удалён-${c.id}`, c.id);
+      db.prepare("INSERT INTO certificate_ops (certificate_id, at, kind, amount, user_name, note) VALUES (?, ?, 'delete', 0, ?, ?)")
+        .run(c.id, Date.now(), user ? user.name || user.email : '', text(note, 'Причина', { max: 200 }) || (c.balance > 0 ? `остаток ${c.balance} сом сгорел` : ''));
+      return c;
     },
 
     setCertificateBlocked(id, blocked, user = null, note = '') {
@@ -2655,7 +2705,7 @@ function createStore(file) {
 
     // Для главной: продано сертификатов и потрачено по ним за период, не потрачено сейчас (действующие).
     certificateStats({ from, to }) {
-      const sold = db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(amount), 0) AS v FROM certificates WHERE sold_at >= ? AND sold_at < ?').get(from, to);
+      const sold = db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(amount), 0) AS v FROM certificates WHERE free = 0 AND sold_at >= ? AND sold_at < ?').get(from, to);
       const redeemed = db.prepare(`SELECT COALESCE(SUM(sp.amount), 0) AS v FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
         WHERE sp.kind = 'certificate' AND s.refunded_at IS NULL AND s.created_at >= ? AND s.created_at < ?`).get(from, to).v;
       const open = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(balance), 0) AS v FROM certificates WHERE status = 'active' AND balance > 0 AND (expires_at IS NULL OR expires_at >= ?)").get(Date.now());

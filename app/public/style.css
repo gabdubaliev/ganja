@@ -1444,3 +1444,7 @@ th.ts-name.ts-editable:hover, th.ts-day.ts-editable:hover { color: var(--series)
 @media (max-width: 640px) { .np-cert { grid-template-columns: 1fr; } }
 .customer-find .suggest-wrap { min-width: 0; }
 .customer-find .suggest-wrap .input { width: 100%; flex: none; }
+.cd-edit { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--grid); }
+.cd-edit h3 { margin-top: 0; }
+#ci-cust-results { z-index: 30; }
+#ci-newcust .form-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
