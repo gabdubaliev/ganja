@@ -880,6 +880,122 @@ const LABEL_DEFAULTS = {
   ],
 };
 const LABEL_SIZES = { '58x40': [58, 40], '58x30': [58, 30], '40x30': [40, 30], '30x20': [30, 20], '43x25': [43, 25] };
+
+/* ---------- Шаблоны печати: проверка и перевод старых настроек ---------- */
+const clampNum = (v, min, max, def) => { const n = Number(v); return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.round(n * 100) / 100)) : def; };
+const str = (v, max) => String(v ?? '').slice(0, max);
+const pick = (v, list, def) => (list.includes(v) ? v : def);
+const newId = (p) => `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+const LABEL_TYPES = ['text', 'barcode', 'line', 'rect', 'ellipse', 'image'];
+const FONTS_PRINT = ['Arial', 'Arial Narrow', 'Helvetica', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Times New Roman', 'Georgia', 'Courier New', 'Impact', 'Roboto', 'Segoe UI'];
+
+function cleanLabelObject(o, w, h) {
+  const type = pick(o?.type, LABEL_TYPES, 'text');
+  const base = {
+    id: str(o.id, 40).replace(/[^\w-]/g, '') || newId('o'), type, name: str(o.name, 60),
+    x: clampNum(o.x, -w, w * 2, 0), y: clampNum(o.y, -h, h * 2, 0),
+    w: clampNum(o.w, 0.2, 500, 10), h: clampNum(o.h, 0.2, 500, 5), rot: clampNum(o.rot, -360, 360, 0),
+    locked: Boolean(o.locked), hidden: Boolean(o.hidden),
+  };
+  if (type === 'text') {
+    return { ...base, text: str(o.text, 1000), font: pick(o.font, FONTS_PRINT, 'Arial'), size: clampNum(o.size, 3, 200, 10),
+      bold: Boolean(o.bold), italic: Boolean(o.italic), underline: Boolean(o.underline), strike: Boolean(o.strike), upper: Boolean(o.upper),
+      align: pick(o.align, ['left', 'center', 'right', 'justify'], 'left'), valign: pick(o.valign, ['top', 'middle', 'bottom'], 'middle'),
+      fit: pick(o.fit, ['shrink', 'none', 'grow'], 'shrink'), wrap: o.wrap !== false, lineHeight: clampNum(o.lineHeight, 0.7, 3, 1.1),
+      spacing: clampNum(o.spacing, -5, 20, 0), invert: Boolean(o.invert) };
+  }
+  if (type === 'barcode') {
+    return { ...base, kind: pick(o.kind, ['auto', 'ean13', 'code128', 'qr'], 'auto'), value: str(o.value, 1000) || '{barcode}',
+      showText: o.showText !== false, textSize: clampNum(o.textSize, 1, 10, 2.6), ecl: pick(o.ecl, ['L', 'M', 'Q', 'H'], 'M') };
+  }
+  if (type === 'image') return { ...base, imageId: o.imageId ? Number(o.imageId) || null : null, fit: pick(o.fit, ['contain', 'cover', 'fill'], 'contain'), mono: Boolean(o.mono) };
+  return { ...base, stroke: clampNum(o.stroke, 0, 20, 0.3), fill: pick(o.fill, ['none', 'black', 'white'], 'none'),
+    dash: pick(o.dash, ['solid', 'dashed', 'dotted'], 'solid'), radius: clampNum(o.radius, 0, 100, 0) };
+}
+
+function cleanLabelTemplate(t) {
+  const w = clampNum(t?.width, 10, 300, 58), h = clampNum(t?.height, 10, 300, 40);
+  const objects = (Array.isArray(t?.objects) ? t.objects : []).slice(0, 200).map((o) => cleanLabelObject(o || {}, w, h));
+  return { id: str(t?.id, 40).replace(/[^\w-]/g, '') || newId('t'), name: str(t?.name, 60).trim() || `Этикетка ${w}×${h}`, width: w, height: h,
+    rotate: pick(Number(t?.rotate), [0, 90, 180, 270], 0), border: Boolean(t?.border), objects };
+}
+
+function cleanLabels(input) {
+  const list = (Array.isArray(input?.list) ? input.list : []).slice(0, 40).map(cleanLabelTemplate);
+  if (!list.length) throw new UserError('Должен остаться хотя бы один шаблон этикетки');
+  const ids = new Set();
+  for (const t of list) { while (ids.has(t.id)) t.id = newId('t'); ids.add(t.id); }
+  return { default: list.some((t) => t.id === input.default) ? input.default : list[0].id, list };
+}
+
+const RECEIPT_BLOCKS = ['text', 'image', 'line', 'items', 'totals', 'payments', 'customer', 'code', 'spacer'];
+function cleanReceipt(r) {
+  const blocks = (Array.isArray(r?.blocks) ? r.blocks : []).slice(0, 80).map((b) => {
+    const type = pick(b?.type, RECEIPT_BLOCKS, 'text');
+    const base = { id: str(b.id, 40).replace(/[^\w-]/g, '') || newId('b'), type, hidden: Boolean(b.hidden),
+      align: pick(b.align, ['left', 'center', 'right'], 'center'), size: clampNum(b.size, 5, 40, 10), bold: Boolean(b.bold),
+      italic: Boolean(b.italic), upper: Boolean(b.upper), invert: Boolean(b.invert) };
+    if (type === 'text') return { ...base, text: str(b.text, 1000) };
+    if (type === 'image') return { ...base, imageId: b.imageId ? Number(b.imageId) || null : null, width: clampNum(b.width, 10, 100, 60) };
+    if (type === 'line') return { ...base, style: pick(b.style, ['dashed', 'solid', 'double', 'dotted', 'stars'], 'dashed') };
+    if (type === 'spacer') return { ...base, height: clampNum(b.height, 0.5, 50, 3) };
+    if (type === 'code') return { ...base, kind: pick(b.kind, ['code128', 'qr', 'ean13'], 'code128'), value: str(b.value, 500) || '{number}',
+      height: clampNum(b.height, 5, 60, 12), width: clampNum(b.width, 10, 100, 80), showText: b.showText !== false };
+    if (type === 'items') return { ...base, layout: pick(b.layout, ['two-lines', 'one-line', 'table'], 'two-lines'), showCode: Boolean(b.showCode),
+      showUnit: Boolean(b.showUnit), numbered: Boolean(b.numbered), nameBold: b.nameBold !== false };
+    if (type === 'totals') return { ...base, showSubtotal: Boolean(b.showSubtotal), showDiscount: b.showDiscount !== false,
+      showBonus: b.showBonus !== false, totalSize: clampNum(b.totalSize, 6, 40, 15), label: str(b.label, 40) || 'ИТОГО' };
+    if (type === 'payments') return { ...base, showChange: Boolean(b.showChange) };
+    return { ...base, showCard: b.showCard !== false, showEarned: b.showEarned !== false, showBalance: b.showBalance !== false, showPhone: Boolean(b.showPhone) };
+  });
+  return { paper: Number(r?.paper) === 80 ? 80 : 58, margin: clampNum(r?.margin, 0, 10, 2), font: pick(r?.font, FONTS_PRINT, 'Arial'),
+    lineHeight: clampNum(r?.lineHeight, 0.8, 2.5, 1.25), autoPrint: pick(r?.autoPrint, ['off', 'ask', 'always'], 'off'),
+    copies: clampNum(r?.copies, 1, 3, 1), blocks };
+}
+
+// Старый чек (галочки) → блоки.
+function receiptFromOld(d) {
+  const size = { small: 8.5, normal: 9.5, large: 11 }[d.fontSize] || 9.5;
+  const meta = [d.showNumber && 'Товарный чек № {number}', d.showDate && '{date} {time}', d.showCashier && 'Кассир: {cashier}', d.showRegister && 'Касса: {register}'].filter(Boolean);
+  return {
+    paper: d.paper, autoPrint: d.autoPrint, copies: d.copies, blocks: [
+      ...(d.logoId ? [{ type: 'image', imageId: d.logoId, width: 60 }] : []),
+      { type: 'text', text: d.title || '{shop}', size: size * 1.5, bold: true },
+      ...(d.header ? [{ type: 'text', text: d.header, size }] : []),
+      { type: 'line' },
+      ...(meta.length ? [{ type: 'text', text: meta.join('\n'), size, align: 'left' }, { type: 'line' }] : []),
+      { type: 'items', size, showCode: d.showItemCodes, align: 'left' },
+      { type: 'line' },
+      { type: 'totals', size, showDiscount: d.showDiscount, showBonus: d.showBonus, align: 'left' },
+      ...(d.showPayments ? [{ type: 'payments', size, align: 'left' }] : []),
+      ...(d.showCustomer ? [{ type: 'line' }, { type: 'customer', size, align: 'left', showEarned: d.showBonus, showBalance: d.showBonus }] : []),
+      ...(d.footer ? [{ type: 'line' }, { type: 'text', text: d.footer, size }] : []),
+    ],
+  };
+}
+
+// Старая этикетка (поля по порядку) → объекты, расставленные сверху вниз.
+function labelFromOld(d) {
+  const w = d.width || 58, h = d.height || 40, pad = 1.5;
+  const on = (d.fields || []).filter((f) => f.on);
+  const ptMm = 0.3528;
+  const heights = on.map((f) => (f.key === 'barcode' ? (d.barcodeHeight || 13) + (f.size || 8) * ptMm : (f.key === 'name' ? 2.3 : 1.25) * (f.size || 8) * ptMm));
+  const total = heights.reduce((a, b) => a + b, 0);
+  const k = total > h - pad * 2 ? (h - pad * 2) / total : 1;
+  const token = { shop: '{shop}', name: '{name}', options: '{options}', article: 'Арт. {article}', code: 'Код {code}', category: '{category}',
+    price: '{price}', oldPrice: '{oldPrice}', text: d.text || '' };
+  let y = pad;
+  const objects = on.map((f, i) => {
+    const hh = heights[i] * k;
+    const o = f.key === 'barcode'
+      ? { type: 'barcode', kind: 'auto', value: '{barcode}', x: pad + 2, y, w: w - pad * 2 - 4, h: hh, textSize: Math.max(1.6, (f.size || 8) * ptMm * k) }
+      : { type: 'text', text: token[f.key] ?? '', x: pad, y, w: w - pad * 2, h: hh, size: (f.size || 8) * k, bold: f.bold, strike: f.key === 'oldPrice',
+        align: d.align === 'left' ? 'left' : 'center', wrap: f.key === 'name', name: f.key };
+    y += hh;
+    return o;
+  });
+  return { id: newId('t'), name: `Этикетка ${w}×${h}`, width: w, height: h, border: d.border, objects };
+}
 const COLOR_RE = /^#[0-9a-f]{6}$/i;
 
 function color(value, field, { optional = false } = {}) {
@@ -3611,55 +3727,40 @@ function createStore(file) {
     /* ---------- Интернет-витрина ---------- */
 
     /* ---------- Конструктор чеков и этикеток ---------- */
+    // Шаблоны: чек из блоков (receipt_template) и этикетки со свободно расставленными объектами (label_templates).
+    // Старые настройки (receipt_design, label_design) переводятся в новые один раз, при первом чтении.
     printDesigns() {
-      const receipt = { ...RECEIPT_DEFAULTS, ...JSON.parse(this.setting('receipt_design', '{}')) };
-      const savedLabel = JSON.parse(this.setting('label_design', '{}'));
-      // Новые поля этикетки, которых не было в сохранённых настройках, добавляются выключенными в конец.
-      const fields = Array.isArray(savedLabel.fields) ? savedLabel.fields : LABEL_DEFAULTS.fields;
-      const known = new Set(fields.map((f) => f.key));
-      const label = { ...LABEL_DEFAULTS, ...savedLabel, fields: [...fields, ...LABEL_DEFAULTS.fields.filter((f) => !known.has(f.key)).map((f) => ({ ...f, on: false }))] };
-      return { receipt, label, labelSizes: LABEL_SIZES };
+      let receipt = JSON.parse(this.setting('receipt_template', 'null'));
+      if (!receipt) {
+        receipt = cleanReceipt(receiptFromOld({ ...RECEIPT_DEFAULTS, ...JSON.parse(this.setting('receipt_design', '{}')) }));
+        this.setSetting('receipt_template', JSON.stringify(receipt));
+      }
+      let labels = JSON.parse(this.setting('label_templates', 'null'));
+      if (!labels) {
+        const old = JSON.parse(this.setting('label_design', 'null'));
+        const first = labelFromOld(old ? { ...LABEL_DEFAULTS, ...old } : LABEL_DEFAULTS);
+        labels = cleanLabels({ default: first.id, list: [first] });
+        this.setSetting('label_templates', JSON.stringify(labels));
+      }
+      return { receipt, labels, labelSizes: LABEL_SIZES };
     },
 
     setPrintDesign(kind, input = {}) {
-      const bool = (v) => Boolean(v);
-      const imageId = (x) => (x ? (this.getImage(x) ? Number(x) : null) : null);
+      if (JSON.stringify(input).length > 600_000) throw new UserError('Шаблон слишком большой');
       if (kind === 'receipt') {
-        const v = { ...RECEIPT_DEFAULTS, ...input };
-        const next = {
-          paper: Number(v.paper) === 80 ? 80 : 58,
-          fontSize: ['small', 'normal', 'large'].includes(v.fontSize) ? v.fontSize : 'normal',
-          logoId: imageId(v.logoId),
-          title: text(v.title, 'Заголовок', { max: 80 }),
-          header: text(v.header, 'Текст сверху', { max: 500 }),
-          footer: text(v.footer, 'Текст внизу', { max: 500 }),
-          autoPrint: ['off', 'ask', 'always'].includes(v.autoPrint) ? v.autoPrint : 'off',
-          copies: Math.max(1, Math.min(3, Math.round(number(v.copies || 1, 'Копий', { positive: true })))),
-        };
-        for (const k of ['showNumber', 'showDate', 'showCashier', 'showRegister', 'showCustomer', 'showBonus', 'showPayments', 'showDiscount', 'showItemCodes']) next[k] = bool(v[k]);
-        this.setSetting('receipt_design', JSON.stringify(next));
+        const r = cleanReceipt(input);
+        if (r.logoCheck) delete r.logoCheck;
+        for (const b of r.blocks) if (b.type === 'image' && b.imageId && !this.getImage(b.imageId)) b.imageId = null;
+        this.setSetting('receipt_template', JSON.stringify(r));
         return this.printDesigns();
       }
-      if (kind === 'label') {
-        const v = { ...LABEL_DEFAULTS, ...input };
-        const size = v.size === 'custom' || LABEL_SIZES[v.size] ? v.size : '58x40';
-        const [w, h] = size === 'custom'
-          ? [Math.round(number(v.width, 'Ширина, мм', { positive: true })), Math.round(number(v.height, 'Высота, мм', { positive: true }))]
-          : LABEL_SIZES[size];
-        if (w < 20 || w > 120 || h < 15 || h > 120) throw new UserError('Размер этикетки — от 20×15 до 120×120 мм');
-        const seen = new Set();
-        const fields = (Array.isArray(v.fields) ? v.fields : []).filter((f) => LABEL_FIELDS.includes(f?.key) && !seen.has(f.key) && seen.add(f.key))
-          .map((f) => ({ key: f.key, on: bool(f.on), bold: bool(f.bold), size: Math.max(5, Math.min(40, round2(number(f.size || 8, 'Размер шрифта', { positive: true })))) }));
-        for (const k of LABEL_FIELDS) if (!seen.has(k)) fields.push({ ...LABEL_DEFAULTS.fields.find((f) => f.key === k), on: false });
-        const next = {
-          size, width: w, height: h, align: v.align === 'left' ? 'left' : 'center', border: bool(v.border),
-          barcodeHeight: Math.max(5, Math.min(40, round2(number(v.barcodeHeight || 13, 'Высота штрихкода')))),
-          text: text(v.text, 'Свой текст', { max: 120 }), fields,
-        };
-        this.setSetting('label_design', JSON.stringify(next));
+      if (kind === 'labels') {
+        const l = cleanLabels(input);
+        for (const t of l.list) for (const o of t.objects) if (o.type === 'image' && o.imageId && !this.getImage(o.imageId)) o.imageId = null;
+        this.setSetting('label_templates', JSON.stringify(l));
         return this.printDesigns();
       }
-      throw new UserError('Неизвестный вид');
+      throw new UserError('Неизвестный вид шаблона');
     },
 
     // Всё для печати чека покупателю: товары, оплаты, кассир, касса, покупатель и его бонусы.
