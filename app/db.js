@@ -579,6 +579,20 @@ function open(file) {
   // чтобы после обновления никто не потерял то, что уже видел.
   // Сертификаты: продавать и принимать — у кого была «Касса», список — у кого были «Покупатели».
   // Подтверждать оплату заказов с витрины — у кого были «Заказы с витрины».
+  // Товарный отчёт и неликвиды — у кого были «Отчёты» или «Главная»; автоматика — у кого были «Настройки».
+  if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v8'").get()) {
+    const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
+    for (const u of db.prepare('SELECT id, rights FROM users WHERE rights IS NOT NULL').all()) {
+      let list;
+      try { list = JSON.parse(u.rights); } catch { continue; }
+      if (!Array.isArray(list)) continue;
+      const add = [];
+      if (list.includes('kpi') || list.includes('dashboard') || list.includes('abc')) add.push('reports.stock');
+      if (list.includes('settings')) add.push('automation');
+      if (add.length) set.run(JSON.stringify([...new Set([...list, ...add])]), u.id);
+    }
+    db.prepare("INSERT INTO settings (key, value) VALUES ('rights_v8', '1')").run();
+  }
   // Конструктор чеков и этикеток — у кого было «Оформление» или «Настройки».
   if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v7'").get()) {
     const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
@@ -646,6 +660,36 @@ function open(file) {
     }
     db.prepare("INSERT INTO settings (key, value) VALUES ('rights_v2', '1')").run();
   }
+  // Журнал движения товара: каждое изменение остатка записывается само (триггер), с причиной и датой.
+  // Причину (kind), ссылку (ref) и дату документа (at) перед изменением задаёт программа в move_ctx — см. withMove.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS stock_moves (
+      id INTEGER PRIMARY KEY,
+      product_id INTEGER NOT NULL,
+      at INTEGER NOT NULL,
+      qty REAL NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'other',
+      ref TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS stock_moves_product ON stock_moves(product_id, at);
+    CREATE INDEX IF NOT EXISTS stock_moves_at ON stock_moves(at);
+    CREATE TEMP TABLE IF NOT EXISTS move_ctx (kind TEXT NOT NULL, ref TEXT NOT NULL, at INTEGER);
+    INSERT INTO move_ctx (kind, ref, at) SELECT 'other', '', NULL WHERE NOT EXISTS (SELECT 1 FROM move_ctx);
+    CREATE TEMP TRIGGER IF NOT EXISTS stock_moves_upd AFTER UPDATE OF stock ON main.products WHEN NEW.stock IS NOT OLD.stock
+    BEGIN
+      INSERT INTO stock_moves (product_id, at, qty, kind, ref) VALUES (NEW.id,
+        COALESCE((SELECT at FROM move_ctx), CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)),
+        NEW.stock - OLD.stock, (SELECT kind FROM move_ctx), (SELECT ref FROM move_ctx));
+    END;
+    CREATE TEMP TRIGGER IF NOT EXISTS stock_moves_ins AFTER INSERT ON main.products WHEN NEW.stock <> 0
+    BEGIN
+      INSERT INTO stock_moves (product_id, at, qty, kind, ref) VALUES (NEW.id,
+        COALESCE((SELECT at FROM move_ctx), CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)),
+        NEW.stock, CASE (SELECT kind FROM move_ctx) WHEN 'other' THEN 'initial' ELSE (SELECT kind FROM move_ctx) END, (SELECT ref FROM move_ctx));
+    END;
+  `);
+  // Уценка, которую поставила автоматика (а не человек): её можно снять при новом поступлении.
+  addColumns('products', [['auto_discount', 'REAL NOT NULL DEFAULT 0']]);
   return db;
 }
 
@@ -1060,6 +1104,13 @@ function createStore(file) {
   let bank = null, storeId = null, cdb = db; // cdb — база, где лежат сертификаты
   const wallet = () => bank || store;
   // Операция, которая меняет и этот магазин, и общие бонусы/сертификаты: обе базы вместе или ничего.
+  // Причина изменения остатков для журнала движения (stock_moves): продажа, закупка, списание… и дата документа.
+  const withMove = (kind, ref, at, fn) => {
+    const prev = db.prepare('SELECT kind, ref, at FROM move_ctx').get();
+    db.prepare('UPDATE move_ctx SET kind = ?, ref = ?, at = ?').run(kind, String(ref ?? ''), at ?? null);
+    try { return fn(); } finally { db.prepare('UPDATE move_ctx SET kind = ?, ref = ?, at = ?').run(prev.kind, prev.ref, prev.at); }
+  };
+  const docMoveKind = (d) => (d.kind === 'transfer' ? (d.direction === 'in' ? 'transfer_in' : 'transfer_out') : d.kind);
   const bankTx = (fn) => (bank ? transaction(bank.db, () => transaction(db, fn)) : transaction(db, fn));
 
   // Категория по названию без учёта регистра. Сравниваем здесь, а не в SQLite: его NOCASE не знает кириллицу.
@@ -1705,7 +1756,7 @@ function createStore(file) {
     // Строки с ошибками пропускаются, остальные загружаются.
     importProducts(rows, { update = false } = {}) {
       if (!Array.isArray(rows) || !rows.length) throw new UserError('В файле нет товаров');
-      return transaction(db, () => {
+      return withMove('import', '', null, () => transaction(db, () => {
         const result = { created: 0, updated: 0, skipped: [] };
         const byCode = new Map();
         const byNameBarcode = new Map();
@@ -1754,7 +1805,7 @@ function createStore(file) {
           }
         });
         return result;
-      });
+      }));
     },
 
     // Продажа.
@@ -1898,10 +1949,12 @@ function createStore(file) {
         }
         const addItem = db.prepare('INSERT INTO sale_items (sale_id, product_id, name, qty, price, cost, purchase) VALUES (?, ?, ?, ?, ?, ?, ?)');
         const takeStock = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?');
-        for (const l of lines) {
-          addItem.run(saleId, l.p.id, l.p.name, l.qty, l.price, l.p.cost, l.p.purchase ?? l.p.cost);
-          takeStock.run(l.qty, l.p.id);
-        }
+        withMove('sale', saleId, at || Date.now(), () => {
+          for (const l of lines) {
+            addItem.run(saleId, l.p.id, l.p.name, l.qty, l.price, l.p.cost, l.p.purchase ?? l.p.cost);
+            takeStock.run(l.qty, l.p.id);
+          }
+        });
         const who = user ? user.name || user.email : '';
         if (spent) changeBonus(customer.id, -spent, `Оплата чека №${saleId}`, who, saleId);
         if (earned) changeBonus(customer.id, earned, `Начислено за чек №${saleId}`, who, saleId);
@@ -1920,8 +1973,8 @@ function createStore(file) {
         if (sale.refunded_at) throw new UserError('По этому чеку уже оформлен возврат');
         db.prepare('UPDATE sales SET refunded_at = ? WHERE id = ?').run(Date.now(), sale.id);
         this.returnToCertificates(sale.id, `Возврат чека №${sale.id}`, user ? user.name || user.email : '');
-        db.prepare(`UPDATE products SET stock = stock + (SELECT COALESCE(SUM(qty), 0) FROM sale_items WHERE sale_id = ? AND product_id = products.id)
-                    WHERE id IN (SELECT product_id FROM sale_items WHERE sale_id = ?)`).run(sale.id, sale.id);
+        withMove('refund', sale.id, Date.now(), () => db.prepare(`UPDATE products SET stock = stock + (SELECT COALESCE(SUM(qty), 0) FROM sale_items WHERE sale_id = ? AND product_id = products.id)
+                    WHERE id IN (SELECT product_id FROM sale_items WHERE sale_id = ?)`).run(sale.id, sale.id));
         if (sale.customer_id && (sale.bonus_spent || sale.bonus_earned)) {
           const c = this.findCustomer(sale.customer_id) || getCustomer(sale.customer_id);
           // Если начисленные бонусы уже потрачены, баланс не уходит в минус.
@@ -1964,7 +2017,7 @@ function createStore(file) {
         for (const sale of rows) {
           if (!sale.refunded_at) {
             this.returnToCertificates(sale.id, `Чек №${sale.id} удалён`, who);
-            if (restock) back.run(sale.id, sale.id);
+            if (restock) withMove('sale_delete', sale.id, null, () => back.run(sale.id, sale.id));
             if (sale.customer_id && (sale.bonus_spent || sale.bonus_earned)) {
               const c = this.findCustomer(sale.customer_id);
               const delta = c ? round2(Math.max(sale.bonus_spent - sale.bonus_earned, -c.bonus)) : 0;
@@ -2795,7 +2848,7 @@ function createStore(file) {
       if (!items.length) throw new UserError(d.kind === 'inventory' ? 'Не посчитано ни одного товара' : 'В документе нет товаров с количеством');
       if (d.kind === 'transfer' && !d.branch_to) throw new UserError('Выберите магазин, куда перемещаете товар');
       if (d.kind === 'return' && !d.method_id) throw new UserError('Выберите, как вернули деньги');
-      return transaction(db, () => {
+      return withMove(docMoveKind(d), `doc:${d.id}`, d.doc_date, () => transaction(db, () => {
         const extra = {};
         const exists = (pid) => getProduct(pid).id;
         if (d.kind === 'sale') {
@@ -2836,18 +2889,20 @@ function createStore(file) {
           }
           Object.assign(extra, { shortage_cost: round2(shortage), surplus_cost: round2(surplus), total_cost: round2(surplus - shortage) });
         }
+        // Новое поступление — товар свежий: автоуценка снимается (если включено в «Автоматике»).
+        if (['purchase', 'receipt'].includes(d.kind) || (d.kind === 'transfer' && d.direction === 'in')) this.resetAutoDiscount(items.map((i) => i.product_id));
         const sets = Object.keys(extra).map((k) => `${k} = ?`);
         db.prepare(`UPDATE docs SET status = 'posted', posted_at = ?, posted_by = ?${sets.length ? ', ' + sets.join(', ') : ''} WHERE id = ?`)
           .run(Date.now(), who, ...Object.values(extra), d.id);
         return this.getDoc(d.id);
-      });
+      }));
     },
 
     unpostDoc(id, user = null) {
       const d = this.getDoc(id);
       if (d.status !== 'posted') throw new UserError('Документ и так не проведён');
       if (d.direction === 'in') throw new UserError('Входящее перемещение отменяет магазин-отправитель');
-      return transaction(db, () => {
+      return withMove(docMoveKind(d), `doc:${d.id}`, d.doc_date, () => transaction(db, () => {
         const add = db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?');
         const exists = (pid) => db.prepare('SELECT id FROM products WHERE id = ?').get(pid);
         if (d.kind === 'sale') {
@@ -2870,7 +2925,7 @@ function createStore(file) {
         }
         db.prepare("UPDATE docs SET status = 'draft', posted_at = NULL, posted_by = '', sale_id = NULL, link_doc_id = NULL WHERE id = ?").run(d.id);
         return this.getDoc(d.id);
-      });
+      }));
     },
 
     deleteDoc(id) {
@@ -2902,8 +2957,9 @@ function createStore(file) {
         const add = db.prepare('INSERT INTO doc_items (doc_id, product_id, name, unit, qty, price, cost) VALUES (?, ?, ?, ?, ?, ?, ?)');
         for (const l of lines) {
           add.run(docId, l.p.id, l.p.name, l.p.unit, l.qty, l.p.price, l.p.cost);
-          db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?').run(l.qty, l.p.id);
+          withMove('transfer_in', `doc:${docId}`, Date.now(), () => db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?').run(l.qty, l.p.id));
         }
+        this.resetAutoDiscount(lines.map((l) => l.p.id));
         return docId;
       });
     },
@@ -2912,7 +2968,9 @@ function createStore(file) {
       const d = db.prepare("SELECT * FROM docs WHERE id = ? AND direction = 'in'").get(Number(docId));
       if (!d) return;
       transaction(db, () => {
-        for (const i of db.prepare('SELECT * FROM doc_items WHERE doc_id = ?').all(d.id)) db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?').run(i.qty, i.product_id);
+        withMove('transfer_in', `doc:${d.id}`, d.doc_date, () => {
+          for (const i of db.prepare('SELECT * FROM doc_items WHERE doc_id = ?').all(d.id)) db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?').run(i.qty, i.product_id);
+        });
         db.prepare('DELETE FROM doc_items WHERE doc_id = ?').run(d.id);
         db.prepare('DELETE FROM docs WHERE id = ?').run(d.id);
       });
@@ -3761,6 +3819,217 @@ function createStore(file) {
         return this.printDesigns();
       }
       throw new UserError('Неизвестный вид шаблона');
+    },
+
+    /* ---------- Журнал движения, товарный отчёт, неликвиды, автоматика ---------- */
+
+    // Один раз: журнал движения заполняется прошлым из чеков и документов. Что было до них (ручные правки,
+    // начальные остатки) — одной строкой «Начальный остаток» в день заведения товара, так что остаток сегодня сходится.
+    backfillStockMoves() {
+      if (db.prepare("SELECT 1 FROM settings WHERE key = 'stock_ledger_v1'").get()) return 0;
+      let n = 0;
+      transaction(db, () => {
+        db.exec('DELETE FROM stock_moves');
+        const ins = db.prepare('INSERT INTO stock_moves (product_id, at, qty, kind, ref) VALUES (?, ?, ?, ?, ?)');
+        const sum = new Map(), first = new Map();
+        const add = (pid, at, qty, kind, ref) => {
+          if (!qty) return;
+          ins.run(pid, at, qty, kind, String(ref));
+          n++;
+          sum.set(pid, (sum.get(pid) || 0) + qty);
+          first.set(pid, Math.min(first.get(pid) ?? Infinity, at));
+        };
+        for (const r of db.prepare('SELECT s.id, s.created_at, s.refunded_at, si.product_id, si.qty FROM sale_items si JOIN sales s ON s.id = si.sale_id').all()) {
+          add(r.product_id, r.created_at, -r.qty, 'sale', r.id);
+          if (r.refunded_at) add(r.product_id, r.refunded_at, r.qty, 'refund', r.id);
+        }
+        for (const r of db.prepare(`SELECT d.id, d.kind, d.direction, d.doc_date, i.product_id, i.qty FROM doc_items i JOIN docs d ON d.id = i.doc_id
+            WHERE d.status = 'posted' AND d.kind <> 'sale'`).all()) {
+          const sign = { purchase: 1, receipt: 1, return: 1, writeoff: -1, inventory: 1, transfer: r.direction === 'in' ? 1 : -1 }[r.kind] ?? 0;
+          add(r.product_id, r.doc_date, round2(sign * r.qty), docMoveKind(r), `doc:${r.id}`);
+        }
+        for (const p of db.prepare('SELECT id, stock, created_at FROM products').all()) {
+          const rest = round2(p.stock - (sum.get(p.id) || 0));
+          if (rest) add(p.id, Math.min(p.created_at || Date.now(), (first.get(p.id) ?? Infinity) - 1), rest, 'initial', '');
+        }
+        db.prepare("INSERT INTO settings (key, value) VALUES ('stock_ledger_v1', '1')").run();
+      });
+      return n;
+    },
+
+    // Товарный отчёт за период: остаток на начало, приход, расход по видам, остаток на конец — в штуках и деньгах.
+    // Деньги — по нынешней цене закупки (себестоимости) и розничной цене.
+    stockReport({ from, to, category = '', q = '' }) {
+      const f = number(from, 'Начало'), t = number(to, 'Конец');
+      if (f >= t) throw new UserError('Неверный период');
+      const GROUPS = {
+        purchase: 'in', receipt: 'in', transfer_in: 'in', return: 'in', refund: 'in',
+        sale: 'out', sale_delete: 'out', writeoff: 'out', transfer_out: 'out',
+        inventory: 'inv',
+      };
+      const rows = db.prepare(`SELECT product_id, kind,
+          SUM(CASE WHEN at < ? THEN qty ELSE 0 END) AS before,
+          SUM(CASE WHEN at >= ? AND at < ? THEN qty ELSE 0 END) AS inside
+        FROM stock_moves WHERE at < ? GROUP BY product_id, kind`).all(f, f, t, t);
+      const byId = new Map();
+      for (const r of rows) {
+        const x = byId.get(r.product_id) || { open: 0, in: {}, out: {}, inv: 0, other: 0 };
+        x.open += r.before;
+        const g = GROUPS[r.kind] || 'other';
+        if (r.inside) {
+          if (g === 'in') x.in[r.kind] = (x.in[r.kind] || 0) + r.inside;
+          else if (g === 'out') x.out[r.kind] = (x.out[r.kind] || 0) + r.inside;
+          else if (g === 'inv') x.inv += r.inside;
+          else x.other += r.inside;
+        }
+        byId.set(r.product_id, x);
+      }
+      const s = String(q).trim().toLowerCase();
+      const list = [];
+      for (const p of db.prepare('SELECT id, name, category, code, barcode, article, unit, price, purchase, cost, discount, parent_id, options FROM products WHERE deleted = 0 OR id IN (SELECT product_id FROM stock_moves)').all()) {
+        const x = byId.get(p.id);
+        if (!x) continue;
+        if (category && p.category !== category) continue;
+        if (s && !`${p.name} ${p.code} ${p.barcode} ${p.article}`.toLowerCase().includes(s)) continue;
+        const sumIn = Object.values(x.in).reduce((a, b) => a + b, 0), sumOut = Object.values(x.out).reduce((a, b) => a + b, 0);
+        const close = x.open + sumIn + sumOut + x.inv + x.other;
+        if (![x.open, sumIn, sumOut, x.inv, x.other, close].some((v) => Math.abs(v) > 1e-9)) continue;
+        const unitCost = p.purchase || p.cost || 0;
+        const r = (v) => round2(v) || 0;
+        list.push({ id: p.id, name: p.name, category: p.category, code: p.code, unit: p.unit, price: p.price, cost: unitCost,
+          open: r(x.open), in: r(sumIn), out: r(-sumOut), inv: r(x.inv), other: r(x.other), close: r(close),
+          inBy: Object.fromEntries(Object.entries(x.in).map(([k, v]) => [k, r(v)])), outBy: Object.fromEntries(Object.entries(x.out).map(([k, v]) => [k, r(-v)])),
+          openCost: r(x.open * unitCost), inCost: r(sumIn * unitCost), outCost: r(-sumOut * unitCost), closeCost: r(close * unitCost), closeRetail: r(close * p.price) });
+      }
+      list.sort((a, b) => a.category.localeCompare(b.category, 'ru') || a.name.localeCompare(b.name, 'ru'));
+      const total = (k) => round2(list.reduce((a, x) => a + x[k], 0));
+      return { from: f, to: t, list, totals: { open: total('open'), in: total('in'), out: total('out'), inv: total('inv'), other: total('other'), close: total('close'),
+        openCost: total('openCost'), inCost: total('inCost'), outCost: total('outCost'), closeCost: total('closeCost'), closeRetail: total('closeRetail') },
+        categories: [...new Set(this.listCategories().map((c) => c.name))] };
+    },
+
+    // Неликвиды: товары с остатком, которые давно не продаются. days — сколько дней без продаж считать «залежавшимся».
+    // Отсчёт — от последней продажи, а если продаж не было — от последнего поступления (или заведения товара).
+    deadStock({ days = 30 } = {}) {
+      const min = Math.max(1, Number(days) || 30);
+      const now = Date.now();
+      const lastSale = new Map(db.prepare(`SELECT si.product_id AS id, MAX(s.created_at) AS at FROM sale_items si JOIN sales s ON s.id = si.sale_id
+        WHERE s.refunded_at IS NULL GROUP BY si.product_id`).all().map((r) => [r.id, r.at]));
+      const lastIn = new Map(db.prepare(`SELECT product_id AS id, MAX(at) AS at FROM stock_moves
+        WHERE qty > 0 AND kind IN ('purchase', 'receipt', 'transfer_in', 'initial', 'import') GROUP BY product_id`).all().map((r) => [r.id, r.at]));
+      const sold30 = new Map(db.prepare(`SELECT si.product_id AS id, SUM(si.qty) AS q FROM sale_items si JOIN sales s ON s.id = si.sale_id
+        WHERE s.refunded_at IS NULL AND s.created_at >= ? GROUP BY si.product_id`).all(now - 30 * 864e5).map((r) => [r.id, r.q]));
+      const list = [];
+      for (const p of db.prepare(`SELECT id, name, category, code, barcode, article, unit, price, purchase, cost, discount, auto_discount, stock, created_at, parent_id, options
+          FROM products WHERE deleted = 0 AND archived = 0 AND stock > 0`).all()) {
+        const sale = lastSale.get(p.id) || null;
+        const since = sale || lastIn.get(p.id) || p.created_at;
+        const idle = Math.floor((now - since) / 864e5);
+        if (idle < min) continue;
+        const unitCost = p.purchase || p.cost || 0;
+        list.push({ id: p.id, name: p.name, category: p.category, code: p.code, barcode: p.barcode, article: p.article, unit: p.unit, options: p.options, parent_id: p.parent_id,
+          price: p.price, discount: p.discount, auto_discount: p.auto_discount, stock: round2(p.stock), cost: unitCost, idle, lastSale: sale, lastIn: lastIn.get(p.id) || null,
+          sold30: round2(sold30.get(p.id) || 0), frozen: round2(p.stock * unitCost), retail: round2(p.stock * salePrice(p)) });
+      }
+      list.sort((a, b) => b.frozen - a.frozen || b.idle - a.idle);
+      const stage = (d) => list.filter((x) => x.idle >= d);
+      const sumOf = (l) => ({ count: l.length, frozen: round2(l.reduce((a, x) => a + x.frozen, 0)), retail: round2(l.reduce((a, x) => a + x.retail, 0)), qty: round2(l.reduce((a, x) => a + x.stock, 0)) });
+      const allStock = db.prepare('SELECT COALESCE(SUM(stock * COALESCE(NULLIF(purchase, 0), cost)), 0) AS v FROM products WHERE deleted = 0 AND stock > 0').get().v;
+      return { days: min, list, totals: sumOf(list), stages: [30, 60, 90, 180].map((d) => ({ days: d, ...sumOf(stage(d)) })), stockValue: round2(allStock) };
+    },
+
+    // Настройки автоматики — общие для всех магазинов (лежат в основной базе).
+    automation() {
+      if (bank) return bank.automation();
+      const saved = JSON.parse(this.setting('automation', '{}'));
+      return {
+        weekly: { on: true, weekday: 1, hour: 9, days: 30, ...saved.weekly },
+        monthly: { on: true, day: 1, hour: 9, ...saved.monthly },
+        markdown: { on: false, hour: 8, stages: [{ days: 60, discount: 20 }, { days: 90, discount: 35 }, { days: 180, discount: 50 }], minMargin: 0,
+          exclude: [], resetOnArrival: true, ...saved.markdown },
+      };
+    },
+    setAutomation(input) {
+      if (bank) return bank.setAutomation(input);
+      const cur = this.automation();
+      const int = (v, lo, hi, def) => { const x = Math.round(Number(v)); return Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : def; };
+      const w = { ...cur.weekly, ...input.weekly }, m = { ...cur.monthly, ...input.monthly }, md = { ...cur.markdown, ...input.markdown };
+      const stages = (Array.isArray(md.stages) ? md.stages : []).slice(0, 5)
+        .map((x) => ({ days: int(x.days, 7, 730, 60), discount: int(x.discount, 1, 90, 20) }))
+        .sort((a, b) => a.days - b.days);
+      const next = {
+        weekly: { on: Boolean(w.on), weekday: int(w.weekday, 0, 6, 1), hour: int(w.hour, 0, 23, 9), days: int(w.days, 7, 365, 30) },
+        monthly: { on: Boolean(m.on), day: int(m.day, 1, 28, 1), hour: int(m.hour, 0, 23, 9) },
+        markdown: { on: Boolean(md.on), hour: int(md.hour, 0, 23, 8), stages, minMargin: int(md.minMargin, 0, 500, 0),
+          exclude: (Array.isArray(md.exclude) ? md.exclude : []).map((x) => String(x).slice(0, 100)).slice(0, 200), resetOnArrival: Boolean(md.resetOnArrival) },
+      };
+      if (next.markdown.on && !stages.length) throw new UserError('Добавьте хотя бы одну ступень уценки');
+      this.setSetting('automation', JSON.stringify(next));
+      return next;
+    },
+
+    // Автоуценка неликвидов: чем дольше товар не продаётся, тем больше скидка (по ступеням).
+    // Скидку, которую поставил человек и которая больше, не трогает. Цена со скидкой — не ниже закупки + minMargin%.
+    // dryRun — только посчитать, что изменится.
+    autoMarkdown({ dryRun = false } = {}) {
+      const a = this.automation().markdown;
+      const stages = [...a.stages].sort((x, y) => y.days - x.days);
+      const dead = this.deadStock({ days: Math.min(...a.stages.map((x) => x.days)) }).list;
+      const changes = [];
+      for (const p of dead) {
+        if (a.exclude.includes(p.category)) continue;
+        const st = stages.find((x) => p.idle >= x.days);
+        if (!st) continue;
+        let disc = st.discount;
+        if (p.cost > 0 && p.price > 0) {
+          const floor = p.cost * (1 + a.minMargin / 100);
+          const maxDisc = Math.floor((1 - floor / p.price) * 100);
+          disc = Math.min(disc, Math.max(0, maxDisc));
+        }
+        if (disc <= (p.discount || 0)) continue;
+        changes.push({ id: p.id, name: p.name, category: p.category, idle: p.idle, stock: p.stock, from: p.discount || 0, to: disc,
+          price: p.price, newPrice: round2(p.price * (1 - disc / 100)), barcode: p.barcode, code: p.code, article: p.article, options: p.options, parent_id: p.parent_id, unit: p.unit });
+      }
+      if (!dryRun && changes.length) {
+        transaction(db, () => {
+          const set = db.prepare('UPDATE products SET discount = ?, auto_discount = ? WHERE id = ?');
+          for (const c of changes) set.run(c.to, c.to, c.id);
+        });
+      }
+      return changes;
+    },
+
+    // Уценка вручную (из «Неликвидов»): выбранным товарам — скидка в %, 0 — снять.
+    setDiscountBulk(ids, discount) {
+      const d = round2(number(discount, 'Скидка, %'));
+      if (d >= 100) throw new UserError('Скидка должна быть меньше 100%');
+      if (!Array.isArray(ids) || !ids.length) throw new UserError('Выберите товары');
+      transaction(db, () => { const st = db.prepare('UPDATE products SET discount = ?, auto_discount = 0 WHERE id = ?'); for (const id of ids) st.run(d, Number(id)); });
+      return { count: ids.length, discount: d };
+    },
+
+    // Новое поступление снимает автоуценку (товар свежий), если скидку не меняли вручную.
+    resetAutoDiscount(productIds) {
+      if (!this.automation().markdown.resetOnArrival || !productIds.length) return;
+      const st = db.prepare('UPDATE products SET discount = 0, auto_discount = 0 WHERE id = ? AND auto_discount > 0 AND discount = auto_discount');
+      for (const id of productIds) st.run(id);
+    },
+
+    // Архив автоотчётов: что и когда программа посчитала и отправила сама.
+    addAutoReport({ kind, title, summary, data }) {
+      db.exec(`CREATE TABLE IF NOT EXISTS auto_reports (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, created_at INTEGER NOT NULL, title TEXT NOT NULL, summary TEXT NOT NULL, data TEXT NOT NULL)`);
+      const id = Number(db.prepare('INSERT INTO auto_reports (kind, created_at, title, summary, data) VALUES (?, ?, ?, ?, ?)').run(kind, Date.now(), title, summary, JSON.stringify(data)).lastInsertRowid);
+      db.prepare('DELETE FROM auto_reports WHERE id NOT IN (SELECT id FROM auto_reports ORDER BY id DESC LIMIT 200)').run();
+      return id;
+    },
+    listAutoReports() {
+      db.exec(`CREATE TABLE IF NOT EXISTS auto_reports (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, created_at INTEGER NOT NULL, title TEXT NOT NULL, summary TEXT NOT NULL, data TEXT NOT NULL)`);
+      return db.prepare('SELECT id, kind, created_at, title, summary FROM auto_reports ORDER BY id DESC LIMIT 100').all();
+    },
+    getAutoReport(id) {
+      const r = db.prepare('SELECT * FROM auto_reports WHERE id = ?').get(Number(id));
+      if (!r) throw new UserError('Отчёт не найден');
+      return { ...r, data: JSON.parse(r.data) };
     },
 
     // Всё для печати чека покупателю: товары, оплаты, кассир, касса, покупатель и его бонусы.

@@ -48,6 +48,18 @@ function createNotifier(store) {
     if (!body.ok) throw new Error(`Telegram ответил: ${body.description || res.status}`);
   }
 
+  // Файл в Telegram (таблица отчёта): CSV открывается в Excel.
+  async function sendTelegramFile(name, content, caption = '', settings = telegramSettings()) {
+    if (!settings.token || !settings.chatId) throw new Error('Укажите токен бота и ID чата');
+    const form = new FormData();
+    form.append('chat_id', settings.chatId);
+    if (caption) form.append('caption', caption.slice(0, 1000));
+    form.append('document', new Blob([content], { type: 'text/csv' }), name);
+    const res = await fetch(`https://api.telegram.org/bot${settings.token}/sendDocument`, { method: 'POST', body: form, signal: AbortSignal.timeout(30_000) });
+    const body = await res.json().catch(() => ({}));
+    if (!body.ok) throw new Error(`Telegram ответил: ${body.description || res.status}`);
+  }
+
   const rub = (n) => n.toLocaleString('ru-RU', { maximumFractionDigits: 2 }) + ' сом';
 
   // Вызывается после каждого пробитого чека.
@@ -103,7 +115,7 @@ function createNotifier(store) {
       .catch((err) => console.error('Уведомление в Telegram не отправлено:', err.message));
   }
 
-  return { subscribe, broadcast, sale, order, orderPaid, orderReceipt, sendTelegram, telegramSettings };
+  return { subscribe, broadcast, sale, order, orderPaid, orderReceipt, sendTelegram, sendTelegramFile, telegramSettings };
 }
 
 module.exports = { createNotifier };

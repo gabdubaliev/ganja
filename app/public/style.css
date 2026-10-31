@@ -1560,3 +1560,36 @@ th.ts-name.ts-editable:hover, th.ts-day.ts-editable:hover { color: var(--series)
 .rz-paper { background: #fff; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18); transform-origin: top center; }
 .rz-paper iframe { display: block; border: 0; background: #fff; }
 @media (max-width: 1200px) { .lz-main { grid-template-columns: 64px minmax(0, 1fr); } .lz-main .lz-side { grid-column: 1 / -1; position: static; max-height: none; } .rz { grid-template-columns: 1fr; } .rz-blocks, .rz-side { position: static; } }
+
+/* ---------- Товарный отчёт, неликвиды, автоматика ---------- */
+.sr-settings { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; margin-bottom: 14px; }
+.sr-settings .input { width: auto; }
+.sr-settings .search { flex: 1 1 220px; }
+.sr-dates { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--ink-2); }
+.sr-table, .ds-table { min-width: 980px; }
+.sr-table th:first-child, .sr-table td:first-child, .ds-table td:nth-child(2), .ds-table th:nth-child(2) { text-align: left; }
+.sr-table tr.cat td { background: var(--grid); font-weight: 700; }
+.sr-table tr.total td { font-weight: 800; border-top: 2px solid var(--ink); }
+.sr-table td.in { color: var(--series, #2563eb); } .sr-table td.out { color: var(--critical); }
+.sr-table td .sub, .ds-table td .sub { display: block; font-size: 11px; color: var(--ink-2); font-weight: 400; }
+.ds-table td:first-child, .ds-table th:first-child { width: 32px; text-align: center; }
+.ds-table tr.sel td { background: color-mix(in srgb, var(--series) 7%, var(--surface)); }
+.ds-idle { display: inline-block; padding: 1px 8px; border-radius: 999px; font-weight: 700; font-size: 12px; }
+.ds-idle.s30 { background: #fff4d6; color: #8a5a00; } .ds-idle.s60 { background: #ffe4cc; color: #9a4300; } .ds-idle.s90 { background: #ffd6d6; color: #a11; } .ds-idle.s180 { background: #2a0f12; color: #fff; }
+.ds-bulk { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; margin-bottom: 10px; border-radius: 12px; background: color-mix(in srgb, var(--series) 8%, var(--surface)); }
+.ds-bulk .num { width: 70px; }
+.ar-list { display: grid; gap: 6px; }
+.ar-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; font-size: 14px; }
+.ar-item small { color: var(--ink-2); }
+.au-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.au-card { display: grid; gap: 10px; align-content: start; }
+.au-card h2 { margin: 0; font-size: 17px; }
+.au-card h3 { margin: 6px 0 0; font-size: 15px; }
+.au-wide { grid-column: 1 / -1; }
+.au-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 14px; }
+.au-row .input { width: auto; } .au-row .num, .au-stages .num { width: 72px; }
+.au-stages { display: grid; gap: 6px; }
+.au-stage { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 14px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; }
+.au-preview { font-size: 13px; max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
+.au-preview div { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; border-bottom: 1px dashed var(--grid); }
+@media (max-width: 900px) { .au-grid { grid-template-columns: 1fr; } }

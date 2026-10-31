@@ -636,6 +636,108 @@
   </section>
 </main>
 
+<main class="page" data-view="stockreport" hidden>
+  <header class="top">
+    <div class="title"><h1>📦 Товарный отчёт</h1><span class="source" id="sr-sub"></span></div>
+    <div class="tools"><button type="button" class="btn" id="sr-export">Скачать для Excel</button></div>
+  </header>
+  <section class="panel sr-settings">
+    <div class="seg" id="sr-mode" role="group"><button type="button" data-sr-mode="period" aria-pressed="true">За период</button><button type="button" data-sr-mode="date" aria-pressed="false">Остатки на дату</button></div>
+    <div class="periods" id="sr-ranges" role="group" aria-label="Период"></div>
+    <label class="sr-dates" id="sr-dates">с <input type="date" class="input" id="sr-from"> по <input type="date" class="input" id="sr-to"></label>
+    <label class="sr-dates" id="sr-ondate" hidden>на конец дня <input type="date" class="input" id="sr-at"></label>
+    <select id="sr-cat" class="input" aria-label="Категория"></select>
+    <input id="sr-q" class="input search" type="search" placeholder="Название, код, штрихкод, артикул" aria-label="Найти товар">
+    <label class="check"><input type="checkbox" id="sr-group" checked> Итоги по категориям</label>
+  </section>
+  <section class="stock-totals as-tiles" id="sr-tiles"></section>
+  <section class="panel">
+    <div class="table-wrap">
+      <table class="sr-table">
+        <thead id="sr-head"></thead>
+        <tbody id="sr-body"></tbody>
+      </table>
+    </div>
+    <p class="pick-meta">Наведите на приход или расход — видно, из чего он сложился (закупка, перемещение, продажа, списание…). Деньги — по нынешней цене закупки.</p>
+  </section>
+</main>
+
+<main class="page" data-view="deadstock" hidden>
+  <header class="top">
+    <div class="title"><h1>🐌 Неликвиды</h1><span class="source" id="ds-sub"></span></div>
+    <div class="tools">
+      <button type="button" class="btn" id="ds-labels-auto" title="Ценники товаров, которые уценила автоматика">🏷️ Ценники уценённых</button>
+      <button type="button" class="btn" id="ds-export">Скачать для Excel</button>
+      <a class="btn" href="#automation" data-can="automation">🤖 Автоматика</a>
+    </div>
+  </header>
+  <section class="stock-totals as-tiles" id="ds-tiles"></section>
+  <section class="panel">
+    <div class="panel-head">
+      <div class="chips" id="ds-days"></div>
+      <input id="ds-q" class="input search" type="search" placeholder="Найти товар" aria-label="Найти товар">
+    </div>
+    <div class="ds-bulk" id="ds-bulk" hidden>
+      <b id="ds-count"></b>
+      <label>Скидка <input id="ds-disc" class="input num" inputmode="decimal" value="20"> %</label>
+      <button type="button" class="btn small primary" id="ds-apply" data-can="products">Уценить</button>
+      <button type="button" class="btn small" id="ds-clear-disc" data-can="products">Снять скидку</button>
+      <button type="button" class="btn small" id="ds-print">🏷️ Ценники</button>
+      <button type="button" class="btn small ghost" id="ds-unselect">Снять выбор</button>
+    </div>
+    <div class="table-wrap">
+      <table class="ds-table">
+        <thead><tr><th><input type="checkbox" id="ds-all" aria-label="Выбрать все"></th><th>Товар</th><th>Остаток</th><th>Без продаж</th><th>Последняя продажа</th><th>Продано за 30 дн.</th><th>Заморожено</th><th>Скидка</th><th>Цена</th></tr></thead>
+        <tbody id="ds-body"></tbody>
+      </table>
+    </div>
+  </section>
+  <section class="panel" id="ds-archive-panel">
+    <div class="panel-head"><h2>Автоотчёты</h2><span class="pick-meta">Программа считает и присылает их сама — по расписанию из «Автоматики»</span></div>
+    <div id="ds-archive" class="ar-list"></div>
+  </section>
+</main>
+
+<main class="page" data-view="automation" hidden>
+  <header class="top">
+    <div class="title"><h1>🤖 Автоматика</h1><span class="source">Работает сама, без вас: считает, присылает в Telegram, уценивает</span></div>
+    <div class="tools"><button type="button" class="btn primary" id="au-save">Сохранить</button></div>
+  </header>
+  <p class="cash-mismatch" id="au-tg" hidden></p>
+  <div class="au-grid">
+    <section class="panel au-card">
+      <h2>🐌 Отчёт по неликвидам — каждую неделю</h2>
+      <label class="check"><input type="checkbox" id="au-w-on"> Присылать</label>
+      <div class="au-row">в <select id="au-w-day" class="input"><option value="1">понедельник</option><option value="2">вторник</option><option value="3">среду</option><option value="4">четверг</option><option value="5">пятницу</option><option value="6">субботу</option><option value="0">воскресенье</option></select>
+        в <select id="au-w-hour" class="input"></select></div>
+      <div class="au-row">Товары без продаж <input id="au-w-days" class="input num" inputmode="numeric"> дней и дольше</div>
+      <p class="pick-meta">Сколько товаров залежалось, сколько денег в них заморожено, топ-10 и файл для Excel со всем списком.</p>
+      <button type="button" class="btn small" data-au-run="weekly">▶ Прислать сейчас</button>
+    </section>
+    <section class="panel au-card">
+      <h2>📦 Товарный отчёт — каждый месяц</h2>
+      <label class="check"><input type="checkbox" id="au-m-on"> Присылать за прошлый месяц</label>
+      <div class="au-row"><select id="au-m-day" class="input"></select> числа в <select id="au-m-hour" class="input"></select></div>
+      <p class="pick-meta">На начало месяца, приход, расход, на конец — в штуках и деньгах, и файл по каждому товару.</p>
+      <button type="button" class="btn small" data-au-run="monthly">▶ Прислать сейчас</button>
+    </section>
+    <section class="panel au-card au-wide">
+      <h2>🏷️ Автоуценка неликвидов — каждый день</h2>
+      <label class="check"><input type="checkbox" id="au-md-on"> Уценивать автоматически</label>
+      <div class="au-row">Проверять каждый день в <select id="au-md-hour" class="input"></select></div>
+      <div id="au-stages" class="au-stages"></div>
+      <button type="button" class="btn small" id="au-stage-add">＋ Ступень</button>
+      <div class="au-row">Цена со скидкой — не ниже закупки + <input id="au-md-margin" class="input num" inputmode="numeric"> % наценки</div>
+      <label class="check"><input type="checkbox" id="au-md-reset"> Снимать автоуценку, когда пришла новая партия товара</label>
+      <details class="au-exclude"><summary>Не уценивать категории</summary><div id="au-md-cats" class="cat-list"></div></details>
+      <p class="pick-meta">Скидку, которую вы поставили сами и она больше, автоматика не трогает. После уценки придёт список в Telegram — распечатайте новые ценники кнопкой «Ценники уценённых» в «Неликвидах».</p>
+      <h3>Если включить сейчас</h3>
+      <div id="au-preview" class="au-preview"></div>
+      <button type="button" class="btn small" data-au-run="markdown">▶ Уценить сейчас</button>
+    </section>
+  </div>
+</main>
+
 <main class="page" data-view="abc" hidden>
   <header class="top">
     <div class="title"><h1>ABC / XYZ анализ</h1><span class="source" id="abc-sub"></span></div>
@@ -1808,6 +1910,7 @@
 <script src="more.js"></script>
 <script src="kpi.js"></script>
 <script src="abc.js"></script>
+<script src="stock-reports.js"></script>
 <script src="receive.js"></script>
 <script src="owner.js"></script>
 <script src="certificates.js"></script>

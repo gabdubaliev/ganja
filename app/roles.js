@@ -13,6 +13,7 @@ const RIGHTS = [
   { key: 'kpi', group: 'Отчёты', label: 'Отчёты: хиты товаров, топ продавцов, зарплата' },
   { key: 'finance', group: 'Отчёты', label: 'Главная: расходы, зарплата сотрудников и чистая прибыль' },
   { key: 'abc', group: 'Отчёты', label: 'ABC / XYZ анализ ассортимента (и матрица на главной)' },
+  { key: 'reports.stock', group: 'Отчёты', label: 'Товарный отчёт, остатки на дату и неликвиды' },
   { key: 'pos', group: 'Касса', label: 'Продавать на кассе и находить покупателя по телефону' },
   { key: 'customers.create', group: 'Касса', label: 'Заводить и искать покупателей на кассе: ФИО, телефон, номер карты, дата рождения, пол' },
   { key: 'certificates.sell', group: 'Касса', label: 'Продавать подарочные сертификаты (кнопка «🎁 Сертификат» на кассе)' },
@@ -43,6 +44,7 @@ const RIGHTS = [
   { key: 'orders', group: 'Интернет-витрина', label: 'Заказы с витрины' },
   { key: 'orders.payment', group: 'Интернет-витрина', label: 'Подтверждать оплату заказов с витрины (сверка перевода)' },
   { key: 'print.design', group: 'Управление', label: 'Конструктор чеков и этикеток' },
+  { key: 'automation', group: 'Управление', label: 'Автоматика: автоотчёты и автоуценка неликвидов' },
   { key: 'shop', group: 'Интернет-витрина', label: 'Создавать витрину и менять её оформление' },
   { key: 'staff', group: 'Персонал', label: 'Сотрудники, их права и ставки' },
   { key: 'shifts', group: 'Персонал', label: 'Смены всех сотрудников: открыть, закрыть, исправить' },
@@ -80,7 +82,7 @@ const ROLES = {
   manager: {
     name: 'Управляющий',
     about: 'Видит всё и ведёт магазин, выписывает штрафы, правит смены, ведёт табель, даёт и проверяет задания. По умолчанию не меняет сотрудников, бонусы, оформление, настройки и не видит журнал действий.',
-    can: ['dashboard', 'kpi', 'pos', 'customers.create', 'certificates.sell', 'certificates.accept', 'certificates', 'sales', 'refund', 'discount', 'products', 'stock.view', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'orders.payment', 'notify', 'shifts', 'fines', 'timesheet', 'timesheet.edit', 'tasks', 'writeoff', 'docs.sale', 'transfer', 'docs.unpost', 'expenses', 'finance', 'abc', 'products.history', 'receive.photo', 'mytimesheet'],
+    can: ['dashboard', 'kpi', 'pos', 'customers.create', 'certificates.sell', 'certificates.accept', 'certificates', 'sales', 'refund', 'discount', 'products', 'stock.view', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'orders.payment', 'notify', 'shifts', 'fines', 'timesheet', 'timesheet.edit', 'tasks', 'writeoff', 'docs.sale', 'transfer', 'docs.unpost', 'expenses', 'finance', 'abc', 'reports.stock', 'products.history', 'receive.photo', 'mytimesheet'],
   },
   cashier: {
     name: 'Кассир',

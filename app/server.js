@@ -70,6 +70,9 @@ function branchList() {
 function makeContext(id, st) {
   // Филиал: бонусы, сертификаты и правила программы лояльности — общие, в основной базе.
   if (id !== 1) st.useBank(mainStore, id);
+  // Журнал движения товара: один раз заполняется прошлым из чеков и документов.
+  const filled = st.backfillStockMoves();
+  if (filled) console.log(`Журнал движения товара заполнен: ${filled} записей`);
   const ctx = { id, store: st };
   ctx.notifier = createNotifier(st);
   ctx.crm = createCrm(st);
@@ -141,6 +144,105 @@ function cashAlert(sh, when) {
   }
   return sh;
 }
+/* ---------- Автоматика: отчёты и уценка по расписанию, без участия владельца ---------- */
+const csvCell = (v) => { const s = String(v ?? ''); return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+const csvOf = (head, rows) => '\ufeff' + [head, ...rows].map((r) => r.map(csvCell).join(';')).join('\r\n');
+const rubs = (n) => `${Number(n || 0).toLocaleString('ru-RU', { maximumFractionDigits: 0 })} сом`;
+const dayStr = (t) => new Date(t).toLocaleDateString('ru-RU');
+const optText = (o) => { try { return Object.values(JSON.parse(o || '{}')).filter(Boolean).join(' · '); } catch { return ''; } };
+
+async function deliver(ctx, { title, text, file, csv }) {
+  const tg = ctx.notifier.telegramSettings();
+  if (!tg.enabled) return false;
+  try {
+    await ctx.notifier.sendTelegram(text, tg);
+    if (csv) await ctx.notifier.sendTelegramFile(file, csv, title, tg);
+    return true;
+  } catch (err) {
+    console.error(`Автоотчёт «${title}» не отправлен в Telegram:`, err.message);
+    return false;
+  }
+}
+
+// job: weekly (неликвиды), monthly (товарный отчёт за прошлый месяц), markdown (автоуценка).
+async function runJob(ctx, job, { manual = false } = {}) {
+  const st = ctx.store;
+  const shop = branchList().find((b) => b.id === ctx.id)?.name || '';
+  const cfg = st.automation();
+  if (job === 'weekly') {
+    const r = st.deadStock({ days: cfg.weekly.days });
+    const stageLine = r.stages.filter((x) => x.count).map((x) => `${x.days}+ дн.: ${x.count} тов., ${rubs(x.frozen)}`).join('\n') || 'нет';
+    const title = `Неликвиды «${shop}» на ${dayStr(Date.now())}`;
+    const share = r.stockValue ? Math.round((r.totals.frozen / r.stockValue) * 100) : 0;
+    const text = `🐌 ${title}\nНе продаются ${r.days}+ дней: ${r.totals.count} товаров, ${r.totals.qty} шт.\nЗаморожено: ${rubs(r.totals.frozen)} по закупке (${share}% склада), в рознице ${rubs(r.totals.retail)}.\n\n${stageLine}\n\n`
+      + `Больше всего денег лежит в:\n${r.list.slice(0, 10).map((x) => `• ${x.name}${optText(x.options) ? ` (${optText(x.options)})` : ''} — ${x.stock} ${x.unit}, ${x.idle} дн., ${rubs(x.frozen)}`).join('\n') || '—'}\n\n`
+      + `Автоуценка: ${cfg.markdown.on ? `включена (${cfg.markdown.stages.map((s) => `${s.days} дн. → −${s.discount}%`).join(', ')})` : 'выключена'}.\nПолный список — в файле и в программе: Отчёты → Неликвиды.`;
+    const csv = csvOf(['Товар', 'Модификация', 'Категория', 'Код', 'Штрихкод', 'Остаток', 'Дней без продаж', 'Последняя продажа', 'Закупка за шт', 'Заморожено', 'Цена', 'Скидка %', 'В рознице'],
+      r.list.map((x) => [x.name, optText(x.options), x.category, x.code, x.barcode, x.stock, x.idle, x.lastSale ? dayStr(x.lastSale) : 'не было', x.cost, x.frozen, x.price, x.discount || 0, x.retail]));
+    st.addAutoReport({ kind: 'weekly', title, summary: `${r.totals.count} товаров, заморожено ${rubs(r.totals.frozen)}`, data: r });
+    const sent = await deliver(ctx, { title, text, file: `nelikvidy-${new Date().toISOString().slice(0, 10)}.csv`, csv });
+    return { title, sent, count: r.totals.count };
+  }
+  if (job === 'monthly') {
+    const now = new Date();
+    const from = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime(), to = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const r = st.stockReport({ from, to });
+    const month = new Date(from).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
+    const t = r.totals;
+    const title = `Товарный отчёт «${shop}» за ${month}`;
+    const text = `📦 ${title}\nНа начало: ${t.open} шт · ${rubs(t.openCost)}\nПриход: +${t.in} шт · ${rubs(t.inCost)}\nРасход: −${t.out} шт · ${rubs(t.outCost)}`
+      + `${t.inv ? `\nИнвентаризация: ${t.inv > 0 ? '+' : ''}${t.inv} шт` : ''}${t.other ? `\nПрочее: ${t.other > 0 ? '+' : ''}${t.other} шт` : ''}\nНа конец: ${t.close} шт · ${rubs(t.closeCost)} (в рознице ${rubs(t.closeRetail)})\n\nПо каждому товару — в файле и в программе: Отчёты → Товарный отчёт.`;
+    const csv = csvOf(['Товар', 'Категория', 'Код', 'На начало', 'Приход', 'Расход', 'Инвентаризация', 'Прочее', 'На конец', 'Закупка за шт', 'На конец по закупке', 'На конец в рознице'],
+      r.list.map((x) => [x.name, x.category, x.code, x.open, x.in, x.out, x.inv, x.other, x.close, x.cost, x.closeCost, x.closeRetail]));
+    st.addAutoReport({ kind: 'monthly', title, summary: `на конец ${t.close} шт, ${rubs(t.closeCost)}`, data: { from, to, totals: t, list: r.list.slice(0, 3000) } });
+    const sent = await deliver(ctx, { title, text, file: `tovarnyj-otchet-${new Date(from).toISOString().slice(0, 7)}.csv`, csv });
+    return { title, sent };
+  }
+  if (job === 'markdown') {
+    if (!cfg.markdown.on && !manual) return { skipped: true };
+    const changes = st.autoMarkdown();
+    if (!changes.length) return { count: 0 };
+    const title = `Автоуценка «${shop}» ${dayStr(Date.now())}`;
+    const text = `🏷️ ${title}: ${changes.length} товаров получили скидку.\n${changes.slice(0, 15).map((c) => `• ${c.name} — ${c.idle} дн. без продаж, скидка ${c.from}% → ${c.to}%, цена ${rubs(c.newPrice)}`).join('\n')}${changes.length > 15 ? `\n…и ещё ${changes.length - 15}` : ''}`
+      + '\n\nРаспечатайте новые ценники: Отчёты → Неликвиды → «Ценники уценённых».';
+    st.addAutoReport({ kind: 'markdown', title, summary: `${changes.length} товаров уценено`, data: { changes } });
+    st.audit({ kind: 'change', userName: 'Автоматика', action: 'Автоуценка неликвидов', details: changes.slice(0, 30).map((c) => `${c.name}: ${c.from}% → ${c.to}%`).join('; ') });
+    const sent = await deliver(ctx, { title, text, file: `avtoucenka-${new Date().toISOString().slice(0, 10)}.csv`,
+      csv: csvOf(['Товар', 'Категория', 'Дней без продаж', 'Остаток', 'Скидка была %', 'Скидка стала %', 'Цена', 'Цена со скидкой'], changes.map((c) => [c.name, c.category, c.idle, c.stock, c.from, c.to, c.price, c.newPrice])) });
+    return { title, sent, count: changes.length };
+  }
+  throw new UserError('Неизвестная задача');
+}
+
+// Раз в 5 минут: что пора сделать в каждом магазине. Последний запуск — в настройках магазина (auto_last_*).
+async function automationTick() {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  for (const b of branchList()) {
+    const ctx = contextOf(b.id);
+    if (!ctx) continue;
+    const cfg = ctx.store.automation();
+    // Первый раз (сразу после обновления) задачи не запускаются задним числом — ждут своего времени.
+    const last = (k) => Number(ctx.store.setting(`auto_last_${k}`, String(Date.now()))) || 0;
+    const mark = (k) => ctx.store.setSetting(`auto_last_${k}`, String(Date.now()));
+    const due = [];
+    if (cfg.markdown.on && now.getHours() >= cfg.markdown.hour && last('markdown') < today) due.push('markdown');
+    if (cfg.weekly.on && now.getDay() === cfg.weekly.weekday && now.getHours() >= cfg.weekly.hour && last('weekly') < today) due.push('weekly');
+    const monthDue = new Date(now.getFullYear(), now.getMonth(), cfg.monthly.day).getTime();
+    if (cfg.monthly.on && now.getTime() >= monthDue + cfg.monthly.hour * 36e5 && last('monthly') < monthDue) due.push('monthly');
+    for (const job of due) {
+      try {
+        mark(job);
+        await als.run(ctx, () => runJob(ctx, job));
+      } catch (err) {
+        console.error(`Автоматика (${job}, ${b.name}):`, err.message);
+      }
+    }
+  }
+}
+setTimeout(() => automationTick().catch((e) => console.error('Автоматика:', e.message)), 30_000).unref?.();
+setInterval(() => automationTick().catch((e) => console.error('Автоматика:', e.message)), 5 * 60_000).unref?.();
+
 const storeName = (id) => branchList().find((b) => b.id === (id || 1))?.name || '';
 
 // Администратор из переменных. APP_PASSWORD — пароль из прошлых версий, где вход был без email.
@@ -635,6 +737,15 @@ const routes = [
   }, 'pos'],
   ['POST', '/api/shift/open', (p, url, body, user) => cashAlert(store.openShift(user, body.register_id, { cash: body.cash, note: body.note }), 'открытии'), 'pos'],
   // Конструктор чеков и этикеток: настройки нужны всем, кто печатает; менять — право «Конструктор чеков и этикеток».
+  // Товарный отчёт, неликвиды, автоматика.
+  ['GET', '/api/reports/stock', (p, url) => store.stockReport({ ...range(url), category: url.searchParams.get('category') || '', q: url.searchParams.get('q') || '' }), 'reports.stock'],
+  ['GET', '/api/reports/dead', (p, url) => store.deadStock({ days: Number(url.searchParams.get('days')) || 30 }), 'reports.stock'],
+  ['POST', '/api/reports/dead/discount', (p, url, body) => store.setDiscountBulk(body.ids, body.discount), 'products'],
+  ['GET', '/api/automation', () => ({ settings: store.automation(), preview: store.autoMarkdown({ dryRun: true }), telegram: notifier.telegramSettings().enabled }), 'automation'],
+  ['PUT', '/api/automation', (p, url, body) => store.setAutomation(body), 'automation'],
+  ['POST', '/api/automation/run', async (p, url, body) => runJob(current(), body.job, { manual: true }), 'automation'],
+  ['GET', '/api/auto-reports', () => store.listAutoReports(), ['reports.stock', 'automation']],
+  ['GET', '/api/auto-reports/:id', (p) => store.getAutoReport(p.id), ['reports.stock', 'automation']],
   ['GET', '/api/print-designs', () => store.printDesigns(), 'any'],
   ['PUT', '/api/print-designs/:kind', (p, url, body) => store.setPrintDesign(p.kind, body), 'print.design'],
   ['GET', '/api/sales/:id/receipt', (p) => store.receiptData(p.id), ['pos', 'sales']],
@@ -957,6 +1068,9 @@ const AUDIT_LABELS = {
   'POST /api/demo': 'Загрузил пример магазина',
   'POST /api/shift/open': 'Открыл смену',
   'PUT /api/print-designs/:kind': 'Изменил шаблон чека или этикетки',
+  'POST /api/reports/dead/discount': 'Уценил неликвиды',
+  'PUT /api/automation': 'Изменил настройки автоматики',
+  'POST /api/automation/run': 'Запустил автоматику вручную',
   'POST /api/shift/close': 'Закрыл смену',
   'POST /api/shifts': 'Добавил смену вручную',
   'PUT /api/shifts/:id': 'Исправил смену',
