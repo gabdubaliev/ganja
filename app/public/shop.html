@@ -94,8 +94,12 @@
     <h2>Регистрация</h2>
     <p class="small left">Номер телефона — ваш логин. С аккаунтом вы видите свои заказы и бонусы, а в день рождения получаете скидку.</p>
     <label>Номер телефона<input name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0700 123 456" required></label>
-    <label>Имя<input name="name" autocomplete="given-name" required></label>
-    <label>Дата рождения<input name="birthday" inputmode="numeric" placeholder="ДД.ММ.ГГГГ" autocomplete="bday" required></label>
+    <label>Имя<input name="name" autocomplete="name" autocapitalize="words" required data-capitalize></label>
+    <label>Дата рождения<input name="birthday" inputmode="numeric" placeholder="ДД.ММ.ГГГГ" autocomplete="bday" required data-date></label>
+    <fieldset class="gender-pick"><legend>Пол</legend>
+      <label><input type="radio" name="gender" value="m"> 👨 Мужской</label>
+      <label><input type="radio" name="gender" value="f"> 👩 Женский</label>
+    </fieldset>
     <label>Придумайте пароль<input name="password" type="password" autocomplete="new-password" minlength="6" placeholder="Не короче 6 символов" required></label>
     <p class="error" hidden></p>
     <button type="submit" class="primary">Зарегистрироваться</button>
@@ -126,6 +130,7 @@
     <div class="profile-cards">
       <div><span class="small left">Бонусы</span><b id="profile-bonus"></b></div>
       <div><span class="small left">Телефон</span><b id="profile-phone"></b></div>
+      <div><span class="small left">Номер карты</span><b id="profile-card"></b></div>
     </div>
     <p class="birthday-note" id="profile-bday" hidden></p>
     <h3>Мои заказы</h3>
@@ -133,8 +138,12 @@
     <details class="profile-edit">
       <summary>Изменить данные или пароль</summary>
       <form id="profile-form" class="acc-form" novalidate>
-        <label>Имя<input name="name" required></label>
-        <label>Дата рождения<input name="birthday" inputmode="numeric" placeholder="ДД.ММ.ГГГГ"></label>
+        <label>Имя<input name="name" required data-capitalize></label>
+        <label>Дата рождения<input name="birthday" inputmode="numeric" placeholder="ДД.ММ.ГГГГ" data-date></label>
+        <fieldset class="gender-pick"><legend>Пол</legend>
+          <label><input type="radio" name="gender" value="m"> 👨 Мужской</label>
+          <label><input type="radio" name="gender" value="f"> 👩 Женский</label>
+        </fieldset>
         <label>Текущий пароль (нужен, только чтобы сменить пароль)<input name="password" type="password" autocomplete="current-password"></label>
         <label>Новый пароль<input name="newPassword" type="password" autocomplete="new-password" minlength="6"></label>
         <p class="error" hidden></p>

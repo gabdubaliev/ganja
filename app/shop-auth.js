@@ -12,7 +12,7 @@
 // и сообщает покупателю звонком или сообщением.
 
 const crypto = require('node:crypto');
-const { UserError, text, phone, birthday } = require('./db');
+const { UserError, text, phone, birthday, gender, personName } = require('./db');
 const { hashPassword, checkPassword } = require('./auth');
 const { sendSms } = require('./sms');
 
@@ -74,7 +74,7 @@ function createShopAuth(store, { onCodeRequested } = {}) {
 
   // Покупатель для витрины: только то, что ему можно знать о себе.
   const publicCustomer = (c) => c && {
-    id: c.id, phone: c.phone, name: c.name, birthday: c.birthday, bonus: c.bonus, registeredAt: c.registered_at,
+    id: c.id, phone: c.phone, name: c.name, birthday: c.birthday, bonus: c.bonus, registeredAt: c.registered_at, gender: c.gender || '', card: c.card || '',
   };
 
   function sessionCookie(req, c) {
@@ -188,17 +188,21 @@ function createShopAuth(store, { onCodeRequested } = {}) {
     // — сначала код подтверждения: { needCode: true }.
     async register(input, req) {
       const p = phone(input.phone);
-      const name = text(input.name, 'Имя', { required: true, max: 80 });
+      const name = personName(input.name);
+      if (!name) throw new UserError('Укажите имя');
       const bday = birthday(input.birthday);
       if (!bday) throw new UserError('Укажите дату рождения — в день рождения у нас скидка');
+      const sex = gender(input.gender);
+      if (!sex) throw new UserError('Укажите пол');
       const pass = password(input.password);
       const existing = findByPhone(p);
       if (existing?.password_hash) throw new UserError('Этот номер уже зарегистрирован. Войдите или нажмите «Забыл пароль».');
       if (existing) {
-        const sent = await issueCode(p, 'register', { name, birthday: bday, hash: hashPassword(pass) });
+        const sent = await issueCode(p, 'register', { name, birthday: bday, gender: sex, hash: hashPassword(pass) });
         return { needCode: true, ...sent };
       }
-      store.createCustomer({ phone: p, name, birthday: bday });
+      // Покупатель с витрины сразу появляется в «Клиентах»: со своим номером карты и полом.
+      store.createCustomer({ phone: p, name, birthday: bday, gender: sex });
       db.prepare('UPDATE customers SET password_hash = ?, registered_at = ? WHERE phone = ?').run(hashPassword(pass), Date.now(), p);
       const c = loggedIn(findByPhone(p));
       return { ok: true, customer: publicCustomer(c), cookie: sessionCookie(req, c) };
@@ -210,8 +214,10 @@ function createShopAuth(store, { onCodeRequested } = {}) {
       const pending = JSON.parse(row.pending || '{}');
       const c = findByPhone(p);
       if (!c) throw new UserError('Покупатель не найден');
-      db.prepare('UPDATE customers SET password_hash = ?, registered_at = ?, name = ?, birthday = ? WHERE id = ?')
-        .run(pending.hash, Date.now(), pending.name || c.name, pending.birthday || c.birthday, c.id);
+      db.prepare('UPDATE customers SET password_hash = ?, registered_at = ?, name = ?, birthday = ?, gender = ? WHERE id = ?')
+        .run(pending.hash, Date.now(), pending.name || c.name, pending.birthday || c.birthday, pending.gender || c.gender || '', c.id);
+      // Покупатель с кассы без карты получает номер карты при регистрации.
+      if (!c.card) db.prepare('UPDATE customers SET card = ? WHERE id = ?').run(store.newCustomerCard(), c.id);
       const fresh = loggedIn(findByPhone(p));
       return { ok: true, customer: publicCustomer(fresh), cookie: sessionCookie(req, fresh) };
     },
@@ -264,10 +270,12 @@ function createShopAuth(store, { onCodeRequested } = {}) {
     },
 
     updateProfile(c, input) {
-      const name = text(input.name, 'Имя', { required: true, max: 80 });
+      const name = personName(input.name);
+      if (!name) throw new UserError('Укажите имя');
       const bday = birthday(input.birthday);
       if (!bday) throw new UserError('Укажите дату рождения');
-      db.prepare('UPDATE customers SET name = ?, birthday = ? WHERE id = ?').run(name, bday, c.id);
+      const sex = input.gender === undefined ? c.gender || '' : gender(input.gender);
+      db.prepare('UPDATE customers SET name = ?, birthday = ?, gender = ? WHERE id = ?').run(name, bday, sex, c.id);
       if (input.newPassword) {
         if (!checkPassword(String(input.password ?? ''), c.password_hash)) throw new UserError('Текущий пароль указан неверно');
         db.prepare('UPDATE customers SET password_hash = ? WHERE id = ?').run(hashPassword(password(input.newPassword)), c.id);

@@ -422,6 +422,19 @@ function loggedIn(data, message) {
 }
 
 // Простое всплывающее сообщение внизу витрины.
+// Имя с заглавных букв (каждое слово), дата — точки ставятся сами.
+document.addEventListener('input', (e) => {
+  const el = e.target;
+  if (el.matches?.('[data-capitalize]')) {
+    const next = el.value.replace(/(^|[\s-])(\p{Ll})/gu, (m, sep, ch) => sep + ch.toUpperCase());
+    if (next !== el.value) { const { selectionStart: a, selectionEnd: b } = el; el.value = next; el.setSelectionRange(a, b); }
+  }
+  if (el.matches?.('[data-date]') && e.inputType !== 'deleteContentBackward') {
+    const d = el.value.replace(/\D/g, '').slice(0, 8);
+    el.value = [d.slice(0, 2), d.slice(2, 4), d.slice(4)].filter(Boolean).join('.');
+  }
+});
+
 function toast(text) {
   const el = document.createElement('div');
   el.className = 'shop-toast';
@@ -435,6 +448,7 @@ function renderProfile() {
   $('#profile-name').textContent = me.name;
   $('#profile-bonus').textContent = `${new Intl.NumberFormat('ru-RU').format(me.bonus)} бонусов`;
   $('#profile-phone').textContent = phoneText(me.phone);
+  $('#profile-card').textContent = me.card || '—';
   $('#profile-bday').hidden = !me.birthdayDiscount;
   $('#profile-bday').textContent = me.birthdayDiscount ? `🎂 С днём рождения! Скидка ${me.birthdayDiscount}% — назовите номер телефона на кассе.` : '';
   $('#profile-orders').innerHTML = state.orders.length ? state.orders.map((o) => `
@@ -445,6 +459,7 @@ function renderProfile() {
     </div>`).join('') : '<p class="small left">Заказов пока нет</p>';
   const f = $('#profile-form');
   f.elements.name.value = me.name;
+  for (const r of f.querySelectorAll('input[name="gender"]')) r.checked = r.value === me.gender;
   const [y, m, d] = (me.birthday || '').split('-');
   f.elements.birthday.value = me.birthday ? `${d}.${m}${y !== '0000' ? '.' + y : ''}` : '';
   f.elements.password.value = '';
@@ -469,7 +484,8 @@ $('#account [data-view="login"]').addEventListener('submit', async (e) => {
 $('#account [data-view="register"]').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
-  const body = Object.fromEntries(['phone', 'name', 'birthday', 'password'].map((k) => [k, f.elements[k].value]));
+  const body = Object.fromEntries(['phone', 'name', 'birthday', 'password', 'gender'].map((k) => [k, f.elements[k].value]));
+  if (!body.gender) return showError(f, new Error('Укажите пол'));
   try {
     const d = await account('register', body);
     if (d.needCode) return openCode('register', body.phone, d.channel, { body });
@@ -506,7 +522,7 @@ $('#profile-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
   try {
-    const d = await account('me', { name: f.elements.name.value, birthday: f.elements.birthday.value, password: f.elements.password.value, newPassword: f.elements.newPassword.value }, 'PUT');
+    const d = await account('me', { name: f.elements.name.value, birthday: f.elements.birthday.value, gender: f.elements.gender.value, password: f.elements.password.value, newPassword: f.elements.newPassword.value }, 'PUT');
     state.me = { ...state.me, ...d.customer };
     renderAccountButton();
     renderProfile();

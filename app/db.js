@@ -3143,4 +3143,4 @@ function createStore(file) {
   };
 }
 
-module.exports = { createStore, UserError, text, number, phone, birthday, round2, transaction };
+module.exports = { createStore, UserError, text, number, phone, birthday, gender, personName, round2, transaction };

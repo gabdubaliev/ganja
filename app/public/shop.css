@@ -181,3 +181,7 @@ dialog.side { margin-right: 0; margin-top: 0; height: 100dvh; max-height: 100dvh
   .hero.has-image { padding: 64px 0 52px; }
 }
 .old-price { font-size: .8em; font-weight: 500; opacity: .55; margin-right: 2px; }
+.gender-pick { display: flex; flex-wrap: wrap; gap: 8px; border: 0; padding: 0; margin: 0; }
+.gender-pick legend { font-size: 14px; color: var(--ink-soft); margin-bottom: 4px; padding: 0; }
+.gender-pick label { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 120px; padding: 10px 14px; border: 1px solid var(--line); border-radius: calc(var(--radius) * 0.7); cursor: pointer; color: var(--ink); }
+.gender-pick label:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
