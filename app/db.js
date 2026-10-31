@@ -492,6 +492,23 @@ function open(file) {
   `);
   // Код товара программа присваивает сама — и товарам, заведённым до этого (или загруженным без кода).
   fillCodes(db);
+  // Новые права (галочки): тем, у кого права настроены вручную, добавляем их по смыслу — один раз,
+  // чтобы после обновления никто не потерял то, что уже видел.
+  if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v2'").get()) {
+    const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
+    for (const u of db.prepare('SELECT id, rights FROM users WHERE rights IS NOT NULL').all()) {
+      let list;
+      try { list = JSON.parse(u.rights); } catch { continue; }
+      if (!Array.isArray(list)) continue;
+      const add = ['mytimesheet'];
+      if (list.includes('dashboard')) add.push('finance', 'abc');
+      if (list.includes('kpi')) add.push('abc');
+      if (list.includes('arrivals')) add.push('receive.photo');
+      if (list.includes('products')) add.push('products.history');
+      set.run(JSON.stringify([...new Set([...list, ...add])]), u.id);
+    }
+    db.prepare("INSERT INTO settings (key, value) VALUES ('rights_v2', '1')").run();
+  }
   return db;
 }
 

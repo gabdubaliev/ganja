@@ -439,7 +439,7 @@ const routes = [
     const info = store.getProductInfo(p.id);
     return can(user, 'stock.view') ? info : { ...info, stock: null, children: info.children.map((k) => ({ ...k, stock: null })) };
   }, ['products', 'dashboard', 'stock.view']],
-  ['GET', '/api/products/:id/history', (p) => store.productHistory(p.id), ['products', 'dashboard', 'stock.view']],
+  ['GET', '/api/products/:id/history', (p) => store.productHistory(p.id), 'products.history'],
   ['GET', '/api/products/:id/stores', (p, url, body, user) => productStores(p.id, user), 'stock.view'],
   ['PUT', '/api/products/:id/photo', (p, url, body) => store.setPhoto(p.id, body), 'photos'],
   ['DELETE', '/api/products/:id/photo', (p) => store.deletePhoto(p.id), 'photos'],
@@ -478,7 +478,7 @@ const routes = [
   ['GET', '/api/suppliers', () => store.listSuppliers(), ['arrivals', 'transfer', 'stock', 'writeoff', 'products']],
   // Приход по фото накладной: распознать, подобрать товары, провести.
   ['GET', '/api/invoice/status', () => ({ configured: Boolean(invoice.apiKey(mainStore)), fromEnv: Boolean(process.env.ANTHROPIC_API_KEY), model: invoice.MODEL,
-    rate: Number(store.setting('usd_rate', '0')) || null }), ['arrivals', 'settings']],
+    rate: Number(store.setting('usd_rate', '0')) || null }), ['receive.photo', 'settings']],
   ['PUT', '/api/invoice/key', (p, url, body) => {
     const key = String(body.key ?? '').trim();
     if (key && !/^sk-ant-[\w-]{20,}$/.test(key)) throw new UserError('Ключ Claude API начинается с sk-ant-');
@@ -491,14 +491,14 @@ const routes = [
     const matches = store.matchInvoiceLines(lines);
     const supplier = r.supplier ? store.listSuppliers().find((s) => s.name.toLowerCase() === String(r.supplier).toLowerCase().trim()) : null;
     return { ...r, supplier_id: supplier?.id ?? null, lines: lines.map((l, i) => ({ ...l, match: matches[i].product, how: matches[i].how })) };
-  }, 'arrivals'],
-  ['POST', '/api/invoice/match', (p, url, body) => store.matchInvoiceLines(Array.isArray(body.lines) ? body.lines : []), 'arrivals'],
-  ['POST', '/api/invoice/receive', (p, url, body, user) => store.receiveInvoice(body, user), 'arrivals'],
-  ['GET', '/api/finance', (p, url) => store.finance(range(url)), 'dashboard'],
-  ['GET', '/api/expenses', (p, url) => ({ list: store.listExpenses(range(url)), categories: store.expenseCategories }), ['expenses', 'dashboard']],
+  }, 'receive.photo'],
+  ['POST', '/api/invoice/match', (p, url, body) => store.matchInvoiceLines(Array.isArray(body.lines) ? body.lines : []), 'receive.photo'],
+  ['POST', '/api/invoice/receive', (p, url, body, user) => store.receiveInvoice(body, user), 'receive.photo'],
+  ['GET', '/api/finance', (p, url) => store.finance(range(url)), 'finance'],
+  ['GET', '/api/expenses', (p, url) => ({ list: store.listExpenses(range(url)), categories: store.expenseCategories }), ['expenses', 'finance']],
   ['POST', '/api/expenses', (p, url, body, user) => store.addExpense(body, user), 'expenses'],
   ['DELETE', '/api/expenses/:id', (p) => store.deleteExpense(p.id), 'expenses'],
-  ['GET', '/api/recurring-expenses', () => store.listRecurring(), ['expenses', 'dashboard']],
+  ['GET', '/api/recurring-expenses', () => store.listRecurring(), ['expenses', 'finance']],
   ['POST', '/api/recurring-expenses', (p, url, body) => store.saveRecurring(null, body), 'expenses'],
   ['PUT', '/api/recurring-expenses/:id', (p, url, body) => store.saveRecurring(p.id, body), 'expenses'],
   ['DELETE', '/api/recurring-expenses/:id', (p) => store.deleteRecurring(p.id), 'expenses'],
@@ -514,7 +514,7 @@ const routes = [
   ['GET', '/api/reports/abc', (p, url, body, user) => {
     const r = store.abcData({ ...range(url), bucket: url.searchParams.get('bucket') === 'month' ? 'month' : 'week' });
     return can(user, 'stock.view') ? r : { ...r, products: r.products.map((x) => ({ ...x, stock: null })) };
-  }, ['kpi', 'dashboard']],
+  }, 'abc'],
   ['GET', '/api/reports/products', (p, url) => store.reportProducts(range(url)), 'kpi'],
 
   // Своя смена — у любого, кто работает на кассе; чужие смены — у права «Смены».
@@ -547,7 +547,7 @@ const routes = [
     const row = t.rows.find((r) => r.user.id === user.id) || null;
     if (row) for (const c of Object.values(row.days)) if (c.mark) c.mark = { status: c.mark.status, amount: c.mark.amount, color: c.mark.color, note: c.mark.note };
     return { year: t.year, month: t.month, daysInMonth: t.daysInMonth, today: t.today, user: { id: user.id, name: user.name || user.email, shift_rate: user.shift_rate, percent: user.percent, salary: user.salary }, row };
-  }, 'any'],
+  }, 'mytimesheet'],
   ['PUT', '/api/timesheet/marks', (p, url, body, user) => store.setTimesheetMarks(body, user), 'timesheet.edit'],
   ['GET', '/api/tasks', (p, url, body, user) => {
     // Без входа (сотрудников ещё нет) программа открыта как администратору.

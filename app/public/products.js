@@ -96,6 +96,7 @@ async function openProductCard(id, stats = null) {
   $('#pc-writeoff').hidden = !session.can('writeoff') || kids.length > 0;
   $('#pc-open').hidden = currentView === 'products' || (!session.can('products') && !session.can('photos'));
   $('#pc-tabs [data-pc-tab="stock"]').hidden = !session.can('stock.view') && !session.can('stock') && !session.can('writeoff');
+  $('#pc-tabs [data-pc-tab="history"]').hidden = !session.can('products.history');
   if (!$('#product-card').open) {
     cardTab = 'info';
     $('#product-card').showModal();
@@ -377,6 +378,27 @@ $('#bulk-labels').addEventListener('click', async () => {
     if (kids.length) kids.forEach((k) => ids.add(k.id)); else ids.add(id);
   }
   openLabels(list.filter((p) => ids.has(p.id)));
+});
+// Документ по выбранным товарам: основной товар заменяется его модификациями.
+function bulkDocItems() {
+  const ids = new Set();
+  for (const id of productsView.selected) {
+    const kids = catalog.children(id);
+    if (kids.length) kids.forEach((k) => ids.add(k.id)); else ids.add(id);
+  }
+  return catalog.sellable().filter((p) => ids.has(p.id));
+}
+$('#bulk-inventory').addEventListener('click', () => {
+  const list = bulkDocItems();
+  if (!list.length) return toast('Выберите товары, которые есть в продаже', 'error');
+  productsView.selected.clear();
+  newDoc('inventory', list.map((p) => ({ productId: p.id, qty: 0, price: p.price, cost: p.cost, actual: null, reason: '' })));
+});
+$('#bulk-writeoff').addEventListener('click', () => {
+  const list = bulkDocItems();
+  if (!list.length) return toast('Выберите товары, которые есть в продаже', 'error');
+  productsView.selected.clear();
+  newDoc('writeoff', list.map((p) => ({ productId: p.id, qty: 1, price: p.price, cost: p.cost, actual: null, reason: WRITEOFF_REASONS[0] })));
 });
 $('#bulk-clear').addEventListener('click', () => { productsView.selected.clear(); renderProducts(); });
 $('#bulk-cancel').addEventListener('click', () => $('#bulk-dialog').close());

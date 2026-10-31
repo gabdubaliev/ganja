@@ -1350,3 +1350,6 @@ th.ts-name.ts-editable:hover, th.ts-day.ts-editable:hover { color: var(--series)
 @media (max-width: 900px) { .rc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rc-totals { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .rc-grid { grid-template-columns: 1fr; } }
 .rc-sale::placeholder { color: var(--ink); opacity: .85; }
+.btn.big-action { font-size: 16px; padding: 12px 20px; }
+.docs-empty { text-align: center; padding: 28px 10px !important; line-height: 2.2; }
+#inv-start-dialog .inv-option select { margin-top: 2px; }

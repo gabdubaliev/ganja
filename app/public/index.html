@@ -158,6 +158,8 @@
       <button type="button" class="btn small" data-bulk="unit">Единица</button>
       <button type="button" class="btn small" data-bulk="barcodes">Штрихкоды</button>
       <button type="button" class="btn small" id="bulk-labels">Этикетки</button>
+      <button type="button" class="btn small" id="bulk-inventory" data-can="stock" hidden>📋 Инвентаризация</button>
+      <button type="button" class="btn small" id="bulk-writeoff" data-can="writeoff" hidden>🗑️ Списать</button>
       <button type="button" class="btn small" data-bulk="archive" id="bulk-archive">Убрать из продажи</button>
       <button type="button" class="btn small" data-bulk="restore" id="bulk-restore">Вернуть в продажу</button>
       <button type="button" class="btn small danger-ghost" data-bulk="delete" data-can="products.delete" hidden>Удалить</button>
@@ -174,7 +176,7 @@
 
 <main class="page" data-view="docs" hidden>
   <header class="top">
-    <div class="title"><h1>Документы</h1><span class="source" id="docs-sub"></span></div>
+    <div class="title"><h1 id="docs-title">Документы</h1><span class="source" id="docs-sub"></span></div>
     <div class="tools docs-new" id="docs-new"></div>
   </header>
   <section class="panel period-bar docs-bar">
@@ -193,6 +195,17 @@
     </div>
   </section>
 </main>
+
+<dialog id="inv-start-dialog" class="wide" aria-labelledby="inv-start-title">
+  <h2 id="inv-start-title">Начать инвентаризацию</h2>
+  <p class="sub">Что пересчитываем? Документ откроется черновиком: вписывайте факт или сканируйте штрихкоды (каждый скан +1). Остатки изменятся, только когда отметите «✓ Проведён».</p>
+  <div class="inv-options">
+    <button type="button" class="inv-option" data-inv-start="all"><b>📦 Все товары</b><span class="pick-meta">Полная инвентаризация магазина · <span id="inv-start-count"></span></span></button>
+    <div class="inv-option"><b>🏷️ Одна категория</b><select id="inv-start-cat" class="input" aria-label="Категория"></select><button type="button" class="btn small primary" data-inv-start="cat">Начать</button></div>
+    <button type="button" class="inv-option" data-inv-start="scan"><b>📷 Сканировать по одному</b><span class="pick-meta">Пустой список: добавляйте товары сканером или поиском</span></button>
+  </div>
+  <div class="form-actions"><button type="button" class="btn ghost" id="inv-start-cancel">Отмена</button></div>
+</dialog>
 
 <main class="page" data-view="doc" hidden>
   <header class="top">

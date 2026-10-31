@@ -75,4 +75,4 @@ async function renderMyTimesheet() {
 $('#mts-prev').addEventListener('click', () => { if (--mts.month < 1) { mts.month = 12; mts.year--; } renderMyTimesheet(); });
 $('#mts-next').addEventListener('click', () => { if (++mts.month > 12) { mts.month = 1; mts.year++; } renderMyTimesheet(); });
 
-views.mytimesheet = { show: renderMyTimesheet, right: '' };
+views.mytimesheet = { show: renderMyTimesheet, right: 'mytimesheet' };

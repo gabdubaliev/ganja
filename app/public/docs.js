@@ -13,6 +13,11 @@ const DOC_KIND = {
   inventory: { name: 'Инвентаризация', many: 'Инвентаризации', icon: '📋', right: 'stock', about: 'Пересчёт по факту: недостача и излишек' },
   transfer: { name: 'Перемещение', many: 'Перемещения', icon: '🚚', right: 'transfer', about: 'Товар в другой магазин: здесь убавится, там прибавится' },
 };
+// Главная кнопка в разделе вида документа.
+const DOC_ACTION = {
+  sale: '🧾 Новая продажа', purchase: '📦 Новая закупка', return: '↩️ Оформить возврат', receipt: '➕ Новое оприходование',
+  writeoff: '🗑️ Новое списание', inventory: '📋 Начать инвентаризацию', transfer: '🚚 Новое перемещение',
+};
 const WRITEOFF_REASONS = ['Брак', 'Просрочка', 'Порча, бой', 'Недостача, кража', 'Для нужд магазина', 'Пересорт', 'Другое'];
 const docsView = { kind: '', status: '', range: 'month', list: [] };
 const doc = { data: null, dirty: false, methods: [], suppliers: [], branches: [], customer: null, filter: 'all' };
@@ -33,7 +38,12 @@ async function renderDocs() {
   $('#docs-status').innerHTML = [['', 'Все'], ['posted', 'Проведённые'], ['draft', 'Не проведённые']]
     .map(([k, l]) => `<button type="button" data-status="${k}" aria-pressed="${docsView.status === k}">${l}</button>`).join('');
   renderRanges($('#docs-ranges'), ['week', 'month', 'prevMonth', 'year'].filter((k) => RANGES[k]), docsView.range);
-  $('#docs-new').innerHTML = kinds.map((k) => `<button type="button" class="btn ${k === docsView.kind ? 'primary' : ''}" data-new="${k}">+ ${DOC_KIND[k].name}</button>`).join('');
+  // В разделе одного вида — одна большая кнопка «создать»; в общем списке — кнопки всех видов.
+  const one = docsView.kind;
+  $('#docs-title').textContent = one ? DOC_KIND[one].many : 'Документы';
+  $('#docs-new').innerHTML = one
+    ? `<button type="button" class="btn primary big-action" data-new="${one}">${DOC_ACTION[one]}</button>${one === 'purchase' && session.can('receive.photo') ? '<a class="btn" href="#receive">📸 По фото накладной</a>' : ''}`
+    : kinds.map((k) => `<button type="button" class="btn" data-new="${k}">+ ${DOC_KIND[k].name}</button>`).join('');
   const [from, to] = RANGES[docsView.range][1]();
   try {
     docsView.list = await api(`/api/docs?from=${from}&to=${to}${docsView.kind ? '&kind=' + docsView.kind : ''}${docsView.status ? '&status=' + docsView.status : ''}`);
@@ -49,7 +59,7 @@ async function renderDocs() {
       <td>${esc(d.supplier || d.customer || d.method || '') || '—'}${d.note ? `<div class="pcat">${esc(d.note)}</div>` : ''}</td>
       <td class="num">${int(d.lines)}</td>
       <td class="num">${d.kind === 'inventory' ? (d.status !== 'posted' ? '—' : d.shortage_cost || d.surplus_cost ? `${d.shortage_cost ? `<span class="neg">−${money(d.shortage_cost)}</span>` : ''}${d.shortage_cost && d.surplus_cost ? ' / ' : ''}${d.surplus_cost ? `<span class="pos-text">+${money(d.surplus_cost)}</span>` : ''}` : 'без расхождений') : money(isMoney(d.kind) ? d.total : d.total_cost || d.total)}</td>
-    </tr>`).join('') : '<tr><td colspan="6" class="empty">Документов за этот период нет</td></tr>';
+    </tr>`).join('') : `<tr><td colspan="6" class="empty docs-empty">${one ? `${DOC_KIND[one].many} за этот период нет.<br><button type="button" class="btn primary" data-new="${one}">${DOC_ACTION[one]}</button>` : 'Документов за этот период нет. Создайте документ кнопками вверху.'}</td></tr>`;
 }
 
 $('#docs-kinds').addEventListener('click', (e) => {
@@ -70,11 +80,37 @@ $('#docs-ranges').addEventListener('click', (e) => {
   docsView.range = b.dataset.range;
   renderDocs();
 });
-$('#docs-new').addEventListener('click', (e) => {
+// Инвентаризация начинается с выбора: все товары, категория или сканировать по одному.
+function startDoc(kind) {
+  if (kind !== 'inventory') return newDoc(kind);
+  const cats = [...new Set(catalog.sellable().map((p) => p.category || (p.parent_id ? catalog.byId(p.parent_id)?.category : '')).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru'));
+  $('#inv-start-cat').innerHTML = '<option value="">Выберите категорию…</option>' + cats.map((c) => `<option>${esc(c)}</option>`).join('');
+  $('#inv-start-count').textContent = `${catalog.sellable().filter((p) => !p.archived).length} товаров`;
+  $('#inv-start-dialog').showModal();
+}
+async function startDocClick(e) {
   const b = e.target.closest('[data-new]');
-  if (b) newDoc(b.dataset.new);
+  if (!b) return;
+  if (!catalog.list.length) await catalog.load().catch(() => {});
+  startDoc(b.dataset.new);
+}
+$('#docs-new').addEventListener('click', startDocClick);
+$('#docs-body').addEventListener('click', startDocClick);
+$('#inv-start-dialog').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-inv-start]');
+  if (e.target.closest('#inv-start-cancel')) return $('#inv-start-dialog').close();
+  if (!b) return;
+  const how = b.dataset.invStart;
+  const catOf = (p) => p.category || (p.parent_id ? catalog.byId(p.parent_id)?.category : '');
+  const cat = $('#inv-start-cat').value;
+  if (how === 'cat' && !cat) return toast('Выберите категорию', 'error');
+  const list = how === 'scan' ? [] : catalog.sellable().filter((p) => !p.archived && (how === 'all' || catOf(p) === cat));
+  $('#inv-start-dialog').close();
+  newDoc('inventory', list.map((p) => ({ productId: p.id, qty: 0, price: p.price, cost: p.cost, actual: null, reason: '' })));
+  if (how === 'cat') doc.data.note = `Категория «${cat}»`;
 });
 $('#docs-body').addEventListener('click', (e) => {
+  if (e.target.closest('[data-new]')) return;
   const tr = e.target.closest('[data-doc]');
   if (tr) openDoc(Number(tr.dataset.doc));
 });

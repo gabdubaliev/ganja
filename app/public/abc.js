@@ -115,6 +115,7 @@ function abcMatrixHtml(rows, by, selected = '') {
 async function renderHomeAbc() {
   const box = $('#home-abc');
   if (!box) return;
+  if (!session.can('abc')) { box.hidden = true; return; }
   const saved = abc.period;
   abc.period = 'w13';
   const { from, to } = abcRange();
@@ -256,4 +257,4 @@ $('#abc-export').addEventListener('click', () => {
   URL.revokeObjectURL(a.href);
 });
 
-views.abc = { show: renderAbc, right: ['kpi', 'dashboard'] };
+views.abc = { show: renderAbc, right: 'abc' };

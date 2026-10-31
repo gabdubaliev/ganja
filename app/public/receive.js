@@ -280,4 +280,4 @@ $('#rc-key-form').addEventListener('submit', async (e) => {
   }
 });
 
-views.receive = { show: renderReceive, right: 'arrivals' };
+views.receive = { show: renderReceive, right: 'receive.photo' };

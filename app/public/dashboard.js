@@ -399,10 +399,12 @@ async function load() {
   try {
     // Зарплата и расходы — за текущий и прошлый такой же период (для сравнения чистой прибыли).
     const fin = (a, b) => api(`/api/finance?from=${Math.floor(a)}&to=${Math.ceil(b)}`);
+    // Расходы и чистая прибыль — только с правом «finance».
+    const f = session.can('finance');
     const [data, cur, prev, expenses, recurring] = await Promise.all([fetchData(from, now),
-      fin(r.start, now).catch(() => null), fin(r.prevStart, r.prevEnd).catch(() => null),
-      api(`/api/expenses?from=${Math.floor(r.start)}&to=${Math.ceil(now)}`).catch(() => null),
-      api('/api/recurring-expenses').catch(() => [])]);
+      f ? fin(r.start, now).catch(() => null) : null, f ? fin(r.prevStart, r.prevEnd).catch(() => null) : null,
+      f ? api(`/api/expenses?from=${Math.floor(r.start)}&to=${Math.ceil(now)}`).catch(() => null) : null,
+      f ? api('/api/recurring-expenses').catch(() => []) : []]);
     if (ticket !== loading) return;
     state.finance = cur && prev ? { cur, prev } : null;
     state.expenses = expenses;
