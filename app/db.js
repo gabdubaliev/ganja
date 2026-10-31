@@ -150,6 +150,15 @@ function open(file) {
   // Предоплата переводом: способ (из настроек витрины), «Я оплатил» от покупателя и подтверждение сотрудником.
   addColumns('orders', [['pay_id', "TEXT NOT NULL DEFAULT ''"], ['pay_name', "TEXT NOT NULL DEFAULT ''"], ['pay_method_id', 'INTEGER'],
     ['paid_claimed_at', 'INTEGER'], ['paid_at', 'INTEGER'], ['paid_by', "TEXT NOT NULL DEFAULT ''"]]);
+  // Чеки об оплате, которые прикрепил покупатель (скриншот перевода или PDF).
+  db.exec(`CREATE TABLE IF NOT EXISTS order_receipts (
+    id INTEGER PRIMARY KEY,
+    order_id INTEGER NOT NULL,
+    mime TEXT NOT NULL,
+    data BLOB NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS order_receipts_order ON order_receipts(order_id);`);
   // Способы оплаты: наличные, МБАНК, Оптима и всё, что заведёт владелец. kind — тип: cash, card, transfer, qr, other.
   // У чека — ссылка на способ и его название на момент продажи (чтобы переименование не меняло историю).
   db.exec(`
@@ -3557,6 +3566,28 @@ function createStore(file) {
       });
     },
 
+    // Покупатель прикрепил чек об оплате. Заказ, где оплата не найдена, снова уходит на проверку.
+    addOrderReceipt(id, customer, { mime, data }) {
+      const o = this.getOrder(id);
+      if (!customer || (o.customer_id !== customer.id && o.phone !== customer.phone)) throw new UserError('Заказ не найден');
+      if (!o.pay_id) throw new UserError('Этот заказ оплачивается при получении');
+      if (o.status === 'done' || o.status === 'cancelled') throw new UserError('Заказ уже закрыт');
+      if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(mime)) throw new UserError('Чек — картинка (JPG, PNG) или PDF');
+      const bytes = Buffer.from(String(data || ''), 'base64');
+      if (!bytes.length) throw new UserError('Файл пустой');
+      if (bytes.length > 5e6) throw new UserError('Файл больше 5 МБ');
+      if (o.receipts.length >= 5) throw new UserError('К заказу можно прикрепить не больше 5 файлов');
+      db.prepare('INSERT INTO order_receipts (order_id, mime, data, created_at) VALUES (?, ?, ?, ?)').run(o.id, mime, bytes, Date.now());
+      if (o.status === 'unpaid') db.prepare("UPDATE orders SET status = 'checking', paid_claimed_at = ?, updated_at = ? WHERE id = ?").run(Date.now(), Date.now(), o.id);
+      return this.getOrder(o.id);
+    },
+
+    getOrderReceipt(orderId, receiptId) {
+      const r = db.prepare('SELECT mime, data FROM order_receipts WHERE id = ? AND order_id = ?').get(Number(receiptId), Number(orderId));
+      if (!r) throw new UserError('Чек не найден');
+      return r;
+    },
+
     // Покупатель нажал «Я оплатил» по своему заказу.
     claimOrderPaid(id, customer) {
       const o = this.getOrder(id);
@@ -3582,7 +3613,8 @@ function createStore(file) {
     getOrder(id) {
       const o = db.prepare('SELECT * FROM orders WHERE id = ?').get(Number(id));
       if (!o) throw new UserError('Заказ не найден');
-      return { ...o, items: db.prepare('SELECT product_id, name, qty, price FROM order_items WHERE order_id = ?').all(o.id) };
+      return { ...o, items: db.prepare('SELECT product_id, name, qty, price FROM order_items WHERE order_id = ?').all(o.id),
+        receipts: db.prepare('SELECT id, mime, created_at FROM order_receipts WHERE order_id = ? ORDER BY id').all(o.id) };
     },
 
     // status 'active' — все незакрытые.

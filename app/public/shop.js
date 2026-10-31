@@ -16,7 +16,7 @@ const FONTS = {
   condensed: '"Roboto Condensed", "Arial Narrow", "Segoe UI", system-ui, sans-serif',
 };
 
-const state = { settings: null, products: [], categories: [], cat: '', query: '', way: 'pickup', payId: '', payOrder: null, cart: loadCart(), open: null, sel: {}, me: null, orders: [], codeFor: null };
+const state = { settings: null, products: [], categories: [], cat: '', query: '', way: 'pickup', payId: '', payOrder: null, receiptFile: null, cart: loadCart(), open: null, sel: {}, me: null, orders: [], codeFor: null };
 
 function loadCart() {
   try { return JSON.parse(localStorage.getItem('shop.cart')) || {}; } catch { return {}; }
@@ -293,9 +293,64 @@ function payBoxHtml(pays, payId, amount, where) {
     <ol class="pay-steps">
       <li>Отсканируйте QR-код в приложении банка${p.qr ? ' (с телефона — сохраните картинку и выберите её в приложении)' : ''}.</li>
       <li>Переведите ${rub(amount)}.</li>
+      <li>Прикрепите чек об оплате (скриншот из банка) — так мы проверим быстрее.</li>
       <li>Нажмите «Я оплатил» — мы проверим поступление.</li>
-    </ol>`;
+    </ol>
+    ${where === 'checkout' ? receiptPickHtml('checkout', state.receiptFile ? [state.receiptFile.name] : []) : ''}`;
 }
+
+// Прикрепить чек: кнопка-выбор файла (фото из галереи, скриншот или PDF).
+function receiptPickHtml(target, names = [], count = 0) {
+  return `<label class="receipt-pick">
+      <input type="file" accept="image/*,application/pdf" data-receipt="${target}" hidden>
+      <span class="receipt-btn">📎 ${names.length ? 'Заменить чек' : count ? 'Прикрепить ещё чек' : 'Прикрепить чек об оплате'}</span>
+    </label>
+    ${names.length ? `<div class="receipt-names">${names.map((n) => `✓ ${esc(n)}`).join('<br>')}</div>` : ''}
+    ${count ? `<div class="receipt-names">✓ Чек прикреплён${count > 1 ? ` (${count})` : ''}</div>` : ''}`;
+}
+
+// Файл чека → данные для отправки: картинка уменьшается до 1600 px (JPEG), PDF — как есть.
+async function receiptPayload(file) {
+  const toBase64 = (blob) => new Promise((ok, fail) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = fail; r.readAsDataURL(blob); });
+  if (file.type === 'application/pdf') {
+    if (file.size > 5e6) throw new Error('PDF больше 5 МБ');
+    return { mime: 'application/pdf', data: await toBase64(file) };
+  }
+  if (!file.type.startsWith('image/')) throw new Error('Прикрепите картинку или PDF');
+  const img = await createImageBitmap(file);
+  const k = Math.min(1, 1600 / Math.max(img.width, img.height));
+  const c = document.createElement('canvas');
+  c.width = Math.round(img.width * k);
+  c.height = Math.round(img.height * k);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  const blob = await new Promise((ok) => c.toBlob(ok, 'image/jpeg', 0.85));
+  return { mime: 'image/jpeg', data: await toBase64(blob) };
+}
+
+async function uploadReceipt(orderId, file) {
+  const res = await fetch(`/shop/order/${orderId}/receipt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(await receiptPayload(file)) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Не получилось прикрепить чек');
+  return data;
+}
+
+document.addEventListener('change', async (e) => {
+  const input = e.target.closest('[data-receipt]');
+  if (!input || !input.files[0]) return;
+  const file = input.files[0];
+  if (input.dataset.receipt === 'checkout') {
+    state.receiptFile = file;
+    return renderCart();
+  }
+  try {
+    await uploadReceipt(Number(input.dataset.receipt), file);
+    toast('Чек прикреплён. Спасибо!');
+    await loadMe();
+    renderProfile();
+  } catch (err) {
+    toast(err.message);
+  }
+});
 
 function renderAll() {
   renderGrid();
@@ -377,13 +432,19 @@ $('#checkout').addEventListener('submit', async (e) => {
     const data = await res.json().catch(() => ({}));
     if (res.status === 401) { state.me = null; renderAccountButton(); openAccount('login'); throw new Error(data.error); }
     if (!res.ok) throw new Error(data.error || 'Не получилось оформить заказ');
-    loadMe();
+    // Чек об оплате — к уже созданному заказу. Не получилось — заказ всё равно оформлен, чек можно прикрепить в «Моих заказах».
+    let receiptError = '';
+    if (state.receiptFile && data.id) {
+      try { await uploadReceipt(data.id, state.receiptFile); } catch (error) { receiptError = ` Чек не прикрепился (${error.message}) — прикрепите его в «Моих заказах».`; }
+    }
+    state.receiptFile = null;
+    await loadMe();
     state.cart = {};
     saveCart();
     renderAll();
     $('#cart').close();
     $('#done-text').textContent = data.status === 'checking'
-      ? `Номер заказа: ${data.id}. Сумма: ${rub(data.total)}. Мы проверим поступление оплаты, упакуем заказ и передадим курьеру. Статус — в «Моих заказах».`
+      ? `Номер заказа: ${data.id}. Сумма: ${rub(data.total)}. Мы проверим поступление оплаты, упакуем заказ и передадим курьеру. Статус — в «Моих заказах».${receiptError}`
       : `Номер заказа: ${data.id}. Сумма: ${rub(data.total)}. Мы скоро позвоним, чтобы подтвердить.`;
     $('#done').showModal();
     f.reset();
@@ -522,7 +583,8 @@ function renderProfile() {
       <div class="small left">${o.items.map((i) => `${esc(i.name)} × ${qtyFmt.format(i.qty)}`).join(', ')}</div>
       <b>${rub(o.total)}</b>
       ${o.status === 'unpaid' && state.settings?.payments?.length ? `<p class="small left">Мы не нашли оплату по этому заказу. Если вы уже перевели деньги — свяжитесь с нами${state.settings.phone ? `: ${esc(state.settings.phone)}` : ''}. Если нет — оплатите и нажмите «Я оплатил».</p>
-        <div class="pay-box">${payBoxHtml(state.settings.payments, state.payId, o.total, 'profile')}<button type="button" class="primary" data-paid="${o.id}">✅ Я оплатил</button></div>` : ''}
+        <div class="pay-box">${payBoxHtml(state.settings.payments, state.payId, o.total, 'profile')}${receiptPickHtml(o.id, [], o.receipts?.length || 0)}<button type="button" class="primary" data-paid="${o.id}">✅ Я оплатил</button></div>` : ''}
+      ${o.pay_id && ['checking', 'confirmed', 'ready', 'shipped'].includes(o.status) ? receiptPickHtml(o.id, [], o.receipts?.length || 0) : ''}
     </div>`).join('') : '<p class="small left">Онлайн-заказов пока нет</p>';
   const f = $('#profile-form');
   f.elements.name.value = me.name;

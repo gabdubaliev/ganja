@@ -555,6 +555,8 @@ tr.variant-row .pname { font-weight: 500; }
 .seg-tag.checking { background: #f59e0b; color: #fff; }
 .seg-tag.unpaid { background: var(--critical-soft, rgba(225, 29, 72, 0.12)); color: var(--critical); }
 .order-pay { margin-top: 4px; font-size: 13px; }
+.order-receipts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.receipt-thumb { width: 72px; height: 96px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); background: #fff; }
 .customers-table { min-width: 980px; }
 .customers-table th:nth-child(2), .customers-table td:nth-child(2) { text-align: left; }
 

@@ -38,7 +38,15 @@ function orderActions(o) {
     : '<span class="neg">Нет доступных способов оплаты</span>';
 }
 const orderPayLine = (o) => (o.pay_id ? `<div class="order-pay">💳 ${esc(o.pay_name)}${o.paid_at ? ` · <b class="pos">оплата подтверждена</b> ${dateTime(o.paid_at)}${o.paid_by ? `, ${esc(o.paid_by)}` : ''}`
-  : o.status === 'checking' ? ` · покупатель нажал «Я оплатил» ${o.paid_claimed_at ? dateTime(o.paid_claimed_at) : ''} — <b>сверьте поступление ${money2(o.total)}</b>` : ' · <span class="neg">оплата не получена</span>'}</div>` : '');
+  : o.status === 'checking' ? ` · покупатель нажал «Я оплатил» ${o.paid_claimed_at ? dateTime(o.paid_claimed_at) : ''} — <b>сверьте поступление ${money2(o.total)}</b>` : ' · <span class="neg">оплата не получена</span>'}</div>
+  ${orderReceipts(o)}` : '');
+// Чеки об оплате от покупателя: миниатюра открывает чек целиком.
+const orderReceipts = (o) => (o.receipts?.length ? `<div class="order-receipts">${o.receipts.map((r) => {
+  const url = `/api/orders/${o.id}/receipts/${r.id}`;
+  return r.mime === 'application/pdf'
+    ? `<a class="btn small" href="${url}" target="_blank" rel="noopener">📄 Чек PDF</a>`
+    : `<a href="${url}" target="_blank" rel="noopener" title="Чек от ${dateTime(r.created_at)}"><img class="receipt-thumb" src="${url}" alt="Чек об оплате"></a>`;
+}).join('')}</div>` : (o.pay_id && !o.paid_at ? '<div class="pick-meta">Чек покупатель не прикрепил</div>' : ''));
 
 async function renderOrders() {
   try { ordersView.methods = await api('/api/payment-methods?mine=1'); } catch { ordersView.methods = []; }

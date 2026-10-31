@@ -94,7 +94,16 @@ function createNotifier(store) {
       .catch((err) => console.error('Уведомление в Telegram не отправлено:', err.message));
   }
 
-  return { subscribe, broadcast, sale, order, orderPaid, sendTelegram, telegramSettings };
+  // Покупатель прикрепил чек об оплате.
+  function orderReceipt(o) {
+    broadcast('order', { id: o.id, total: o.total, name: o.name, items: o.items.length, at: Date.now() }, 'orders');
+    const tg = telegramSettings();
+    if (!tg.enabled) return;
+    sendTelegram(`📎 Заказ №${o.id}: покупатель прикрепил чек об оплате ${rub(o.total)}. Проверьте в «Заказах».\n${o.name}, +${o.phone}`, tg)
+      .catch((err) => console.error('Уведомление в Telegram не отправлено:', err.message));
+  }
+
+  return { subscribe, broadcast, sale, order, orderPaid, orderReceipt, sendTelegram, telegramSettings };
 }
 
 module.exports = { createNotifier };

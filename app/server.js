@@ -806,6 +806,8 @@ const routes = [
   ['GET', '/api/shop', () => store.shop(), 'shop'],
   ['PUT', '/api/shop', (p, url, body) => store.setShop(body), 'shop'],
   ['GET', '/api/orders', (p, url) => store.listOrders({ status: url.searchParams.get('status') || '' }), 'orders'],
+  // Чек об оплате, который прикрепил покупатель, — картинкой или PDF.
+  ['GET', '/api/orders/:id/receipts/:rid', (p) => ({ __file: store.getOrderReceipt(p.id, p.rid) }), ['orders', 'orders.payment']],
   ['PUT', '/api/orders/:id', (p, url, body, user) => {
     const order = store.setOrderStatus(p.id, body, user, { canPay: !auth.enabled || can(user, 'orders.payment') });
     if (body.status === 'done' && order.sale_id) notifier.sale({ ...store.getSale(order.sale_id), items: order.items, paid: order.total }, user);
@@ -1294,6 +1296,21 @@ async function handlePublic(req, res, url, user) {
     return sendBytes(res, found.mime, Buffer.from(found.data), 'public, max-age=86400');
   }
   if (pathname.startsWith('/shop/account/')) return shopAccount(req, res, url);
+  // Покупатель прикрепил чек об оплате (скриншот перевода или PDF).
+  const receipt = req.method === 'POST' && pathname.match(/^\/shop\/order\/(\d+)\/receipt$/);
+  if (receipt) {
+    try {
+      const customer = shopAuth.current(req);
+      if (!customer) return sendJson(res, 401, { error: 'Войдите снова' });
+      const order = store.addOrderReceipt(receipt[1], customer, await readBody(req));
+      notifier.orderReceipt(order);
+      store.audit({ kind: 'change', userName: `Покупатель: ${order.name}`, ip: clientIp(req), device: device(req), action: 'Покупатель прикрепил чек об оплате', details: `Заказ №${order.id} на ${order.total} сом` });
+      return sendJson(res, 200, { ok: true, status: order.status, receipts: order.receipts.length });
+    } catch (err) {
+      if (err instanceof UserError) return sendJson(res, 400, { error: err.message });
+      throw err;
+    }
+  }
   // Покупатель нажал «Я оплатил» — заказ ждёт сверки перевода.
   const paidClaim = req.method === 'POST' && pathname.match(/^\/shop\/order\/(\d+)\/paid$/);
   if (paidClaim) {
@@ -1418,6 +1435,7 @@ async function handleRequest(req, res, url, user, owner) {
         console.error('Журнал действий:', err.message);
       }
     }
+    if (result?.__file) return sendBytes(res, result.__file.mime, Buffer.from(result.__file.data), 'private, max-age=3600');
     sendJson(res, 200, result);
   } catch (err) {
     if (err instanceof UserError) return sendJson(res, 400, { error: err.message });
