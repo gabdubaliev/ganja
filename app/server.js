@@ -114,6 +114,13 @@ if (mainStore.setting('shared_wallet', '0') !== '1') {
   mainStore.setSetting('shared_wallet', '1');
   console.log('Бонусы и сертификаты всех магазинов объединены');
 }
+// Один раз: покупатели филиалов переезжают в общую базу — у всех магазинов одни клиенты.
+if (mainStore.setting('shared_customers', '0') !== '1') {
+  for (const b of branchList()) if (!b.main) console.log(`Покупатели «${b.name}» в общей базе: ${mainStore.absorbBranchCustomers(contextOf(b.id).store)}`);
+  mainStore.setSetting('shared_customers', '1');
+}
+// Аккаунты покупателей витрины — только у основного магазина (покупатели общие).
+const mainShopAuth = () => contextOf(1).shopAuth;
 const storeName = (id) => branchList().find((b) => b.id === (id || 1))?.name || '';
 
 // Администратор из переменных. APP_PASSWORD — пароль из прошлых версий, где вход был без email.
@@ -720,11 +727,11 @@ const routes = [
   ['POST', '/api/customers', (p, url, body) => store.createCustomer(body), ['customers.create', 'loyalty', 'certificates.manage']],
   ['GET', '/api/customers', (p, url) => store.listCustomers({ q: url.searchParams.get('q') || '' }), 'customers'],
   ['GET', '/api/customers/rating', () => store.customerRating(), 'customers'],
-  ['GET', '/api/customers/codes', () => shopAuth.pendingCodes(), 'customers.accounts'],
-  ['POST', '/api/customers/codes/:id/sent', (p, url, body, user) => shopAuth.markCodeSent(p.id, user), 'customers.accounts'],
-  ['POST', '/api/customers/:id/password', (p) => shopAuth.adminResetPassword(p.id), 'customers.accounts'],
-  ['PUT', '/api/customers/:id/login', (p, url, body) => shopAuth.setLoginDisabled(p.id, body.disabled), 'customers.accounts'],
-  ['GET', '/api/customers/:id/orders', (p) => shopAuth.myOrders(store.findCustomer(p.id) || (() => { throw new UserError('Покупатель не найден'); })()), 'customers'],
+  ['GET', '/api/customers/codes', () => mainShopAuth().pendingCodes(), 'customers.accounts'],
+  ['POST', '/api/customers/codes/:id/sent', (p, url, body, user) => mainShopAuth().markCodeSent(p.id, user), 'customers.accounts'],
+  ['POST', '/api/customers/:id/password', (p) => mainShopAuth().adminResetPassword(p.id), 'customers.accounts'],
+  ['PUT', '/api/customers/:id/login', (p, url, body) => mainShopAuth().setLoginDisabled(p.id, body.disabled), 'customers.accounts'],
+  ['GET', '/api/customers/:id/orders', (p) => mainShopAuth().myOrders(store.findCustomer(p.id) || (() => { throw new UserError('Покупатель не найден'); })()), 'customers'],
   ['GET', '/api/customers/:id/bonus', (p) => store.bonusHistory(p.id).map((b) => ({ ...b, store: storeName(b.store_id) })), 'customers'],
   // Действующие сертификаты покупателя — на кассе предлагаются вместе с бонусами.
   ['GET', '/api/customers/:id/certificates', (p) => store.customerCertificates(p.id), ['pos', 'certificates.accept', 'customers']],

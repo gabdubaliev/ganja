@@ -970,11 +970,16 @@ function createStore(file) {
 
     /* ---------- Общие бонусы и сертификаты всех магазинов ---------- */
     // Филиал подключается к основному магазину: бонусы, сертификаты и правила программы лояльности — там.
+    // Покупатели тоже общие: таблица customers основной базы подключается сюда (ATTACH) и подменяет свою
+    // временным представлением — чтение и JOIN работают как раньше, а запись идёт через основной магазин.
     useBank(mainStore, id) {
       bank = mainStore;
       storeId = Number(id);
       cdb = mainStore.db;
+      db.exec(`ATTACH DATABASE '${String(mainStore.file).replace(/'/g, "''")}' AS shared`);
+      db.exec('CREATE TEMP VIEW IF NOT EXISTS customers AS SELECT * FROM shared.customers');
     },
+    file,
 
     // Покупатель общей базы для покупателя магазина: по телефону; если его там нет — заводится.
     walletCustomer(c) {
@@ -1029,12 +1034,12 @@ function createStore(file) {
         const mainOf = (localId) => {
           if (!localId) return null;
           if (!custOf.has(localId)) {
-            const c = bdb.prepare('SELECT * FROM customers WHERE id = ?').get(localId);
+            const c = bdb.prepare('SELECT * FROM main.customers WHERE id = ?').get(localId);
             custOf.set(localId, c ? this.walletCustomer(c) : null);
           }
           return custOf.get(localId);
         };
-        for (const c of bdb.prepare('SELECT * FROM customers WHERE bonus <> 0').all()) {
+        for (const c of bdb.prepare('SELECT * FROM main.customers WHERE bonus <> 0').all()) {
           db.prepare('UPDATE customers SET bonus = ROUND(bonus + ?, 2) WHERE id = ?').run(c.bonus, mainOf(c.id).id);
         }
         for (const b of bdb.prepare('SELECT * FROM bonus_log ORDER BY id').all()) {
@@ -1044,7 +1049,7 @@ function createStore(file) {
           db.prepare('INSERT INTO bonus_log (customer_id, created_at, delta, reason, sale_id, user_name, store_id, hidden) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
             .run(m.id, b.created_at, b.delta, b.reason, b.sale_id, b.user_name, branchId, hidden);
         }
-        bdb.exec('UPDATE customers SET bonus = 0; DELETE FROM bonus_log;');
+        bdb.exec('UPDATE main.customers SET bonus = 0; DELETE FROM bonus_log;');
         // Сертификаты: новые id в общей базе; ссылки в оплатах филиала переписываются (через минус, чтобы id не пересеклись).
         const moved = [];
         for (const c of bdb.prepare('SELECT * FROM certificates ORDER BY id').all()) {
@@ -1067,6 +1072,30 @@ function createStore(file) {
           UPDATE certificate_payments SET certificate_id = -certificate_id WHERE certificate_id < 0;
           DELETE FROM certificate_ops; DELETE FROM certificates;`);
       }));
+    },
+    // Один раз: покупатели филиала переезжают в общую базу (по телефону), ссылки на них в чеках,
+    // документах, заказах и CRM филиала переписываются на id общей базы. Своя таблица филиала остаётся как архив.
+    absorbBranchCustomers(branch) {
+      const bdb = branch.db;
+      const moved = [];
+      transaction(db, () => transaction(bdb, () => {
+        for (const c of bdb.prepare('SELECT * FROM main.customers ORDER BY id').all()) {
+          const m = this.walletCustomer(c);
+          // В общей записи пусто, а в филиале заполнено — дополняем.
+          if (!m.name && c.name) db.prepare('UPDATE customers SET name = ? WHERE id = ?').run(c.name, m.id);
+          if (!m.birthday && c.birthday) db.prepare('UPDATE customers SET birthday = ? WHERE id = ?').run(c.birthday, m.id);
+          if (!m.gender && c.gender) db.prepare('UPDATE customers SET gender = ? WHERE id = ?').run(c.gender, m.id);
+          moved.push([c.id, m.id]);
+        }
+        const tables = [['sales', 'customer_id'], ['docs', 'customer_id'], ['orders', 'customer_id'], ['leads', 'customer_id']]
+          .filter(([t, col]) => bdb.prepare(`PRAGMA main.table_info(${t})`).all().some((x) => x.name === col));
+        for (const [t, col] of tables) {
+          const set = bdb.prepare(`UPDATE main.${t} SET ${col} = ? WHERE ${col} = ?`);
+          for (const [from, to] of moved) set.run(-to, from);
+          bdb.exec(`UPDATE main.${t} SET ${col} = -${col} WHERE ${col} < 0`);
+        }
+      }));
+      return moved.length;
     },
     // Один раз в основной базе: ручные правки бонусов и удалённые чеки — скрыть от покупателя.
     hideAdminBonusRows() {
@@ -1570,7 +1599,7 @@ function createStore(file) {
         if (useBirthday && customer?.birthdayDiscount) {
           for (const l of lines) l.price = r4(l.price * (1 - customer.birthdayDiscount / 100));
           reasons.push(`день рождения ${customer.birthdayDiscount}%`);
-          db.prepare('UPDATE customers SET birthday_used = ? WHERE id = ?').run(new Date().getFullYear(), customer.id);
+          (bank ? bank.db : db).prepare('UPDATE customers SET birthday_used = ? WHERE id = ?').run(new Date().getFullYear(), customer.id);
         }
         const afterBirthday = sum();
         // Скидки кассира: сначала на строки, потом на весь чек.
@@ -2285,20 +2314,6 @@ function createStore(file) {
           if (out.size >= limit) break;
         }
       }
-      // Филиал: покупатель, которого здесь ещё нет, но он есть в общей базе, — заводится и здесь.
-      if (bank && out.size < limit) {
-        for (const m of bank.searchCustomers(s, limit)) {
-          if (out.size >= limit) break;
-          let local = db.prepare('SELECT * FROM customers WHERE phone = ?').get(m.phone);
-          if (!local) {
-            const card = m.card && !db.prepare('SELECT 1 FROM customers WHERE card = ?').get(m.card) ? m.card : this.newCustomerCard();
-            const id = db.prepare('INSERT INTO customers (phone, name, birthday, created_at, card, gender) VALUES (?, ?, ?, ?, ?, ?)')
-              .run(m.phone, m.name || '', m.birthday || '', Date.now(), card, m.gender || '').lastInsertRowid;
-            local = getCustomer(id);
-          }
-          out.set(local.id, local);
-        }
-      }
       return [...out.values()].map((c) => this.withBirthday(c));
     },
 
@@ -2319,6 +2334,7 @@ function createStore(file) {
 
     // Номер карты пустой — программа выдаёт свой. Пол: m / f / пусто.
     createCustomer(input) {
+      if (bank) return bank.createCustomer(input); // покупатели общие — заводятся в основной базе
       const p = phone(input.phone);
       if (db.prepare('SELECT 1 FROM customers WHERE phone = ?').get(p)) throw new UserError('Покупатель с таким телефоном уже есть');
       const card = customerCard(input.card) || this.newCustomerCard();
@@ -2329,6 +2345,7 @@ function createStore(file) {
     },
 
     updateCustomer(id, input) {
+      if (bank) return bank.updateCustomer(id, input);
       const c = getCustomer(id);
       const p = input.phone === undefined ? c.phone : phone(input.phone);
       const other = db.prepare('SELECT id FROM customers WHERE phone = ?').get(p);
