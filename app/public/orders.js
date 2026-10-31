@@ -40,13 +40,30 @@ function orderActions(o) {
 const orderPayLine = (o) => (o.pay_id ? `<div class="order-pay">💳 ${esc(o.pay_name)}${o.paid_at ? ` · <b class="pos">оплата подтверждена</b> ${dateTime(o.paid_at)}${o.paid_by ? `, ${esc(o.paid_by)}` : ''}`
   : o.status === 'checking' ? ` · покупатель нажал «Я оплатил» ${o.paid_claimed_at ? dateTime(o.paid_claimed_at) : ''} — <b>сверьте поступление ${money2(o.total)}</b>` : ' · <span class="neg">оплата не получена</span>'}</div>
   ${orderReceipts(o)}` : '');
-// Чеки об оплате от покупателя: миниатюра открывает чек целиком.
+// Чеки об оплате от покупателя: миниатюра открывает чек крупно поверх страницы (без новой вкладки).
 const orderReceipts = (o) => (o.receipts?.length ? `<div class="order-receipts">${o.receipts.map((r) => {
   const url = `/api/orders/${o.id}/receipts/${r.id}`;
   return r.mime === 'application/pdf'
-    ? `<a class="btn small" href="${url}" target="_blank" rel="noopener">📄 Чек PDF</a>`
-    : `<a href="${url}" target="_blank" rel="noopener" title="Чек от ${dateTime(r.created_at)}"><img class="receipt-thumb" src="${url}" alt="Чек об оплате"></a>`;
+    ? `<button type="button" class="btn small" data-receipt-view="${url}" data-pdf="1">📄 Чек PDF</button>`
+    : `<button type="button" class="receipt-open" data-receipt-view="${url}" title="Чек от ${dateTime(r.created_at)} — нажмите, чтобы увеличить"><img class="receipt-thumb" src="${url}" alt="Чек об оплате"></button>`;
 }).join('')}</div>` : (o.pay_id && !o.paid_at ? '<div class="pick-meta">Чек покупатель не прикрепил</div>' : ''));
+
+// Чек крупно: закрывается нажатием в любое место или клавишей Esc.
+function openReceiptView(url, pdf) {
+  const box = document.createElement('div');
+  box.className = 'receipt-view';
+  box.setAttribute('role', 'dialog');
+  box.setAttribute('aria-label', 'Чек об оплате');
+  box.innerHTML = pdf
+    ? `<iframe src="${url}" title="Чек об оплате"></iframe><span class="receipt-view-hint">Нажмите рядом с чеком, чтобы закрыть</span>`
+    : `<img src="${url}" alt="Чек об оплате"><span class="receipt-view-hint">Нажмите в любое место, чтобы закрыть</span>`;
+  const close = () => { box.classList.remove('on'); setTimeout(() => box.remove(), 180); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  box.addEventListener('click', close);
+  document.addEventListener('keydown', onKey);
+  document.body.append(box);
+  requestAnimationFrame(() => box.classList.add('on'));
+}
 
 async function renderOrders() {
   try { ordersView.methods = await api('/api/payment-methods?mine=1'); } catch { ordersView.methods = []; }
@@ -94,6 +111,8 @@ $('#orders-filter').addEventListener('click', (e) => {
   renderOrders();
 });
 $('#orders-list').addEventListener('click', async (e) => {
+  const view = e.target.closest('[data-receipt-view]');
+  if (view) return openReceiptView(view.dataset.receiptView, Boolean(view.dataset.pdf));
   const btn = e.target.closest('[data-order]');
   if (!btn) return;
   const id = Number(btn.dataset.order);

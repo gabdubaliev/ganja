@@ -194,6 +194,7 @@ dialog.side { margin-right: 0; margin-top: 0; height: 100dvh; max-height: 100dvh
 .pay-links a, .pay-links button { font-size: 14px; font-weight: 600; color: var(--accent); background: none; border: 0; padding: 4px; text-decoration: underline; cursor: pointer; }
 .receipt-pick { display: block; cursor: pointer; }
 .receipt-btn { display: block; text-align: center; padding: 11px 14px; border-radius: calc(var(--radius) * 0.7); border: 1px dashed var(--accent); color: var(--accent); font-weight: 650; font-size: 14px; background: var(--bg); }
+.receipt-btn.need { border-style: solid; border-color: #e11d48; color: #be123c; background: rgba(225, 29, 72, 0.06); }
 .receipt-names { font-size: 13px; color: #15803d; font-weight: 600; text-align: center; }
 .status.s-checking { background: rgba(234, 179, 8, 0.18); color: #92400e; }
 .status.s-unpaid { background: rgba(225, 29, 72, 0.12); color: #be123c; }

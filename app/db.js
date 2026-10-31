@@ -882,6 +882,15 @@ function monthsBetween(from, to) {
   return months;
 }
 
+// Чек об оплате от покупателя: картинка или PDF до 5 МБ.
+function receiptBytes({ mime, data } = {}) {
+  if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(mime)) throw new UserError('Чек — картинка (JPG, PNG) или PDF');
+  const bytes = Buffer.from(String(data || ''), 'base64');
+  if (!bytes.length) throw new UserError('Файл чека пустой');
+  if (bytes.length > 5e6) throw new UserError('Файл чека больше 5 МБ');
+  return bytes;
+}
+
 function createStore(file) {
   const db = open(file);
   let branchLink = null; // связь с другими магазинами (перемещения), задаёт сервер
@@ -3549,17 +3558,21 @@ function createStore(file) {
       const address = text(input.address, 'Адрес', { max: 300 });
       if (delivery === 'delivery' && !address) throw new UserError('Укажите адрес доставки');
       // Предоплата: покупатель уже перевёл деньги по QR и нажал «Я оплатил» — заказ ждёт сверки оплаты.
-      let pay = null;
+      // Чек об оплате обязателен: без него заказ с предоплатой не оформляется.
+      let pay = null, receipt = null;
       if (s.payments.length) {
         pay = s.payments.find((x) => x.id === String(input.payId || ''));
         if (!pay) throw new UserError('Выберите способ оплаты');
+        if (!input.receipt) throw new UserError('Прикрепите чек об оплате — скриншот перевода из банка');
+        receipt = { mime: input.receipt.mime, bytes: receiptBytes(input.receipt) };
       }
       return transaction(db, () => {
         const now = Date.now();
         const { lastInsertRowid: id } = db.prepare(`INSERT INTO orders (created_at, name, phone, comment, delivery, address, total, customer_id, status, pay_id, pay_name, pay_method_id, paid_claimed_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
           .run(now, text(input.name || customer.name, 'Имя', { required: true, max: 80 }), customer.phone, text(input.comment, 'Комментарий', { max: 1000 }), delivery, address, total, customer.id,
-            pay ? (input.paid ? 'checking' : 'unpaid') : 'new', pay?.id || '', pay?.name || '', pay?.methodId ?? null, pay && input.paid ? now : null);
+            pay ? 'checking' : 'new', pay?.id || '', pay?.name || '', pay?.methodId ?? null, pay ? now : null);
+        if (receipt) db.prepare('INSERT INTO order_receipts (order_id, mime, data, created_at) VALUES (?, ?, ?, ?)').run(id, receipt.mime, receipt.bytes, now);
         const add = db.prepare('INSERT INTO order_items (order_id, product_id, name, qty, price) VALUES (?, ?, ?, ?, ?)');
         for (const l of lines) add.run(id, l.p.id, l.p.name, l.qty, l.p.price);
         return this.getOrder(id);
@@ -3572,10 +3585,7 @@ function createStore(file) {
       if (!customer || (o.customer_id !== customer.id && o.phone !== customer.phone)) throw new UserError('Заказ не найден');
       if (!o.pay_id) throw new UserError('Этот заказ оплачивается при получении');
       if (o.status === 'done' || o.status === 'cancelled') throw new UserError('Заказ уже закрыт');
-      if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(mime)) throw new UserError('Чек — картинка (JPG, PNG) или PDF');
-      const bytes = Buffer.from(String(data || ''), 'base64');
-      if (!bytes.length) throw new UserError('Файл пустой');
-      if (bytes.length > 5e6) throw new UserError('Файл больше 5 МБ');
+      const bytes = receiptBytes({ mime, data });
       if (o.receipts.length >= 5) throw new UserError('К заказу можно прикрепить не больше 5 файлов');
       db.prepare('INSERT INTO order_receipts (order_id, mime, data, created_at) VALUES (?, ?, ?, ?)').run(o.id, mime, bytes, Date.now());
       if (o.status === 'unpaid') db.prepare("UPDATE orders SET status = 'checking', paid_claimed_at = ?, updated_at = ? WHERE id = ?").run(Date.now(), Date.now(), o.id);
@@ -3594,6 +3604,7 @@ function createStore(file) {
       if (!customer || (o.customer_id !== customer.id && o.phone !== customer.phone)) throw new UserError('Заказ не найден');
       if (!o.pay_id) throw new UserError('Этот заказ оплачивается при получении');
       if (o.status !== 'unpaid') throw new UserError(o.status === 'checking' ? 'Мы уже проверяем оплату' : 'Заказ уже оплачен или закрыт');
+      if (!o.receipts.length) throw new UserError('Сначала прикрепите чек об оплате');
       db.prepare("UPDATE orders SET status = 'checking', paid_claimed_at = ?, updated_at = ? WHERE id = ?").run(Date.now(), Date.now(), o.id);
       return this.getOrder(o.id);
     },

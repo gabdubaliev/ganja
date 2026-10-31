@@ -293,7 +293,7 @@ function payBoxHtml(pays, payId, amount, where) {
     <ol class="pay-steps">
       <li>Отсканируйте QR-код в приложении банка${p.qr ? ' (с телефона — сохраните картинку и выберите её в приложении)' : ''}.</li>
       <li>Переведите ${rub(amount)}.</li>
-      <li>Прикрепите чек об оплате (скриншот из банка) — так мы проверим быстрее.</li>
+      <li>Прикрепите чек об оплате (скриншот из банка) — без него заказ не оформить.</li>
       <li>Нажмите «Я оплатил» — мы проверим поступление.</li>
     </ol>
     ${where === 'checkout' ? receiptPickHtml('checkout', state.receiptFile ? [state.receiptFile.name] : []) : ''}`;
@@ -303,7 +303,7 @@ function payBoxHtml(pays, payId, amount, where) {
 function receiptPickHtml(target, names = [], count = 0) {
   return `<label class="receipt-pick">
       <input type="file" accept="image/*,application/pdf" data-receipt="${target}" hidden>
-      <span class="receipt-btn">📎 ${names.length ? 'Заменить чек' : count ? 'Прикрепить ещё чек' : 'Прикрепить чек об оплате'}</span>
+      <span class="receipt-btn">📎 ${names.length ? 'Заменить чек' : count ? 'Прикрепить ещё чек' : `Прикрепить чек об оплате${target === 'checkout' ? ' *' : ''}`}</span>
     </label>
     ${names.length ? `<div class="receipt-names">${names.map((n) => `✓ ${esc(n)}`).join('<br>')}</div>` : ''}
     ${count ? `<div class="receipt-names">✓ Чек прикреплён${count > 1 ? ` (${count})` : ''}</div>` : ''}`;
@@ -416,27 +416,31 @@ $('#checkout').addEventListener('submit', async (e) => {
   const err = $('#checkout-error');
   err.hidden = true;
   if (!state.me) return openAccount('login');
+  const prepay = Boolean(state.settings.payments?.length);
+  if (prepay && !state.receiptFile) {
+    err.textContent = 'Прикрепите чек об оплате — скриншот перевода из приложения банка.';
+    err.hidden = false;
+    $('#pay-box .receipt-btn')?.classList.add('need');
+    return;
+  }
   const submit = f.querySelector('button[type=submit]');
   submit.disabled = true;
   try {
+    // Чек уходит вместе с заказом: без него заказ с предоплатой не оформляется.
+    const receipt = prepay ? await receiptPayload(state.receiptFile) : undefined;
     const res = await fetch('/shop/order', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         address: f.elements.address.value,
         comment: f.elements.comment.value, website: f.elements.website.value, delivery: state.way,
-        payId: state.payId, paid: Boolean(state.settings.payments?.length),
+        payId: state.payId, receipt,
         items: cartLines().map((l) => ({ productId: l.p.id, qty: l.qty })),
       }),
     });
     const data = await res.json().catch(() => ({}));
     if (res.status === 401) { state.me = null; renderAccountButton(); openAccount('login'); throw new Error(data.error); }
     if (!res.ok) throw new Error(data.error || 'Не получилось оформить заказ');
-    // Чек об оплате — к уже созданному заказу. Не получилось — заказ всё равно оформлен, чек можно прикрепить в «Моих заказах».
-    let receiptError = '';
-    if (state.receiptFile && data.id) {
-      try { await uploadReceipt(data.id, state.receiptFile); } catch (error) { receiptError = ` Чек не прикрепился (${error.message}) — прикрепите его в «Моих заказах».`; }
-    }
     state.receiptFile = null;
     await loadMe();
     state.cart = {};
@@ -444,7 +448,7 @@ $('#checkout').addEventListener('submit', async (e) => {
     renderAll();
     $('#cart').close();
     $('#done-text').textContent = data.status === 'checking'
-      ? `Номер заказа: ${data.id}. Сумма: ${rub(data.total)}. Мы проверим поступление оплаты, упакуем заказ и передадим курьеру. Статус — в «Моих заказах».${receiptError}`
+      ? `Номер заказа: ${data.id}. Сумма: ${rub(data.total)}. Мы проверим поступление оплаты, упакуем заказ и передадим курьеру. Статус — в «Моих заказах».`
       : `Номер заказа: ${data.id}. Сумма: ${rub(data.total)}. Мы скоро позвоним, чтобы подтвердить.`;
     $('#done').showModal();
     f.reset();
