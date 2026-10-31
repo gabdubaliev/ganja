@@ -70,6 +70,9 @@ say "Останавливаю программу"
 stopped=0
 unknown=0
 for pid in $(pgrep -f 'node .*server\.js' 2>/dev/null || true); do
+  # Только сам процесс node (не обёртки sh -c и не команды, где просто встречается этот текст).
+  exe=$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | head -n 1 || true)
+  [[ $(basename "${exe:-x}") == node ]] || continue
   cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null || true)
   [[ -z $cwd ]] && unknown=$((unknown + 1))
   [[ $cwd == "$APP" ]] || continue
