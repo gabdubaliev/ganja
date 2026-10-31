@@ -115,6 +115,16 @@ function phoneFmt(p) {
 const qtyFmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 3 });
 const qty = (v, unit = 'шт') => `${qtyFmt.format(v)} ${unit}`;
 const parseNum = (s) => Number(String(s ?? '').replace(/\s/g, '').replace(',', '.'));
+// Штрафы и бонусы сотрудника списком: дата, сумма, за что, кто выписал. showUser — с именем сотрудника.
+function finesListHtml(items, { showUser = false, empty = 'Штрафов и бонусов нет' } = {}) {
+  if (!items.length) return `<p class="pick-meta">${empty}</p>`;
+  return `<ul class="fb-list">${items.map((f) => `<li class="fb-${f.kind}">
+    <span class="fb-date">${new Date(f.at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</span>
+    <span class="fb-text">${showUser ? `<b>${esc(f.user)}</b> · ` : ''}<b>${f.kind === 'bonus' ? 'Бонус' : 'Штраф'}</b>: ${esc(f.reason || '—')}<small>${f.by ? `выписал: ${esc(f.by)}` : ''}</small></span>
+    <b class="fb-sum num">${f.kind === 'bonus' ? '+' : '−'}${money(f.amount)}</b>
+  </li>`).join('')}</ul>`;
+}
+const fineTipLines = (items = []) => items.map((f) => `${f.kind === 'bonus' ? 'Бонус +' : 'Штраф −'}${money(f.amount)}: ${f.reason}${f.by ? ` (выписал: ${f.by})` : ''}`);
 const dateOnly = (t) => new Date(t).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
 // Цена продажи со скидкой из карточки товара (так же считает сервер).
 const salePrice = (p) => (p.discount > 0 ? Math.round(p.price * (1 - p.discount / 100) * 100) / 100 : p.price);

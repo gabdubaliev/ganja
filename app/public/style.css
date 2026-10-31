@@ -1353,3 +1353,18 @@ th.ts-name.ts-editable:hover, th.ts-day.ts-editable:hover { color: var(--series)
 .btn.big-action { font-size: 16px; padding: 12px 20px; }
 .docs-empty { text-align: center; padding: 28px 10px !important; line-height: 2.2; }
 #inv-start-dialog .inv-option select { margin-top: 2px; }
+
+/* ---------- Штрафы и бонусы списком (табель, мой табель, бонусы) ---------- */
+.ts-fines h2, .mts-fines h2 { font-size: 16px; margin: 0 0 10px; }
+.mts-fines { margin-top: 18px; }
+.fb-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.fb-list li { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 9px 12px; border-radius: 12px; border: 1px solid var(--grid); }
+.fb-list li.fb-fine { background: color-mix(in srgb, var(--critical) 6%, var(--surface)); }
+.fb-list li.fb-bonus { background: color-mix(in srgb, #1a9d55 8%, var(--surface)); }
+.fb-date { font-size: 12px; color: var(--muted); }
+.fb-text { font-size: 14px; overflow-wrap: anywhere; }
+.fb-text small { display: block; font-size: 12px; color: var(--muted); }
+.fb-fine .fb-sum { color: var(--critical); }
+.fb-bonus .fb-sum { color: var(--good-ink); }
+@media (max-width: 560px) { .fb-list li { grid-template-columns: 1fr auto; } .fb-date { grid-column: 1 / -1; } }
+.fines-table th:nth-child(3), .fines-table td:nth-child(3) { text-align: left; }

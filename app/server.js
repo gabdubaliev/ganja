@@ -536,9 +536,9 @@ const routes = [
   ['PUT', '/api/shifts/:id', (p, url, body, user) => store.saveShift(p.id, body, user), 'shifts'],
   ['DELETE', '/api/shifts/:id', (p) => store.deleteShift(p.id), 'shifts'],
   ['GET', '/api/fines', (p, url) => store.listFines({ ...range(url), kind: url.searchParams.get('kind') || 'fine' }), ['fines', 'kpi', 'salary']],
-  ['GET', '/api/bonuses', (p, url) => store.listFines({ ...range(url), kind: 'bonus' }), ['salary', 'kpi', 'fines']],
-  ['POST', '/api/bonuses', (p, url, body, user) => store.addFine(body, user, 'bonus'), 'salary'],
-  ['DELETE', '/api/bonuses/:id', (p) => store.deleteFine(p.id, 'bonus'), 'salary'],
+  ['GET', '/api/bonuses', (p, url) => store.listFines({ ...range(url), kind: 'bonus' }), ['bonuses', 'salary', 'kpi', 'fines']],
+  ['POST', '/api/bonuses', (p, url, body, user) => store.addFine(body, user, 'bonus'), ['bonuses', 'salary']],
+  ['DELETE', '/api/bonuses/:id', (p) => store.deleteFine(p.id, 'bonus'), ['bonuses', 'salary']],
   ['GET', '/api/timesheet', (p, url) => store.timesheet({ year: url.searchParams.get('year'), month: url.searchParams.get('month') }), ['timesheet', 'timesheet.edit']],
   // Свой табель сотрудника — только просмотр, только своя строка (окно кассы).
   ['GET', '/api/my-timesheet', (p, url, body, user) => {
@@ -566,7 +566,7 @@ const routes = [
   ['POST', '/api/fines', (p, url, body, user) => store.addFine(body, user), 'fines'],
   ['DELETE', '/api/fines/:id', (p) => store.deleteFine(p.id), 'fines'],
   // Короткий список сотрудников для выбора в сменах и штрафах.
-  ['GET', '/api/staff-list', () => store.listUsers().map((u) => ({ id: u.id, name: u.name || u.email, role: u.role, disabled: u.disabled })), ['shifts', 'fines', 'kpi', 'staff', 'crm', 'salary', 'tasks', 'timesheet']],
+  ['GET', '/api/staff-list', () => store.listUsers().map((u) => ({ id: u.id, name: u.name || u.email, role: u.role, disabled: u.disabled })), ['shifts', 'fines', 'kpi', 'staff', 'crm', 'salary', 'tasks', 'timesheet', 'bonuses']],
   // CRM. mine=1 — только мои сделки и задачи.
   ['GET', '/api/crm/leads', (p, url, body, user) => crm.list({ q: url.searchParams.get('q') || '', source: url.searchParams.get('source') || '',
     userId: url.searchParams.get('mine') === '1' && user ? user.id : null }), 'crm'],

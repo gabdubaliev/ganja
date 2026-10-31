@@ -494,6 +494,16 @@ function open(file) {
   fillCodes(db);
   // Новые права (галочки): тем, у кого права настроены вручную, добавляем их по смыслу — один раз,
   // чтобы после обновления никто не потерял то, что уже видел.
+  // Бонусы сотрудникам — отдельная галочка: у кого была «Зарплата», тому она добавляется.
+  if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v3'").get()) {
+    const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
+    for (const u of db.prepare('SELECT id, rights FROM users WHERE rights IS NOT NULL').all()) {
+      let list;
+      try { list = JSON.parse(u.rights); } catch { continue; }
+      if (Array.isArray(list) && list.includes('salary') && !list.includes('bonuses')) set.run(JSON.stringify([...list, 'bonuses']), u.id);
+    }
+    db.prepare("INSERT INTO settings (key, value) VALUES ('rights_v3', '1')").run();
+  }
   if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v2'").get()) {
     const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
     for (const u of db.prepare('SELECT id, rights FROM users WHERE rights IS NOT NULL').all()) {
@@ -1713,7 +1723,7 @@ function createStore(file) {
         if (!byUser.has(id)) byUser.set(id, { days: {} });
         return byUser.get(id);
       };
-      const cell = (id, d) => (row(id).days[d] ||= { shifts: [], revenue: 0, fines: 0, bonuses: 0 });
+      const cell = (id, d) => (row(id).days[d] ||= { shifts: [], revenue: 0, fines: 0, bonuses: 0, items: [] });
       for (const sh of db.prepare('SELECT user_id, opened_at, closed_at FROM shifts WHERE opened_at >= ? AND opened_at < ? ORDER BY opened_at').all(start, end)) {
         cell(sh.user_id, dayOf(sh.opened_at)).shifts.push({ from: sh.opened_at, to: sh.closed_at });
       }
@@ -1721,8 +1731,11 @@ function createStore(file) {
         WHERE s.refunded_at IS NULL AND s.user_id IS NOT NULL AND s.created_at >= ? AND s.created_at < ?`).all(start, end)) {
         cell(s.user_id, dayOf(s.created_at)).revenue += s.money;
       }
-      for (const f of db.prepare('SELECT user_id, at, amount, kind FROM fines WHERE at >= ? AND at < ?').all(start, end)) {
-        cell(f.user_id, dayOf(f.at))[f.kind === 'bonus' ? 'bonuses' : 'fines'] += f.amount;
+      // Штрафы и бонусы дня — с причиной и тем, кто выписал: их видят и владелец, и сам сотрудник.
+      for (const f of db.prepare('SELECT user_id, at, amount, kind, reason, created_by FROM fines WHERE at >= ? AND at < ? ORDER BY at').all(start, end)) {
+        const c = cell(f.user_id, dayOf(f.at));
+        c[f.kind === 'bonus' ? 'bonuses' : 'fines'] += f.amount;
+        c.items.push({ kind: f.kind === 'bonus' ? 'bonus' : 'fine', amount: f.amount, reason: f.reason, by: f.created_by, at: f.at });
       }
       for (const mk of db.prepare('SELECT * FROM timesheet_marks WHERE day >= ? AND day < ?').all(dayKey(start), dayKey(end))) {
         cell(mk.user_id, dayOf(dayFromKey(mk.day))).mark = { status: mk.status, amount: mk.amount, color: mk.color, note: mk.note, by: mk.updated_by, at: mk.updated_at };

@@ -71,8 +71,7 @@ function tsCell(r, day) {
     c.shifts.length ? `Смена: ${c.shifts.map((s) => `${timeOf(s.from)}–${s.to ? timeOf(s.to) : 'не закрыта'}`).join(', ')} (${int(hours)} ч)` : 'Смена не открыта',
     c.revenue ? `Выручка: ${money(c.revenue)}` : '',
     `Заработал за день: ${money(c.earned)}`,
-    c.bonuses ? `Бонус: +${money(c.bonuses)}` : '',
-    c.fines ? `Штраф: −${money(c.fines)}` : '',
+    ...fineTipLines(c.items),
     ...markTip,
   ].filter(Boolean).join('\n');
   return `<td class="${cls.join(' ')}" ${attrs} title="${esc(tip)}">${manual}
@@ -129,6 +128,11 @@ function drawTimesheet() {
   const pay = rows.reduce((s, r) => s + tsHalves().reduce((a, i) => a + (r.halves[i]?.pay || 0), 0), 0);
   const label = tsView.part === 0 ? `за ${TS_MONTHS[d.month - 1].toLowerCase()}` : tsView.part === 1 ? `с 1 по 15 ${TS_MONTHS[d.month - 1].toLowerCase()}` : `с 16 по ${d.daysInMonth}`;
   $('#ts-sub').textContent = `К выплате ${label}: ${money(pay)}`;
+  // Штрафы и бонусы за видимые дни: кто, за что, кто выписал.
+  const shown = new Set(days);
+  const fb = rows.flatMap((r) => Object.entries(r.days).filter(([day]) => shown.has(Number(day)))
+    .flatMap(([, c]) => (c.items || []).map((f) => ({ ...f, user: r.user.name || r.user.email })))).sort((a, b) => b.at - a.at);
+  $('#ts-fines').innerHTML = `<h2>Штрафы и бонусы ${label}</h2>${finesListHtml(fb, { showUser: true, empty: 'За этот период штрафов и бонусов нет' })}`;
   renderTsEditbar();
 }
 

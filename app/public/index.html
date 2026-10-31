@@ -651,8 +651,9 @@
   </section>
   <section class="panel ts-panel">
     <div class="ts-wrap"><table class="ts-table" id="ts-table"></table></div>
-    <p class="sub">Заработок за день — ставка за выход и процент от выручки этого дня (без комиссии банков). Оклад, бонус за план и исправления из «Отчёты» → «Зарплата» входят в итоги периода справа. Наведите на ячейку, чтобы увидеть время смены и выручку.</p>
+    <p class="sub">Заработок за день — ставка за выход и процент от выручки этого дня (без комиссии банков). Оклад, бонус за план и исправления из «Отчёты» → «Зарплата» входят в итоги периода справа. Наведите на ячейку, чтобы увидеть время смены, выручку, штрафы и бонусы.</p>
   </section>
+  <section class="panel ts-fines" id="ts-fines"></section>
 </main>
 
 <main class="page" data-view="tasks" hidden>
@@ -820,6 +821,42 @@
     <div class="form-actions">
       <button type="button" class="btn ghost" id="pay-cancel">Отмена</button>
       <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<main class="page" data-view="bonuses" hidden>
+  <header class="top">
+    <div class="title"><h1>Бонусы сотрудникам</h1><span class="source" id="sbonus-sub"></span></div>
+    <div class="tools"><button type="button" class="btn primary" id="sbonus-add" data-can="bonuses" hidden>🎁 Дать бонус</button></div>
+  </header>
+  <section class="panel period-bar">
+    <div class="periods" id="sbonus-ranges" role="group" aria-label="Период"></div>
+  </section>
+  <section class="panel">
+    <div class="table-wrap">
+      <table class="fines-table">
+        <thead><tr><th>Дата</th><th>Сотрудник</th><th>За что</th><th>Сумма</th><th>Начислил</th><th></th></tr></thead>
+        <tbody id="sbonus-body"></tbody>
+      </table>
+    </div>
+    <p class="sub">Бонус прибавляется к зарплате за выплатный период (1–15 или 16–конец месяца), в который попадает дата. Сотрудник видит его в «Моём табеле» в кассе — с суммой, причиной и тем, кто начислил.</p>
+  </section>
+</main>
+
+<dialog id="sbonus-dialog" aria-labelledby="sbonus-title">
+  <form id="sbonus-form" novalidate>
+    <h2 id="sbonus-title">Дать бонус</h2>
+    <div class="form-grid">
+      <div class="field wide"><label for="sbn-user">Сотрудник</label><select id="sbn-user" name="user_id" class="input"></select></div>
+      <div class="field"><label for="sbn-amount">Сумма, сом</label><input id="sbn-amount" name="amount" class="input num" inputmode="decimal" autocomplete="off" required></div>
+      <div class="field"><label for="sbn-date">Дата</label><input id="sbn-date" name="date" type="date" class="input" required></div>
+      <div class="field wide"><label for="sbn-reason">За что</label><textarea id="sbn-reason" name="reason" class="input" rows="2" required placeholder="Например, лучший продавец недели"></textarea></div>
+    </div>
+    <p class="form-error" id="sbonus-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="sbonus-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Начислить</button>
     </div>
   </form>
 </dialog>

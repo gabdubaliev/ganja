@@ -179,5 +179,76 @@ $('#fines-ranges').addEventListener('click', (e) => {
   renderFines();
 });
 
+/* ---------- Бонусы сотрудникам ---------- */
+const sbonusView = { range: 'half', list: [] };
+async function renderBonuses() {
+  renderRanges($('#sbonus-ranges'), ['week', 'half', 'prevHalf', 'month', 'prevMonth'], sbonusView.range);
+  const [from, to] = RANGES[sbonusView.range][1]();
+  try {
+    sbonusView.list = await api(`/api/bonuses?from=${from}&to=${to}`);
+  } catch (err) {
+    return toast(err.message, 'error');
+  }
+  const list = sbonusView.list;
+  const total = list.reduce((s, f) => s + f.amount, 0);
+  $('#sbonus-sub').textContent = `${list.length} ${plural(list.length, ['бонус', 'бонуса', 'бонусов'])} на ${money(total)}`;
+  const edit = session.can('bonuses') || session.can('salary');
+  $('#sbonus-add').hidden = !edit;
+  $('#sbonus-body').innerHTML = list.length ? list.map((f) => `<tr>
+      <td>${new Date(f.at).toLocaleDateString('ru-RU')}</td>
+      <td><div class="pname">${esc(f.user_name || '—')}</div></td>
+      <td class="reason">${esc(f.reason)}</td>
+      <td class="pos-text">+${money(f.amount)}</td>
+      <td class="pcat">${esc(f.created_by)}<br>${dateTime(f.created_at)}</td>
+      <td>${edit ? `<button type="button" class="btn small ghost" data-sbonus-del="${f.id}">Отменить</button>` : ''}</td>
+    </tr>`).join('') : '<tr><td colspan="6" class="empty">За этот период бонусов нет. Нажмите «🎁 Дать бонус».</td></tr>';
+}
+$('#sbonus-add').addEventListener('click', async () => {
+  try { await loadStaff(); } catch (err) { return toast(err.message, 'error'); }
+  const f = $('#sbonus-form');
+  f.reset();
+  f.elements.user_id.innerHTML = staffOptions();
+  f.elements.date.value = dateInput(Date.now());
+  $('#sbonus-error').hidden = true;
+  $('#sbonus-dialog').showModal();
+});
+$('#sbonus-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const at = fromDateInput(f.elements.date.value) + 12 * 36e5;
+  try {
+    await api('/api/bonuses', { method: 'POST', body: { user_id: Number(f.elements.user_id.value), amount: parseNum(f.elements.amount.value), reason: f.elements.reason.value, at } });
+    $('#sbonus-dialog').close();
+    toast('Бонус начислен');
+    renderBonuses();
+  } catch (err) {
+    showFormError('#sbonus-error', err);
+  }
+});
+$('#sbonus-cancel').addEventListener('click', () => $('#sbonus-dialog').close());
+$('#sbonus-body').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-sbonus-del]');
+  if (!btn) return;
+  if (!btn.classList.contains('danger')) {
+    btn.classList.add('danger');
+    btn.textContent = 'Точно отменить?';
+    return;
+  }
+  try {
+    await api(`/api/bonuses/${btn.dataset.sbonusDel}`, { method: 'DELETE' });
+    toast('Бонус отменён');
+    renderBonuses();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+$('#sbonus-ranges').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-range]');
+  if (!btn) return;
+  sbonusView.range = btn.dataset.range;
+  renderBonuses();
+});
+views.bonuses = { show: renderBonuses, right: ['bonuses', 'salary', 'kpi'] };
+
 views.shifts = { show: renderShifts, right: ['shifts', 'kpi'] };
 views.fines = { show: renderFines, right: ['fines', 'kpi'] };

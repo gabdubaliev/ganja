@@ -57,8 +57,7 @@ async function renderMyTimesheet() {
       if (c.shifts.length) tip.push(`Смена: ${c.shifts.map((s) => `${mtsTime(s.from)}–${s.to ? mtsTime(s.to) : 'не закрыта'}`).join(', ')}`);
       if (c.revenue) tip.push(`Ваши продажи: ${money(c.revenue)}`);
       tip.push(`Заработок за день: ${money(c.earned)}`);
-      if (c.bonuses) tip.push(`Бонус: +${money(c.bonuses)}`);
-      if (c.fines) tip.push(`Штраф: −${money(c.fines)}`);
+      tip.push(...fineTipLines(c.items));
     } else if (mark?.status === 'off' || past || isToday) {
       cls.push('off');
       body = '<span class="mts-off">В</span>';
@@ -70,6 +69,8 @@ async function renderMyTimesheet() {
     cells.push(`<div class="${cls.join(' ')}" title="${esc(tip.join('\n'))}"><span class="mts-num">${day}</span>${body}${mark?.note ? '<span class="mts-note-dot" aria-label="есть комментарий">💬</span>' : ''}</div>`);
   }
   $('#mts-grid').innerHTML = cells.join('');
+  const fb = row ? Object.values(row.days).flatMap((c) => c.items || []).sort((a, b) => b.at - a.at) : [];
+  $('#mts-fines').innerHTML = `<h2>Штрафы и бонусы за месяц</h2>${finesListHtml(fb, { empty: 'В этом месяце штрафов и бонусов нет' })}`;
 }
 
 $('#mts-prev').addEventListener('click', () => { if (--mts.month < 1) { mts.month = 12; mts.year--; } renderMyTimesheet(); });
