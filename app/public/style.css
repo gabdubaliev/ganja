@@ -1652,3 +1652,11 @@ th.ts-name.ts-editable:hover, th.ts-day.ts-editable:hover { color: var(--series)
 .list-edit:not([data-icon]) .le-tools { grid-column: 1 / -1; }
 .le-tools .btn { padding: 3px 9px; min-width: 0; font-size: 12px; }
 .se-table td .input { min-width: 62px; }
+.color-map { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 10px; margin-top: 6px; }
+.cm-row { display: flex; align-items: center; gap: 8px; font-size: 13px; min-width: 0; }
+.cm-row span { overflow: hidden; text-overflow: ellipsis; }
+.cm-row small { color: var(--ink-2); }
+.cm-row.own span { font-weight: 600; }
+.cm-dot { position: relative; flex: none; width: 28px; height: 28px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .18); cursor: pointer; overflow: hidden; }
+.cm-dot input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; border: 0; padding: 0; }
+.cm-row .btn { padding: 2px 7px; }

@@ -16,7 +16,7 @@ const FONTS = {
   condensed: '"Roboto Condensed", "Arial Narrow", "Segoe UI", system-ui, sans-serif',
 };
 
-const state = { settings: null, products: [], categories: [], cat: '', query: '', sort: '', way: 'pickup', payId: '', payOrder: null, receiptFile: null, cart: loadCart(), open: null, sel: {}, me: null, orders: [], codeFor: null };
+const state = { settings: null, products: [], categories: [], cat: '', query: '', sort: '', way: 'pickup', payId: '', payOrder: null, receiptFile: null, cart: loadCart(), open: null, sel: {}, cardColor: {}, me: null, orders: [], codeFor: null };
 
 function loadCart() {
   try { return JSON.parse(localStorage.getItem('shop.cart')) || {}; } catch { return {}; }
@@ -202,14 +202,72 @@ function sizeChartHtml(chart, p, open) {
     <tbody>${body.map((r) => `<tr>${head.map((_, i) => r[i] ?? '').map((c, i) => (i ? `<td>${esc(c)}</td>` : `<th>${esc(c)}</th>`)).join('')}</tr>`).join('')}</tbody></table></div></details>`;
 }
 
+// Размеры по порядку: XS, S, M, L, XL, XXL, 3XL…; числа — по возрастанию; остальное (цвета) — как было.
+const SIZE_ORDER = ['XXXS', 'XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', 'XXXL', '3XL', '4XL', '5XL', '6XL'];
+function sortSizes(values) {
+  const rank = (v) => {
+    const u = String(v).toUpperCase().replace(/\s/g, '');
+    const i = SIZE_ORDER.indexOf(u === '2XL' ? 'XXL' : u === 'XXXL' ? '3XL' : u);
+    if (i >= 0) return i;
+    const n = parseFloat(String(v).replace(',', '.'));
+    return Number.isFinite(n) ? 100 + n : null;
+  };
+  return values.every((v) => rank(v) !== null) ? [...values].sort((a, b) => rank(a) - rank(b)) : values;
+}
+
+/* ---------- Расцветки на карточке (как кружки цветов в больших магазинах одежды) ---------- */
+// Свойство «Цвет» товара и его значения в порядке модификаций; для каждого — фото первой модификации этого цвета.
+const colorOptOf = (p) => (p.hasVariants ? optionNames(p).find(isColorOption) || null : null);
+function colorsOf(p) {
+  const opt = colorOptOf(p);
+  if (!opt) return [];
+  const seen = new Map();
+  for (const v of variantsOf(p)) {
+    const c = v.options?.[opt];
+    if (!c) continue;
+    const cur = seen.get(c) || { name: c, stock: 0, pic: '' };
+    cur.stock += Math.max(0, v.stock);
+    if (!cur.pic && v.photo) cur.pic = photo(v);
+    seen.set(c, cur);
+  }
+  return [...seen.values()];
+}
+const swatchStyle = (c) => {
+  const bg = swatchBg(c.name, state.settings.colorMap || {});
+  // Неизвестный цвет, но есть фото — кружок с кусочком фото.
+  return !colorHex(c.name, state.settings.colorMap || {}) && c.pic ? `background-image:url('${c.pic}')` : `background:${bg}`;
+};
+function swatchesHtml(p) {
+  if (state.settings.showSwatches === false) return '';
+  const colors = colorsOf(p);
+  if (colors.length < 2 && !(colors.length === 1 && colors[0].pic)) return '';
+  const active = state.cardColor[p.id];
+  const max = 7;
+  return `<div class="swatches" role="group" aria-label="Расцветки">${colors.slice(0, max).map((c) => `<button type="button" class="sw ${c.stock > 0 ? '' : 'na'}" data-swatch="${p.id}" data-color="${esc(c.name)}" aria-pressed="${active === c.name}" title="${esc(c.name)}${c.stock > 0 ? '' : ' — нет в наличии'}" aria-label="${esc(c.name)}"><i style="${swatchStyle(c)}"></i></button>`).join('')}${colors.length > max ? `<span class="sw-more">+${colors.length - max}</span>` : ''}</div>`;
+}
+// Показать фото выбранной расцветки на карточке (без перерисовки всей сетки).
+function showCardColor(id, color) {
+  const p = byId(id);
+  const card = document.querySelector(`.card[data-open="${id}"]`);
+  if (!p || !card) return;
+  const c = colorsOf(p).find((x) => x.name === color);
+  const img = card.querySelector('.pic img');
+  if (c?.pic && img && img.getAttribute('src') !== c.pic) img.src = c.pic;
+  for (const b of card.querySelectorAll('[data-swatch]')) b.setAttribute('aria-pressed', String(b.dataset.color === color));
+  const label = card.querySelector('.sw-name');
+  if (label) label.textContent = color || '';
+}
+
 function cardHtml(p, i = 0) {
   const inCart = p.hasVariants ? variantsOf(p).reduce((sum, v) => sum + (state.cart[v.id] || 0), 0) : state.cart[p.id] || 0;
-  const pic = photo(p);
+  const chosen = state.cardColor[p.id] && colorsOf(p).find((c) => c.name === state.cardColor[p.id]);
+  const pic = chosen?.pic || photo(p) || colorsOf(p).find((c) => c.pic)?.pic || '';
   const s = state.settings;
   const available = inStock(p);
   const old = p.hasVariants ? null : p.oldPrice;
-  const firstOpt = p.hasVariants ? optionNames(p)[0] : null;
-  const values = firstOpt ? [...new Set(variantsOf(p).filter((v) => v.stock > 0).map((v) => v.options?.[firstOpt]).filter(Boolean))] : [];
+  // Под названием — размеры (не цвета: цвета видны кружками).
+  const firstOpt = p.hasVariants ? optionNames(p).find((n) => !isColorOption(n)) || optionNames(p)[0] : null;
+  const values = firstOpt ? sortSizes([...new Set(variantsOf(p).filter((v) => v.stock > 0).map((v) => v.options?.[firstOpt]).filter(Boolean))]) : [];
   const meta = p.hasVariants ? values.slice(0, 6).join(' · ') + (values.length > 6 ? ' …' : '')
     : s.showStock && p.stock > 0 ? `В наличии: ${qtyFmt.format(p.stock)} ${esc(p.unit)}` : p.unit !== 'шт' ? `за ${esc(p.unit)}` : '';
   const btn = !available ? '' : p.hasVariants
@@ -217,6 +275,7 @@ function cardHtml(p, i = 0) {
     : `<button type="button" class="quick ${inCart ? 'in' : ''}" data-add="${p.id}">${inCart ? `✓ В корзине: ${qtyFmt.format(inCart)}` : 'В корзину'}</button>`;
   return `<article class="card ${available ? '' : 'out'}" role="button" tabindex="0" data-open="${p.id}" style="--i:${Math.min(i, 12)}">
     <div class="pic">${pic ? `<img src="${pic}" alt="${esc(p.name)}" loading="lazy">` : initial(p)}${badgesHtml(p)}${available ? '' : '<span class="soldout">Нет в наличии</span>'}${btn}</div>
+    ${swatchesHtml(p)}
     <div class="info">
       <div class="name">${esc(p.name)}</div>
       ${meta ? `<div class="meta">${esc(meta)}</div>` : ''}
@@ -281,20 +340,32 @@ function openProduct(id) {
   if (state.open !== p.id) {
     state.open = p.id;
     // Сразу выбрана первая модификация в наличии — покупателю остаётся поменять, что нужно.
-    const first = variantsOf(p).find((v) => v.stock > 0) || variantsOf(p)[0];
+    // Если на карточке выбрали расцветку — модификация этого цвета.
+    const opt = colorOptOf(p);
+    const want = opt && state.cardColor[p.id];
+    const ofColor = want ? variantsOf(p).filter((v) => v.options?.[opt] === want) : [];
+    const first = ofColor.find((v) => v.stock > 0) || ofColor[0] || variantsOf(p).find((v) => v.stock > 0) || variantsOf(p)[0];
     state.sel = p.hasVariants && first ? { ...first.options } : {};
   }
   const v = p.hasVariants ? matchVariant(p, state.sel) : p;
   const shown = v && v !== p && v.photo ? v : p;
-  const pic = photo(shown);
+  // У модификации нет своего фото — фото другой модификации того же цвета.
+  const colorPic = colorOptOf(p) && state.sel[colorOptOf(p)] ? colorsOf(p).find((c) => c.name === state.sel[colorOptOf(p)])?.pic : '';
+  const pic = shown === p && colorPic ? colorPic : photo(shown);
   const s = state.settings;
   const pickers = p.hasVariants ? optionNames(p).map((name) => {
-    const values = [...new Set(variantsOf(p).map((x) => x.options?.[name]).filter(Boolean))];
+    const values = sortSizes([...new Set(variantsOf(p).map((x) => x.options?.[name]).filter(Boolean))]);
     return `<div class="opt"><div class="opt-name">${esc(name)}${state.sel[name] ? `: <b>${esc(state.sel[name])}</b>` : ''}</div><div class="opt-values">
       ${values.map((val) => {
         // Значение недоступно, если с остальными выбранными свойствами такого товара нет в наличии.
         const alt = matchVariant(p, { ...state.sel, [name]: val });
-        return `<button type="button" data-opt="${esc(name)}" data-val="${esc(val)}" aria-pressed="${state.sel[name] === val}" class="${alt && alt.stock > 0 ? '' : 'na'}">${esc(val)}</button>`;
+        const cls = alt && alt.stock > 0 ? '' : 'na';
+        // Цвет — кружком, название цвета — над кружками.
+        if (isColorOption(name)) {
+          const c = colorsOf(p).find((x) => x.name === val) || { name: val, pic: '' };
+          return `<button type="button" data-opt="${esc(name)}" data-val="${esc(val)}" aria-pressed="${state.sel[name] === val}" class="sw big ${cls}" title="${esc(val)}" aria-label="${esc(val)}"><i style="${swatchStyle(c)}"></i></button>`;
+        }
+        return `<button type="button" data-opt="${esc(name)}" data-val="${esc(val)}" aria-pressed="${state.sel[name] === val}" class="${cls}">${esc(val)}</button>`;
       }).join('')}
     </div></div>`;
   }).join('') : '';
@@ -470,9 +541,17 @@ document.addEventListener('click', (e) => {
     e.stopPropagation();
     return add(addBtn.dataset.add, Number(addBtn.dataset.delta || 1));
   }
+  // Кружок расцветки на карточке: показать фото этого цвета, товар не открывать.
+  const sw = e.target.closest('[data-swatch]');
+  if (sw) {
+    e.stopPropagation();
+    state.cardColor[sw.dataset.swatch] = sw.dataset.color;
+    return showCardColor(sw.dataset.swatch, sw.dataset.color);
+  }
   const opt = e.target.closest('[data-opt]');
   if (opt) {
     state.sel[opt.dataset.opt] = opt.dataset.val;
+    if (isColorOption(opt.dataset.opt)) state.cardColor[state.open] = opt.dataset.val;
     return openProduct(state.open);
   }
   const open = e.target.closest('[data-open]');
@@ -508,6 +587,13 @@ document.addEventListener('click', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.matches('[data-open]')) openProduct(e.target.dataset.open);
+});
+// Наведение мышью на кружок — сразу фото этого цвета (на телефоне — по нажатию).
+document.addEventListener('mouseover', (e) => {
+  const sw = e.target.closest?.('[data-swatch]');
+  if (!sw || !matchMedia('(hover: hover)').matches) return;
+  state.cardColor[sw.dataset.swatch] = sw.dataset.color;
+  showCardColor(sw.dataset.swatch, sw.dataset.color);
 });
 // Клик по затемнению закрывает окно.
 for (const d of document.querySelectorAll('dialog')) d.addEventListener('click', (e) => { if (e.target === d) d.close(); });

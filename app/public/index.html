@@ -1504,6 +1504,10 @@
       <details><summary>Каталог</summary>
         <div class="field"><label>Вид карточек</label>
           <select name="cardStyle" class="input"><option value="photo">Большое фото</option><option value="compact">Компактно</option><option value="list">Списком</option></select></div>
+        <label class="check"><input type="checkbox" name="showSwatches"> Кружки расцветок под фото (наведите или нажмите — фото меняется на этот цвет)</label>
+        <div class="field"><label>Цвета кружков</label>
+          <small class="sub">Цвета берутся из свойства «Цвет» у модификаций товара. Цвет кружка подобран по названию — если не похож, нажмите на кружок и выберите свой.</small>
+          <div class="color-map" id="color-map"></div></div>
         <div class="field"><label>Таблица размеров — показывается в товарах с размерами</label>
           <small class="sub">Первая строка — заголовки. Любую ячейку можно поправить; кнопками добавляются, удаляются и двигаются строки и столбцы.</small>
           <div class="size-edit" id="size-edit"></div></div>
@@ -1998,6 +2002,7 @@
 <script src="users.js"></script>
 <script src="settings.js"></script>
 <script src="orders.js"></script>
+<script src="colors.js"></script>
 <script src="shop-builder.js"></script>
 <script src="design.js"></script>
 <script>session.ready.then(route);</script>

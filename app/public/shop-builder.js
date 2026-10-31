@@ -87,6 +87,7 @@ function fillShopForm() {
   }
   renderLists();
   renderSizeEdit();
+  renderColorMap();
   const cats = [...new Set(builder.products.map((p) => p.category).filter(Boolean))].sort();
   $('#shop-cats').innerHTML = cats.length ? cats.map((c) => `<label class="check"><input type="checkbox" data-cat="${esc(c)}" ${d.categories.includes(c) ? 'checked' : ''}> ${esc(c)}</label>`).join('') : '<span class="pick-meta">У товаров пока нет категорий</span>';
   renderImagePicks();
@@ -208,6 +209,37 @@ function readShopForm() {
   d.categories = [...document.querySelectorAll('#shop-cats [data-cat]:checked')].map((i) => i.dataset.cat);
   readLists();
   readSizeEdit();
+  const map = { ...(d.colorMap || {}) };
+  for (const inp of document.querySelectorAll('#color-map input[data-cm]')) if (inp.dataset.own === '1') map[inp.dataset.cm] = inp.value;
+  d.colorMap = map;
+}
+
+/* ---------- Цвета кружков расцветок ---------- */
+function productColors() {
+  const set = new Set();
+  for (const p of builder.products) {
+    if (!p.options) continue;
+    let o = {};
+    try { o = typeof p.options === 'string' ? JSON.parse(p.options) : p.options; } catch { continue; }
+    for (const [k, v] of Object.entries(o || {})) if (isColorOption(k) && v) set.add(String(v));
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, 'ru'));
+}
+function renderColorMap() {
+  const box = $('#color-map');
+  if (!box) return;
+  const map = builder.draft.colorMap || {};
+  const names = productColors();
+  const toHex = (c) => (c && c.startsWith('#') ? c : '#cccccc');
+  box.innerHTML = names.length ? names.map((n) => {
+    const own = Boolean(map[n]);
+    const auto = colorHex(n, {});
+    return `<div class="cm-row ${own ? 'own' : ''}">
+      <label class="cm-dot" style="background:${own ? map[n] : swatchBg(n, {})}"><input type="color" data-cm="${esc(n)}" data-own="${own ? 1 : 0}" value="${toHex(map[n] || auto)}" aria-label="Цвет «${esc(n)}»"></label>
+      <span>${esc(n)}${!own && !auto ? ' <small>— не узнали, выберите</small>' : ''}</span>
+      ${own ? `<button type="button" class="btn small ghost" data-cm-reset="${esc(n)}" title="Как по названию">↺</button>` : ''}
+    </div>`;
+  }).join('') : '<span class="pick-meta">У товаров нет модификаций со свойством «Цвет». Добавьте его в карточке товара (модификации: Цвет, Размер).</span>';
 }
 
 /* ---------- Списки строк (преимущества, строки в окне товара) ---------- */
@@ -310,9 +342,29 @@ function onShopChange() {
   pushPreview();
 }
 
+// Выбор цвета кружка: отмечаем, что цвет свой, — до общего обработчика (фаза захвата).
+$('#shop-form').addEventListener('input', (e) => {
+  const inp = e.target.closest('input[data-cm]');
+  if (!inp) return;
+  inp.dataset.own = '1';
+  const dot = inp.closest('.cm-dot');
+  dot.style.background = inp.value;
+  dot.closest('.cm-row').classList.add('own');
+}, true);
+$('#shop-form').addEventListener('change', (e) => { if (e.target.matches('input[data-cm]')) renderColorMap(); });
 $('#shop-form').addEventListener('input', onShopChange);
 $('#shop-form').addEventListener('change', onShopChange);
 $('#shop-form').addEventListener('click', async (e) => {
+  const cmReset = e.target.closest('[data-cm-reset]');
+  if (cmReset) {
+    e.preventDefault();
+    const map = { ...(builder.draft.colorMap || {}) };
+    delete map[cmReset.dataset.cmReset];
+    builder.draft.colorMap = map;
+    renderColorMap();
+    markDirty();
+    return pushPreview();
+  }
   // Редакторы строк и таблицы размеров.
   const le = e.target.closest('[data-le-add], [data-le-move], [data-le-del]');
   const se = e.target.closest('[data-se]');

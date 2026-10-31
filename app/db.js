@@ -951,6 +951,8 @@ const SHOP_DEFAULTS = {
   announce: '',
   perks: [],
   productNotes: [],
+  showSwatches: true,
+  colorMap: {},
   showSaleBadge: true,
   newDays: 14,
   instagram: '',
@@ -4360,6 +4362,10 @@ function createStore(file) {
         announce: t('announce', 'Бегущая строка', 200),
         perks: normPerks(v.perks),
         productNotes: normNotes(v.productNotes),
+        showSwatches: v.showSwatches !== false,
+        // Свои цвета кружков: «Название цвета» → #rrggbb.
+        colorMap: Object.fromEntries(Object.entries(v.colorMap && typeof v.colorMap === 'object' ? v.colorMap : {})
+          .filter(([k, c]) => String(k).trim() && /^#[0-9a-f]{6}$/i.test(String(c))).slice(0, 300).map(([k, c]) => [String(k).trim().slice(0, 60), String(c).toLowerCase()])),
         showSaleBadge: v.showSaleBadge !== false,
         newDays: Math.max(0, Math.min(90, Math.round(number(v.newDays || 0, 'Дней «Новинка»')))),
         instagram: t('instagram', 'Instagram', 60).replace(/^@/, '').replace(/^https?:\/\/(www\.)?instagram\.com\//, '').replace(/\/.*$/, ''),
