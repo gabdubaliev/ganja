@@ -809,7 +809,19 @@ const routes = [
   // Чек об оплате, который прикрепил покупатель, — картинкой или PDF.
   ['GET', '/api/orders/:id/receipts/:rid', (p) => ({ __file: store.getOrderReceipt(p.id, p.rid) }), ['orders', 'orders.payment']],
   ['PUT', '/api/orders/:id', (p, url, body, user) => {
+    const before = store.getOrder(p.id);
     const order = store.setOrderStatus(p.id, body, user, { canPay: !auth.enabled || can(user, 'orders.payment') });
+    // Оплата подтверждена — сообщаем покупателю: SMS (если подключены), а на витрине он увидит уведомление сам.
+    if (!before.paid_at && order.paid_at) {
+      const sms = smsSettings();
+      if (sms.enabled && sms.provider) {
+        const site = store.shop().title || store.design().name || 'Магазин';
+        sendSms(sms, order.phone, `${site}: оплата заказа №${order.id} на ${order.total} сом подтверждена. Упаковываем и передадим курьеру.`)
+          .then(() => store.audit({ kind: 'change', userName: 'SMS', action: 'Покупателю отправлено SMS об оплате', details: `Заказ №${order.id}, +${order.phone}` }))
+          .catch((err) => store.audit({ kind: 'denied', userName: 'SMS', action: 'SMS об оплате не отправлено', details: `Заказ №${order.id}, +${order.phone}: ${err.message}` }));
+        return { ...order, notified: 'sms' };
+      }
+    }
     if (body.status === 'done' && order.sale_id) notifier.sale({ ...store.getSale(order.sale_id), items: order.items, paid: order.total }, user);
     return order;
   }, 'orders'],

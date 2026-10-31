@@ -562,6 +562,7 @@ tr.variant-row .pname { font-weight: 500; }
 .receipt-view img { max-width: 100%; max-height: calc(100vh - 64px); object-fit: contain; border-radius: 10px; background: #fff; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); transform: scale(0.6); transition: transform 0.2s ease-out; }
 .receipt-view iframe { width: min(100%, 900px); height: calc(100vh - 80px); border: 0; border-radius: 10px; background: #fff; transform: scale(0.6); transition: transform 0.2s ease-out; }
 .receipt-view.on img, .receipt-view.on iframe { transform: scale(1); }
+.receipt-view-bar { position: fixed; top: 12px; right: 12px; display: flex; gap: 8px; z-index: 1; }
 .receipt-view-hint { position: fixed; bottom: 12px; left: 0; right: 0; text-align: center; color: rgba(255, 255, 255, 0.8); font-size: 13px; pointer-events: none; }
 .receipt-thumb { width: 72px; height: 96px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); background: #fff; }
 .customers-table { min-width: 980px; }

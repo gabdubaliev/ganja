@@ -39,27 +39,35 @@ function orderActions(o) {
 }
 const orderPayLine = (o) => (o.pay_id ? `<div class="order-pay">💳 ${esc(o.pay_name)}${o.paid_at ? ` · <b class="pos">оплата подтверждена</b> ${dateTime(o.paid_at)}${o.paid_by ? `, ${esc(o.paid_by)}` : ''}`
   : o.status === 'checking' ? ` · покупатель нажал «Я оплатил» ${o.paid_claimed_at ? dateTime(o.paid_claimed_at) : ''} — <b>сверьте поступление ${money2(o.total)}</b>` : ' · <span class="neg">оплата не получена</span>'}</div>
-  ${orderReceipts(o)}` : '');
+  ${orderReceipts(o)}
+  ${o.paid_at && ['confirmed', 'ready', 'shipped'].includes(o.status) ? `<a class="btn small ghost" href="https://wa.me/${esc(o.phone)}?text=${encodeURIComponent(`Здравствуйте, ${o.name}! Оплата заказа №${o.id} на ${o.total} сом подтверждена. Упаковываем и скоро передадим курьеру.`)}" target="_blank" rel="noopener">💬 Написать покупателю в WhatsApp</a>` : ''}` : '');
 // Чеки об оплате от покупателя: миниатюра открывает чек крупно поверх страницы (без новой вкладки).
 const orderReceipts = (o) => (o.receipts?.length ? `<div class="order-receipts">${o.receipts.map((r) => {
   const url = `/api/orders/${o.id}/receipts/${r.id}`;
   return r.mime === 'application/pdf'
-    ? `<button type="button" class="btn small" data-receipt-view="${url}" data-pdf="1">📄 Чек PDF</button>`
-    : `<button type="button" class="receipt-open" data-receipt-view="${url}" title="Чек от ${dateTime(r.created_at)} — нажмите, чтобы увеличить"><img class="receipt-thumb" src="${url}" alt="Чек об оплате"></button>`;
+    ? `<button type="button" class="btn small" data-receipt-view="${url}" data-receipt-order="${o.id}" data-pdf="1">📄 Чек PDF</button>`
+    : `<button type="button" class="receipt-open" data-receipt-view="${url}" data-receipt-order="${o.id}" title="Чек от ${dateTime(r.created_at)} — нажмите, чтобы увеличить"><img class="receipt-thumb" src="${url}" alt="Чек об оплате" draggable="false"></button>`;
 }).join('')}</div>` : (o.pay_id && !o.paid_at ? '<div class="pick-meta">Чек покупатель не прикрепил</div>' : ''));
 
-// Чек крупно: закрывается нажатием в любое место или клавишей Esc.
-function openReceiptView(url, pdf) {
+// Чек крупно поверх страницы: закрывается нажатием в любое место или клавишей Esc.
+// Сверху — «Переслать в WhatsApp»: системное меню «Поделиться» (выбрать группу магазина).
+function openReceiptView(url, pdf, order) {
   const box = document.createElement('div');
   box.className = 'receipt-view';
   box.setAttribute('role', 'dialog');
   box.setAttribute('aria-label', 'Чек об оплате');
-  box.innerHTML = pdf
-    ? `<iframe src="${url}" title="Чек об оплате"></iframe><span class="receipt-view-hint">Нажмите рядом с чеком, чтобы закрыть</span>`
-    : `<img src="${url}" alt="Чек об оплате"><span class="receipt-view-hint">Нажмите в любое место, чтобы закрыть</span>`;
+  box.innerHTML = `<div class="receipt-view-bar">
+      <button type="button" class="btn small primary" data-receipt-share>📤 Переслать в WhatsApp</button>
+      <button type="button" class="btn small" data-receipt-close>✕ Закрыть</button>
+    </div>
+    ${pdf ? `<iframe src="${url}" title="Чек об оплате"></iframe>` : `<img src="${url}" alt="Чек об оплате" draggable="false">`}
+    <span class="receipt-view-hint">${pdf ? 'Нажмите рядом с чеком, чтобы закрыть' : 'Нажмите в любое место, чтобы закрыть'}</span>`;
   const close = () => { box.classList.remove('on'); setTimeout(() => box.remove(), 180); document.removeEventListener('keydown', onKey); };
   const onKey = (e) => { if (e.key === 'Escape') close(); };
-  box.addEventListener('click', close);
+  box.addEventListener('click', (e) => {
+    if (e.target.closest('[data-receipt-share]')) return shareReceipt(url, pdf, order);
+    close();
+  });
   document.addEventListener('keydown', onKey);
   document.body.append(box);
   requestAnimationFrame(() => box.classList.add('on'));
@@ -110,9 +118,32 @@ $('#orders-filter').addEventListener('click', (e) => {
   ordersView.status = btn.dataset.status;
   renderOrders();
 });
+// Переслать чек: на телефоне и планшете — меню «Поделиться» с файлом (выбрать WhatsApp → группу магазина).
+// Где так нельзя (компьютер) — файл скачивается и открывается WhatsApp с текстом: чек прикрепить вручную.
+async function shareReceipt(url, pdf, order) {
+  const text = order ? `Чек об оплате заказа №${order.id} — ${money2(order.total)}, ${order.name}, ${phoneFmt(order.phone)}${order.pay_name ? `, ${order.pay_name}` : ''}` : 'Чек об оплате';
+  try {
+    const blob = await fetch(url).then((r) => { if (!r.ok) throw new Error('Чек не загрузился'); return r.blob(); });
+    const file = new File([blob], `chek-zakaz-${order?.id || ''}.${pdf ? 'pdf' : 'jpg'}`, { type: blob.type });
+    if (navigator.canShare?.({ files: [file] })) {
+      await navigator.share({ files: [file], text });
+      return;
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = file.name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+    toast('Чек скачан. В WhatsApp выберите группу и прикрепите файл');
+  } catch (err) {
+    if (err.name !== 'AbortError') toast(err.message || 'Не получилось переслать', 'error');
+  }
+}
+
 $('#orders-list').addEventListener('click', async (e) => {
   const view = e.target.closest('[data-receipt-view]');
-  if (view) return openReceiptView(view.dataset.receiptView, Boolean(view.dataset.pdf));
+  if (view) return openReceiptView(view.dataset.receiptView, Boolean(view.dataset.pdf), ordersView.list.find((o) => o.id === Number(view.dataset.receiptOrder)));
   const btn = e.target.closest('[data-order]');
   if (!btn) return;
   const id = Number(btn.dataset.order);
@@ -123,7 +154,9 @@ $('#orders-list').addEventListener('click', async (e) => {
   ordersView.confirmCancel = null;
   try {
     const o = await api(`/api/orders/${id}`, { method: 'PUT', body: { status: btn.dataset.to, methodId: btn.dataset.method ? Number(btn.dataset.method) : undefined } });
-    toast(o.status === 'done' ? `Заказ №${o.id} выдан, чек №${o.sale_id} пробит` : `Заказ №${o.id}: ${orderOne(o).toLowerCase()}`);
+    toast(o.status === 'done' ? `Заказ №${o.id} выдан, чек №${o.sale_id} пробит`
+      : o.notified === 'sms' ? `Заказ №${o.id}: оплата подтверждена, покупателю отправлено SMS`
+      : `Заказ №${o.id}: ${orderOne(o).toLowerCase()}${o.paid_at && btn.dataset.to === 'confirmed' ? '. Покупатель увидит уведомление на витрине' : ''}`);
     renderOrders();
   } catch (err) {
     toast(err.message, 'error');

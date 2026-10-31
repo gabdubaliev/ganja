@@ -488,6 +488,24 @@ async function account(path, body, method = 'POST') {
   return data;
 }
 
+// Уведомление «Оплата подтверждена»: один раз на заказ (запоминается в браузере), за последние 7 дней.
+function paidNotice() {
+  let seen = [];
+  try { seen = JSON.parse(localStorage.getItem('paidSeen') || '[]'); } catch { /* без памяти браузера */ }
+  const fresh = (state.orders || []).filter((o) => o.paid_at && Date.now() - o.paid_at < 7 * 864e5 && !seen.includes(o.id)
+    && !['done', 'cancelled'].includes(o.status));
+  if (!fresh.length || $('#paid-notice').open) return;
+  $('#paid-text').textContent = fresh.length === 1
+    ? `Мы получили оплату заказа №${fresh[0].id} на ${rub(fresh[0].total)}. Упаковываем заказ и скоро передадим курьеру.`
+    : `Мы получили оплату заказов ${fresh.map((o) => '№' + o.id).join(', ')}. Упаковываем и скоро передадим курьеру.`;
+  $('#paid-notice').showModal();
+  try { localStorage.setItem('paidSeen', JSON.stringify([...seen, ...fresh.map((o) => o.id)].slice(-100))); } catch { /* ничего */ }
+}
+// Пока витрина открыта, раз в минуту проверяем, не подтвердили ли оплату.
+setInterval(() => {
+  if (state.me && document.visibilityState === 'visible' && (state.orders || []).some((o) => ['checking', 'unpaid'].includes(o.status))) loadMe();
+}, 60_000);
+
 async function loadMe() {
   try {
     const d = await fetch('/shop/account/me').then((r) => r.json());
@@ -500,6 +518,7 @@ async function loadMe() {
     state.certificateOps = d.certificateOps || [];
     state.manyStores = (d.stores || 1) > 1;
     if ($('#account').open && !$('#account [data-view="profile"]').hidden) renderProfile();
+    paidNotice();
   } catch {
     state.me = null;
   }

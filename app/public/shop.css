@@ -206,6 +206,7 @@ dialog.side { margin-right: 0; margin-top: 0; height: 100dvh; max-height: 100dvh
 .error { color: #c62828; margin: 0; }
 .small { font-size: 13px; color: var(--ink-soft); margin: 0; text-align: center; }
 .done { text-align: center; display: grid; gap: 8px; justify-items: center; padding: 16px 0; }
+.done-icon.paid { background: #16a34a; }
 .done-icon { width: 64px; height: 64px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 34px; display: grid; place-items: center; }
 
 @media (max-width: 1000px) { .grid:not(.list) { grid-template-columns: repeat(min(var(--cols), 3), minmax(0, 1fr)); } }
