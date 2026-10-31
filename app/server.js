@@ -517,6 +517,14 @@ const routes = [
   ['POST', '/api/bonuses', (p, url, body, user) => store.addFine(body, user, 'bonus'), 'salary'],
   ['DELETE', '/api/bonuses/:id', (p) => store.deleteFine(p.id, 'bonus'), 'salary'],
   ['GET', '/api/timesheet', (p, url) => store.timesheet({ year: url.searchParams.get('year'), month: url.searchParams.get('month') }), ['timesheet', 'timesheet.edit']],
+  // Свой табель сотрудника — только просмотр, только своя строка (окно кассы).
+  ['GET', '/api/my-timesheet', (p, url, body, user) => {
+    if (!user) throw new UserError('Свой табель видят сотрудники, которые вошли под своим email');
+    const t = store.timesheet({ year: url.searchParams.get('year'), month: url.searchParams.get('month') });
+    const row = t.rows.find((r) => r.user.id === user.id) || null;
+    if (row) for (const c of Object.values(row.days)) if (c.mark) c.mark = { status: c.mark.status, amount: c.mark.amount, color: c.mark.color, note: c.mark.note };
+    return { year: t.year, month: t.month, daysInMonth: t.daysInMonth, today: t.today, user: { id: user.id, name: user.name || user.email, shift_rate: user.shift_rate, percent: user.percent, salary: user.salary }, row };
+  }, 'any'],
   ['PUT', '/api/timesheet/marks', (p, url, body, user) => store.setTimesheetMarks(body, user), 'timesheet.edit'],
   ['GET', '/api/tasks', (p, url, body, user) => {
     // Без входа (сотрудников ещё нет) программа открыта как администратору.

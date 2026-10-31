@@ -1239,3 +1239,32 @@ td.nowrap, .nowrap { white-space: nowrap; }
 .ts-cell[class*="ts-c-"] { color: #1d1f2b; }
 .ts-cell[class*="ts-c-"] .ts-mark { color: #4a4d5c; }
 th.ts-name.ts-editable:hover, th.ts-day.ts-editable:hover { color: var(--series); }
+
+/* ---------- Мой табель (окно кассы) ---------- */
+.mts-bar { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: center; }
+.mts-totals { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+.mts-week, .mts-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.mts-week { margin-bottom: 6px; font-size: 12px; font-weight: 650; color: var(--muted); text-align: center; }
+.mts-week .we { color: var(--critical); }
+.mts-day { position: relative; min-height: 78px; padding: 6px 8px; border: 1px solid var(--grid); border-radius: 10px; background: var(--surface); display: grid; align-content: start; gap: 2px; }
+.mts-day.empty { border: 0; background: none; }
+.mts-day.worked { background: color-mix(in srgb, #1a9d55 13%, var(--surface)); }
+.mts-day.noshift { background: color-mix(in srgb, #e0a100 16%, var(--surface)); }
+.mts-day.off { background: var(--surface-2); color: var(--muted); }
+.mts-day.today { box-shadow: inset 0 0 0 2px var(--series); }
+.mts-num { font-size: 12px; font-weight: 700; }
+.mts-day.weekend .mts-num { color: var(--critical); }
+.mts-status { font-size: 11px; color: var(--ink-2); }
+.mts-money { font-size: 14px; }
+.mts-off { font-weight: 700; font-size: 15px; }
+.mts-note-dot { position: absolute; right: 5px; bottom: 3px; font-size: 11px; }
+.mts-day .ts-dots { top: 5px; right: 6px; }
+.mts-note { margin-top: 12px; }
+@media (max-width: 900px) { .mts-totals { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) {
+  .mts-day { min-height: 62px; padding: 4px 5px; }
+  .mts-money { font-size: 11px; }
+  .mts-cur { display: none; }
+  .mts-status { font-size: 10px; }
+  .mts-week, .mts-grid { gap: 4px; }
+}

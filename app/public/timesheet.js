@@ -164,6 +164,8 @@ async function tsApply(body, done = 'Табель изменён') {
   try {
     const r = await api('/api/timesheet/marks', { method: 'PUT', body: { cells, ...body } });
     toast(`${done}: ${r.count} ${plural(r.count, ['день', 'дня', 'дней'])}`);
+    // После действия выбор снимается сам.
+    tsView.sel.clear();
     await renderTimesheet();
     return true;
   } catch (err) {
