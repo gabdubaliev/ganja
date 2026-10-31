@@ -19,6 +19,7 @@ const { createNotifier } = require('./notify');
 const { createCrm } = require('./crm');
 const { createShopAuth } = require('./shop-auth');
 const { sendSms, PROVIDERS: SMS_PROVIDERS } = require('./sms');
+const captcha = require('./captcha');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -944,6 +945,9 @@ const routes = [
   }), 'staff'],
 
   ['PUT', '/api/design', (p, url, body) => store.setDesign(body), 'design'],
+  // Предпросмотр: та же тема, что отдаёт /theme.css, но из несохранённого черновика.
+  // Свой CSS сотрудник с этим правом и так может писать, поэтому строки идут как есть.
+  ['POST', '/api/design/preview', (p, url, body) => ({ css: themeCss({ ...store.design(), ...Object.fromEntries(Object.entries(body || {}).map(([k, v]) => [k, typeof v === 'number' ? v : String(v ?? '').replace(/[<>{};]/g, k === 'css' ? (c) => c : '')])) }) }), 'design'],
   ['PUT', '/api/layout', (p, url, body, user) => {
     if (auth.enabled && user?.role !== 'owner') throw new UserError('Расположение разделов меняет владелец');
     return saveLayout(body);
@@ -1342,6 +1346,11 @@ async function shopAccount(req, res, url) {
     return sendJson(res, 200, rest);
   };
   try {
+    // Капча для входа, регистрации и восстановления пароля.
+    if (req.method === 'GET' && action === 'captcha') {
+      res.setHeader('Cache-Control', 'no-store');
+      return sendJson(res, 200, captcha.create());
+    }
     if (req.method === 'GET' && action === 'me') {
       const c = shopAuth.current(req);
       if (!c) return sendJson(res, 200, { customer: null });
@@ -1367,6 +1376,9 @@ async function shopAccount(req, res, url) {
     }
     if (req.method !== 'POST' && req.method !== 'PUT') return sendJson(res, 405, { error: 'Неверный запрос' });
     const body = await readBody(req);
+    if (['login', 'register', 'reset/request'].includes(action) && !captcha.verify(body.captchaId, body.captcha)) {
+      return sendJson(res, 400, { error: 'Неверный код с картинки — введите цифры с новой картинки', captcha: true });
+    }
     switch (action) {
       case 'register': {
         const r = await shopAuth.register(body, req);

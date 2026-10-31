@@ -4,13 +4,14 @@
 // доставка и свой CSS. Изменения сразу видны в предпросмотре, «Сохранить» публикует их.
 
 const SHOP_TEMPLATES = {
-  light: { name: 'Светлый', accent: '#2a78d6', bg: '#ffffff', surface: '#f5f5f3', ink: '#111111', font: 'system', radius: 14, cardStyle: 'photo', columns: 4 },
-  fresh: { name: 'Свежий', accent: '#2f9e44', bg: '#fbfdf8', surface: '#eef6e8', ink: '#1b2a17', font: 'rounded', radius: 20, cardStyle: 'photo', columns: 4 },
-  warm: { name: 'Тёплый', accent: '#e8590c', bg: '#fff8f0', surface: '#ffffff', ink: '#2b1a0e', font: 'rounded', radius: 24, cardStyle: 'photo', columns: 3 },
-  boutique: { name: 'Бутик', accent: '#111111', bg: '#faf7f2', surface: '#ffffff', ink: '#1a1a1a', font: 'serif', radius: 0, cardStyle: 'photo', columns: 3 },
-  night: { name: 'Ночной', accent: '#f5b301', bg: '#111214', surface: '#1c1d21', ink: '#f2f2f2', font: 'system', radius: 12, cardStyle: 'photo', columns: 4 },
-  tech: { name: 'Техно', accent: '#6741d9', bg: '#f7f7fb', surface: '#ffffff', ink: '#15131f', font: 'mono', radius: 6, cardStyle: 'compact', columns: 5 },
-  menu: { name: 'Меню', accent: '#c2255c', bg: '#ffffff', surface: '#fff0f6', ink: '#212529', font: 'condensed', radius: 10, cardStyle: 'list', columns: 1 },
+  light: { name: 'Светлый', accent: '#2a78d6', bg: '#ffffff', surface: '#f4f6fa', ink: '#111827', headingFont: 'Manrope', bodyFont: 'Inter', radius: 16, buttonStyle: 'pill', cardShadow: 'soft', heroStyle: 'image', cardRatio: '4:5', columns: 4 },
+  boutique: { name: 'Бутик', accent: '#111111', bg: '#faf7f2', surface: '#efe9e1', ink: '#1a1a1a', headingFont: 'Cormorant Garamond', bodyFont: 'Jost', radius: 0, buttonStyle: 'square', cardShadow: 'none', heroStyle: 'split', cardRatio: '3:4', columns: 3 },
+  terracotta: { name: 'Терракота', accent: '#c2410c', bg: '#ffffff', surface: '#f6f3ef', ink: '#1c1917', headingFont: 'Manrope', bodyFont: 'Inter', radius: 16, buttonStyle: 'pill', cardShadow: 'soft', heroStyle: 'image', cardRatio: '4:5', columns: 4 },
+  pastel: { name: 'Пастель', accent: '#db2777', bg: '#fffafc', surface: '#fbeef4', ink: '#2a1621', headingFont: 'Comfortaa', bodyFont: 'Nunito', radius: 24, buttonStyle: 'pill', cardShadow: 'soft', heroStyle: 'split', cardRatio: '1:1', columns: 4 },
+  night: { name: 'Ночной люкс', accent: '#d4a64a', bg: '#0f0f10', surface: '#1b1b1d', ink: '#f4efe6', headingFont: 'Playfair Display', bodyFont: 'Inter', radius: 6, buttonStyle: 'rounded', cardShadow: 'outline', heroStyle: 'image', cardRatio: '3:4', columns: 4 },
+  fresh: { name: 'Эко', accent: '#2f7d4a', bg: '#fbfdf8', surface: '#edf4e8', ink: '#1b2a17', headingFont: 'Rubik', bodyFont: 'Rubik', radius: 20, buttonStyle: 'rounded', cardShadow: 'none', heroStyle: 'gradient', cardRatio: '1:1', columns: 4 },
+  street: { name: 'Стрит', accent: '#facc15', bg: '#ffffff', surface: '#f3f3f3', ink: '#0a0a0a', headingFont: 'Unbounded', bodyFont: 'Montserrat', radius: 4, buttonStyle: 'square', cardShadow: 'outline', heroStyle: 'image', cardRatio: '4:5', columns: 4 },
+  tech: { name: 'Техно', accent: '#6741d9', bg: '#f7f7fb', surface: '#ffffff', ink: '#15131f', headingFont: 'Montserrat', bodyFont: 'Inter', radius: 10, buttonStyle: 'rounded', cardShadow: 'strong', heroStyle: 'gradient', cardRatio: '1:1', columns: 5 },
 };
 const FONT_NAMES = { system: 'Обычный', serif: 'С засечками', rounded: 'Округлый', mono: 'Моноширинный', condensed: 'Узкий' };
 const builder = { saved: null, draft: null, products: [], ready: false };
@@ -62,6 +63,7 @@ function fillShopForm() {
     if (el.type === 'checkbox') el.checked = Boolean(d[el.name]);
     else el.value = d[el.name] ?? '';
   }
+  for (const el of document.querySelectorAll('#shop-form [data-perk]')) el.value = (d.perks || [])[Number(el.dataset.perk)] || '';
   const cats = [...new Set(builder.products.map((p) => p.category).filter(Boolean))].sort();
   $('#shop-cats').innerHTML = cats.length ? cats.map((c) => `<label class="check"><input type="checkbox" data-cat="${esc(c)}" ${d.categories.includes(c) ? 'checked' : ''}> ${esc(c)}</label>`).join('') : '<span class="pick-meta">У товаров пока нет категорий</span>';
   renderImagePicks();
@@ -146,7 +148,7 @@ function draftProducts() {
   const d = builder.draft;
   const cats = new Set(d.categories);
   const shown = (p) => p.price > 0 && (!d.hideOutOfStock || p.stock > 0);
-  const toShop = (p) => ({ id: p.id, name: p.name, category: p.category, unit: p.unit, price: p.price, description: p.description || '',
+  const toShop = (p) => ({ id: p.id, name: p.name, category: p.category, unit: p.unit, price: salePrice(p), oldPrice: p.discount > 0 ? p.price : null, created_at: p.created_at, description: p.description || '',
     photo_at: p.photo_at, photo: Boolean(p.photo_at), parent_id: p.parent_id || null, options: p.options ? JSON.parse(p.options) : null,
     hasVariants: catalog.isGroup(p), stock: d.showStock ? Math.max(0, p.stock) : p.stock > 0 ? 1 : 0 });
   const out = [];
@@ -177,10 +179,11 @@ function readShopForm() {
   for (const el of f.elements) {
     if (!el.name || !(el.name in d)) continue;
     if (el.type === 'checkbox') d[el.name] = el.checked;
-    else if (el.type === 'range' || ['deliveryPrice', 'minOrder'].includes(el.name)) d[el.name] = parseNum(el.value) || 0;
+    else if (el.type === 'range' || ['deliveryPrice', 'minOrder', 'newDays', 'mobileColumns'].includes(el.name)) d[el.name] = parseNum(el.value) || 0;
     else d[el.name] = el.value;
   }
   d.categories = [...document.querySelectorAll('#shop-cats [data-cat]:checked')].map((i) => i.dataset.cat);
+  d.perks = [...document.querySelectorAll('#shop-form [data-perk]')].map((i) => i.value.trim()).filter(Boolean);
 }
 
 function onShopChange() {

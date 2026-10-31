@@ -16,7 +16,7 @@ const FONTS = {
   condensed: '"Roboto Condensed", "Arial Narrow", "Segoe UI", system-ui, sans-serif',
 };
 
-const state = { settings: null, products: [], categories: [], cat: '', query: '', way: 'pickup', payId: '', payOrder: null, receiptFile: null, cart: loadCart(), open: null, sel: {}, me: null, orders: [], codeFor: null };
+const state = { settings: null, products: [], categories: [], cat: '', query: '', sort: '', way: 'pickup', payId: '', payOrder: null, receiptFile: null, cart: loadCart(), open: null, sel: {}, me: null, orders: [], codeFor: null };
 
 function loadCart() {
   try { return JSON.parse(localStorage.getItem('shop.cart')) || {}; } catch { return {}; }
@@ -52,6 +52,11 @@ function applyVars(s) {
   r.setProperty('--font', FONTS[s.font] || FONTS.system);
   r.setProperty('--radius', s.radius + 'px');
   r.setProperty('--cols', s.columns);
+  if (s.bodyFont) r.setProperty('--font', `"${s.bodyFont}", ${FONTS.system}`);
+  r.setProperty('--font-head', s.headingFont ? `"${s.headingFont}", ${FONTS.system}` : 'var(--font)');
+  r.setProperty('--mcols', s.mobileColumns || 2);
+  r.setProperty('--ratio', (s.cardRatio || '4:5').replace(':', ' / '));
+  r.setProperty('--fit', s.imageFit || 'cover');
   let style = $('#preview-css');
   if (!style) {
     style = document.createElement('style');
@@ -63,32 +68,85 @@ function applyVars(s) {
   style.textContent = s.css || '';
 }
 
+// Шрифты из Google Fonts: заголовки и текст (кириллица подгружается сама).
+function loadFonts(s) {
+  const fams = [...new Set([s.headingFont, s.bodyFont].filter(Boolean))];
+  if (!fams.length) return;
+  const href = `https://fonts.googleapis.com/css2?${fams.map((f) => `family=${encodeURIComponent(f).replace(/%20/g, '+')}:wght@400;500;600;700;800`).join('&')}&display=swap`;
+  if ($('#shop-fonts').getAttribute('href') !== href) $('#shop-fonts').setAttribute('href', href);
+}
+
+const ICONS = {
+  instagram: '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="5" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="17.5" cy="6.5" r="1.2" fill="currentColor"/></svg>',
+  whatsapp: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm4.5 12.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.3-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3c-.2.3-.9.9-.9 2.2s.9 2.5 1.1 2.7c.1.2 1.8 2.8 4.4 3.9 1.6.7 2.3.8 3.1.7.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3Z"/></svg>',
+  telegram: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M21.5 4.3 18.4 19c-.2 1-.8 1.3-1.7.8l-4.6-3.4-2.2 2.1c-.2.2-.5.4-.9.4l.3-4.7 8.6-7.8c.4-.3-.1-.5-.6-.2L6.6 12.9 2 11.5c-1-.3-1-1 .2-1.4l17.9-6.9c.8-.3 1.6.2 1.4 1.1Z"/></svg>',
+  tiktok: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M16.6 3c.3 2.2 1.6 3.6 3.9 3.8v2.6a7 7 0 0 1-3.8-1.2v6.3c0 3.6-2.7 6-6 6a6 6 0 0 1-6-6c0-3.4 2.9-6.1 6.6-5.8v2.8c-1.8-.4-3.6.8-3.6 2.9 0 1.7 1.3 3 3 3 1.8 0 3-1.3 3-3.2V3h2.9Z"/></svg>',
+  phone: '<svg viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" d="M5 3h4l2 5-2.5 1.5a11 11 0 0 0 6 6L16 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 5a2 2 0 0 1 2-2Z"/></svg>',
+};
+const PERK_ICONS = ['🚚', '💳', '↺', '★'];
+
 function renderFrame() {
   const s = state.settings;
   document.title = s.title;
+  loadFonts(s);
+  const b = document.body.dataset;
+  b.btn = s.buttonStyle || 'pill'; b.shadow = s.cardShadow || 'soft'; b.hero = s.heroStyle || 'image';
+  b.heroh = s.heroHeight || 'large'; b.align = s.heroAlign || 'left'; b.head = s.headerStyle || 'left';
   $('#preview-note').hidden = !s.preview;
   $('#title').textContent = s.title;
   $('#logo').hidden = !s.logoId;
   if (s.logoId) $('#logo').src = `/img/${s.logoId}`;
+  $('#title').hidden = Boolean(s.logoId) && s.headerStyle === 'center';
+  // Бегущая строка: текст повторяется, чтобы лента шла без разрыва.
+  $('#announce').hidden = !s.announce;
+  $('#announce-text').textContent = s.announce || '';
+  $('#announce-text2').textContent = s.announce || '';
   $('#hero-title').textContent = s.title;
   $('#slogan').textContent = s.slogan;
+  // «Текст слева, фото справа»: фото — в сетке рядом с текстом, иначе — фоном на весь баннер.
+  const media = $('#hero-media');
+  const inner = $('#hero .hero-inner');
+  if (s.heroStyle === 'split' ? media.parentElement !== inner : media.parentElement !== $('#hero')) {
+    if (s.heroStyle === 'split') inner.append(media); else $('#hero').prepend(media);
+  }
   $('#hero').classList.toggle('has-image', Boolean(s.bannerId));
   $('#hero').style.setProperty('--banner', s.bannerId ? `url(/img/${s.bannerId})` : 'none');
-  $('#foot-title').textContent = s.title;
-  $('#about').textContent = s.about;
+  $('#hero-btn').textContent = s.heroButton || 'Смотреть каталог';
+  $('#hero-btn').hidden = !s.heroButton;
   const phone = s.phone.replace(/[^\d+]/g, '');
   const wa = s.whatsapp.replace(/\D/g, '');
-  const links = [
+  $('#hero-wa').hidden = !wa;
+  if (wa) $('#hero-wa').href = `https://wa.me/${wa}`;
+  $('#wa-float').hidden = !wa || s.whatsappButton === false;
+  if (wa) $('#wa-float').href = `https://wa.me/${wa}`;
+  // Преимущества под баннером.
+  const perks = s.perks || [];
+  $('#perks').hidden = !perks.length;
+  $('#perks').innerHTML = perks.map((t, i) => `<div class="perk"><i>${PERK_ICONS[i] || '✓'}</i><span>${esc(t)}</span></div>`).join('');
+  $('#head-contacts').innerHTML = phone ? `<a href="tel:${esc(phone)}">${ICONS.phone.replace('<svg', '<svg width="15" height="15"')}${esc(s.phone)}</a>` : '';
+  $('#foot-title').textContent = s.title;
+  $('#about').textContent = s.about;
+  const social = [
+    s.instagram && ['instagram', `https://instagram.com/${encodeURIComponent(s.instagram)}`],
+    wa && ['whatsapp', `https://wa.me/${wa}`],
+    s.telegram && ['telegram', `https://t.me/${encodeURIComponent(s.telegram)}`],
+    s.tiktok && ['tiktok', `https://www.tiktok.com/@${encodeURIComponent(s.tiktok)}`],
+  ].filter(Boolean);
+  $('#foot-social').innerHTML = social.map(([k, href]) => `<a href="${esc(href)}" target="_blank" rel="noopener" aria-label="${k}">${ICONS[k]}</a>`).join('');
+  $('#foot-contacts').innerHTML = [
     phone && `<a href="tel:${esc(phone)}">${esc(s.phone)}</a>`,
     wa && `<a href="https://wa.me/${esc(wa)}" target="_blank" rel="noopener">WhatsApp</a>`,
     s.telegram && `<a href="https://t.me/${esc(s.telegram)}" target="_blank" rel="noopener">Telegram</a>`,
-  ].filter(Boolean);
-  $('#head-contacts').innerHTML = links.join('');
-  $('#foot-contacts').innerHTML = [
-    ...links,
+    s.instagram && `<a href="https://instagram.com/${esc(s.instagram)}" target="_blank" rel="noopener">Instagram</a>`,
+  ].filter(Boolean).join('') || '<span>—</span>';
+  $('#foot-info').innerHTML = [
     s.address && `<span>📍 ${esc(s.address)}</span>`,
     s.hours && `<span>🕘 ${esc(s.hours)}</span>`,
-  ].filter(Boolean).join('');
+    s.delivery && `<span>🚚 Доставка${s.deliveryPrice ? ` — ${rub(s.deliveryPrice)}` : ' бесплатно'}</span>`,
+    s.payments?.length && `<span>💳 Оплата переводом по QR</span>`,
+  ].filter(Boolean).join('') || '<span>—</span>';
+  $('#foot-copy').textContent = `© ${new Date().getFullYear()} ${s.title}`;
+  $('#foot-note').textContent = s.footerNote || '';
 }
 
 /* ---------- Каталог ---------- */
@@ -100,9 +158,14 @@ function renderCats() {
   const withImages = cats.some((c) => meta.get(c)?.image);
   $('#cats').hidden = cats.length < 2;
   $('#cats').classList.toggle('with-images', withImages);
+  // Категории текстом в шапке (на компьютере).
+  $('#head-nav').innerHTML = cats.length > 1 ? ['', ...cats].map((c) => `<button type="button" data-cat="${esc(c)}" aria-pressed="${state.cat === c}">${c ? esc(c) : 'Все'}</button>`).join('') : '';
   $('#cats').innerHTML = ['', ...cats].map((c) => {
     const img = meta.get(c)?.image;
-    return `<button type="button" data-cat="${esc(c)}" aria-pressed="${state.cat === c}">${withImages ? `<span class="cat-pic">${img ? `<img src="${img}" alt="" loading="lazy">` : c ? esc(c.trim()[0].toUpperCase()) : '★'}</span>` : ''}<span>${c ? esc(c) : 'Все товары'}</span></button>`;
+    // «Все товары» — коллаж из картинок первых категорий.
+    const all = !c && withImages ? cats.map((x) => meta.get(x)?.image).filter(Boolean).slice(0, 4) : [];
+    const pic = img ? `<img src="${img}" alt="" loading="lazy">` : all.length >= 2 ? `<span class="collage">${all.map((u) => `<img src="${u}" alt="" loading="lazy">`).join('')}</span>` : c ? esc(c.trim()[0].toUpperCase()) : '★';
+    return `<button type="button" data-cat="${esc(c)}" aria-pressed="${state.cat === c}">${withImages ? `<span class="cat-pic">${pic}</span>` : ''}<span>${c ? esc(c) : 'Все товары'}</span></button>`;
   }).join('');
 }
 
@@ -113,60 +176,75 @@ function priceHtml(p) {
   return Math.max(...prices) === lo ? rub(lo) : `от ${rub(lo)}`;
 }
 
-function cardHtml(p) {
+// Значки: скидка в процентах, «Новинка» — товар заведён недавно (дней — в настройках витрины).
+function badgesHtml(p) {
+  const s = state.settings;
+  const list = p.hasVariants ? variantsOf(p) : [p];
+  const sale = s.showSaleBadge !== false ? Math.max(0, ...list.map((v) => (v.oldPrice ? Math.round((1 - v.price / v.oldPrice) * 100) : 0))) : 0;
+  const fresh = s.newDays > 0 && p.created_at && Date.now() - p.created_at < s.newDays * 864e5;
+  return sale || fresh ? `<div class="badges">${sale ? `<span class="badge sale">−${sale}%</span>` : ''}${fresh ? '<span class="badge new">Новинка</span>' : ''}</div>` : '';
+}
+
+function cardHtml(p, i = 0) {
   const inCart = p.hasVariants ? variantsOf(p).reduce((sum, v) => sum + (state.cart[v.id] || 0), 0) : state.cart[p.id] || 0;
   const pic = photo(p);
   const s = state.settings;
-  if (p.hasVariants) {
-    return `<div class="card" role="button" tabindex="0" data-open="${p.id}">
-      <div class="pic">${pic ? `<img src="${pic}" alt="" loading="lazy">` : initial(p)}</div>
-      <div class="info">
-        <div><div class="name">${esc(p.name)}</div><div class="meta">${esc(optionNames(p).join(', '))}</div></div>
-        <div class="row">
-          <span class="price">${priceHtml(p)}</span>
-          ${inStock(p) ? `<button type="button" class="add ${inCart ? 'in' : ''}" data-open="${p.id}">${inCart ? `В корзине: ${qtyFmt.format(inCart)}` : 'Выбрать'}</button>` : '<span class="out-tag">Нет в наличии</span>'}
-        </div>
-      </div>
-    </div>`;
-  }
-  return `<div class="card" role="button" tabindex="0" data-open="${p.id}">
-    <div class="pic">${pic ? `<img src="${pic}" alt="" loading="lazy">` : initial(p)}</div>
+  const available = inStock(p);
+  const old = p.hasVariants ? null : p.oldPrice;
+  const firstOpt = p.hasVariants ? optionNames(p)[0] : null;
+  const values = firstOpt ? [...new Set(variantsOf(p).filter((v) => v.stock > 0).map((v) => v.options?.[firstOpt]).filter(Boolean))] : [];
+  const meta = p.hasVariants ? values.slice(0, 6).join(' · ') + (values.length > 6 ? ' …' : '')
+    : s.showStock && p.stock > 0 ? `В наличии: ${qtyFmt.format(p.stock)} ${esc(p.unit)}` : p.unit !== 'шт' ? `за ${esc(p.unit)}` : '';
+  const btn = !available ? '' : p.hasVariants
+    ? `<button type="button" class="quick ${inCart ? 'in' : ''}" data-open="${p.id}">${inCart ? `В корзине: ${qtyFmt.format(inCart)}` : 'Выбрать размер'}</button>`
+    : `<button type="button" class="quick ${inCart ? 'in' : ''}" data-add="${p.id}">${inCart ? `✓ В корзине: ${qtyFmt.format(inCart)}` : 'В корзину'}</button>`;
+  return `<article class="card ${available ? '' : 'out'}" role="button" tabindex="0" data-open="${p.id}" style="--i:${Math.min(i, 12)}">
+    <div class="pic">${pic ? `<img src="${pic}" alt="${esc(p.name)}" loading="lazy">` : initial(p)}${badgesHtml(p)}${available ? '' : '<span class="soldout">Нет в наличии</span>'}${btn}</div>
     <div class="info">
-      <div>
-        <div class="name">${esc(p.name)}</div>
-        ${s.showStock && p.stock > 0 ? `<div class="meta">В наличии: ${qtyFmt.format(p.stock)} ${esc(p.unit)}</div>` : `<div class="meta">${esc(p.unit === 'шт' ? '' : 'за ' + p.unit)}</div>`}
-      </div>
-      <div class="row">
-        <span class="price">${p.oldPrice ? `<s class="old-price">${rub(p.oldPrice)}</s> ` : ''}${rub(p.price)}</span>
-        ${p.stock > 0 ? `<button type="button" class="add ${inCart ? 'in' : ''}" data-add="${p.id}">${inCart ? `В корзине: ${qtyFmt.format(inCart)}` : 'В корзину'}</button>` : '<span class="out-tag">Нет в наличии</span>'}
-      </div>
+      <div class="name">${esc(p.name)}</div>
+      ${meta ? `<div class="meta">${esc(meta)}</div>` : ''}
+      <div class="price-row"><span class="price ${old ? 'sale' : ''}">${priceHtml(p)}</span>${old ? `<s class="old-price">${rub(old)}</s>` : ''}</div>
     </div>
-  </div>`;
+  </article>`;
+}
+
+// Сортировка: по умолчанию — как в каталоге (по категориям), иначе общим списком.
+function sortList(list) {
+  const price = (p) => (p.hasVariants ? Math.min(...variantsOf(p).map((v) => v.price)) : p.price);
+  const sale = (p) => (p.hasVariants ? variantsOf(p).some((v) => v.oldPrice) : Boolean(p.oldPrice));
+  if (state.sort === 'cheap') return [...list].sort((a, b) => price(a) - price(b));
+  if (state.sort === 'dear') return [...list].sort((a, b) => price(b) - price(a));
+  if (state.sort === 'new') return [...list].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+  if (state.sort === 'sale') return list.filter(sale);
+  return list;
 }
 
 function renderGrid() {
   const q = state.query.trim().toLowerCase();
-  const list = state.products.filter((p) => !p.parent_id && (!state.cat || p.category === state.cat) && (!q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q)));
+  const list = sortList(state.products.filter((p) => !p.parent_id && (!state.cat || p.category === state.cat) && (!q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q))));
   const grid = $('#grid');
   grid.className = 'grid ' + state.settings.cardStyle;
+  $('#count').textContent = list.length ? `${list.length} ${['товар', 'товара', 'товаров'][list.length % 10 === 1 && list.length % 100 !== 11 ? 0 : [2, 3, 4].includes(list.length % 10) && ![12, 13, 14].includes(list.length % 100) ? 1 : 2]}` : '';
   if (!list.length) {
-    grid.innerHTML = `<p class="empty">${state.products.length ? 'Ничего не нашлось' : 'Товары скоро появятся'}</p>`;
+    grid.innerHTML = `<p class="empty">${state.products.length ? (state.sort === 'sale' ? 'Сейчас товаров со скидкой нет' : 'Ничего не нашлось — попробуйте другой запрос') : 'Товары скоро появятся'}</p>`;
     return;
   }
-  // На «Все товары» без поиска товары разбиты по категориям.
-  if (!state.cat && !q && new Set(list.map((p) => p.category)).size > 1) {
+  // На «Все товары» без поиска и сортировки товары разбиты по категориям.
+  if (!state.cat && !q && !state.sort && new Set(list.map((p) => p.category)).size > 1) {
     let html = '';
     let current = null;
+    let n = 0;
     for (const p of list) {
       if (p.category !== current) {
         current = p.category;
-        html += `<h2 class="cat-title">${esc(current || 'Другое')}</h2>`;
+        n = 0;
+        html += `<h2 class="cat-title">${esc(current || 'Другое')}<small>${list.filter((x) => x.category === current).length}</small></h2>`;
       }
-      html += cardHtml(p);
+      html += cardHtml(p, n++);
     }
     grid.innerHTML = html;
   } else {
-    grid.innerHTML = list.map(cardHtml).join('');
+    grid.innerHTML = list.map((p, i) => cardHtml(p, i)).join('');
   }
 }
 
@@ -204,18 +282,24 @@ function openProduct(id) {
     </div></div>`;
   }).join('') : '';
   const can = v && v.stock > 0;
-  $('#product-body').innerHTML = `
-    <h2 id="product-name">${esc(p.name)}</h2>
-    <div class="product-pic">${pic ? `<img src="${pic}" alt="">` : initial(p)}</div>
-    ${p.category ? `<p class="small" style="text-align:left">${esc(p.category)}</p>` : ''}
-    ${pickers}
-    ${p.description ? `<p class="product-desc">${esc(p.description)}</p>` : ''}
-    <div class="product-buy">
-      <span class="price">${v ? rub(v.price) : priceHtml(p)}${p.unit !== 'шт' ? ` <span class="small">за ${esc(p.unit)}</span>` : ''}</span>
-      ${can ? `<button type="button" class="primary" data-add="${v.id}">${state.cart[v.id] ? `В корзине: ${qtyFmt.format(state.cart[v.id])} · ещё` : 'В корзину'}</button>`
-        : `<span class="out-tag">${p.hasVariants && !v ? 'Такого сочетания нет' : 'Нет в наличии'}</span>`}
+  const old = v && v !== p ? v.oldPrice : !p.hasVariants ? p.oldPrice : null;
+  const perks = (s.perks || []).slice(0, 3);
+  $('#product-body').innerHTML = `<div class="pd">
+    <div class="pd-pic">${pic ? `<img src="${pic}" alt="${esc(p.name)}">` : initial(p)}${badgesHtml(p)}</div>
+    <div class="pd-info">
+      ${p.category ? `<div class="pd-cat">${esc(p.category)}</div>` : ''}
+      <h2 id="product-name">${esc(p.name)}</h2>
+      <div class="pd-price"><span class="price ${old ? 'sale' : ''}">${v ? rub(v.price) : priceHtml(p)}${p.unit !== 'шт' ? ` <span class="small">за ${esc(p.unit)}</span>` : ''}</span>${old ? `<s>${rub(old)}</s>` : ''}</div>
+      ${pickers}
+      ${p.description ? `<p class="product-desc">${esc(p.description)}</p>` : ''}
+      ${s.showStock && can ? `<p class="small" style="text-align:left">В наличии: ${qtyFmt.format(v.stock)} ${esc(p.unit)}</p>` : ''}
+      ${perks.length ? `<div class="pd-perks">${perks.map((t) => `<div>${esc(t)}</div>`).join('')}</div>` : ''}
+      <div class="pd-buy">
+        ${can ? `<button type="button" class="primary" data-add="${v.id}">${state.cart[v.id] ? `✓ В корзине: ${qtyFmt.format(state.cart[v.id])} · добавить ещё` : 'Добавить в корзину'}</button>`
+          : `<span class="out-tag">${p.hasVariants && !v ? 'Такого сочетания нет' : 'Нет в наличии'}</span>`}
+      </div>
     </div>
-    ${s.showStock && can ? `<p class="small" style="text-align:left">В наличии: ${qtyFmt.format(v.stock)} ${esc(p.unit)}</p>` : ''}`;
+  </div>`;
   if (!$('#product').open) $('#product').showModal();
 }
 
@@ -230,6 +314,7 @@ function add(id, delta = 1) {
   if (next) state.cart[id] = next; else delete state.cart[id];
   saveCart();
   renderAll();
+  if (delta > 0) { const c = $('#cart-count'); c.classList.remove('bump'); void c.offsetWidth; c.classList.add('bump'); }
 }
 
 function cartLines() {
@@ -244,9 +329,10 @@ function renderCart() {
   const s = state.settings;
   $('#cart-lines').innerHTML = lines.length ? lines.map((l) => `
     <div class="cart-line">
-      <div><div class="name">${esc(l.p.name)}</div><div class="meta">${rub(l.p.price)} за ${esc(l.p.unit)}</div></div>
-      <div class="stepper"><button type="button" data-add="${l.p.id}" data-delta="-1" aria-label="Меньше">−</button><span>${qtyFmt.format(l.qty)}</span><button type="button" data-add="${l.p.id}" aria-label="Больше">+</button></div>
-      <div class="line-sum">${rub(l.qty * l.p.price)}</div>
+      <div class="cart-thumb">${photo(l.p) ? `<img src="${photo(l.p)}" alt="">` : initial(l.p)}</div>
+      <div class="info"><div class="name">${esc(l.p.name)}</div><div class="meta">${rub(l.p.price)} за ${esc(l.p.unit)}</div>
+        <div class="row"><div class="stepper"><button type="button" data-add="${l.p.id}" data-delta="-1" aria-label="Меньше">−</button><span>${qtyFmt.format(l.qty)}</span><button type="button" data-add="${l.p.id}" aria-label="Больше">+</button></div>
+        <div class="line-sum">${rub(l.qty * l.p.price)}</div></div></div>
     </div>`).join('') : '<p class="empty">Корзина пуста</p>';
   $('#checkout').hidden = !lines.length;
   if (!lines.length) return;
@@ -409,6 +495,10 @@ for (const d of document.querySelectorAll('dialog')) d.addEventListener('click',
 $('#cart-open').addEventListener('click', () => { renderCart(); $('#cart').showModal(); });
 $('#brand').addEventListener('click', (e) => { e.preventDefault(); scrollTo({ top: 0 }); });
 $('#search').addEventListener('input', (e) => { state.query = e.target.value; renderGrid(); });
+$('#sort').addEventListener('change', (e) => { state.sort = e.target.value; renderGrid(); });
+// Категория из шапки — сразу к каталогу.
+$('#head-nav').addEventListener('click', (e) => { if (e.target.closest('[data-cat]')) $('#catalog').scrollIntoView({ behavior: 'smooth' }); });
+addEventListener('scroll', () => $('#site-head').classList.toggle('scrolled', scrollY > 8), { passive: true });
 
 $('#checkout').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -530,10 +620,35 @@ function renderAccountButton() {
   $('#account-label').textContent = state.me ? state.me.name.split(' ')[0] + (state.me.bonus ? ` · ${new Intl.NumberFormat('ru-RU').format(state.me.bonus)} Б` : '') : 'Войти';
 }
 
+// Капча: картинка с цифрами (с сервера), кнопка «другая картинка» и поле для ответа. Код одноразовый.
+async function loadCaptcha(form) {
+  const box = form?.querySelector('[data-captcha]');
+  if (!box) return;
+  if (!box.firstChild) {
+    box.innerHTML = `<span class="cap-label">Введите цифры с картинки — так мы отличаем людей от программ-спамеров</span>
+      <div class="captcha-img"></div><button type="button" class="captcha-new" title="Другая картинка" aria-label="Другая картинка">↻</button>
+      <input name="captcha" inputmode="numeric" autocomplete="off" maxlength="5" placeholder="Цифры" aria-label="Цифры с картинки" required>`;
+  }
+  box.querySelector('input').value = '';
+  try {
+    const c = await fetch('/shop/account/captcha', { cache: 'no-store' }).then((r) => r.json());
+    box.dataset.id = c.id;
+    box.querySelector('.captcha-img').innerHTML = c.svg;
+  } catch {
+    box.querySelector('.captcha-img').textContent = 'Нет связи';
+  }
+}
+const captchaOf = (form) => {
+  const box = form.querySelector('[data-captcha]');
+  return box ? { captchaId: box.dataset.id || '', captcha: box.querySelector('input')?.value || '' } : {};
+};
+document.addEventListener('click', (e) => { const b = e.target.closest('.captcha-new'); if (b) loadCaptcha(b.closest('form')); });
+
 function openAccount(view) {
   if (!view) view = state.me ? 'profile' : 'login';
   for (const el of document.querySelectorAll('#account .acc')) el.hidden = el.dataset.view !== view;
   for (const e of document.querySelectorAll('#account .error')) e.hidden = true;
+  if (['login', 'register', 'forgot', 'code'].includes(view)) loadCaptcha($(`#account [data-view="${view}"]`));
   if (view === 'profile') renderProfile();
   if (!$('#account').open) $('#account').showModal();
   $(`#account [data-view="${view}"] input`)?.focus();
@@ -686,8 +801,8 @@ $('#account [data-view="login"]').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
   try {
-    loggedIn(await account('login', { phone: f.elements.phone.value, password: f.elements.password.value }), 'Вы вошли');
-  } catch (err) { showError(f, err); }
+    loggedIn(await account('login', { phone: f.elements.phone.value, password: f.elements.password.value, ...captchaOf(f) }), 'Вы вошли');
+  } catch (err) { showError(f, err); loadCaptcha(f); }
 });
 $('#account [data-view="register"]').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -695,18 +810,18 @@ $('#account [data-view="register"]').addEventListener('submit', async (e) => {
   const body = Object.fromEntries(['phone', 'name', 'birthday', 'password', 'gender'].map((k) => [k, f.elements[k].value]));
   if (!body.gender) return showError(f, new Error('Укажите пол'));
   try {
-    const d = await account('register', body);
+    const d = await account('register', { ...body, ...captchaOf(f) });
     if (d.needCode) return openCode('register', body.phone, d.channel, { body });
     loggedIn(d, 'Готово! Вы зарегистрированы');
-  } catch (err) { showError(f, err); }
+  } catch (err) { showError(f, err); loadCaptcha(f); }
 });
 $('#account [data-view="forgot"]').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
   try {
-    const d = await account('reset/request', { phone: f.elements.phone.value });
+    const d = await account('reset/request', { phone: f.elements.phone.value, ...captchaOf(f) });
     openCode('reset', f.elements.phone.value, d.channel);
-  } catch (err) { showError(f, err); }
+  } catch (err) { showError(f, err); loadCaptcha(f); }
 });
 $('#account [data-view="code"]').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -721,10 +836,10 @@ $('#account [data-resend]').addEventListener('click', async () => {
   const c = state.codeFor;
   const f = $('#account [data-view="code"]');
   try {
-    const d = c.purpose === 'register' ? await account('register', c.body) : await account('reset/request', { phone: c.phone });
+    const d = c.purpose === 'register' ? await account('register', { ...c.body, ...captchaOf(f) }) : await account('reset/request', { phone: c.phone, ...captchaOf(f) });
     openCode(c.purpose, c.phone, d.channel, c.purpose === 'register' ? { body: c.body } : {});
     toast('Новый код запрошен');
-  } catch (err) { showError(f, err); }
+  } catch (err) { showError(f, err); loadCaptcha(f); }
 });
 $('#profile-form').addEventListener('submit', async (e) => {
   e.preventDefault();

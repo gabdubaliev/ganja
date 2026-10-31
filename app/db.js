@@ -872,7 +872,9 @@ function daysToBirthday(bday, now = Date.now()) {
 }
 
 // Оформление программы. Цвета — #rrggbb, остальное проверяется в setDesign.
-const DESIGN_DEFAULTS = { name: 'Мой магазин', accent: '#5b5bf6', bg: '', surface: '', ink: '', font: 'system', radius: 14, theme: 'auto', css: '' };
+const DESIGN_DEFAULTS = { name: 'Мой магазин', accent: '#5b5bf6', bg: '', surface: '', ink: '', font: 'system', radius: 14, theme: 'auto', css: '',
+  density: 'normal', cards: 'shadow', background: 'soft', nav: 'light' };
+const ADMIN_FONTS = ['Inter', 'Manrope', 'Montserrat', 'Rubik', 'Nunito', 'Roboto', 'Open Sans', 'Jost', 'PT Sans', 'IBM Plex Sans', 'Fira Sans'];
 
 // Интернет-витрина: всё, что меняется в конструкторе.
 const SHOP_DEFAULTS = {
@@ -908,8 +910,31 @@ const SHOP_DEFAULTS = {
   bannerId: null,
   logoId: null,
   css: '',
+  // Дизайн (вторая версия конструктора): шрифты из Google Fonts с кириллицей, стиль баннера, кнопок и карточек.
+  headingFont: 'Manrope',
+  bodyFont: 'Inter',
+  buttonStyle: 'pill',
+  cardRatio: '4:5',
+  cardShadow: 'soft',
+  imageFit: 'cover',
+  heroStyle: 'image',
+  heroHeight: 'large',
+  heroAlign: 'left',
+  heroButton: 'Смотреть каталог',
+  headerStyle: 'left',
+  mobileColumns: 2,
+  announce: '',
+  perks: [],
+  showSaleBadge: true,
+  newDays: 14,
+  instagram: '',
+  tiktok: '',
+  whatsappButton: true,
+  footerNote: '',
 };
 const FONTS = ['system', 'serif', 'rounded', 'mono', 'condensed'];
+const SHOP_FONTS = ['Inter', 'Manrope', 'Montserrat', 'Rubik', 'Nunito', 'Raleway', 'Open Sans', 'Roboto', 'Unbounded', 'Comfortaa',
+  'Playfair Display', 'Cormorant Garamond', 'Lora', 'PT Serif', 'Oswald', 'Roboto Condensed', 'Prata', 'Jost'];
 
 // Конструктор чека покупателю (товарный чек, не фискальный) и этикеток на товар.
 const RECEIPT_DEFAULTS = {
@@ -3866,10 +3891,14 @@ function createStore(file) {
         bg: color(input.bg, 'Фон', { optional: true }),
         surface: color(input.surface, 'Панели', { optional: true }),
         ink: color(input.ink, 'Текст', { optional: true }),
-        font: FONTS.includes(input.font) ? input.font : 'system',
+        font: FONTS.includes(input.font) || ADMIN_FONTS.includes(input.font) ? input.font : 'system',
         radius: Math.min(radius, 30),
         theme: ['auto', 'light', 'dark'].includes(input.theme) ? input.theme : 'auto',
         css: css(input.css),
+        density: ['compact', 'normal', 'comfortable'].includes(input.density) ? input.density : 'normal',
+        cards: ['shadow', 'flat', 'outline', 'glass'].includes(input.cards) ? input.cards : 'shadow',
+        background: ['soft', 'plain', 'gradient', 'mesh'].includes(input.background) ? input.background : 'soft',
+        nav: ['light', 'dark', 'accent'].includes(input.nav) ? input.nav : 'light',
       };
       this.setSetting('design', JSON.stringify(next));
       return next;
@@ -4207,6 +4236,26 @@ function createStore(file) {
         bannerId: imageId(v.bannerId),
         logoId: imageId(v.logoId),
         css: css(v.css),
+        headingFont: SHOP_FONTS.includes(v.headingFont) ? v.headingFont : 'Manrope',
+        bodyFont: SHOP_FONTS.includes(v.bodyFont) ? v.bodyFont : 'Inter',
+        buttonStyle: ['pill', 'rounded', 'square'].includes(v.buttonStyle) ? v.buttonStyle : 'pill',
+        cardRatio: ['1:1', '3:4', '4:5', '4:3'].includes(v.cardRatio) ? v.cardRatio : '4:5',
+        cardShadow: ['none', 'soft', 'strong', 'outline'].includes(v.cardShadow) ? v.cardShadow : 'soft',
+        imageFit: v.imageFit === 'contain' ? 'contain' : 'cover',
+        heroStyle: ['image', 'split', 'gradient', 'minimal', 'none'].includes(v.heroStyle) ? v.heroStyle : 'image',
+        heroHeight: ['small', 'medium', 'large', 'full'].includes(v.heroHeight) ? v.heroHeight : 'large',
+        heroAlign: v.heroAlign === 'center' ? 'center' : 'left',
+        heroButton: t('heroButton', 'Кнопка на баннере', 40),
+        headerStyle: v.headerStyle === 'center' ? 'center' : 'left',
+        mobileColumns: Number(v.mobileColumns) === 1 ? 1 : 2,
+        announce: t('announce', 'Бегущая строка', 200),
+        perks: (Array.isArray(v.perks) ? v.perks : []).map((x) => String(x ?? '').trim().slice(0, 80)).filter(Boolean).slice(0, 4),
+        showSaleBadge: v.showSaleBadge !== false,
+        newDays: Math.max(0, Math.min(90, Math.round(number(v.newDays || 0, 'Дней «Новинка»')))),
+        instagram: t('instagram', 'Instagram', 60).replace(/^@/, '').replace(/^https?:\/\/(www\.)?instagram\.com\//, '').replace(/\/.*$/, ''),
+        tiktok: t('tiktok', 'TikTok', 60).replace(/^@/, '').replace(/^https?:\/\/(www\.)?tiktok\.com\/@?/, '').replace(/\/.*$/, ''),
+        whatsappButton: v.whatsappButton !== false,
+        footerNote: t('footerNote', 'Подпись внизу', 200),
       };
       if (!next.delivery && !next.pickup) throw new UserError('Включите доставку или самовывоз');
       this.setSetting('shop', JSON.stringify(next));
@@ -4218,7 +4267,7 @@ function createStore(file) {
       const s = this.shop();
       const cats = new Set(s.categories);
       // Порядок категорий на витрине — как в справочнике.
-      const all = db.prepare(`SELECT p.id, p.name, p.category, p.unit, p.price, p.discount, p.stock, p.description, p.photo_at, p.parent_id, p.options
+      const all = db.prepare(`SELECT p.id, p.name, p.category, p.unit, p.price, p.discount, p.stock, p.description, p.photo_at, p.parent_id, p.options, p.created_at
         FROM products p LEFT JOIN categories c ON c.name = p.category
         WHERE p.archived = 0 AND p.deleted = 0 ORDER BY p.category = '', COALESCE(c.sort, 1e9), p.category, p.name COLLATE NOCASE`).all();
       const kids = new Map();

@@ -3,15 +3,20 @@
 // Оформление программы: название, тема, цвета, шрифт, скругления и свой CSS.
 // Изменения видны сразу, «Сохранить» применяет их для всех сотрудников.
 
+const P = (name, accent, rest) => ({ name, accent, bg: '', surface: '', ink: '', font: 'Inter', radius: 14, theme: 'auto', density: 'normal', cards: 'shadow', background: 'soft', nav: 'light', ...rest });
 const DESIGN_PRESETS = {
-  classic: { name: 'Индиго', accent: '#5b5bf6', bg: '', surface: '', ink: '', font: 'system', radius: 14, theme: 'auto' },
-  ocean: { name: 'Океан', accent: '#0ea5e9', bg: '', surface: '', ink: '', font: 'system', radius: 14, theme: 'auto' },
-  forest: { name: 'Лес', accent: '#2f9e44', bg: '#f3f7f1', surface: '#fbfdfa', ink: '', font: 'rounded', radius: 14, theme: 'light' },
-  sunset: { name: 'Закат', accent: '#e8590c', bg: '#fbf5ef', surface: '#fffdfa', ink: '', font: 'system', radius: 12, theme: 'light' },
-  grape: { name: 'Виноград', accent: '#7048e8', bg: '', surface: '', ink: '', font: 'rounded', radius: 16, theme: 'auto' },
-  night: { name: 'Ночь', accent: '#f5b301', bg: '', surface: '', ink: '', font: 'system', radius: 10, theme: 'dark' },
-  strict: { name: 'Строгий', accent: '#111111', bg: '#ffffff', surface: '#ffffff', ink: '#000000', font: 'condensed', radius: 2, theme: 'light' },
+  classic: P('Индиго', '#5b5bf6', {}),
+  aurora: P('Аврора', '#7c3aed', { font: 'Manrope', radius: 18, background: 'mesh', cards: 'glass', theme: 'light' }),
+  ocean: P('Океан', '#0ea5e9', { font: 'Rubik', background: 'gradient', nav: 'accent' }),
+  forest: P('Лес', '#2f9e44', { bg: '#f3f7f1', surface: '#fbfdfa', font: 'Nunito', theme: 'light' }),
+  sunset: P('Закат', '#e8590c', { bg: '#fbf5ef', surface: '#fffdfa', font: 'Montserrat', radius: 12, theme: 'light', background: 'gradient' }),
+  business: P('Деловой', '#2563eb', { font: 'IBM Plex Sans', radius: 8, nav: 'dark', cards: 'outline', background: 'plain', density: 'compact', theme: 'light' }),
+  rose: P('Роза', '#e11d74', { bg: '#fdf4f7', surface: '#ffffff', font: 'Jost', radius: 20, background: 'mesh', theme: 'light' }),
+  night: P('Ночь', '#f5b301', { radius: 10, theme: 'dark', nav: 'dark', background: 'mesh' }),
+  graphite: P('Графит', '#22d3ee', { bg: '#0f1117', surface: '#171a23', ink: '#e7e9f1', font: 'Manrope', theme: 'dark', cards: 'outline', background: 'plain' }),
+  strict: P('Строгий', '#111111', { bg: '#ffffff', surface: '#ffffff', ink: '#000000', font: 'condensed', radius: 2, theme: 'light', cards: 'outline', background: 'plain', density: 'compact' }),
 };
+const ADMIN_FONTS = ['Inter', 'Manrope', 'Montserrat', 'Rubik', 'Nunito', 'Roboto', 'Open Sans', 'Jost', 'PT Sans', 'IBM Plex Sans', 'Fira Sans'];
 const designView = { saved: null, draft: null };
 // Цвет, которым поле показывает «по умолчанию»: у <input type=color> не бывает пустого значения.
 const DEFAULT_SWATCH = { bg: '#f4f5fa', surface: '#ffffff', ink: '#141625' };
@@ -20,10 +25,11 @@ function renderDesign() {
   designView.saved = { ...session.design };
   designView.draft = { ...session.design };
   $('#design-presets').innerHTML = Object.entries(DESIGN_PRESETS).map(([key, p]) => `
-    <button type="button" class="template" data-preset="${key}" style="--t-bg:${p.bg || '#f4f5fa'};--t-surface:${p.surface || '#ffffff'};--t-accent:${p.accent};--t-ink:${p.ink || '#141625'};--t-radius:${p.radius}px">
+    <button type="button" class="template" data-preset="${key}" style="--t-bg:${p.bg || (p.theme === 'dark' ? '#14161f' : '#f4f5fa')};--t-surface:${p.surface || (p.theme === 'dark' ? '#1d2030' : '#ffffff')};--t-accent:${p.accent};--t-ink:${p.ink || (p.theme === 'dark' ? '#e7e9f1' : '#141625')};--t-radius:${p.radius}px">
       <span class="t-swatch"><i></i><i></i><i></i></span>${p.name}
     </button>`).join('');
-  $('#df-font').innerHTML = Object.entries(FONT_NAMES).map(([k, n]) => `<option value="${k}">${n}</option>`).join('');
+  $('#df-font').innerHTML = `<optgroup label="Современные шрифты">${ADMIN_FONTS.map((f) => `<option value="${f}">${f}</option>`).join('')}</optgroup>`
+    + `<optgroup label="Системные">${Object.entries(FONT_NAMES).map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</optgroup>`;
   fillDesignForm();
 }
 
@@ -39,23 +45,27 @@ function fillDesignForm() {
   $('#design-error').hidden = true;
 }
 
-// Предпросмотр: тема собирается так же, как на сервере, и подставляется вместо theme.css.
-function previewDesign() {
+// Предпросмотр: сервер собирает тему из черновика точно так же, как theme.css, и она подставляется вместо неё.
+let previewSeq = 0;
+async function previewDesign() {
   const d = designView.draft;
-  const vars = {
-    '--series': d.accent, '--series-soft': d.accent + '24', '--font': FONT_STACK[d.font], '--radius': d.radius + 'px',
-    ...(d.bg && { '--bg': d.bg }), ...(d.surface && { '--surface': d.surface }), ...(d.ink && { '--ink': d.ink }),
-  };
+  for (const el of document.querySelectorAll('.nav .logo')) el.textContent = d.name || 'Мой магазин';
+  const seq = ++previewSeq;
+  let css;
+  try { ({ css } = await api('/api/design/preview', { method: 'POST', body: d })); } catch { return; }
+  if (seq !== previewSeq) return;
   let style = $('#design-preview');
   if (!style) {
     style = document.createElement('style');
     style.id = 'design-preview';
     document.head.append(style);
   }
-  const scheme = d.theme === 'auto' ? '' : `:root { color-scheme: ${d.theme}; }`;
-  style.textContent = `${scheme}\n:root { ${Object.entries(vars).map(([k, v]) => `${k}: ${v};`).join(' ')} }\n${d.css}`;
-  // Принудительная тема и палитра тёмного режима есть только в серверной теме — для них нужен «Сохранить».
-  for (const el of document.querySelectorAll('.nav .logo')) el.textContent = d.name || 'Мой магазин';
+  style.textContent = css;
+  $('#theme-css').disabled = true;
+}
+function endPreview() {
+  $('#design-preview')?.remove();
+  $('#theme-css').disabled = false;
 }
 
 const FONT_STACK = {
@@ -93,7 +103,7 @@ $('#design-form').addEventListener('submit', async (e) => {
     session.design = await api('/api/design', { method: 'PUT', body: designView.draft });
     // Перечитываем серверную тему и убираем предпросмотр.
     $('#theme-css').href = '/theme.css?v=' + Date.now();
-    $('#design-preview')?.remove();
+    endPreview();
     applyBrand(session.design.name);
     renderDesign();
     toast('Оформление сохранено для всех');
@@ -103,7 +113,7 @@ $('#design-form').addEventListener('submit', async (e) => {
 });
 $('#design-reset').addEventListener('click', () => {
   designView.draft = { ...designView.saved };
-  $('#design-preview')?.remove();
+  endPreview();
   applyBrand(designView.saved.name);
   fillDesignForm();
 });

@@ -1475,12 +1475,35 @@
           <label class="color"><input type="color" name="surface"> Карточки</label>
           <label class="color"><input type="color" name="ink"> Текст</label>
         </div>
-        <div class="field"><label>Шрифт</label><select name="font" class="input fonts"></select></div>
+        <div class="field"><label>Шрифт заголовков</label><select name="headingFont" class="input"><option value="Inter" style="font-family:'Inter'">Inter</option><option value="Manrope" style="font-family:'Manrope'">Manrope</option><option value="Montserrat" style="font-family:'Montserrat'">Montserrat</option><option value="Rubik" style="font-family:'Rubik'">Rubik</option><option value="Nunito" style="font-family:'Nunito'">Nunito</option><option value="Raleway" style="font-family:'Raleway'">Raleway</option><option value="Open Sans" style="font-family:'Open Sans'">Open Sans</option><option value="Roboto" style="font-family:'Roboto'">Roboto</option><option value="Jost" style="font-family:'Jost'">Jost</option><option value="Unbounded" style="font-family:'Unbounded'">Unbounded</option><option value="Comfortaa" style="font-family:'Comfortaa'">Comfortaa</option><option value="Playfair Display" style="font-family:'Playfair Display'">Playfair Display</option><option value="Cormorant Garamond" style="font-family:'Cormorant Garamond'">Cormorant Garamond</option><option value="Prata" style="font-family:'Prata'">Prata</option><option value="Lora" style="font-family:'Lora'">Lora</option><option value="PT Serif" style="font-family:'PT Serif'">PT Serif</option><option value="Oswald" style="font-family:'Oswald'">Oswald</option><option value="Roboto Condensed" style="font-family:'Roboto Condensed'">Roboto Condensed</option></select></div>
+        <div class="field"><label>Шрифт текста</label><select name="bodyFont" class="input"><option value="Inter" style="font-family:'Inter'">Inter</option><option value="Manrope" style="font-family:'Manrope'">Manrope</option><option value="Montserrat" style="font-family:'Montserrat'">Montserrat</option><option value="Rubik" style="font-family:'Rubik'">Rubik</option><option value="Nunito" style="font-family:'Nunito'">Nunito</option><option value="Raleway" style="font-family:'Raleway'">Raleway</option><option value="Open Sans" style="font-family:'Open Sans'">Open Sans</option><option value="Roboto" style="font-family:'Roboto'">Roboto</option><option value="Jost" style="font-family:'Jost'">Jost</option><option value="Unbounded" style="font-family:'Unbounded'">Unbounded</option><option value="Comfortaa" style="font-family:'Comfortaa'">Comfortaa</option><option value="Playfair Display" style="font-family:'Playfair Display'">Playfair Display</option><option value="Cormorant Garamond" style="font-family:'Cormorant Garamond'">Cormorant Garamond</option><option value="Prata" style="font-family:'Prata'">Prata</option><option value="Lora" style="font-family:'Lora'">Lora</option><option value="PT Serif" style="font-family:'PT Serif'">PT Serif</option><option value="Oswald" style="font-family:'Oswald'">Oswald</option><option value="Roboto Condensed" style="font-family:'Roboto Condensed'">Roboto Condensed</option></select></div>
         <div class="field"><label>Скругление углов: <span data-out="radius"></span> px</label><input type="range" name="radius" min="0" max="32"></div>
+        <div class="field"><label>Кнопки</label><select name="buttonStyle" class="input"><option value="pill">Овальные</option><option value="rounded">Скруглённые</option><option value="square">Прямые</option></select></div>
+        <div class="field"><label>Шапка</label><select name="headerStyle" class="input"><option value="left">Логотип слева</option><option value="center">Логотип по центру</option></select></div>
+      </details>
+      <details><summary>Баннер</summary>
+        <div class="field"><label>Вид</label><select name="heroStyle" class="input"><option value="image">Фото на всю ширину, текст поверх</option><option value="split">Текст слева, фото справа</option><option value="gradient">Цветной фон без фото</option><option value="minimal">Только заголовок</option><option value="none">Без баннера</option></select></div>
+        <div class="field"><label>Высота</label><select name="heroHeight" class="input"><option value="small">Низкий</option><option value="medium">Средний</option><option value="large">Высокий</option><option value="full">На весь экран</option></select></div>
+        <div class="field"><label>Текст</label><select name="heroAlign" class="input"><option value="left">Слева</option><option value="center">По центру</option></select></div>
+        <div class="field"><label>Надпись на кнопке (пусто — без кнопки)</label><input name="heroButton" class="input" maxlength="40" placeholder="Смотреть каталог"></div>
+      </details>
+      <details><summary>Акции и значки</summary>
+        <div class="field"><label>Бегущая строка сверху (пусто — нет)</label><input name="announce" class="input" maxlength="200" placeholder="Бесплатная доставка от 5 000 сом"></div>
+        <div class="field"><label>Преимущества под баннером (до 4)</label>
+          <input class="input" data-perk="0" maxlength="80" placeholder="Доставка по Бишкеку за 1 день">
+          <input class="input" data-perk="1" maxlength="80" placeholder="Оплата переводом по QR">
+          <input class="input" data-perk="2" maxlength="80" placeholder="Обмен и возврат 14 дней">
+          <input class="input" data-perk="3" maxlength="80" placeholder="Бонусы с каждой покупки"></div>
+        <label class="check"><input type="checkbox" name="showSaleBadge"> Значок скидки на фото (−20%)</label>
+        <div class="field"><label>Значок «Новинка» — товарам, заведённым за последние … дней (0 — не показывать)</label><input name="newDays" class="input num" inputmode="numeric"></div>
       </details>
       <details><summary>Каталог</summary>
         <div class="field"><label>Вид карточек</label>
           <select name="cardStyle" class="input"><option value="photo">Большое фото</option><option value="compact">Компактно</option><option value="list">Списком</option></select></div>
+        <div class="field"><label>Форма фото</label><select name="cardRatio" class="input"><option value="4:5">Вертикальная 4:5 (одежда)</option><option value="3:4">Вертикальная 3:4</option><option value="1:1">Квадрат</option><option value="4:3">Горизонтальная 4:3</option></select></div>
+        <div class="field"><label>Фото в карточке</label><select name="imageFit" class="input"><option value="cover">Заполнить карточку</option><option value="contain">Целиком, с полями</option></select></div>
+        <div class="field"><label>Тень карточек</label><select name="cardShadow" class="input"><option value="soft">Мягкая</option><option value="strong">Заметная</option><option value="outline">Тонкая рамка</option><option value="none">Без тени</option></select></div>
+        <div class="field"><label>Колонок на телефоне</label><select name="mobileColumns" class="input"><option value="2">2</option><option value="1">1</option></select></div>
         <div class="field"><label>Колонок на компьютере: <span data-out="columns"></span></label><input type="range" name="columns" min="2" max="6"></div>
         <label class="check"><input type="checkbox" name="hideOutOfStock"> Скрывать товары, которых нет в наличии</label>
         <label class="check"><input type="checkbox" name="showStock"> Показывать покупателям остаток</label>
@@ -1501,6 +1524,10 @@
         <div class="field"><label>Часы работы</label><input name="hours" class="input" placeholder="Ежедневно 9:00–21:00"></div>
         <div class="field"><label>WhatsApp (номер)</label><input name="whatsapp" class="input" inputmode="tel"></div>
         <div class="field"><label>Telegram (имя без @)</label><input name="telegram" class="input"></div>
+        <div class="field"><label>Instagram (имя без @)</label><input name="instagram" class="input" placeholder="montshop.kg"></div>
+        <div class="field"><label>TikTok (имя без @)</label><input name="tiktok" class="input"></div>
+        <label class="check"><input type="checkbox" name="whatsappButton"> Круглая кнопка WhatsApp в углу</label>
+        <div class="field"><label>Подпись внизу сайта</label><input name="footerNote" class="input" maxlength="200" placeholder="ИП Абдубалиев · ИНН …"></div>
       </details>
       <details><summary>Свой CSS</summary>
         <p class="sub">Для тех, кто хочет поменять что угодно. Примеры: <code>.card { box-shadow: none }</code>, <code>.hero h1 { font-size: 56px }</code>.</p>
@@ -1537,6 +1564,16 @@
         <label class="color"><input type="color" name="ink" data-optional> Текст <button type="button" class="link" data-reset="ink">по умолчанию</button></label>
       </div>
       <div class="field"><label for="df-font">Шрифт</label><select id="df-font" name="font" class="input fonts"></select></div>
+      <div class="form-grid">
+        <div class="field"><label for="df-nav">Верхнее меню</label>
+          <select id="df-nav" name="nav" class="input"><option value="light">Светлое, полупрозрачное</option><option value="dark">Тёмное</option><option value="accent">Основного цвета</option></select></div>
+        <div class="field"><label for="df-bg">Фон страницы</label>
+          <select id="df-bg" name="background" class="input"><option value="soft">Мягкие пятна цвета</option><option value="mesh">Яркое сияние</option><option value="gradient">Плавный переход</option><option value="plain">Однотонный</option></select></div>
+        <div class="field"><label for="df-cards">Панели и карточки</label>
+          <select id="df-cards" name="cards" class="input"><option value="shadow">С мягкой тенью</option><option value="glass">Матовое стекло</option><option value="outline">С тонкой рамкой</option><option value="flat">Плоские</option></select></div>
+        <div class="field"><label for="df-density">Плотность</label>
+          <select id="df-density" name="density" class="input"><option value="compact">Компактно — больше строк на экране</option><option value="normal">Обычно</option><option value="comfortable">Просторно — крупнее для планшета</option></select></div>
+      </div>
       <div class="field"><label>Скругление углов: <span data-out="radius"></span> px</label><input type="range" name="radius" min="0" max="24"></div>
       <div class="field"><label for="df-css">Свой CSS — меняйте что угодно</label>
         <textarea id="df-css" name="css" class="input code" rows="8" spellcheck="false" placeholder=".nav { background: #111; } .nav a { color: #fff; }"></textarea></div>
