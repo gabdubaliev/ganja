@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Установка программы «Мой магазин» на чистый сервер Ubuntu 22.04 / 24.04.
 #
-#   curl -fsSL https://raw.githubusercontent.com/gabdubaliev/ganja/claude/cloudshop-full-copy-yx5bw4/deploy/install.sh -o install.sh
+#   curl -fsSL https://raw.githubusercontent.com/gabdubaliev/ganja/ccr-b9592b17-z50ef8/deploy/install.sh -o install.sh
 #   sudo bash install.sh
 #
 # Что делает: ставит Node.js 22 и веб-сервер Caddy (он сам получает HTTPS-сертификат),
@@ -9,13 +9,14 @@
 # как службу (поднимается сама после перезагрузки) и каждую ночь делает копию базы.
 # Повторный запуск безопасен: база и настройки сохраняются.
 #
-# Если рядом со скриптом лежит shop.db (база с планшета или компьютера), а на сервере
-# базы ещё нет, она будет перенесена.
+# Если рядом со скриптом лежит shop.db (база с планшета или компьютера) и базы филиалов branch-N.db,
+# а на сервере базы ещё нет, они будут перенесены.
 
 set -euo pipefail
 
 REPO=https://github.com/gabdubaliev/ganja.git
-BRANCH=${BRANCH:-claude/cloudshop-full-copy-yx5bw4}
+# Рабочая ветка: сюда попадают все доработки (её же обновляет планшет).
+BRANCH=${BRANCH:-ccr-b9592b17-z50ef8}
 APP_DIR=/opt/shop
 DATA_DIR=/var/lib/shop
 BACKUP_DIR=/var/backups/shop
@@ -88,10 +89,11 @@ install -d -o shop -g shop -m 750 "$DATA_DIR"
 install -d -o shop -g shop -m 750 "$BACKUP_DIR"
 
 # База, принесённая рядом со скриптом. Файлы -wal и -shm — её часть, переносим вместе.
+# Базы филиалов (branch-N.db) — вместе с основной: покупатели, бонусы и сертификаты у них общие.
 if [[ -f $SRC_DIR/shop.db && ! -f $DATA_DIR/shop.db ]]; then
   say "Переношу базу $SRC_DIR/shop.db"
-  for f in shop.db shop.db-wal shop.db-shm; do
-    [[ -f $SRC_DIR/$f ]] && install -o shop -g shop -m 640 "$SRC_DIR/$f" "$DATA_DIR/$f"
+  for f in "$SRC_DIR"/shop.db "$SRC_DIR"/shop.db-wal "$SRC_DIR"/shop.db-shm "$SRC_DIR"/branch-*.db "$SRC_DIR"/branch-*.db-wal "$SRC_DIR"/branch-*.db-shm; do
+    [[ -f $f ]] && install -o shop -g shop -m 640 "$f" "$DATA_DIR/$(basename "$f")"
   done
 fi
 
