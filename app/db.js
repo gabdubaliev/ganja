@@ -946,6 +946,7 @@ const SHOP_DEFAULTS = {
   heroAlign: 'left',
   heroButton: 'Смотреть каталог',
   headerStyle: 'left',
+  look: 'modern',
   mobileColumns: 2,
   announce: '',
   perks: [],
@@ -955,6 +956,7 @@ const SHOP_DEFAULTS = {
   tiktok: '',
   whatsappButton: true,
   footerNote: '',
+  sizeChart: '',
 };
 const FONTS = ['system', 'serif', 'rounded', 'mono', 'condensed'];
 const SHOP_FONTS = ['Inter', 'Manrope', 'Montserrat', 'Rubik', 'Nunito', 'Raleway', 'Open Sans', 'Roboto', 'Unbounded', 'Comfortaa',
@@ -4338,6 +4340,7 @@ function createStore(file) {
         heroAlign: v.heroAlign === 'center' ? 'center' : 'left',
         heroButton: t('heroButton', 'Кнопка на баннере', 40),
         headerStyle: v.headerStyle === 'center' ? 'center' : 'left',
+        look: v.look === 'minimal' ? 'minimal' : 'modern',
         mobileColumns: Number(v.mobileColumns) === 1 ? 1 : 2,
         announce: t('announce', 'Бегущая строка', 200),
         perks: (Array.isArray(v.perks) ? v.perks : []).map((x) => String(x ?? '').trim().slice(0, 80)).filter(Boolean).slice(0, 4),
@@ -4347,6 +4350,7 @@ function createStore(file) {
         tiktok: t('tiktok', 'TikTok', 60).replace(/^@/, '').replace(/^https?:\/\/(www\.)?tiktok\.com\/@?/, '').replace(/\/.*$/, ''),
         whatsappButton: v.whatsappButton !== false,
         footerNote: t('footerNote', 'Подпись внизу', 200),
+        sizeChart: String(v.sizeChart ?? '').replace(/\r/g, '').split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 20).join('\n').slice(0, 2000),
       };
       if (!next.delivery && !next.pickup) throw new UserError('Включите доставку или самовывоз');
       this.setSetting('shop', JSON.stringify(next));

@@ -95,6 +95,7 @@ function renderFrame() {
   const b = document.body.dataset;
   b.btn = s.buttonStyle || 'pill'; b.shadow = s.cardShadow || 'soft'; b.hero = s.heroStyle || 'image';
   b.heroh = s.heroHeight || 'large'; b.align = s.heroAlign || 'left'; b.head = s.headerStyle || 'left';
+  b.look = s.look || 'modern';
   $('#preview-note').hidden = !s.preview;
   $('#title').textContent = s.title;
   $('#logo').hidden = !s.logoId;
@@ -186,6 +187,17 @@ function badgesHtml(p) {
   const sale = s.showSaleBadge !== false ? Math.max(0, ...list.map((v) => (v.oldPrice ? Math.round((1 - v.price / v.oldPrice) * 100) : 0))) : 0;
   const fresh = s.newDays > 0 && p.created_at && Date.now() - p.created_at < s.newDays * 864e5;
   return sale || fresh ? `<div class="badges">${sale ? `<span class="badge sale">−${sale}%</span>` : ''}${fresh ? '<span class="badge new">Новинка</span>' : ''}</div>` : '';
+}
+
+// Таблица размеров из конструктора: первая строка — заголовки, столбцы через «;», «|» или табуляцию.
+// Показывается у товаров с вариантами (размерами).
+function sizeChartHtml(chart, p, open) {
+  if (!chart || !p.hasVariants) return '';
+  const rows = chart.split('\n').map((l) => l.split(/\s*[;|\t]\s*/));
+  const [head, ...body] = rows;
+  return `<details class="size-chart" ${open ? 'open' : ''}><summary>📏 Таблица размеров</summary>
+    <div class="size-wrap"><table><thead><tr>${head.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead>
+    <tbody>${body.map((r) => `<tr>${r.map((c, i) => (i ? `<td>${esc(c)}</td>` : `<th>${esc(c)}</th>`)).join('')}</tr>`).join('')}</tbody></table></div></details>`;
 }
 
 function cardHtml(p, i = 0) {
@@ -287,6 +299,7 @@ function openProduct(id) {
   const can = v && v.stock > 0;
   const old = v && v !== p ? v.oldPrice : !p.hasVariants ? p.oldPrice : null;
   const perks = (s.perks || []).slice(0, 3);
+  const chartOpen = Boolean($('#product-body .size-chart')?.open);
   $('#product-body').innerHTML = `<div class="pd">
     <div class="pd-pic">${pic ? `<img src="${pic}" alt="${esc(p.name)}">` : initial(p)}${badgesHtml(p)}</div>
     <div class="pd-info">
@@ -294,6 +307,7 @@ function openProduct(id) {
       <h2 id="product-name">${esc(p.name)}</h2>
       <div class="pd-price"><span class="price ${old ? 'sale' : ''}">${v ? rub(v.price) : priceHtml(p)}${p.unit !== 'шт' ? ` <span class="small">за ${esc(p.unit)}</span>` : ''}</span>${old ? `<s>${rub(old)}</s>` : ''}</div>
       ${pickers}
+      ${sizeChartHtml(s.sizeChart, p, chartOpen)}
       ${p.description ? `<p class="product-desc">${esc(p.description)}</p>` : ''}
       ${s.showStock && can ? `<p class="small" style="text-align:left">В наличии: ${qtyFmt.format(v.stock)} ${esc(p.unit)}</p>` : ''}
       ${perks.length ? `<div class="pd-perks">${perks.map((t) => `<div>${esc(t)}</div>`).join('')}</div>` : ''}

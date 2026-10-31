@@ -413,3 +413,125 @@ dialog[open].side { animation: slide .35s var(--ease); }
 .cats .collage { display: grid; grid-template-columns: 1fr 1fr; width: 100%; height: 100%; gap: 2px; }
 .cats .collage img { width: 100%; height: 100%; object-fit: cover; }
 .hero:not(.has-image) .btn-glass, body[data-hero="split"] .btn-glass, body[data-hero="minimal"] .btn-glass { background: var(--bg); border-color: var(--line); color: var(--ink); backdrop-filter: none; }
+
+/* =====================================================================
+   Стиль «Минимализм» (body[data-look="minimal"]): строгая сетка, без теней и скруглений,
+   прописные жирные заголовки, светлый подвал, красный — только для цены со скидкой и акцентов.
+   ===================================================================== */
+body[data-look="minimal"] { --radius: 0px; --btn-r: 0px; letter-spacing: 0; }
+body[data-look="minimal"] h1, body[data-look="minimal"] h2, body[data-look="minimal"] .cat-title, body[data-look="minimal"] .pd-info h2 { text-transform: uppercase; font-weight: 900; letter-spacing: 0; }
+/* Бегущая строка — цветом акцента */
+body[data-look="minimal"] .announce { background: var(--accent); color: #fff; font-weight: 700; }
+/* Шапка: плотная белая, название — блоком цвета акцента */
+body[data-look="minimal"] .site-head { background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; }
+body[data-look="minimal"] .site-head.scrolled { box-shadow: 0 1px 0 var(--line); }
+body[data-look="minimal"] .head-row { min-height: 64px; gap: 28px; }
+body[data-look="minimal"] .brand span { display: inline-grid; place-items: center; min-height: 44px; padding: 6px 12px; background: var(--accent); color: #fff; text-transform: uppercase; font-weight: 900; font-size: 15px; line-height: 1.05; letter-spacing: .02em; max-width: 220px; white-space: normal; text-align: center; }
+body[data-look="minimal"] .head-nav { gap: 0; align-self: stretch; }
+body[data-look="minimal"] .head-nav button { border-radius: 0; padding: 0 14px; font-weight: 800; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--ink); box-shadow: inset 0 -3px 0 transparent; }
+body[data-look="minimal"] .head-nav button:hover, body[data-look="minimal"] .head-nav button[aria-pressed="true"] { background: none; box-shadow: inset 0 -3px 0 var(--ink); }
+body[data-look="minimal"] .head-contacts a { background: none; border-radius: 0; }
+body[data-look="minimal"] .account-btn { border: 0; border-radius: 0; padding: 0 8px; background: none; font-weight: 700; }
+body[data-look="minimal"] .cart-btn { border-radius: 0; background: none; color: var(--ink); }
+body[data-look="minimal"] .cart-btn:hover { transform: none; }
+body[data-look="minimal"] .cart-count { top: 2px; right: 0; border-radius: 0; border: 0; }
+/* Баннер: фото без затемнения, текст — на белой плашке */
+body[data-look="minimal"][data-hero="image"] .hero.has-image { color: var(--ink); }
+body[data-look="minimal"][data-hero="image"] .hero.has-image .hero-media { background-image: var(--banner) !important; }
+body[data-look="minimal"] .hero-inner { align-items: flex-end; }
+body[data-look="minimal"][data-align="center"] .hero-inner { align-items: center; }
+body[data-look="minimal"] .hero-text { background: var(--bg); color: var(--ink); padding: 30px 34px; gap: 14px; max-width: 560px; animation: none; }
+body[data-look="minimal"][data-hero="split"] .hero-text, body[data-look="minimal"][data-hero="minimal"] .hero-text, body[data-look="minimal"] .hero:not(.has-image) .hero-text { background: none; padding: 0; }
+body[data-look="minimal"] .hero h1 { font-size: clamp(34px, 5vw, 64px); line-height: 1; letter-spacing: -0.01em; }
+body[data-look="minimal"] .hero p { opacity: 1; font-size: 16px; }
+body[data-look="minimal"] .btn { padding: 15px 34px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; font-size: 14px; }
+body[data-look="minimal"] .btn-main { background: var(--ink); box-shadow: none; }
+body[data-look="minimal"] .btn-main:hover { transform: none; background: var(--accent); box-shadow: none; }
+body[data-look="minimal"] .btn-glass { background: var(--bg); color: var(--ink); border: 1px solid var(--ink); backdrop-filter: none; }
+body[data-look="minimal"] .hero:not(.has-image) .hero-media { background: var(--surface) !important; }
+body[data-look="minimal"][data-hero="split"] .hero-media { border-radius: 0; box-shadow: none; }
+/* Преимущества: строка с тонкими линиями */
+body[data-look="minimal"] .perks { gap: 0; margin-top: 0; border-bottom: 1px solid var(--line); }
+body[data-look="minimal"] .perk { background: none; border-radius: 0; padding: 16px 12px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; justify-content: center; }
+body[data-look="minimal"] .perk + .perk { border-left: 1px solid var(--line); }
+body[data-look="minimal"] .perk i { width: auto; height: auto; background: none; color: var(--accent); font-size: 18px; }
+/* Категории: квадратные фото с подписью прописными, без картинок — вкладки с подчёркиванием */
+body[data-look="minimal"] .cats { gap: 0; border-bottom: 1px solid var(--line); padding-bottom: 0; margin-bottom: 18px; }
+body[data-look="minimal"] .cats button { border: 0; border-radius: 0; background: none; padding: 14px 18px; font-weight: 800; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; box-shadow: inset 0 -3px 0 transparent; }
+body[data-look="minimal"] .cats button[aria-pressed="true"] { background: none; color: var(--ink); box-shadow: inset 0 -3px 0 var(--ink); }
+body[data-look="minimal"] .cats.with-images { gap: 12px; border-bottom: 0; }
+body[data-look="minimal"] .cats.with-images button { width: 170px; padding: 0 0 10px; text-align: left; }
+body[data-look="minimal"] .cats.with-images .cat-pic { width: 170px; aspect-ratio: 3 / 4; border-radius: 0; }
+body[data-look="minimal"] .cats.with-images button[aria-pressed="true"] .cat-pic { box-shadow: none; outline: 3px solid var(--ink); outline-offset: -3px; }
+body[data-look="minimal"] .cats.with-images button[aria-pressed="true"] { color: var(--ink); }
+/* Поиск и сортировка — прямые, с линией */
+body[data-look="minimal"] .search-box .search { border-radius: 0; background: var(--bg); border-color: var(--ink); }
+body[data-look="minimal"] .search-box .search:focus { box-shadow: none; border-width: 2px; }
+body[data-look="minimal"] .sort { border-radius: 0; border-color: var(--ink); }
+body[data-look="minimal"] .cat-title { font-size: clamp(20px, 2vw, 26px); border-bottom: 2px solid var(--ink); padding-bottom: 10px; margin-bottom: 0; }
+/* Карточки: фото на сером, название обычным шрифтом, цена крупно и жирно */
+body[data-look="minimal"] .grid:not(.list) { gap: 36px 16px; }
+body[data-look="minimal"] .card { gap: 10px; animation-duration: .35s; }
+body[data-look="minimal"] .card .pic { border-radius: 0; box-shadow: none !important; background: var(--surface); }
+body[data-look="minimal"] .card:hover .pic img { transform: none; opacity: .88; }
+body[data-look="minimal"] .card .meta { order: -1; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+body[data-look="minimal"] .card .info { gap: 6px; padding: 0; }
+body[data-look="minimal"] .card .name { font-weight: 400; font-size: 14px; }
+body[data-look="minimal"] .card .price { font-family: var(--font); font-weight: 900; font-size: 20px; }
+body[data-look="minimal"] .card .price.sale, body[data-look="minimal"] .pd-price .price.sale { color: var(--accent); }
+body[data-look="minimal"] .badges { top: 0; left: 0; gap: 0; }
+body[data-look="minimal"] .badge { border-radius: 0; padding: 6px 9px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+body[data-look="minimal"] .badge.sale { background: var(--accent); }
+body[data-look="minimal"] .badge.new { background: var(--ink); color: var(--bg); box-shadow: none; }
+body[data-look="minimal"] .quick { left: 0; right: 0; bottom: 0; background: var(--ink); color: var(--bg); backdrop-filter: none; text-transform: uppercase; letter-spacing: .05em; font-size: 12px; font-weight: 800; }
+body[data-look="minimal"] .quick:hover { background: var(--accent); color: #fff; }
+@media (hover: none) { body[data-look="minimal"] .quick { background: var(--bg); color: var(--ink); border: 1px solid var(--ink); } }
+/* Окно товара и корзина */
+body[data-look="minimal"] dialog.sheet { border-radius: 0; box-shadow: 0 20px 60px rgba(0, 0, 0, .25); }
+body[data-look="minimal"] dialog.side { border-radius: 0; }
+body[data-look="minimal"] .close { border-radius: 0; background: none; }
+body[data-look="minimal"] .close:hover { transform: none; }
+body[data-look="minimal"] .pd-price .price { font-family: var(--font); font-weight: 900; }
+body[data-look="minimal"] .opt-values button { border-radius: 0; min-width: 56px; }
+body[data-look="minimal"] .primary { box-shadow: none; text-transform: uppercase; letter-spacing: .05em; font-weight: 800; }
+body[data-look="minimal"] .primary:hover:not(:disabled) { transform: none; filter: brightness(.92); }
+body[data-look="minimal"] .pd-perks { border-radius: 0; background: none; border: 1px solid var(--line); }
+body[data-look="minimal"] .out-tag { border-radius: 0; }
+body[data-look="minimal"] .cart-thumb { border-radius: 0; }
+/* Подвал — светлый */
+body[data-look="minimal"] .site-foot { background: var(--surface); color: var(--ink); border-top: 1px solid var(--line); }
+body[data-look="minimal"] .site-foot h2 { color: var(--ink); text-transform: uppercase; font-weight: 900; }
+body[data-look="minimal"] .site-foot h3 { opacity: 1; color: var(--ink); font-weight: 900; }
+body[data-look="minimal"] .site-foot p { opacity: .8; }
+body[data-look="minimal"] .socials a { border-radius: 0; background: var(--ink); color: var(--bg); }
+body[data-look="minimal"] .socials a:hover { background: var(--accent); transform: none; }
+body[data-look="minimal"] .foot-bottom { border-top-color: var(--line); opacity: .75; }
+body[data-look="minimal"] .wa-float { border-radius: 0; box-shadow: 0 8px 20px rgba(0, 0, 0, .2); }
+@media (max-width: 640px) {
+  body[data-look="minimal"] .hero-text { padding: 20px 20px; max-width: none; width: 100%; }
+  body[data-look="minimal"] .brand span { font-size: 12px; min-height: 38px; max-width: 150px; padding: 5px 9px; }
+  body[data-look="minimal"] .cats.with-images button { width: 120px; }
+  body[data-look="minimal"] .cats.with-images .cat-pic { width: 120px; }
+  body[data-look="minimal"] .perks { grid-template-columns: 1fr 1fr; }
+  body[data-look="minimal"] .perk:nth-child(3) { border-left: 0; }
+  body[data-look="minimal"] .perk:nth-child(n+3) { border-top: 1px solid var(--line); }
+  body[data-look="minimal"] .card .price { font-size: 17px; }
+}
+
+/* Таблица размеров в карточке товара */
+.size-chart { border: 1px solid var(--line); border-radius: calc(var(--radius) * .6); }
+.size-chart summary { cursor: pointer; padding: 12px 14px; font-weight: 700; font-size: 14px; list-style: none; display: flex; justify-content: space-between; }
+.size-chart summary::-webkit-details-marker { display: none; }
+.size-chart summary::after { content: '+'; font-size: 18px; line-height: 1; }
+.size-chart[open] summary::after { content: '−'; }
+.size-wrap { overflow-x: auto; padding: 0 14px 12px; }
+.size-chart table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.size-chart th, .size-chart td { padding: 8px 10px; text-align: center; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.size-chart thead th { font-size: 12px; color: var(--ink-soft); font-weight: 700; }
+.size-chart tbody th { font-weight: 800; }
+body[data-look="minimal"] .size-chart summary { text-transform: uppercase; letter-spacing: .04em; font-size: 13px; }
+@media (max-width: 640px) {
+  body[data-look="minimal"] .perk { padding: 12px 8px; font-size: 11px; gap: 8px; justify-content: flex-start; }
+  body[data-look="minimal"] .perk i { font-size: 15px; }
+}
+.pd-pic { overflow: hidden; }

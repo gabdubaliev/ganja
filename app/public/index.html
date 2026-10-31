@@ -1480,6 +1480,7 @@
         <p class="sub">Свой шрифт (например, Intro) загружается в «Ещё → Оформление» — потом он появится в этих списках.</p>
         <div class="field"><label>Скругление углов: <span data-out="radius"></span> px</label><input type="range" name="radius" min="0" max="32"></div>
         <div class="field"><label>Кнопки</label><select name="buttonStyle" class="input"><option value="pill">Овальные</option><option value="rounded">Скруглённые</option><option value="square">Прямые</option></select></div>
+        <div class="field"><label>Стиль витрины</label><select name="look" class="input"><option value="modern">Современный — мягкие формы, тени</option><option value="minimal">Минимализм — строгая сетка, прописные заголовки, без теней</option></select></div>
         <div class="field"><label>Шапка</label><select name="headerStyle" class="input"><option value="left">Логотип слева</option><option value="center">Логотип по центру</option></select></div>
       </details>
       <details><summary>Баннер</summary>
@@ -1501,6 +1502,9 @@
       <details><summary>Каталог</summary>
         <div class="field"><label>Вид карточек</label>
           <select name="cardStyle" class="input"><option value="photo">Большое фото</option><option value="compact">Компактно</option><option value="list">Списком</option></select></div>
+        <div class="field"><label>Таблица размеров — показывается в товарах с размерами</label>
+          <textarea name="sizeChart" class="input" rows="6" spellcheck="false" placeholder="Размер; Грудь, см; Талия, см; Рост, см&#10;S; 88–92; 76–80; 170–176&#10;M; 96–100; 84–88; 176–182&#10;L; 104–108; 92–96; 176–182"></textarea>
+          <small class="sub">Первая строка — заголовки, столбцы через «;». Пусто — таблицы нет.</small></div>
         <div class="field"><label>Форма фото</label><select name="cardRatio" class="input"><option value="4:5">Вертикальная 4:5 (одежда)</option><option value="3:4">Вертикальная 3:4</option><option value="1:1">Квадрат</option><option value="4:3">Горизонтальная 4:3</option></select></div>
         <div class="field"><label>Фото в карточке</label><select name="imageFit" class="input"><option value="cover">Заполнить карточку</option><option value="contain">Целиком, с полями</option></select></div>
         <div class="field"><label>Тень карточек</label><select name="cardShadow" class="input"><option value="soft">Мягкая</option><option value="strong">Заметная</option><option value="outline">Тонкая рамка</option><option value="none">Без тени</option></select></div>

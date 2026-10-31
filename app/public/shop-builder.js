@@ -13,6 +13,19 @@ const SHOP_TEMPLATES = {
   street: { name: 'Стрит', accent: '#facc15', bg: '#ffffff', surface: '#f3f3f3', ink: '#0a0a0a', headingFont: 'Unbounded', bodyFont: 'Montserrat', radius: 4, buttonStyle: 'square', cardShadow: 'outline', heroStyle: 'image', cardRatio: '4:5', columns: 4 },
   tech: { name: 'Техно', accent: '#6741d9', bg: '#f7f7fb', surface: '#ffffff', ink: '#15131f', headingFont: 'Montserrat', bodyFont: 'Inter', radius: 10, buttonStyle: 'rounded', cardShadow: 'strong', heroStyle: 'gradient', cardRatio: '1:1', columns: 5 },
 };
+// «Минимал» — строгая витрина одежды: сетка, прописные заголовки, без теней. Два цвета: красный и тёмно-синий.
+// fill — тексты для мужской одежды, подставляются только в пустые поля (свои тексты не затираются).
+const MENSWEAR_FILL = {
+  heroButton: 'Смотреть коллекцию',
+  announce: 'Новая коллекция уже в магазине · Примерка при получении · Обмен и возврат 14 дней',
+  perks: ['Доставка по городу за 1 день', 'Примерка при получении', 'Обмен и возврат 14 дней', 'Размеры от S до 4XL'],
+  sizeChart: 'Размер; Грудь, см; Талия, см; Рост, см\nS; 88–92; 76–80; 170–176\nM; 96–100; 84–88; 176–182\nL; 104–108; 92–96; 176–182\nXL; 112–116; 100–104; 182–188\nXXL; 120–124; 108–112; 182–188\n3XL; 128–132; 116–120; 188–194',
+};
+const MINIMAL = { look: 'minimal', bg: '#ffffff', surface: '#f4f4f4', ink: '#1b1b1b', headingFont: 'Roboto', bodyFont: 'Roboto', radius: 0, buttonStyle: 'square', cardShadow: 'none', heroStyle: 'image', heroHeight: 'large', heroAlign: 'left', headerStyle: 'left', cardRatio: '3:4', imageFit: 'cover', columns: 4, mobileColumns: 2, fill: MENSWEAR_FILL };
+SHOP_TEMPLATES.minimal = { name: 'Минимал красный', accent: '#e60012', ...MINIMAL };
+SHOP_TEMPLATES.minimalNavy = { name: 'Минимал тёмно-синий', accent: '#1f3a68', ...MINIMAL, surface: '#f2f3f5', ink: '#141821' };
+// Остальные шаблоны — в обычном стиле: иначе после «Минимала» стиль остался бы строгим.
+for (const t of Object.values(SHOP_TEMPLATES)) t.look ||= 'modern';
 const FONT_NAMES = { system: 'Обычный', serif: 'С засечками', rounded: 'Округлый', mono: 'Моноширинный', condensed: 'Узкий' };
 const builder = { saved: null, draft: null, products: [], ready: false };
 
@@ -204,8 +217,12 @@ $('#shop-form').addEventListener('change', onShopChange);
 $('#shop-form').addEventListener('click', async (e) => {
   const t = e.target.closest('[data-template]');
   if (t) {
-    const { name, ...preset } = SHOP_TEMPLATES[t.dataset.template];
+    const { name, fill = {}, ...preset } = SHOP_TEMPLATES[t.dataset.template];
     Object.assign(builder.draft, preset, { template: t.dataset.template });
+    for (const [k, v] of Object.entries(fill)) {
+      const cur = builder.draft[k];
+      if (!cur || (Array.isArray(cur) && !cur.length) || (k === 'heroButton' && cur === 'Смотреть каталог')) builder.draft[k] = structuredClone(v);
+    }
     fillShopForm();
     return pushPreview();
   }
