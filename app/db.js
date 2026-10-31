@@ -464,6 +464,17 @@ function open(file) {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS expenses_at ON expenses(at);
+    -- Постоянные расходы, которые владелец заводит сам: аренда, таргет… Сумма в месяц делится
+    -- на число дней этого месяца, и каждый день периода несёт свою долю. since — с какого дня действует.
+    CREATE TABLE IF NOT EXISTS recurring_expenses (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      amount REAL NOT NULL,
+      since INTEGER,
+      active INTEGER NOT NULL DEFAULT 1,
+      sort INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
   `);
   // Код товара программа присваивает сама — и товарам, заведённым до этого (или загруженным без кода).
   fillCodes(db);
@@ -667,6 +678,20 @@ function css(value) {
   const s = text(value, 'Свой CSS', { max: 20000 });
   if (/<\/?\s*style|@import|javascript:|expression\s*\(/i.test(s)) throw new UserError('В своём CSS нельзя использовать @import, javascript: и теги <style>');
   return s;
+}
+
+// Доля месяцев по календарным дням: каждый день, который задевает период, — 1/(дней в его месяце).
+// Сегодняшний день считается целиком: аренда за сегодня — полная дневная доля.
+function dayShare(from, to, since = null) {
+  let share = 0, days = 0;
+  const d = new Date(from);
+  d.setHours(0, 0, 0, 0);
+  for (; d.getTime() < to; d.setDate(d.getDate() + 1)) {
+    if (since && d.getTime() + 864e5 <= since) continue;
+    share += 1 / new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    days++;
+  }
+  return { share, days };
 }
 
 function monthsBetween(from, to) {
@@ -2283,18 +2308,55 @@ function createStore(file) {
 
     // Расходы для чистой прибыли за период: зарплата (по расчёту ведомости), внесённые расходы
     // по статьям и потери от списаний. Выручку и закупку главная считает сама по строкам продаж.
+    // Зарплата — по ведомости каждого сотрудника: ставка × выходы (двое на смене — две ставки),
+    // оклад за долю месяца, свой процент от продаж, бонусы минус штрафы. Период доводится до конца дня,
+    // чтобы оклад за сегодня считался за целый день, как и постоянные расходы.
     finance({ from, to }) {
-      const payroll = this.kpi({ from, to }).staff.filter((r) => r.user);
+      const dayEnd = new Date(to - 1);
+      dayEnd.setHours(24, 0, 0, 0);
+      const payroll = this.kpi({ from, to: Math.max(to, dayEnd.getTime()) }).staff.filter((r) => r.user && (r.pay || r.shifts || r.salary || r.bonus));
+      const staff = payroll.map((r) => ({ name: r.user.name || r.user.email, shifts: r.shifts, salary: r.salary, bonus: round2(r.bonus + r.planBonus + r.extra), fines: r.fines, pay: r.pay, percent: r.user.percent || 0 }));
+      const recurring = this.listRecurring().filter((r) => r.active).map((r) => {
+        const { share, days } = dayShare(from, to, r.since);
+        return { id: r.id, name: r.name, monthly: r.amount, amount: round2(r.amount * share), days };
+      }).filter((r) => r.amount > 0);
       const expenses = db.prepare('SELECT category, SUM(amount) AS amount, COUNT(*) AS n FROM expenses WHERE at >= ? AND at < ? GROUP BY category ORDER BY amount DESC')
         .all(from, to).map((r) => ({ ...r, amount: round2(r.amount) }));
       const writeoffs = round2(this.writeoffSummary({ from, to }).reduce((sum, r) => sum + r.cost, 0));
-      return {
-        salary: round2(payroll.reduce((sum, r) => sum + r.pay, 0)),
-        staff: payroll.filter((r) => r.pay).length,
-        expenses,
-        writeoffs,
-        total: round2(payroll.reduce((sum, r) => sum + r.pay, 0) + expenses.reduce((sum, r) => sum + r.amount, 0) + writeoffs),
-      };
+      const salary = round2(staff.reduce((sum, r) => sum + r.pay, 0));
+      const fixed = round2(recurring.reduce((sum, r) => sum + r.amount, 0));
+      const other = round2(expenses.reduce((sum, r) => sum + r.amount, 0));
+      return { salary, staff, recurring, fixed, expenses, other, writeoffs, total: round2(salary + fixed + other + writeoffs) };
+    },
+
+    /* ---------- Постоянные расходы ---------- */
+    listRecurring() {
+      return db.prepare('SELECT * FROM recurring_expenses ORDER BY sort, id').all().map((r) => ({ ...r, active: Boolean(r.active) }));
+    },
+
+    saveRecurring(id, input) {
+      const name = text(input.name, 'Название расхода', { required: true, max: 60 });
+      const amount = round2(number(input.amount, 'Сумма в месяц', { positive: true }));
+      const since = input.since ? number(input.since, 'Действует с', { positive: true }) : null;
+      const clash = this.listRecurring().find((r) => r.id !== Number(id) && r.name.toLowerCase() === name.toLowerCase());
+      if (clash) throw new UserError(`Расход «${clash.name}» уже есть — измените его`);
+      if (id) {
+        const cur = db.prepare('SELECT * FROM recurring_expenses WHERE id = ?').get(Number(id));
+        if (!cur) throw new UserError('Расход не найден');
+        const active = input.active === undefined ? cur.active : input.active ? 1 : 0;
+        db.prepare('UPDATE recurring_expenses SET name = ?, amount = ?, since = ?, active = ? WHERE id = ?').run(name, amount, since, active, cur.id);
+        return db.prepare('SELECT * FROM recurring_expenses WHERE id = ?').get(cur.id);
+      }
+      const sort = (db.prepare('SELECT MAX(sort) AS m FROM recurring_expenses').get().m || 0) + 1;
+      const { lastInsertRowid } = db.prepare('INSERT INTO recurring_expenses (name, amount, since, sort, created_at) VALUES (?, ?, ?, ?, ?)').run(name, amount, since, sort, Date.now());
+      return db.prepare('SELECT * FROM recurring_expenses WHERE id = ?').get(lastInsertRowid);
+    },
+
+    deleteRecurring(id) {
+      const r = db.prepare('SELECT * FROM recurring_expenses WHERE id = ?').get(Number(id));
+      if (!r) throw new UserError('Расход не найден');
+      db.prepare('DELETE FROM recurring_expenses WHERE id = ?').run(r.id);
+      return r;
     },
 
     /* ---------- Поставщики ---------- */

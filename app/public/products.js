@@ -13,8 +13,8 @@ const categories = {
   },
 };
 
-// Наценка — от цены закупки (чистая стоимость товара), а если её нет — от себестоимости.
-// Маржинальность и прибыль с единицы — от себестоимости (закупка + расходы).
+// Наценка и маржинальность — от цены закупки (чистая стоимость товара), а если её нет — от себестоимости.
+// Расходы (зарплата, аренда…) вычитаются на главной, в чистой прибыли.
 const baseCost = (p) => p.cost || p.purchase || 0;
 const basePurchase = (p) => p.purchase || p.cost || 0;
 function markup(p) {
@@ -109,7 +109,7 @@ function renderCardPrices(p, kids) {
     const sale = salePrice(x);
     const cost = baseCost(x);
     const buy = basePurchase(x);
-    return { sale, cost, purchase: x.purchase ?? x.cost, markup: buy > 0 ? (x.price - buy) / buy : null, margin: sale > 0 && cost > 0 ? (sale - cost) / sale : null, profit: sale - cost };
+    return { sale, cost, purchase: x.purchase ?? x.cost, markup: buy > 0 ? (x.price - buy) / buy : null, margin: sale > 0 && buy > 0 ? (sale - buy) / sale : null, profit: sale - buy };
   };
   if (kids.length) {
     const prices = kids.map((k) => k.price);
@@ -131,11 +131,11 @@ function renderCardPrices(p, kids) {
     pcCell('Себестоимость', p.cost ? money2(p.cost) : '—', p.cost && extra > 0.004 ? `закупка + расходы ${money2(extra)}` : 'закупка с расходами'),
     pcCell('Скидка', p.discount > 0 ? `${int(p.discount)}%` : '0%', p.discount > 0 ? `−${money2(p.price - c.sale)} с единицы` : 'без скидки'),
     pcCell('Наценка', c.markup === null ? '—' : pct(c.markup), c.purchase ? `от цены закупки, +${money2(p.price - c.purchase)}` : 'от цены закупки'),
-    pcCell('Маржинальность', c.margin === null ? '—' : pct(c.margin), c.cost ? `прибыль с единицы ${money2(c.profit)}` : ''),
+    pcCell('Маржинальность', c.margin === null ? '—' : pct(c.margin), c.margin === null ? 'от цены закупки' : `от цены закупки · с единицы ${money2(c.profit)}`),
   ].join('');
   $('#pc-prices-note').textContent = c.purchase && c.purchase !== p.cost
-    ? `От себестоимости: наценка ${p.cost ? pct((p.price - p.cost) / p.cost) : '—'}. Маржинальность — от себестоимости, то есть с учётом расходов.`
-    : 'Маржинальность — какая доля цены продажи (со скидкой) остаётся после себестоимости.';
+    ? `С учётом расходов на единицу (себестоимость ${money2(p.cost)}): наценка ${pct((p.price - p.cost) / p.cost)}, маржинальность ${c.sale > 0 ? pct((c.sale - p.cost) / c.sale) : '—'}.`
+    : 'Маржинальность — какая доля цены продажи (со скидкой) остаётся после цены закупки.';
   $('#pc-prices-variants').innerHTML = '';
 }
 
@@ -436,8 +436,8 @@ function syncPrices(changed) {
   const p = parseNum(f.elements.price.value);
   const disc = parseNum(f.elements.discount.value) || 0;
   const sale = disc > 0 && disc < 100 ? Math.round(p * (1 - disc / 100) * 100) / 100 : p;
-  $('#pf-profit').textContent = cost > 0 && p > 0
-    ? `${disc > 0 ? `Цена со скидкой ${money2(sale)}. ` : ''}Прибыль с единицы: ${money2(sale - cost)} · маржинальность ${sale > 0 ? pct((sale - cost) / sale) : '—'}. Цена из наценки округляется до целого сома.`
+  $('#pf-profit').textContent = buy > 0 && p > 0
+    ? `${disc > 0 ? `Цена со скидкой ${money2(sale)}. ` : ''}С единицы: ${money2(sale - buy)} · маржинальность ${sale > 0 ? pct((sale - buy) / sale) : '—'} (от цены закупки). Цена из наценки округляется до целого сома.`
     : 'Меняете наценку — пересчитывается цена, меняете цену — пересчитывается наценка.';
   renderGenPreview();
 }

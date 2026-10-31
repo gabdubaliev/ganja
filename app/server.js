@@ -479,6 +479,10 @@ const routes = [
   ['GET', '/api/expenses', (p, url) => ({ list: store.listExpenses(range(url)), categories: store.expenseCategories }), ['expenses', 'dashboard']],
   ['POST', '/api/expenses', (p, url, body, user) => store.addExpense(body, user), 'expenses'],
   ['DELETE', '/api/expenses/:id', (p) => store.deleteExpense(p.id), 'expenses'],
+  ['GET', '/api/recurring-expenses', () => store.listRecurring(), ['expenses', 'dashboard']],
+  ['POST', '/api/recurring-expenses', (p, url, body) => store.saveRecurring(null, body), 'expenses'],
+  ['PUT', '/api/recurring-expenses/:id', (p, url, body) => store.saveRecurring(p.id, body), 'expenses'],
+  ['DELETE', '/api/recurring-expenses/:id', (p) => store.deleteRecurring(p.id), 'expenses'],
   ['POST', '/api/suppliers', (p, url, body) => store.saveSupplier(null, body), 'arrivals'],
   ['PUT', '/api/suppliers/:id', (p, url, body) => store.saveSupplier(p.id, body), 'arrivals'],
   ['DELETE', '/api/suppliers/:id', (p) => store.deleteSupplier(p.id), 'arrivals'],
@@ -710,6 +714,9 @@ const AUDIT_LABELS = {
   'POST /api/products/:id/variants': 'Добавил модификации',
   'POST /api/expenses': 'Внёс расход',
   'DELETE /api/expenses/:id': 'Удалил расход',
+  'POST /api/recurring-expenses': 'Добавил постоянный расход',
+  'PUT /api/recurring-expenses/:id': 'Изменил постоянный расход',
+  'DELETE /api/recurring-expenses/:id': 'Удалил постоянный расход',
   'POST /api/categories': 'Создал категорию',
   'POST /api/payment-methods': 'Добавил способ оплаты',
   'PUT /api/payment-methods/:id': 'Изменил способ оплаты',
@@ -804,6 +811,9 @@ function auditDetails(key, params, body, result) {
     case 'POST /api/products/:id/variants': return `${Array.isArray(r) ? r.length : 0} шт.`;
     case 'POST /api/expenses':
     case 'DELETE /api/expenses/:id': return `${r.category}: ${r.amount} сом${r.note ? ` (${r.note})` : ''}`;
+    case 'POST /api/recurring-expenses':
+    case 'PUT /api/recurring-expenses/:id':
+    case 'DELETE /api/recurring-expenses/:id': return `${r.name}: ${r.amount} сом в месяц${r.active === 0 ? ' (выключен)' : ''}`;
     case 'POST /api/docs':
     case 'PUT /api/docs/:id':
     case 'POST /api/docs/:id/post':

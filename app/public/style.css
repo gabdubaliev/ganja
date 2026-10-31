@@ -1201,3 +1201,19 @@ td.nowrap, .nowrap { white-space: nowrap; }
 .np-items li small { display: block; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .np-date { font-size: 12px; color: var(--muted); white-space: nowrap; }
 @media (max-width: 860px) { .net-profit .np-body { grid-template-columns: 1fr; } }
+
+/* ---------- Расходы на главной: зарплата по сотрудникам, постоянные расходы ---------- */
+.kpis.kpis-seven { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.kpis.kpis-seven .kpi { padding: 14px; }
+.kpis.kpis-seven .kpi .value { font-size: clamp(18px, 1.6vw, 24px); }
+@media (min-width: 1100px) { .kpis.kpis-seven { grid-template-columns: repeat(7, minmax(0, 1fr)); } }
+@media (max-width: 1099px) and (min-width: 761px) { .kpis.kpis-seven { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .kpis.kpis-seven { grid-template-columns: repeat(2, minmax(0, 1fr)); } .kpis.kpis-seven .kpi .value { font-size: 20px; } }
+.np-toggle { border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-decoration: underline dotted; text-align: left; }
+.np-detail { display: grid; gap: 2px; margin: 0 0 4px 14px; padding-left: 10px; border-left: 2px solid var(--grid); }
+.np-detail-row { display: flex; justify-content: space-between; gap: 12px; padding: 5px 8px; font-size: 14px; }
+.np-detail-row span { display: grid; }
+.np-detail-row small { font-size: 12px; color: var(--muted); }
+.np-items li.np-off { opacity: .55; }
+.np-list > div + div { margin-top: 14px; }
+.net-profit .tools { display: flex; flex-wrap: wrap; gap: 8px; }

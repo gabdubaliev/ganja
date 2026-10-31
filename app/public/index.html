@@ -53,16 +53,22 @@
     <p class="pick-meta" id="desk-today"></p>
   </section>
 
-  <section class="kpis" id="kpis" aria-label="Главные показатели"></section>
+  <section class="kpis kpis-seven" id="kpis" aria-label="Главные показатели"></section>
 
-  <section class="panel net-profit" id="net-profit" aria-label="Чистая прибыль">
+  <section class="panel net-profit" id="net-profit" aria-label="Расходы и чистая прибыль">
     <div class="panel-head">
-      <div><h2>Чистая прибыль</h2><p class="sub" id="np-sub">Выручка минус закупка товара, зарплата и расходы за период</p></div>
-      <button type="button" class="btn small primary" id="np-add" data-can="expenses" hidden>+ Расход</button>
+      <div><h2>Расходы и чистая прибыль</h2><p class="sub" id="np-sub">Выручка минус цена закупки, зарплата и расходы за период</p></div>
+      <div class="tools">
+        <button type="button" class="btn small" id="np-fixed-add" data-can="expenses" hidden>+ Постоянный расход</button>
+        <button type="button" class="btn small primary" id="np-add" data-can="expenses" hidden>+ Разовый расход</button>
+      </div>
     </div>
     <div class="np-body">
       <div class="np-lines" id="np-lines"></div>
-      <div class="np-list" id="np-list"></div>
+      <div class="np-list">
+        <div id="np-fixed"></div>
+        <div id="np-list"></div>
+      </div>
     </div>
   </section>
 
@@ -74,7 +80,7 @@
       </div>
       <div class="legend">
         <span><i style="background: var(--series)"></i>Прибыль</span>
-        <span><i style="background: var(--rest)"></i>Закупка</span>
+        <span><i style="background: var(--rest)"></i>Цена закупки</span>
       </div>
     </div>
     <div class="chart" id="chart"></div>
@@ -1129,10 +1135,30 @@
   </form>
 </dialog>
 
+<dialog id="fixed-dialog" aria-labelledby="fixed-title">
+  <form id="fixed-form" novalidate>
+    <h2 id="fixed-title">Постоянный расход</h2>
+    <p class="sub">Аренда, таргет, интернет — то, что платите каждый месяц. Сумма в месяц делится на число дней месяца: аренда 100 000 сом в октябре (31 день) — 3 226 сом в день, и каждый день периода на главной несёт свою долю.</p>
+    <div class="form-grid">
+      <div class="field wide"><label for="fixexp-name">Название</label><input id="fixexp-name" name="name" class="input" list="ex-categories" required autocomplete="off" placeholder="Например, Аренда или Таргет"></div>
+      <div class="field"><label for="fixexp-amount">Сумма в месяц, сом</label><input id="fixexp-amount" name="amount" class="input num" inputmode="decimal" required autocomplete="off"></div>
+      <div class="field"><label for="fixexp-since">Действует с</label><input id="fixexp-since" name="since" type="date" class="input"></div>
+      <label class="check wide"><input type="checkbox" name="active" checked> Учитывать (снимите, чтобы временно не считать)</label>
+      <p class="pick-meta wide" id="fixexp-per-day"></p>
+    </div>
+    <p class="form-error" id="fixed-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost danger-text" id="fixed-delete" hidden>Удалить</button>
+      <button type="button" class="btn ghost" id="fixed-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="expense-dialog" aria-labelledby="expense-title">
   <form id="expense-form" novalidate>
-    <h2 id="expense-title">Расход</h2>
-    <p class="sub">Аренда, доставка, налоги, коммунальные — всё, что уменьшает прибыль. Зарплату вносить не нужно: она считается сама по ставкам сотрудников.</p>
+    <h2 id="expense-title">Разовый расход</h2>
+    <p class="sub">Доставка, ремонт, налог — то, что заплатили один раз. Ежемесячные расходы (аренда, таргет) заведите как постоянные. Зарплату вносить не нужно: она считается сама по ставкам сотрудников.</p>
     <div class="form-grid">
       <div class="field wide"><label for="ex-category">Статья расхода</label><input id="ex-category" name="category" class="input" list="ex-categories" required autocomplete="off" placeholder="Например, Аренда"><datalist id="ex-categories"></datalist></div>
       <div class="field"><label for="ex-amount">Сумма, сом</label><input id="ex-amount" name="amount" class="input num" inputmode="decimal" required autocomplete="off"></div>
@@ -1205,7 +1231,7 @@
         <div class="field"><label for="pf-price">Цена продажи, сом</label><input id="pf-price" name="price" class="input num" inputmode="decimal" required autocomplete="off"></div>
         <div class="field"><label for="pf-discount">Скидка, %</label><input id="pf-discount" name="discount" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
         <p class="pick-meta price-note" id="pf-profit">Меняете наценку — пересчитывается цена, меняете цену — пересчитывается наценка.</p>
-        <p class="pick-meta price-note">Цена закупки — только стоимость товара у поставщика. Себестоимость — закупка плюс расходы на единицу: доставка, зарплата, налоги. Наценка считается от цены закупки, маржинальность — от себестоимости.</p>
+        <p class="pick-meta price-note">Цена закупки — только стоимость товара у поставщика. Себестоимость — закупка плюс расходы на единицу: доставка, зарплата, налоги. Наценка и маржинальность считаются от цены закупки.</p>
       </fieldset>
 
       <div class="field"><label for="pf-code">Код товара</label><input id="pf-code" name="code" class="input" autocomplete="off" placeholder="Программа присвоит сама"></div>
