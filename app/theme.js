@@ -53,8 +53,15 @@ const NAVS = {
 };
 const googleFontUrl = (f) => `https://fonts.googleapis.com/css2?family=${encodeURIComponent(f).replace(/%20/g, '+')}:wght@400;500;600;700;800&display=swap`;
 
-function themeCss(d) {
-  const google = d.font && !FONT_STACKS[d.font];
+// @font-face для загруженных шрифтов: файл отдаёт /fonts/:id.
+const FONT_FORMAT = { 'font/woff2': 'woff2', 'font/woff': 'woff', 'font/ttf': 'truetype', 'font/otf': 'opentype' };
+function fontFaces(fonts = []) {
+  return fonts.map((f) => `@font-face { font-family: "${f.family}"; src: url("/fonts/${f.id}"); font-weight: ${f.weight}; font-style: ${f.style}; font-display: swap; }`).join('\n');
+}
+
+function themeCss(d, fonts = []) {
+  const custom = new Set(fonts.map((f) => f.family));
+  const google = d.font && !FONT_STACKS[d.font] && !custom.has(d.font);
   const own = {
     '--series': d.accent,
     '--series-soft': rgba(d.accent, 0.14),
@@ -66,6 +73,8 @@ function themeCss(d) {
   };
   const parts = [];
   if (google) parts.push(`@import url("${googleFontUrl(d.font)}");`);
+  if (fonts.length) parts.push(fontFaces(fonts));
+  if (custom.has(d.font)) own['--font'] = `"${d.font}", ${FONT_STACKS.system}`;
   if (d.theme === 'light') parts.push(`:root {\n${block(LIGHT)}\n}`);
   if (d.theme === 'dark') parts.push(`:root {\n${block(DARK)}\n}`);
   // Свои цвета действуют в обеих темах; если тема «как в системе», тёмная получает только акцент.
@@ -81,7 +90,9 @@ function themeCss(d) {
   return parts.join('\n\n') + '\n';
 }
 
-function shopCss(s) {
+function shopCss(s, fonts = []) {
+  // Браузер скачивает только те шрифты, что реально используются, поэтому описаны все — так работает и предпросмотр.
+  const used = fonts;
   const vars = {
     '--accent': s.accent,
     '--accent-soft': rgba(s.accent, 0.12),
@@ -98,7 +109,7 @@ function shopCss(s) {
     '--ratio': (s.cardRatio || '4:5').replace(':', ' / '),
     '--fit': s.imageFit || 'cover',
   };
-  return `:root {\n${block(vars)}\n}\n${s.css ? `\n/* Свой CSS */\n${s.css}\n` : ''}`;
+  return `${used.length ? fontFaces(used) + '\n' : ''}:root {\n${block(vars)}\n}\n${s.css ? `\n/* Свой CSS */\n${s.css}\n` : ''}`;
 }
 
 module.exports = { themeCss, shopCss, FONT_STACKS, DENSITY, CARDS, BACKGROUNDS, NAVS };

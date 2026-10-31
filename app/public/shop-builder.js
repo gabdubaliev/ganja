@@ -20,7 +20,7 @@ const shopFrame = () => $('#shop-preview');
 
 async function renderShop() {
   try {
-    [builder.saved, builder.products] = await Promise.all([api('/api/shop'), catalog.load()]);
+    [builder.saved, builder.products] = await Promise.all([api('/api/shop'), catalog.load(), loadCustomFonts()]);
   } catch (err) {
     return toast(err.message, 'error');
   }
@@ -57,6 +57,12 @@ function fillShopForm() {
     <button type="button" class="template ${d.template === key ? 'on' : ''}" data-template="${key}" style="--t-bg:${t.bg};--t-surface:${t.surface};--t-accent:${t.accent};--t-ink:${t.ink};--t-radius:${Math.min(t.radius, 12)}px">
       <span class="t-swatch"><i></i><i></i><i></i></span>${t.name}
     </button>`).join('');
+  // Свои загруженные шрифты — первыми в списках шрифтов витрины.
+  for (const sel of f.querySelectorAll('select[name="headingFont"], select[name="bodyFont"]')) {
+    sel.querySelector('optgroup.custom')?.remove();
+    const fams = customFamilyList();
+    if (fams.length) sel.insertAdjacentHTML('afterbegin', `<optgroup class="custom" label="Мои шрифты">${fams.map((x) => `<option value="${esc(x)}" style="font-family:'${esc(x)}'">${esc(x)}</option>`).join('')}</optgroup>`);
+  }
   for (const sel of f.querySelectorAll('select.fonts')) sel.innerHTML = Object.entries(FONT_NAMES).map(([k, n]) => `<option value="${k}">${n}</option>`).join('');
   for (const el of f.elements) {
     if (!el.name || !(el.name in d)) continue;

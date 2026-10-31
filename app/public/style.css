@@ -1608,3 +1608,16 @@ th.ts-name.ts-editable:hover, th.ts-day.ts-editable:hover { color: var(--series)
 .mn-table tr.pct td { color: var(--ink-2); font-size: 12px; }
 .mn-table td.neg { color: var(--critical); }
 .mn-table td.pos { color: #15803d; }
+
+/* Свои шрифты (Оформление) */
+.font-manager { border: 1px dashed color-mix(in srgb, var(--ink) 18%, transparent); border-radius: var(--radius); padding: 14px; }
+.font-list { list-style: none; margin: 8px 0 12px; padding: 0; display: grid; gap: 8px; }
+.font-list li { display: grid; grid-template-columns: 1fr 170px auto auto; gap: 8px; align-items: center; padding: 8px 10px; border-radius: calc(var(--radius) - 4px); background: color-mix(in srgb, var(--series) 5%, var(--surface)); }
+.font-list li.empty { display: block; color: var(--ink-2); font-size: 13px; background: none; padding: 0; }
+.font-list .font-sample { grid-column: 1 / -2; font-size: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.font-list small { color: var(--ink-2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+.font-upload { display: flex; gap: 8px; flex-wrap: wrap; }
+.font-upload .input { flex: 1 1 220px; }
+.font-upload label.btn { cursor: pointer; }
+@media (max-width: 760px) { .font-list li { grid-template-columns: 1fr auto auto; } .font-list .font-sample, .font-list small, .font-list [data-f="family"] { grid-column: 1 / -1; } .font-list small { text-align: left; } }
+.font-list [data-font-del] { justify-self: end; }

@@ -69,8 +69,11 @@ function applyVars(s) {
 }
 
 // Шрифты из Google Fonts: заголовки и текст (кириллица подгружается сама).
+// Шрифты Google — из списка конструктора; свои (загруженные) описаны в theme.css.
+const GOOGLE_FONTS = ['Inter', 'Manrope', 'Montserrat', 'Rubik', 'Nunito', 'Raleway', 'Open Sans', 'Roboto', 'Unbounded', 'Comfortaa',
+  'Playfair Display', 'Cormorant Garamond', 'Lora', 'PT Serif', 'Oswald', 'Roboto Condensed', 'Prata', 'Jost'];
 function loadFonts(s) {
-  const fams = [...new Set([s.headingFont, s.bodyFont].filter(Boolean))];
+  const fams = [...new Set([s.headingFont, s.bodyFont].filter((f) => GOOGLE_FONTS.includes(f)))];
   if (!fams.length) return;
   const href = `https://fonts.googleapis.com/css2?${fams.map((f) => `family=${encodeURIComponent(f).replace(/%20/g, '+')}:wght@400;500;600;700;800`).join('&')}&display=swap`;
   if ($('#shop-fonts').getAttribute('href') !== href) $('#shop-fonts').setAttribute('href', href);

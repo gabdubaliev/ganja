@@ -151,6 +151,16 @@ function open(file) {
       data BLOB NOT NULL,
       created_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS fonts (
+      id INTEGER PRIMARY KEY,
+      family TEXT NOT NULL,
+      weight INTEGER NOT NULL DEFAULT 400,
+      style TEXT NOT NULL DEFAULT 'normal',
+      file_name TEXT NOT NULL DEFAULT '',
+      mime TEXT NOT NULL,
+      data BLOB NOT NULL,
+      created_at INTEGER NOT NULL
+    );
   `);
   addColumns('orders', [['sale_id', 'INTEGER']]);
   // Предоплата переводом: способ (из настроек витрины), «Я оплатил» от покупателя и подтверждение сотрудником.
@@ -874,6 +884,20 @@ function daysToBirthday(bday, now = Date.now()) {
 // Оформление программы. Цвета — #rrggbb, остальное проверяется в setDesign.
 const DESIGN_DEFAULTS = { name: 'Мой магазин', accent: '#5b5bf6', bg: '', surface: '', ink: '', font: 'system', radius: 14, theme: 'auto', css: '',
   density: 'normal', cards: 'shadow', background: 'soft', nav: 'light' };
+// Свои шрифты (загруженные файлы) лежат в главной базе — их видят и программа, и витрина, и все филиалы.
+let fontSource = null;
+const useFontsFrom = (store) => { fontSource = store; };
+const customFamilies = () => fontSource?.fontFamilies() || [];
+const fontFamilyName = (v) => String(v ?? '').replace(/[^\p{L}\p{N} _-]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 40);
+// Тип файла — по первым байтам, а не по расширению.
+function fontMime(bytes) {
+  const sig = bytes.subarray(0, 4).toString('latin1');
+  if (sig === 'wOF2') return 'font/woff2';
+  if (sig === 'wOFF') return 'font/woff';
+  if (sig === 'OTTO') return 'font/otf';
+  if (sig === 'true' || bytes.readUInt32BE(0) === 0x00010000) return 'font/ttf';
+  return null;
+}
 const ADMIN_FONTS = ['Inter', 'Manrope', 'Montserrat', 'Rubik', 'Nunito', 'Roboto', 'Open Sans', 'Jost', 'PT Sans', 'IBM Plex Sans', 'Fira Sans'];
 
 // Интернет-витрина: всё, что меняется в конструкторе.
@@ -3891,7 +3915,7 @@ function createStore(file) {
         bg: color(input.bg, 'Фон', { optional: true }),
         surface: color(input.surface, 'Панели', { optional: true }),
         ink: color(input.ink, 'Текст', { optional: true }),
-        font: FONTS.includes(input.font) || ADMIN_FONTS.includes(input.font) ? input.font : 'system',
+        font: FONTS.includes(input.font) || ADMIN_FONTS.includes(input.font) || customFamilies().includes(input.font) ? input.font : 'system',
         radius: Math.min(radius, 30),
         theme: ['auto', 'light', 'dark'].includes(input.theme) ? input.theme : 'auto',
         css: css(input.css),
@@ -3917,6 +3941,73 @@ function createStore(file) {
 
     getImage(id) {
       return db.prepare('SELECT mime, data FROM images WHERE id = ?').get(Number(id)) || null;
+    },
+
+    /* ---------- Свои шрифты (для программы и витрины) ---------- */
+
+    listFonts() {
+      return db.prepare('SELECT id, family, weight, style, file_name, length(data) AS size, created_at FROM fonts ORDER BY family, weight, style').all()
+        .map((f) => ({ ...f }));
+    },
+
+    fontFamilies() {
+      return db.prepare('SELECT DISTINCT family FROM fonts ORDER BY family').all().map((f) => f.family);
+    },
+
+    addFont({ family, weight, style, fileName, data }) {
+      const name = fontFamilyName(family);
+      if (!name) throw new UserError('Напишите название шрифта, например «Intro»');
+      const bytes = Buffer.from(String(data || ''), 'base64');
+      if (bytes.length < 12) throw new UserError('Файл пустой');
+      if (bytes.length > 5e6) throw new UserError('Файл шрифта больше 5 МБ');
+      const mime = fontMime(bytes);
+      if (!mime) throw new UserError('Это не файл шрифта. Подходят WOFF2, WOFF, TTF и OTF');
+      const w = Math.round(Number(weight) / 100) * 100;
+      const wt = w >= 100 && w <= 900 ? w : 400;
+      const st = style === 'italic' ? 'italic' : 'normal';
+      // Тот же шрифт с той же жирностью заменяется новым файлом.
+      db.prepare('DELETE FROM fonts WHERE family = ? AND weight = ? AND style = ?').run(name, wt, st);
+      const { lastInsertRowid } = db.prepare('INSERT INTO fonts (family, weight, style, file_name, mime, data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(name, wt, st, String(fileName || '').slice(0, 120), mime, bytes, Date.now());
+      return { id: Number(lastInsertRowid), family: name, weight: wt, style: st };
+    },
+
+    // Поменять название, жирность или курсив. При смене названия обновляется и выбранный шрифт программы и витрины.
+    updateFont(id, { family, weight, style }) {
+      const f = db.prepare('SELECT family, weight, style FROM fonts WHERE id = ?').get(Number(id));
+      if (!f) throw new UserError('Шрифт не найден');
+      const name = family === undefined ? f.family : fontFamilyName(family);
+      if (!name) throw new UserError('Напишите название шрифта');
+      const w = weight === undefined ? f.weight : Math.round(Number(weight) / 100) * 100;
+      const wt = w >= 100 && w <= 900 ? w : 400;
+      const st = style === undefined ? f.style : style === 'italic' ? 'italic' : 'normal';
+      transaction(db, () => {
+        db.prepare('DELETE FROM fonts WHERE family = ? AND weight = ? AND style = ? AND id <> ?').run(f.family, wt, st, Number(id));
+        db.prepare('UPDATE fonts SET weight = ?, style = ? WHERE id = ?').run(wt, st, Number(id));
+        // Новое название — у всех файлов этого шрифта (Regular, Bold, Black…).
+        if (name !== f.family) {
+          db.prepare(`DELETE FROM fonts WHERE family = ? AND (weight, style) IN (SELECT weight, style FROM fonts WHERE family = ?)`).run(name, f.family);
+          db.prepare('UPDATE fonts SET family = ? WHERE family = ?').run(name, f.family);
+          const design = this.design();
+          if (design.font === f.family) this.setSetting('design', JSON.stringify({ ...design, font: name }));
+          const shop = JSON.parse(this.setting('shop', '{}'));
+          if (shop.headingFont === f.family || shop.bodyFont === f.family) {
+            this.setSetting('shop', JSON.stringify({ ...shop, ...(shop.headingFont === f.family && { headingFont: name }), ...(shop.bodyFont === f.family && { bodyFont: name }) }));
+          }
+        }
+      });
+      return { ok: true };
+    },
+
+    deleteFont(id) {
+      const f = db.prepare('SELECT family FROM fonts WHERE id = ?').get(Number(id));
+      if (!f) throw new UserError('Шрифт не найден');
+      db.prepare('DELETE FROM fonts WHERE id = ?').run(Number(id));
+      return { ok: true };
+    },
+
+    getFont(id) {
+      return db.prepare('SELECT mime, data FROM fonts WHERE id = ?').get(Number(id)) || null;
     },
 
     /* ---------- Интернет-витрина ---------- */
@@ -4236,8 +4327,8 @@ function createStore(file) {
         bannerId: imageId(v.bannerId),
         logoId: imageId(v.logoId),
         css: css(v.css),
-        headingFont: SHOP_FONTS.includes(v.headingFont) ? v.headingFont : 'Manrope',
-        bodyFont: SHOP_FONTS.includes(v.bodyFont) ? v.bodyFont : 'Inter',
+        headingFont: SHOP_FONTS.includes(v.headingFont) || customFamilies().includes(v.headingFont) ? v.headingFont : 'Manrope',
+        bodyFont: SHOP_FONTS.includes(v.bodyFont) || customFamilies().includes(v.bodyFont) ? v.bodyFont : 'Inter',
         buttonStyle: ['pill', 'rounded', 'square'].includes(v.buttonStyle) ? v.buttonStyle : 'pill',
         cardRatio: ['1:1', '3:4', '4:5', '4:3'].includes(v.cardRatio) ? v.cardRatio : '4:5',
         cardShadow: ['none', 'soft', 'strong', 'outline'].includes(v.cardShadow) ? v.cardShadow : 'soft',
@@ -4448,4 +4539,4 @@ function createStore(file) {
   return store;
 }
 
-module.exports = { createStore, UserError, text, number, phone, birthday, gender, personName, round2, transaction };
+module.exports = { useFontsFrom, createStore, UserError, text, number, phone, birthday, gender, personName, round2, transaction };

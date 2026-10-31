@@ -7,7 +7,7 @@ const path = require('node:path');
 loadEnv(path.join(__dirname, '.env'));
 // Дни, смены и выплатные периоды считаются по времени Бишкека, даже если сервер живёт в UTC.
 process.env.TZ ||= 'Asia/Bishkek';
-const { createStore, UserError, phone: normalizePhone } = require('./db');
+const { createStore, useFontsFrom, UserError, phone: normalizePhone } = require('./db');
 const { seedDemo } = require('./demo');
 const invoice = require('./invoice');
 const crypto = require('node:crypto');
@@ -53,6 +53,7 @@ function loadEnv(file) {
    филиалы — branch-N.db рядом с ней, список хранится в настройках основного. Каждый запрос выполняется
    в контексте своего магазина (AsyncLocalStorage), поэтому код маршрутов работает с «store» как раньше. */
 const mainStore = createStore(DB_FILE);
+useFontsFrom(mainStore);
 const contexts = new Map(); // id магазина -> { id, store, notifier, crm, shopAuth }
 const als = new AsyncLocalStorage();
 const current = () => als.getStore() || contexts.get(1);
@@ -944,10 +945,15 @@ const routes = [
     return store.deleteUser(p.id);
   }), 'staff'],
 
+  ['GET', '/api/design', () => store.design(), 'design'],
   ['PUT', '/api/design', (p, url, body) => store.setDesign(body), 'design'],
+  ['GET', '/api/fonts', () => mainStore.listFonts(), ['design', 'shop']],
+  ['POST', '/api/fonts', (p, url, body) => mainStore.addFont(body), ['design', 'shop']],
+  ['PUT', '/api/fonts/:id', (p, url, body) => mainStore.updateFont(p.id, body), ['design', 'shop']],
+  ['DELETE', '/api/fonts/:id', (p) => mainStore.deleteFont(p.id), ['design', 'shop']],
   // Предпросмотр: та же тема, что отдаёт /theme.css, но из несохранённого черновика.
   // Свой CSS сотрудник с этим правом и так может писать, поэтому строки идут как есть.
-  ['POST', '/api/design/preview', (p, url, body) => ({ css: themeCss({ ...store.design(), ...Object.fromEntries(Object.entries(body || {}).map(([k, v]) => [k, typeof v === 'number' ? v : String(v ?? '').replace(/[<>{};]/g, k === 'css' ? (c) => c : '')])) }) }), 'design'],
+  ['POST', '/api/design/preview', (p, url, body) => ({ css: themeCss({ ...store.design(), ...Object.fromEntries(Object.entries(body || {}).map(([k, v]) => [k, typeof v === 'number' ? v : String(v ?? '').replace(/[<>{};]/g, k === 'css' ? (c) => c : '')])) }, mainStore.listFonts()) }), 'design'],
   ['PUT', '/api/layout', (p, url, body, user) => {
     if (auth.enabled && user?.role !== 'owner') throw new UserError('Расположение разделов меняет владелец');
     return saveLayout(body);
@@ -1115,6 +1121,9 @@ const AUDIT_LABELS = {
   'PUT /api/users/:id': 'Изменил сотрудника',
   'DELETE /api/users/:id': 'Удалил сотрудника',
   'PUT /api/design': 'Изменил оформление',
+  'POST /api/fonts': 'Загрузил шрифт',
+  'PUT /api/fonts/:id': 'Изменил шрифт',
+  'DELETE /api/fonts/:id': 'Удалил шрифт',
   'PUT /api/layout': 'Изменил расположение разделов',
   'POST /api/images': 'Загрузил картинку для витрины',
   'PUT /api/shop': 'Изменил витрину',
@@ -1432,7 +1441,13 @@ async function shopAccount(req, res, url) {
 // Страницы и запросы без входа: оформление, интернет-витрина и её заказы.
 async function handlePublic(req, res, url, user) {
   const { pathname } = url;
-  if (req.method === 'GET' && pathname === '/theme.css') return sendBytes(res, 'text/css; charset=utf-8', themeCss(store.design()));
+  if (req.method === 'GET' && pathname === '/theme.css') return sendBytes(res, 'text/css; charset=utf-8', themeCss(store.design(), mainStore.listFonts()));
+  const font = req.method === 'GET' && pathname.match(/^\/fonts\/(\d+)$/);
+  if (font) {
+    const found = mainStore.getFont(font[1]);
+    if (!found) return sendJson(res, 404, { error: 'Шрифта нет' });
+    return sendBytes(res, found.mime, Buffer.from(found.data), 'public, max-age=31536000, immutable');
+  }
   if (req.method === 'GET' && pathname === '/api/brand') return sendJson(res, 200, { name: store.design().name });
   const image = req.method === 'GET' && pathname.match(/^\/img\/(\d+)$/);
   if (image) {
@@ -1455,7 +1470,7 @@ async function handlePublic(req, res, url, user) {
     }
     return serveStatic(res, '/shop.html');
   }
-  if (req.method === 'GET' && pathname === '/shop/theme.css') return sendBytes(res, 'text/css; charset=utf-8', shopCss(shop));
+  if (req.method === 'GET' && pathname === '/shop/theme.css') return sendBytes(res, 'text/css; charset=utf-8', shopCss(shop, mainStore.listFonts()));
   if (req.method === 'GET' && pathname === '/shop/data') {
     if (!open) return sendJson(res, 404, { error: 'Витрина закрыта' });
     const { css, payments, ...rest } = shop;
@@ -1546,7 +1561,7 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   if (SHOP_DOMAIN && (hostOf(req) === SHOP_DOMAIN || hostOf(req) === `www.${SHOP_DOMAIN}`)) {
     if (url.pathname === '/') url.pathname = '/shop';
-    const ok = SHOP_PATHS.has(url.pathname) || url.pathname.startsWith('/shop/') || url.pathname.startsWith('/img/') || url.pathname.startsWith('/webhooks/');
+    const ok = SHOP_PATHS.has(url.pathname) || url.pathname.startsWith('/shop/') || url.pathname.startsWith('/img/') || url.pathname.startsWith('/fonts/') || url.pathname.startsWith('/webhooks/');
     if (!ok) {
       // Сотрудник открыл программу по адресу витрины — отправляем на адрес программы.
       res.writeHead(ADMIN_DOMAIN ? 302 : 404, ADMIN_DOMAIN ? { Location: `https://${ADMIN_DOMAIN}${url.pathname}${url.search}` } : { 'Content-Type': 'text/plain; charset=utf-8' });

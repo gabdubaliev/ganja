@@ -21,15 +21,126 @@ const designView = { saved: null, draft: null };
 // Цвет, которым поле показывает «по умолчанию»: у <input type=color> не бывает пустого значения.
 const DEFAULT_SWATCH = { bg: '#f4f5fa', surface: '#ffffff', ink: '#141625' };
 
-function renderDesign() {
+/* ---------- Свои шрифты: общие для программы и витрины ---------- */
+let customFonts = [];
+async function loadCustomFonts() {
+  try { customFonts = await api('/api/fonts'); } catch { customFonts = []; }
+  return customFonts;
+}
+const customFamilyList = () => [...new Set(customFonts.map((f) => f.family))];
+const WEIGHTS = { 100: 'Thin', 200: 'ExtraLight', 300: 'Light', 400: 'Regular', 500: 'Medium', 600: 'SemiBold', 700: 'Bold', 800: 'ExtraBold', 900: 'Black' };
+const WEIGHT_WORDS = [[/extra-?light|ultra-?light/i, 200], [/semi-?bold|demi-?bold/i, 600], [/extra-?bold|ultra-?bold|heavy/i, 800],
+  [/thin|hairline/i, 100], [/light/i, 300], [/medium/i, 500], [/black/i, 900], [/bold/i, 700], [/regular|normal|book/i, 400]];
+// «Intro-Black.otf» → название Intro, жирность 900; «IntroItalic.ttf» → курсив.
+function guessFont(fileName) {
+  let base = fileName.replace(/\.(woff2?|ttf|otf)$/i, '');
+  const italic = /italic|oblique/i.test(base);
+  const weight = WEIGHT_WORDS.find(([re]) => re.test(base))?.[1] || 400;
+  base = base.replace(/italic|oblique/ig, '');
+  for (const [re] of WEIGHT_WORDS) base = base.replace(new RegExp(re.source, 'ig'), '');
+  const family = base.replace(/[-_]+/g, ' ').replace(/([a-zа-я])([A-ZА-Я])/g, '$1 $2').replace(/\s+/g, ' ').trim();
+  return { family: family || fileName, weight, style: italic ? 'italic' : 'normal' };
+}
+const fileBase64 = (file) => new Promise((resolve, reject) => {
+  const r = new FileReader();
+  r.onload = () => resolve(String(r.result).split(',')[1] || '');
+  r.onerror = () => reject(new Error('Не удалось прочитать файл'));
+  r.readAsDataURL(file);
+});
+
+function renderFontList() {
+  // Шрифты описаны в theme.css — после загрузки она перечитывается, чтобы образцы показались сразу.
+  $('#font-list').innerHTML = customFonts.length ? customFonts.map((f) => `
+    <li data-font="${f.id}">
+      <span class="font-sample" style="font-family:'${esc(f.family)}';font-weight:${f.weight};font-style:${f.style}">Аа Бб Привет, мир 123</span>
+      <small>${esc(f.file_name || '')} · ${Math.max(1, Math.round(f.size / 1024))} КБ</small>
+      <input class="input" data-f="family" value="${esc(f.family)}" aria-label="Название шрифта" title="Название меняется у всех файлов этого шрифта">
+      <select class="input" data-f="weight" aria-label="Жирность">${Object.entries(WEIGHTS).map(([w, n]) => `<option value="${w}" ${Number(w) === f.weight ? 'selected' : ''}>${w} · ${n}</option>`).join('')}</select>
+      <label class="check"><input type="checkbox" data-f="style" ${f.style === 'italic' ? 'checked' : ''}> курсив</label>
+      <button type="button" class="btn small ghost" data-font-del="${f.id}" title="Удалить">✕</button>
+    </li>`).join('') : '<li class="empty">Своих шрифтов пока нет.</li>';
+}
+
+function fillFontSelect() {
+  const fams = customFamilyList();
+  $('#df-font').innerHTML = (fams.length ? `<optgroup label="Мои шрифты">${fams.map((f) => `<option value="${esc(f)}">${esc(f)}</option>`).join('')}</optgroup>` : '')
+    + `<optgroup label="Современные шрифты">${ADMIN_FONTS.map((f) => `<option value="${f}">${f}</option>`).join('')}</optgroup>`
+    + `<optgroup label="Системные">${Object.entries(FONT_NAMES).map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</optgroup>`;
+  $('#df-font').value = designView.draft?.font || 'system';
+}
+
+async function afterFontsChanged() {
+  await loadCustomFonts();
+  $('#theme-css').href = '/theme.css?v=' + Date.now();
+  // Переименование меняет и выбранный шрифт — берём оформление с сервера.
+  try { session.design = await api('/api/design'); } catch { /* останется как было */ }
+  if (designView.draft) designView.draft.font = session.design.font;
+  renderFontList();
+  fillFontSelect();
+  if ($('#design-preview')) previewDesign();
+}
+
+$('#font-file').addEventListener('change', async (e) => {
+  const files = [...e.target.files];
+  e.target.value = '';
+  if (!files.length) return;
+  const typed = $('#font-family').value.trim();
+  let added = 0;
+  for (const file of files) {
+    const g = guessFont(file.name);
+    try {
+      await api('/api/fonts', { method: 'POST', body: { family: typed || g.family, weight: g.weight, style: g.style, fileName: file.name, data: await fileBase64(file) } });
+      added++;
+    } catch (err) {
+      toast(`${file.name}: ${err.message}`, 'error');
+    }
+  }
+  if (!added) return;
+  $('#font-family').value = '';
+  await afterFontsChanged();
+  toast(added === 1 ? 'Шрифт загружен — выберите его в списке «Шрифт»' : `Загружено шрифтов: ${added}`);
+});
+$('#font-list').addEventListener('change', async (e) => {
+  const li = e.target.closest('[data-font]');
+  if (!li) return;
+  const body = {
+    family: li.querySelector('[data-f="family"]').value,
+    weight: Number(li.querySelector('[data-f="weight"]').value),
+    style: li.querySelector('[data-f="style"]').checked ? 'italic' : 'normal',
+  };
+  try {
+    await api(`/api/fonts/${li.dataset.font}`, { method: 'PUT', body });
+    await afterFontsChanged();
+    toast('Шрифт изменён');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+$('#font-list').addEventListener('click', async (e) => {
+  const del = e.target.closest('[data-font-del]');
+  if (!del) return;
+  e.preventDefault();
+  if (!confirm('Удалить этот файл шрифта? Где он выбран, текст покажется обычным шрифтом.')) return;
+  try {
+    await api(`/api/fonts/${del.dataset.fontDel}`, { method: 'DELETE' });
+    await afterFontsChanged();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+// Enter в названии шрифта не отправляет форму оформления.
+$('#font-manager').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('input')) { e.preventDefault(); e.target.blur(); } });
+
+async function renderDesign() {
+  await loadCustomFonts();
   designView.saved = { ...session.design };
   designView.draft = { ...session.design };
+  renderFontList();
   $('#design-presets').innerHTML = Object.entries(DESIGN_PRESETS).map(([key, p]) => `
     <button type="button" class="template" data-preset="${key}" style="--t-bg:${p.bg || (p.theme === 'dark' ? '#14161f' : '#f4f5fa')};--t-surface:${p.surface || (p.theme === 'dark' ? '#1d2030' : '#ffffff')};--t-accent:${p.accent};--t-ink:${p.ink || (p.theme === 'dark' ? '#e7e9f1' : '#141625')};--t-radius:${p.radius}px">
       <span class="t-swatch"><i></i><i></i><i></i></span>${p.name}
     </button>`).join('');
-  $('#df-font').innerHTML = `<optgroup label="Современные шрифты">${ADMIN_FONTS.map((f) => `<option value="${f}">${f}</option>`).join('')}</optgroup>`
-    + `<optgroup label="Системные">${Object.entries(FONT_NAMES).map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</optgroup>`;
+  fillFontSelect();
   fillDesignForm();
 }
 
