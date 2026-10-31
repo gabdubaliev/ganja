@@ -553,3 +553,39 @@ body[data-look="minimal"] .size-chart summary { text-transform: uppercase; lette
 @media (hover: none) { .sw { width: 30px; height: 30px; } }
 @media (max-width: 640px) { .swatches { gap: 4px; } .grid.compact .sw, .sw { width: 24px; height: 24px; } }
 .grid.list .swatches { display: none; }
+
+/* Галерея в окне товара: лента фото (листается пальцем), миниатюры, стрелки, точки на телефоне */
+.pd-gal { display: block; min-height: min(680px, calc(100dvh - 24px)); }
+.pd-track { position: absolute; inset: 0; display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior-x: contain; }
+.pd-track::-webkit-scrollbar { display: none; }
+.pd-track img { flex: 0 0 100%; width: 100%; height: 100%; max-height: none; object-fit: var(--fit); scroll-snap-align: start; scroll-snap-stop: always; cursor: zoom-in; user-select: none; }
+.pd-arrow { position: absolute; top: 50%; z-index: 2; width: 44px; height: 44px; margin-top: -22px; border: 0; border-radius: 50%; background: color-mix(in srgb, var(--bg) 90%, transparent); color: var(--ink); font-size: 28px; line-height: 1; display: grid; place-items: center; box-shadow: 0 4px 14px rgba(0, 0, 0, .12); cursor: pointer; opacity: 0; transition: opacity .2s; }
+.pd-arrow.prev { left: 14px; } .pd-arrow.next { right: 14px; }
+.pd-gal:hover .pd-arrow { opacity: 1; }
+.pd-thumbs { position: absolute; z-index: 2; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; gap: 6px; max-width: calc(100% - 28px); overflow-x: auto; padding: 4px; scrollbar-width: none; }
+.pd-thumbs::-webkit-scrollbar { display: none; }
+.pd-thumbs button { flex: none; width: 48px; padding: 0; border: 2px solid transparent; background: var(--bg); cursor: pointer; border-radius: calc(var(--radius) * .4); overflow: hidden; box-shadow: 0 2px 8px rgba(0, 0, 0, .12); }
+.pd-thumbs button[aria-selected="true"] { border-color: var(--ink); }
+.pd-thumbs img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: cover; }
+.pd-dots { display: none; position: absolute; z-index: 2; left: 0; right: 0; bottom: 12px; justify-content: center; gap: 6px; pointer-events: none; }
+.pd-dots i { width: 7px; height: 7px; border-radius: 50%; background: color-mix(in srgb, var(--ink) 25%, transparent); transition: background .2s, transform .2s; }
+.pd-dots i.on { background: var(--ink); transform: scale(1.15); }
+body[data-look="minimal"] .pd-arrow, body[data-look="minimal"] .pd-thumbs button { border-radius: 0; }
+@media (hover: none) { .pd-arrow { display: none; } }
+@media (max-width: 860px) {
+  .pd-gal { min-height: 0; }
+  .pd-thumbs { display: none; }
+  .pd-dots { display: flex; }
+}
+/* Увеличенное фото на весь экран */
+dialog.zoom { width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: var(--bg); color: var(--ink); }
+dialog.zoom::backdrop { background: var(--bg); }
+.zoom-track { display: flex; width: 100%; height: 100%; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; }
+.zoom-track::-webkit-scrollbar { display: none; }
+.zoom-slide { flex: 0 0 100%; height: 100%; display: grid; place-items: center; scroll-snap-align: start; scroll-snap-stop: always; overflow: auto; }
+.zoom-slide img { max-width: 100%; max-height: 100%; object-fit: contain; user-select: none; touch-action: pan-x pan-y pinch-zoom; }
+.zoom-close { position: fixed; top: 14px; right: 14px; z-index: 3; width: 46px; height: 46px; border: 0; border-radius: 50%; background: var(--surface); color: var(--ink); font-size: 28px; cursor: pointer; }
+dialog.zoom .pd-arrow { position: fixed; opacity: 1; }
+dialog.zoom.single .pd-arrow { display: none; }
+.zoom-count { position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); font-size: 13px; font-weight: 700; color: var(--ink-soft); }
+body[data-look="minimal"] .zoom-close { border-radius: 0; background: none; }

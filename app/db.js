@@ -86,6 +86,16 @@ function open(file) {
       mime TEXT NOT NULL,
       data BLOB NOT NULL
     );
+    -- Дополнительные фото товара (галерея). Основное фото — по-прежнему в product_photos (одно на товар).
+    CREATE TABLE IF NOT EXISTS product_images (
+      id INTEGER PRIMARY KEY,
+      product_id INTEGER NOT NULL REFERENCES products(id),
+      mime TEXT NOT NULL,
+      data BLOB NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS product_images_product ON product_images (product_id, position);
     CREATE TABLE IF NOT EXISTS customers (
       id INTEGER PRIMARY KEY,
       phone TEXT NOT NULL UNIQUE,
@@ -971,6 +981,14 @@ const normPerks = (list) => (Array.isArray(list) ? list : []).slice(0, 8).map((x
 const normNotes = (list) => (Array.isArray(list) ? list : []).slice(0, 8).map((x) => (typeof x === 'string'
   ? { text: x.trim().slice(0, 200), on: true }
   : { text: String(x?.text ?? '').trim().slice(0, 200), on: x?.on !== false })).filter((n) => n.text);
+// Галерея: до 12 дополнительных фото к основному. Тип файла — по первым байтам, а не по названию.
+const GALLERY_MAX = 12;
+function imageMime(bytes) {
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
+  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
+  if (bytes.length >= 12 && bytes.subarray(0, 4).toString('latin1') === 'RIFF' && bytes.subarray(8, 12).toString('latin1') === 'WEBP') return 'image/webp';
+  return null;
+}
 const SHOP_FONTS = ['Inter', 'Manrope', 'Montserrat', 'Rubik', 'Nunito', 'Raleway', 'Open Sans', 'Roboto', 'Unbounded', 'Comfortaa',
   'Playfair Display', 'Cormorant Garamond', 'Lora', 'PT Serif', 'Oswald', 'Roboto Condensed', 'Prata', 'Jost'];
 
@@ -1696,6 +1714,7 @@ function createStore(file) {
                 db.prepare('UPDATE products SET deleted = 1, archived = 1 WHERE id = ?').run(p.id);
               } else {
                 db.prepare('DELETE FROM product_photos WHERE product_id = ?').run(p.id);
+                db.prepare('DELETE FROM product_images WHERE product_id = ?').run(p.id);
                 db.prepare('DELETE FROM products WHERE id = ?').run(p.id);
               }
             }
@@ -2833,11 +2852,100 @@ function createStore(file) {
       return db.prepare('SELECT mime, data FROM product_photos WHERE product_id = ?').get(Number(id)) || null;
     },
 
+    // Удаление основного фото: если есть дополнительные, основным становится первое из них, иначе товар без фото.
     deletePhoto(id) {
       const p = getProduct(id);
-      db.prepare('DELETE FROM product_photos WHERE product_id = ?').run(p.id);
-      db.prepare('UPDATE products SET photo_at = NULL WHERE id = ?').run(p.id);
+      transaction(db, () => {
+        const next = db.prepare('SELECT id, mime, data FROM product_images WHERE product_id = ? ORDER BY position, id LIMIT 1').get(p.id);
+        if (next) {
+          db.prepare('INSERT INTO product_photos (product_id, mime, data) VALUES (?, ?, ?) ON CONFLICT(product_id) DO UPDATE SET mime = excluded.mime, data = excluded.data')
+            .run(p.id, next.mime, next.data);
+          db.prepare('DELETE FROM product_images WHERE id = ?').run(next.id);
+          db.prepare('UPDATE products SET photo_at = ? WHERE id = ?').run(Date.now(), p.id);
+        } else {
+          db.prepare('DELETE FROM product_photos WHERE product_id = ?').run(p.id);
+          db.prepare('UPDATE products SET photo_at = NULL WHERE id = ?').run(p.id);
+        }
+      });
       return getProduct(p.id);
+    },
+
+    /* ---------- Галерея товара: основное фото + дополнительные ---------- */
+
+    // Порядок для показа: первое — основное (product_photos), дальше дополнительные по position.
+    listGallery(id) {
+      const p = getProduct(id);
+      if (p.deleted) throw new UserError('Товар удалён');
+      const main = db.prepare('SELECT length(data) AS size FROM product_photos WHERE product_id = ?').get(p.id);
+      const extra = db.prepare('SELECT id, position, created_at, length(data) AS size FROM product_images WHERE product_id = ? ORDER BY position, id').all(p.id);
+      return {
+        productId: p.id,
+        photoAt: p.photo_at,
+        main: main ? { size: main.size } : null,
+        images: extra.map((x) => ({ id: x.id, position: x.position, created_at: x.created_at, size: x.size })),
+        max: GALLERY_MAX,
+      };
+    },
+
+    // Файл дополнительного фото — только своего товара.
+    getGalleryImage(productId, imageId) {
+      return db.prepare('SELECT mime, data FROM product_images WHERE id = ? AND product_id = ?').get(Number(imageId), Number(productId)) || null;
+    },
+
+    // Сохранить галерею целиком (всё или ничего). items — по порядку, первое станет основным:
+    // { main: true } — нынешнее основное, { id } — дополнительное этого товара, { data } — новое фото (base64).
+    // Цены, остатки и другие поля товара не меняются — только фото.
+    saveGallery(id, { items } = {}) {
+      const p = getProduct(id);
+      if (p.deleted) throw new UserError('Товар удалён');
+      if (!Array.isArray(items)) throw new UserError('Нет списка фото');
+      if (items.length > GALLERY_MAX + 1) throw new UserError(`Не больше ${GALLERY_MAX + 1} фото у товара`);
+      const mainRow = db.prepare('SELECT mime, data FROM product_photos WHERE product_id = ?').get(p.id);
+      const own = new Map(db.prepare('SELECT id, mime, data FROM product_images WHERE product_id = ?').all(p.id).map((r) => [r.id, r]));
+      const seen = new Set();
+      let mainUsed = false;
+      // Проверяем всё до записи.
+      const list = items.map((x, i) => {
+        if (x?.main) {
+          if (!mainRow) throw new UserError('Основного фото уже нет — обновите окно');
+          if (mainUsed) throw new UserError('Основное фото указано дважды');
+          mainUsed = true;
+          return { kind: 'main', mime: mainRow.mime, data: mainRow.data };
+        }
+        if (x?.id !== undefined && x?.id !== null) {
+          const row = own.get(Number(x.id));
+          if (!row) throw new UserError('Фото не принадлежит этому товару — обновите окно');
+          if (seen.has(row.id)) throw new UserError('Фото указано дважды');
+          seen.add(row.id);
+          return { kind: 'image', id: row.id, mime: row.mime, data: row.data };
+        }
+        const bytes = Buffer.from(String(x?.data || ''), 'base64');
+        if (!bytes.length) throw new UserError(`Фото ${i + 1}: файл пустой`);
+        if (bytes.length > 3e6) throw new UserError(`Фото ${i + 1}: больше 3 МБ`);
+        const mime = imageMime(bytes);
+        if (!mime) throw new UserError(`Фото ${i + 1}: подходят только JPEG, PNG и WebP`);
+        return { kind: 'new', mime, data: bytes };
+      });
+      const now = Date.now();
+      transaction(db, () => {
+        const [first, ...rest] = list;
+        if (!first) {
+          db.prepare('DELETE FROM product_photos WHERE product_id = ?').run(p.id);
+          db.prepare('UPDATE products SET photo_at = NULL WHERE id = ?').run(p.id);
+        } else if (first.kind !== 'main') {
+          db.prepare('INSERT INTO product_photos (product_id, mime, data) VALUES (?, ?, ?) ON CONFLICT(product_id) DO UPDATE SET mime = excluded.mime, data = excluded.data')
+            .run(p.id, first.mime, first.data);
+          db.prepare('UPDATE products SET photo_at = ? WHERE id = ?').run(now, p.id);
+        }
+        const keep = rest.filter((x) => x.kind === 'image').map((x) => x.id);
+        // Убранные из галереи (и ставшее основным) — удаляются; товар не трогаем.
+        for (const rid of own.keys()) if (!keep.includes(rid)) db.prepare('DELETE FROM product_images WHERE id = ?').run(rid);
+        rest.forEach((x, i) => {
+          if (x.kind === 'image') db.prepare('UPDATE product_images SET position = ? WHERE id = ?').run(i, x.id);
+          else db.prepare('INSERT INTO product_images (product_id, mime, data, position, created_at) VALUES (?, ?, ?, ?, ?)').run(p.id, x.mime, x.data, i, now);
+        });
+      });
+      return this.listGallery(p.id);
     },
 
     // Приход: увеличивает остаток и пересчитывает себестоимость как средневзвешенную.
@@ -4399,10 +4507,16 @@ function createStore(file) {
         if (kids.has(p.id) ? !variants.length : !shown(p)) continue;
         out.push(p, ...variants);
       }
+      // Дополнительные фото — по порядку; v — для обновления в кэше браузера.
+      const gallery = new Map();
+      for (const g of db.prepare('SELECT id, product_id, created_at FROM product_images ORDER BY product_id, position, id').all()) {
+        gallery.set(g.product_id, [...(gallery.get(g.product_id) || []), { id: g.id, v: g.created_at }]);
+      }
       return out.map(({ discount, ...p }) => ({
         ...p, price: salePrice({ price: p.price, discount }), oldPrice: discount > 0 ? p.price : null,
         options: p.options ? JSON.parse(p.options) : null, hasVariants: kids.has(p.id),
         stock: s.showStock ? Math.max(0, p.stock) : p.stock > 0 ? 1 : 0, photo: Boolean(p.photo_at),
+        gallery: gallery.get(p.id) || [],
       }));
     },
 
@@ -4414,6 +4528,12 @@ function createStore(file) {
 
     shopPhotoAllowed(id) {
       return this.shopProducts().some((p) => p.id === Number(id) && p.photo);
+    },
+
+    // Дополнительное фото на витрине — только у товара, который показан на витрине.
+    shopGalleryImage(productId, imageId) {
+      if (!this.shopProducts().some((p) => p.id === Number(productId))) return null;
+      return this.getGalleryImage(productId, imageId);
     },
 
     // customer — покупатель, вошедший на витрине: имя и телефон заказа берутся из его аккаунта.

@@ -373,8 +373,15 @@ function openProduct(id) {
   const old = v && v !== p ? v.oldPrice : !p.hasVariants ? p.oldPrice : null;
   const perks = (s.productNotes || []).filter((x) => x.on !== false && x.text).map((x) => x.text);
   const chartOpen = Boolean($('#product-body .size-chart')?.open);
+  // Галерея: фото выбранной модификации/цвета, иначе общая галерея товара. Без фото — как раньше (буква).
+  const urls = galleryOf(p, v);
+  const galKey = urls.join('|');
+  const keepAt = galKey === state.galKey ? state.galAt : 0;
+  state.galKey = galKey;
+  state.galAt = keepAt;
+  state.galUrls = urls;
   $('#product-body').innerHTML = `<div class="pd">
-    <div class="pd-pic">${pic ? `<img src="${pic}" alt="${esc(p.name)}">` : initial(p)}${badgesHtml(p)}</div>
+    <div class="pd-pic ${urls.length ? 'pd-gal' : ''}">${urls.length ? galleryHtml(urls, p.name) : pic ? `<img src="${pic}" alt="${esc(p.name)}">` : initial(p)}${badgesHtml(p)}</div>
     <div class="pd-info">
       ${p.category ? `<div class="pd-cat">${esc(p.category)}</div>` : ''}
       <h2 id="product-name">${esc(p.name)}</h2>
@@ -391,7 +398,110 @@ function openProduct(id) {
     </div>
   </div>`;
   if (!$('#product').open) $('#product').showModal();
+  if (urls.length > 1) galGo(keepAt, false);
 }
+
+/* ---------- Галерея в окне товара ---------- */
+// Какие фото показать (первое — основное):
+// 1) у выбранной модификации или другой модификации того же цвета есть своя галерея — только её фото;
+// 2) есть только своё основное фото — оно (под цвет), затем общие дополнительные фото товара;
+// 3) своих фото нет — общая галерея товара: основное фото товара и его дополнительные.
+function galleryOf(p, v) {
+  const opt = colorOptOf(p);
+  const color = opt && state.sel[opt];
+  const own = [v && v !== p ? v : null, ...(color ? variantsOf(p).filter((x) => x.options?.[opt] === color) : [])].filter(Boolean);
+  const extra = (x) => (x.gallery || []).map((g) => `/shop/photo/${x.id}/${g.id}?v=${g.v}`);
+  const withGallery = own.find((x) => x.gallery?.length);
+  if (withGallery) return [...(withGallery.photo ? [photo(withGallery)] : []), ...extra(withGallery)];
+  const ownMain = own.find((x) => x.photo);
+  return [...(ownMain ? [photo(ownMain)] : p.photo ? [photo(p)] : []), ...extra(p)];
+}
+function galleryHtml(urls, name) {
+  const many = urls.length > 1;
+  return `<div class="pd-track" id="pd-track">${urls.map((u, i) => `<img src="${u}" alt="${esc(name)}${many ? ` — фото ${i + 1}` : ''}" data-zoom="${i}" ${i ? 'loading="lazy"' : ''} draggable="false">`).join('')}</div>
+    ${many ? `<button type="button" class="pd-arrow prev" data-gal-step="-1" aria-label="Предыдущее фото">‹</button>
+      <button type="button" class="pd-arrow next" data-gal-step="1" aria-label="Следующее фото">›</button>
+      <div class="pd-thumbs" role="tablist" aria-label="Фото товара">${urls.map((u, i) => `<button type="button" role="tab" data-gal-go="${i}" aria-selected="${i === 0}" aria-label="Фото ${i + 1}"><img src="${u}" alt="" loading="lazy"></button>`).join('')}</div>
+      <div class="pd-dots" aria-hidden="true">${urls.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : ''}`;
+}
+// Перейти к фото i (листание и миниатюры работают через одну ленту с прокруткой).
+function galGo(i, smooth = true) {
+  const track = $('#pd-track');
+  if (!track) return;
+  const n = track.children.length;
+  const at = (i + n) % n;
+  track.scrollTo({ left: at * track.clientWidth, behavior: smooth ? 'smooth' : 'instant' });
+  galMark(at);
+}
+function galMark(at) {
+  state.galAt = at;
+  document.querySelectorAll('#product [data-gal-go]').forEach((b, i) => b.setAttribute('aria-selected', String(i === at)));
+  document.querySelectorAll('#product .pd-dots i').forEach((d, i) => d.classList.toggle('on', i === at));
+}
+// Листание пальцем: какое фото сейчас в ленте.
+document.addEventListener('scroll', (e) => {
+  if (e.target.id !== 'pd-track') return;
+  const t = e.target;
+  const at = Math.round(t.scrollLeft / Math.max(1, t.clientWidth));
+  if (at !== state.galAt) galMark(at);
+}, true);
+
+// Увеличение по нажатию: фото на весь экран, листание пальцем или стрелками, закрыть — × или по фону.
+document.body.insertAdjacentHTML('beforeend', `<dialog id="zoom" class="zoom" aria-label="Фото товара">
+  <div class="zoom-track" id="zoom-track"></div>
+  <button type="button" class="zoom-close" data-zoom-close aria-label="Закрыть">×</button>
+  <button type="button" class="pd-arrow prev" data-zoom-step="-1" aria-label="Предыдущее фото">‹</button>
+  <button type="button" class="pd-arrow next" data-zoom-step="1" aria-label="Следующее фото">›</button>
+  <div class="zoom-count" id="zoom-count"></div>
+</dialog>`);
+function openZoom(i) {
+  const urls = state.galUrls || [];
+  if (!urls.length) return;
+  $('#zoom-track').innerHTML = urls.map((u) => `<div class="zoom-slide"><img src="${u}" alt="" draggable="false"></div>`).join('');
+  $('#zoom').classList.toggle('single', urls.length < 2);
+  $('#zoom').showModal();
+  zoomGo(i, false);
+}
+function zoomGo(i, smooth = true) {
+  const t = $('#zoom-track');
+  const n = t.children.length;
+  const at = (i + n) % n;
+  t.scrollTo({ left: at * t.clientWidth, behavior: smooth ? 'smooth' : 'instant' });
+  $('#zoom-count').textContent = n > 1 ? `${at + 1} / ${n}` : '';
+}
+$('#zoom-track').addEventListener('scroll', () => {
+  const t = $('#zoom-track');
+  const n = t.children.length;
+  $('#zoom-count').textContent = n > 1 ? `${Math.round(t.scrollLeft / Math.max(1, t.clientWidth)) + 1} / ${n}` : '';
+});
+$('#zoom').addEventListener('click', (e) => {
+  const step = e.target.closest('[data-zoom-step]');
+  if (step) {
+    const t = $('#zoom-track');
+    return zoomGo(Math.round(t.scrollLeft / t.clientWidth) + Number(step.dataset.zoomStep));
+  }
+  // Закрыть: крестик или нажатие мимо фото.
+  if (e.target.closest('[data-zoom-close]') || !e.target.closest('img')) closeZoom();
+});
+// Окно товара после увеличения показывает то же фото, что смотрели (номер — до закрытия, пока лента видна).
+function closeZoom() {
+  const t = $('#zoom-track');
+  const at = Math.round(t.scrollLeft / Math.max(1, t.clientWidth));
+  $('#zoom').close();
+  galGo(at, false);
+}
+$('#zoom').addEventListener('cancel', (e) => {
+  e.preventDefault();
+  closeZoom();
+});
+document.addEventListener('keydown', (e) => {
+  if ($('#zoom').open && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+    const t = $('#zoom-track');
+    zoomGo(Math.round(t.scrollLeft / t.clientWidth) + (e.key === 'ArrowLeft' ? -1 : 1));
+  } else if ($('#product').open && $('#pd-track') && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !e.target.matches('input, textarea, select')) {
+    galGo(state.galAt + (e.key === 'ArrowLeft' ? -1 : 1));
+  }
+});
 
 /* ---------- Корзина ---------- */
 function add(id, delta = 1) {
@@ -541,6 +651,13 @@ document.addEventListener('click', (e) => {
     e.stopPropagation();
     return add(addBtn.dataset.add, Number(addBtn.dataset.delta || 1));
   }
+  // Галерея в окне товара: миниатюры, стрелки, увеличение.
+  const galStep = e.target.closest('[data-gal-step]');
+  if (galStep) return galGo(state.galAt + Number(galStep.dataset.galStep));
+  const galTo = e.target.closest('[data-gal-go]');
+  if (galTo) return galGo(Number(galTo.dataset.galGo));
+  const zoomImg = e.target.closest('#pd-track [data-zoom]');
+  if (zoomImg) return openZoom(Number(zoomImg.dataset.zoom));
   // Кружок расцветки на карточке: показать фото этого цвета, товар не открывать.
   const sw = e.target.closest('[data-swatch]');
   if (sw) {

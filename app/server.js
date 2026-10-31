@@ -499,6 +499,7 @@ function createBranch(input, user) {
         INSERT INTO images SELECT * FROM src.images WHERE id IN (SELECT image_id FROM src.categories WHERE image_id IS NOT NULL);
         INSERT INTO products (${cols}) SELECT ${cols} FROM src.products WHERE deleted = 0;
         INSERT INTO product_photos SELECT * FROM src.product_photos WHERE product_id IN (SELECT id FROM src.products WHERE deleted = 0);
+        INSERT INTO product_images (id, product_id, mime, data, position, created_at) SELECT id, product_id, mime, data, position, created_at FROM src.product_images WHERE product_id IN (SELECT id FROM src.products WHERE deleted = 0);
         UPDATE products SET stock = 0, supplier_id = NULL;`);
     } finally {
       db.exec('DETACH DATABASE src');
@@ -673,6 +674,8 @@ const routes = [
   ['GET', '/api/products/:id/stores', (p, url, body, user) => productStores(p.id, user), 'stock.view'],
   ['PUT', '/api/products/:id/photo', (p, url, body) => store.setPhoto(p.id, body), 'photos'],
   ['DELETE', '/api/products/:id/photo', (p) => store.deletePhoto(p.id), 'photos'],
+  ['GET', '/api/products/:id/gallery', (p) => store.listGallery(p.id), 'photos'],
+  ['PUT', '/api/products/:id/gallery', (p, url, body) => store.saveGallery(p.id, body), 'photos'],
 
   // Без права «sales» сотрудник видит только свои чеки.
   ['GET', '/api/sales', (p, url, body, user) => store.listSales({ ...range(url), userId: can(user, 'sales') ? null : user.id }), 'pos'],
@@ -1052,6 +1055,7 @@ const AUDIT_LABELS = {
   'PUT /api/products/:id/stock': 'Пересчитал остаток',
   'PUT /api/products/:id/photo': 'Поменял фото товара',
   'DELETE /api/products/:id/photo': 'Удалил фото товара',
+  'PUT /api/products/:id/gallery': 'Изменил галерею фото товара',
   'POST /api/products/bulk': 'Групповое изменение товаров',
   'POST /api/products/:id/variants': 'Добавил модификации',
   'POST /api/expenses': 'Внёс расход',
@@ -1485,6 +1489,12 @@ async function handlePublic(req, res, url, user) {
     const found = store.getPhoto(photo[1]);
     return sendBytes(res, found.mime, Buffer.from(found.data), 'public, max-age=86400');
   }
+  const extra = req.method === 'GET' && pathname.match(/^\/shop\/photo\/(\d+)\/(\d+)$/);
+  if (extra) {
+    const found = open ? store.shopGalleryImage(extra[1], extra[2]) : null;
+    if (!found) return sendJson(res, 404, { error: 'Фото нет' });
+    return sendBytes(res, found.mime, Buffer.from(found.data), 'public, max-age=86400');
+  }
   if (pathname.startsWith('/shop/account/')) return shopAccount(req, res, url);
   // Покупатель прикрепил чек об оплате (скриншот перевода или PDF).
   const receipt = req.method === 'POST' && pathname.match(/^\/shop\/order\/(\d+)\/receipt$/);
@@ -1603,6 +1613,14 @@ async function handleRequest(req, res, url, user, owner) {
       return sendJson(res, 400, { error: 'Неверный адрес' });
     }
     return serveStatic(res, pathname);
+  }
+  // Дополнительное фото товара (галерея) — так же, только своё фото этого товара.
+  const extraPhoto = req.method === 'GET' && url.pathname.match(/^\/api\/products\/(\d+)\/images\/(\d+)$/);
+  if (extraPhoto) {
+    const found = store.getGalleryImage(extraPhoto[1], extraPhoto[2]);
+    if (!found) return sendJson(res, 404, { error: 'Фото нет' });
+    res.writeHead(200, { 'Content-Type': found.mime, 'Cache-Control': 'private, max-age=31536000, immutable' });
+    return res.end(Buffer.from(found.data));
   }
   // Фото товара отдаётся картинкой, а не JSON. Смотреть фото может любой вошедший.
   const photo = req.method === 'GET' && url.pathname.match(/^\/api\/products\/(\d+)\/photo$/);

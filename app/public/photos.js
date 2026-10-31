@@ -16,6 +16,7 @@ async function renderPhotos() {
       ${photoCell(p)}
       <div class="pname">${esc(p.name)}</div>
       <div class="pcat">${esc([p.code, p.barcode].filter(Boolean).join(' · ') || p.category || '')}</div>
+      ${session.can('photos') && typeof openGallery === 'function' ? `<button type="button" class="link gal-open" data-gallery="${p.id}">🖼 Все фото товара</button>` : ''}
     </div>`).join('') + (list.length > 120 ? `<p class="empty">Показаны первые 120 из ${list.length}. Уточните поиск.</p>` : '')
     : `<p class="empty">${catalog.list.length ? 'Ничего не нашлось' : 'Товаров пока нет'}</p>`;
 }
@@ -54,7 +55,11 @@ $('#photos-cats').addEventListener('click', async (e) => {
   }
 });
 
-$('#photos-grid').addEventListener('click', (e) => handlePhotoClick(e, renderPhotos));
+$('#photos-grid').addEventListener('click', (e) => {
+  const g = e.target.closest('[data-gallery]');
+  if (g) return openGallery(Number(g.dataset.gallery), { title: catalog.byId(Number(g.dataset.gallery))?.name || '', onSaved: renderPhotos });
+  handlePhotoClick(e, renderPhotos);
+});
 $('#photos-search').addEventListener('input', (e) => { photosView.query = e.target.value; renderPhotos(); });
 $('#photos-missing').addEventListener('change', (e) => { photosView.missing = e.target.checked; renderPhotos(); });
 

@@ -92,6 +92,7 @@ async function openProductCard(id, stats = null) {
   $('#pc-stores').innerHTML = '';
   $('#pc-history').innerHTML = '';
   $('#pc-edit').hidden = !session.can('products');
+  $('#pc-gallery').hidden = !session.can('photos') || typeof openGallery !== 'function';
   $('#pc-stock').hidden = !session.can('stock') || kids.length > 0 || stock === null;
   $('#pc-writeoff').hidden = !session.can('writeoff') || kids.length > 0;
   $('#pc-open').hidden = currentView === 'products' || (!session.can('products') && !session.can('photos'));
@@ -207,6 +208,12 @@ $('#pc-tabs').addEventListener('click', (e) => {
   if (b) showCardTab(b.dataset.pcTab);
 });
 $('#pc-close').addEventListener('click', () => $('#product-card').close());
+// Галерея фото этого товара (у модификации — своя). После сохранения карточка обновляется.
+$('#pc-gallery').addEventListener('click', () => {
+  if (!cardProduct) return;
+  const id = cardProduct.id;
+  openGallery(id, { title: [$('#pc-title').textContent, cardProduct.parent_id ? optionsText(cardProduct) : ''].filter(Boolean).join(' · '), onSaved: () => openProductCard(id) });
+});
 $('#product-card').addEventListener('click', (e) => {
   const b = e.target.closest('[data-card-kid]');
   if (b) openProductCard(Number(b.dataset.cardKid));
