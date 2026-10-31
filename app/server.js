@@ -1523,8 +1523,24 @@ async function handlePublic(req, res, url, user) {
 
 // Каждый запрос выполняется в контексте магазина: сотрудник филиала — в своём, владелец — в выбранном.
 // Интернет-витрина и вебхуки Instagram/WhatsApp — у основного магазина.
+// Два адреса на одном сервере: SHOP_DOMAIN (montshop.kg) — витрина для покупателей, ADMIN_DOMAIN
+// (например, baza.montshop.kg) — программа для владельца и сотрудников. На адресе витрины программы не видно.
+const SHOP_DOMAIN = String(process.env.SHOP_DOMAIN || '').toLowerCase().trim();
+const ADMIN_DOMAIN = String(process.env.ADMIN_DOMAIN || '').toLowerCase().trim();
+const SHOP_PATHS = new Set(['/shop', '/shop.js', '/shop.css', '/icon.svg', '/favicon.ico']);
+const hostOf = (req) => String(req.headers.host || '').toLowerCase().replace(/:\d+$/, '');
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
+  if (SHOP_DOMAIN && (hostOf(req) === SHOP_DOMAIN || hostOf(req) === `www.${SHOP_DOMAIN}`)) {
+    if (url.pathname === '/') url.pathname = '/shop';
+    const ok = SHOP_PATHS.has(url.pathname) || url.pathname.startsWith('/shop/') || url.pathname.startsWith('/img/') || url.pathname.startsWith('/webhooks/');
+    if (!ok) {
+      // Сотрудник открыл программу по адресу витрины — отправляем на адрес программы.
+      res.writeHead(ADMIN_DOMAIN ? 302 : 404, ADMIN_DOMAIN ? { Location: `https://${ADMIN_DOMAIN}${url.pathname}${url.search}` } : { 'Content-Type': 'text/plain; charset=utf-8' });
+      return res.end(ADMIN_DOMAIN ? '' : 'Не найдено');
+    }
+  }
   let found = null;
   try { found = auth.currentUser(req); } catch {}
   const shared = url.pathname.startsWith('/shop') || url.pathname.startsWith('/webhooks/');

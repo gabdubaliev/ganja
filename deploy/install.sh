@@ -32,7 +32,9 @@ fail() { printf '\n\033[1;31mОшибка: %s\033[0m\n' "$*" >&2; exit 1; }
 
 # ---------- Вопросы ----------
 existing_domain=""
+existing_admin=""
 [[ -f $ENV_FILE ]] && existing_domain=$(grep -oP '^DOMAIN=\K.*' "$ENV_FILE" || true)
+[[ -f $ENV_FILE ]] && existing_admin=$(grep -oP '^ADMIN_DOMAIN=\K.*' "$ENV_FILE" || true)
 
 echo
 echo "Домен, по которому будет открываться программа, например mylavka.kg."
@@ -42,6 +44,19 @@ read -rp "Домен [${existing_domain:-нет}]: " DOMAIN
 DOMAIN=${DOMAIN:-$existing_domain}
 DOMAIN=${DOMAIN#http://}; DOMAIN=${DOMAIN#https://}; DOMAIN=${DOMAIN%%/*}
 if [[ -n $DOMAIN && ! $DOMAIN =~ ^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then fail "домен «$DOMAIN» указан неверно"; fi
+
+# Домен — витрина для покупателей. Программа для владельца и сотрудников — на отдельном адресе (поддомене).
+ADMIN_DOMAIN=""
+if [[ -n $DOMAIN ]]; then
+  echo
+  echo "По адресу $DOMAIN покупатели увидят интернет-витрину."
+  echo "Программа для вас и сотрудников (учёт, касса) будет на отдельном адресе."
+  read -rp "Адрес программы [${existing_admin:-baza.$DOMAIN}]: " ADMIN_DOMAIN
+  ADMIN_DOMAIN=${ADMIN_DOMAIN:-${existing_admin:-baza.$DOMAIN}}
+  ADMIN_DOMAIN=${ADMIN_DOMAIN#http://}; ADMIN_DOMAIN=${ADMIN_DOMAIN#https://}; ADMIN_DOMAIN=${ADMIN_DOMAIN%%/*}
+  [[ $ADMIN_DOMAIN =~ ^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] || fail "адрес «$ADMIN_DOMAIN» указан неверно"
+  [[ $ADMIN_DOMAIN != "$DOMAIN" && $ADMIN_DOMAIN != "www.$DOMAIN" ]] || fail "адрес программы должен отличаться от адреса витрины"
+fi
 
 if [[ -f $ENV_FILE ]] && grep -q '^ADMIN_EMAIL=' "$ENV_FILE"; then
   echo
@@ -110,8 +125,8 @@ NODE_ENV=production
 EOF
   umask 022
 fi
-sed -i '/^DOMAIN=/d' "$ENV_FILE"
-echo "DOMAIN=$DOMAIN" >> "$ENV_FILE"
+sed -i '/^DOMAIN=/d;/^SHOP_DOMAIN=/d;/^ADMIN_DOMAIN=/d' "$ENV_FILE"
+printf 'DOMAIN=%s\nSHOP_DOMAIN=%s\nADMIN_DOMAIN=%s\n' "$DOMAIN" "$DOMAIN" "$ADMIN_DOMAIN" >> "$ENV_FILE"
 if [[ -n ${ADMIN_EMAIL:-} ]]; then
   printf 'ADMIN_EMAIL=%s\nADMIN_PASSWORD=%s\n' "$ADMIN_EMAIL" "$ADMIN_PASSWORD" >> "$ENV_FILE"
 fi
@@ -204,16 +219,28 @@ systemctl start shop-backup.timer
 # ---------- Caddy: HTTPS и проксирование ----------
 say "Настраиваю веб-сервер"
 if [[ -n $DOMAIN ]]; then
-  SITE="$DOMAIN, www.$DOMAIN"
-else
-  SITE=":80"
-fi
-cat > /etc/caddy/Caddyfile <<EOF
-# Создано install.sh. Caddy сам получает и продлевает сертификат HTTPS.
-$SITE {
+  cat > /etc/caddy/Caddyfile <<EOF
+# Создано install.sh. Caddy сам получает и продлевает сертификаты HTTPS.
+# Витрина для покупателей:
+$DOMAIN {
+	reverse_proxy 127.0.0.1:3000
+}
+www.$DOMAIN {
+	redir https://$DOMAIN{uri} permanent
+}
+# Программа для владельца и сотрудников:
+$ADMIN_DOMAIN {
 	reverse_proxy 127.0.0.1:3000
 }
 EOF
+else
+  cat > /etc/caddy/Caddyfile <<EOF
+# Создано install.sh. Домена нет — программа открывается по IP, без HTTPS.
+:80 {
+	reverse_proxy 127.0.0.1:3000
+}
+EOF
+fi
 systemctl reload caddy || systemctl restart caddy
 
 say "Открываю порты 22 (SSH), 80 и 443"
@@ -232,12 +259,13 @@ IP=$(curl -fsS4 --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | 
 
 say "Готово"
 if [[ -n $DOMAIN ]]; then
-  echo "Программа:  https://$DOMAIN"
-  echo "Касса:      https://$DOMAIN/kassa.html"
-  echo "Витрина:    https://$DOMAIN/shop"
+  echo "Витрина для покупателей:  https://$DOMAIN"
+  echo "Программа:                https://$ADMIN_DOMAIN"
+  echo "Касса:                    https://$ADMIN_DOMAIN/kassa.html"
   echo
-  echo "Если сайт не открывается, проверьте, что в DNS домена есть запись A: $DOMAIN → $IP"
-  echo "(и www.$DOMAIN → $IP). Сертификат появится через минуту после того, как DNS заработает."
+  echo "В DNS домена должны быть записи A (все на $IP):"
+  echo "  $DOMAIN, www.$DOMAIN, $ADMIN_DOMAIN"
+  echo "Сертификаты HTTPS появятся через минуту после того, как DNS заработает."
 else
   echo "Программа:  http://$IP"
   echo "Касса:      http://$IP/kassa.html"
