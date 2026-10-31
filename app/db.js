@@ -3,6 +3,7 @@
 // Хранилище на встроенном в Node.js SQLite: один файл базы на диске.
 
 const fs = require('node:fs');
+const zlib = require('node:zlib');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const { RIGHTS, ROLES, can } = require('./roles');
@@ -981,12 +982,60 @@ const normPerks = (list) => (Array.isArray(list) ? list : []).slice(0, 8).map((x
 const normNotes = (list) => (Array.isArray(list) ? list : []).slice(0, 8).map((x) => (typeof x === 'string'
   ? { text: x.trim().slice(0, 200), on: true }
   : { text: String(x?.text ?? '').trim().slice(0, 200), on: x?.on !== false })).filter((n) => n.text);
-// Галерея: до 12 дополнительных фото к основному. Тип файла — по первым байтам, а не по названию.
+// Галерея: до 12 дополнительных фото к основному. Тип файла — по содержимому, а не по названию,
+// и проверка строения файла (без декодирования): обрезанный или испорченный файл не принимается.
 const GALLERY_MAX = 12;
+const IMAGE_MAX_SIDE = 10000;
+const sizeOk = (w, h) => w > 0 && h > 0 && w <= IMAGE_MAX_SIDE && h <= IMAGE_MAX_SIDE;
+// JPEG: маркеры по порядку до начала данных (SOS); нужен кадр (SOF) с размерами и маркер конца (FFD9) после данных.
+function jpegOk(b) {
+  let i = 2;
+  let sof = false;
+  while (i + 4 <= b.length) {
+    if (b[i] !== 0xff) return false;
+    const m = b[i + 1];
+    if (m === 0xff) { i++; continue; }
+    if (m === 0xd8 || (m >= 0xd0 && m <= 0xd7) || m === 0x01) { i += 2; continue; }
+    const len = b.readUInt16BE(i + 2);
+    if (len < 2 || i + 2 + len > b.length) return false;
+    if ((m >= 0xc0 && m <= 0xcf) && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) {
+      if (len < 7) return false;
+      if (!sizeOk(b.readUInt16BE(i + 7), b.readUInt16BE(i + 5))) return false;
+      sof = true;
+    }
+    if (m === 0xda) return sof && b.indexOf(Buffer.from([0xff, 0xd9]), i + 2 + len) > 0;
+    i += 2 + len;
+  }
+  return false;
+}
+// PNG: блоки с контрольными суммами CRC от IHDR до IEND.
+function pngOk(b) {
+  let i = 8;
+  let first = true;
+  while (i + 12 <= b.length) {
+    const len = b.readUInt32BE(i);
+    const type = b.subarray(i + 4, i + 8).toString('latin1');
+    if (len > b.length || i + 12 + len > b.length) return false;
+    if (zlib.crc32(b.subarray(i + 4, i + 8 + len)) !== b.readUInt32BE(i + 8 + len)) return false;
+    if (first) {
+      if (type !== 'IHDR' || len !== 13 || !sizeOk(b.readUInt32BE(i + 8), b.readUInt32BE(i + 12))) return false;
+      first = false;
+    }
+    if (type === 'IEND') return true;
+    i += 12 + len;
+  }
+  return false;
+}
+// WebP: заявленный размер RIFF совпадает с файлом, есть блок изображения VP8/VP8L/VP8X.
+function webpOk(b) {
+  const riff = b.readUInt32LE(4) + 8;
+  if (riff > b.length || riff < 20) return false;
+  return ['VP8 ', 'VP8L', 'VP8X'].includes(b.subarray(12, 16).toString('latin1'));
+}
 function imageMime(bytes) {
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
-  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
-  if (bytes.length >= 12 && bytes.subarray(0, 4).toString('latin1') === 'RIFF' && bytes.subarray(8, 12).toString('latin1') === 'WEBP') return 'image/webp';
+  if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return jpegOk(bytes) ? 'image/jpeg' : null;
+  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return pngOk(bytes) ? 'image/png' : null;
+  if (bytes.length >= 20 && bytes.subarray(0, 4).toString('latin1') === 'RIFF' && bytes.subarray(8, 12).toString('latin1') === 'WEBP') return webpOk(bytes) ? 'image/webp' : null;
   return null;
 }
 const SHOP_FONTS = ['Inter', 'Manrope', 'Montserrat', 'Rubik', 'Nunito', 'Raleway', 'Open Sans', 'Roboto', 'Unbounded', 'Comfortaa',
@@ -2928,7 +2977,7 @@ function createStore(file) {
         if (!bytes.length) throw new UserError(`Фото ${i + 1}: файл пустой`);
         if (bytes.length > 3e6) throw new UserError(`Фото ${i + 1}: больше 3 МБ`);
         const mime = imageMime(bytes);
-        if (!mime) throw new UserError(`Фото ${i + 1}: подходят только JPEG, PNG и WebP`);
+        if (!mime) throw new UserError(`Фото ${i + 1}: файл повреждён или это не картинка — подходят только JPEG, PNG и WebP (до ${IMAGE_MAX_SIDE} px по стороне)`);
         return { kind: 'new', mime, data: bytes };
       });
       const now = Date.now();
