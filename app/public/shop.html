@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Магазин</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="/shop.css">
+<link rel="stylesheet" href="/shop/theme.css" id="shop-theme">
+</head>
+<body>
+<div class="preview-note" id="preview-note" hidden>Предпросмотр: витрина ещё не открыта для покупателей</div>
+
+<header class="site-head">
+  <div class="wrap head-row">
+    <a class="brand" href="#" id="brand"><img id="logo" alt="" hidden><span id="title"></span></a>
+    <div class="head-contacts" id="head-contacts"></div>
+    <button type="button" class="account-btn" id="account-open">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <span id="account-label">Войти</span>
+    </button>
+    <button type="button" class="cart-btn" id="cart-open" aria-label="Корзина">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h2l2.4 10.2a1 1 0 0 0 1 .8h8.9a1 1 0 0 0 1-.8L20 7H6.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="19" r="1.5" fill="currentColor"/><circle cx="17" cy="19" r="1.5" fill="currentColor"/></svg>
+      <span id="cart-count" class="cart-count" hidden></span>
+    </button>
+  </div>
+</header>
+
+<section class="hero" id="hero">
+  <div class="wrap">
+    <h1 id="hero-title"></h1>
+    <p id="slogan"></p>
+  </div>
+</section>
+
+<main class="wrap catalog">
+  <div class="filters">
+    <input type="search" id="search" class="search" placeholder="Поиск товаров" aria-label="Поиск товаров">
+    <div class="cats" id="cats" role="group" aria-label="Категории"></div>
+  </div>
+  <div id="grid" class="grid"></div>
+</main>
+
+<footer class="site-foot">
+  <div class="wrap foot-grid">
+    <div><h2 id="foot-title"></h2><p id="about"></p></div>
+    <div id="foot-contacts" class="foot-contacts"></div>
+  </div>
+</footer>
+
+<dialog id="product" class="sheet" aria-labelledby="product-name">
+  <button type="button" class="close" data-close aria-label="Закрыть">×</button>
+  <div id="product-body"></div>
+</dialog>
+
+<dialog id="cart" class="sheet side" aria-labelledby="cart-title">
+  <button type="button" class="close" data-close aria-label="Закрыть">×</button>
+  <h2 id="cart-title">Корзина</h2>
+  <div id="cart-lines" class="cart-lines"></div>
+  <form id="checkout" class="checkout" novalidate hidden>
+    <div class="cart-sum"><span>Товары</span><b id="sum-goods"></b></div>
+    <div class="cart-sum" id="sum-delivery-row" hidden><span>Доставка</span><b id="sum-delivery"></b></div>
+    <div class="cart-sum total"><span>Итого</span><b id="sum-total"></b></div>
+    <div class="ways" id="ways"></div>
+    <div class="checkout-who" id="checkout-who"></div>
+    <label id="address-row" hidden>Адрес доставки<input name="address" autocomplete="street-address"></label>
+    <div class="pay-box" id="pay-box" hidden></div>
+    <label>Комментарий<textarea name="comment" rows="2" placeholder="Необязательно"></textarea></label>
+    <label class="hp" aria-hidden="true">Сайт<input name="website" tabindex="-1" autocomplete="off"></label>
+    <p class="error" id="checkout-error" role="alert" hidden></p>
+    <button type="submit" class="primary">Оформить заказ</button>
+    <div class="checkout-login" id="checkout-login" hidden>
+      <p>Чтобы оформить заказ, войдите — это займёт минуту.</p>
+      <div class="row2"><button type="button" class="primary" data-account="login">Войти</button><button type="button" class="ghost" data-account="register">Регистрация</button></div>
+    </div>
+    <p class="small" id="checkout-note">Оплата при получении. Мы позвоним, чтобы подтвердить заказ.</p>
+  </form>
+</dialog>
+
+<dialog id="account" class="sheet" aria-labelledby="account-title">
+  <button type="button" class="close" data-close aria-label="Закрыть">×</button>
+
+  <form class="acc" data-view="login" novalidate>
+    <h2 id="account-title">Вход</h2>
+    <label>Номер телефона<input name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0700 123 456" required></label>
+    <label>Пароль<input name="password" type="password" autocomplete="current-password" required></label>
+    <p class="error" hidden></p>
+    <button type="submit" class="primary">Войти</button>
+    <div class="acc-links"><button type="button" class="link" data-account="forgot">Забыл пароль</button><button type="button" class="link" data-account="register">Нет аккаунта? Регистрация</button></div>
+  </form>
+
+  <form class="acc" data-view="register" novalidate hidden>
+    <h2>Регистрация</h2>
+    <p class="small left">Номер телефона — ваш логин. С аккаунтом вы видите свои заказы и бонусы, а в день рождения получаете скидку.</p>
+    <label>Номер телефона<input name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0700 123 456" required></label>
+    <label>Имя<input name="name" autocomplete="name" autocapitalize="words" required data-capitalize></label>
+    <label>Дата рождения<input name="birthday" inputmode="numeric" placeholder="ДД.ММ.ГГГГ" autocomplete="bday" required data-date></label>
+    <fieldset class="gender-pick"><legend>Пол</legend>
+      <label><input type="radio" name="gender" value="m"> 👨 Мужской</label>
+      <label><input type="radio" name="gender" value="f"> 👩 Женский</label>
+    </fieldset>
+    <label>Придумайте пароль<input name="password" type="password" autocomplete="new-password" minlength="6" placeholder="Не короче 6 символов" required></label>
+    <p class="error" hidden></p>
+    <button type="submit" class="primary">Зарегистрироваться</button>
+    <div class="acc-links"><button type="button" class="link" data-account="login">Уже есть аккаунт? Войти</button></div>
+  </form>
+
+  <form class="acc" data-view="code" novalidate hidden>
+    <h2>Подтвердите номер</h2>
+    <p class="small left code-hint"></p>
+    <label>Код из 6 цифр<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" class="code-input" required></label>
+    <label class="new-pass">Новый пароль<input name="password" type="password" autocomplete="new-password" minlength="6" placeholder="Не короче 6 символов"></label>
+    <p class="error" hidden></p>
+    <button type="submit" class="primary">Подтвердить</button>
+    <div class="acc-links"><button type="button" class="link" data-resend>Отправить код ещё раз</button></div>
+  </form>
+
+  <form class="acc" data-view="forgot" novalidate hidden>
+    <h2>Забыли пароль?</h2>
+    <p class="small left">Укажите номер телефона — мы пришлём код подтверждения, и вы придумаете новый пароль.</p>
+    <label>Номер телефона<input name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0700 123 456" required></label>
+    <p class="error" hidden></p>
+    <button type="submit" class="primary">Получить код</button>
+    <div class="acc-links"><button type="button" class="link" data-account="login">Вспомнил — войти</button></div>
+  </form>
+
+  <div class="acc" data-view="profile" hidden>
+    <h2 id="profile-name"></h2>
+    <div class="profile-cards">
+      <div><span class="small left">Бонусы</span><b id="profile-bonus"></b></div>
+      <div><span class="small left">Телефон</span><b id="profile-phone"></b></div>
+      <div><span class="small left">Номер карты</span><b id="profile-card"></b></div>
+    </div>
+    <p class="birthday-note" id="profile-bday" hidden></p>
+    <div class="profile-tabs" role="tablist">
+      <button type="button" role="tab" data-ptab="purchases" aria-selected="true">🧾 Покупки</button>
+      <button type="button" role="tab" data-ptab="bonus" aria-selected="false">🎁 Бонусы и сертификаты</button>
+      <button type="button" role="tab" data-ptab="orders" aria-selected="false">📦 Заказы</button>
+    </div>
+    <div class="profile-pane" data-pane="purchases">
+      <p class="small left" id="profile-purchases-sum"></p>
+      <div id="profile-purchases" class="profile-orders"></div>
+    </div>
+    <div class="profile-pane" data-pane="bonus" hidden>
+      <p class="small left" id="profile-bonus-rules"></p>
+      <div id="profile-certs" class="profile-certs" hidden></div>
+      <h3>История</h3>
+      <div id="profile-bonus-log" class="profile-orders"></div>
+    </div>
+    <div class="profile-pane" data-pane="orders" hidden>
+      <div id="profile-orders" class="profile-orders"></div>
+    </div>
+    <details class="profile-edit">
+      <summary>Изменить данные или пароль</summary>
+      <form id="profile-form" class="acc-form" novalidate>
+        <label>Имя<input name="name" required data-capitalize></label>
+        <label>Дата рождения<input name="birthday" inputmode="numeric" placeholder="ДД.ММ.ГГГГ" data-date></label>
+        <fieldset class="gender-pick"><legend>Пол</legend>
+          <label><input type="radio" name="gender" value="m"> 👨 Мужской</label>
+          <label><input type="radio" name="gender" value="f"> 👩 Женский</label>
+        </fieldset>
+        <label>Текущий пароль (нужен, только чтобы сменить пароль)<input name="password" type="password" autocomplete="current-password"></label>
+        <label>Новый пароль<input name="newPassword" type="password" autocomplete="new-password" minlength="6"></label>
+        <p class="error" hidden></p>
+        <button type="submit" class="primary">Сохранить</button>
+      </form>
+    </details>
+    <button type="button" class="ghost" id="logout">Выйти</button>
+  </div>
+</dialog>
+
+<dialog id="done" class="sheet" aria-labelledby="done-title">
+  <div class="done">
+    <div class="done-icon" aria-hidden="true">✓</div>
+    <h2 id="done-title">Заказ оформлен</h2>
+    <p id="done-text"></p>
+    <button type="button" class="primary" data-close>Хорошо</button>
+  </div>
+</dialog>
+
+<dialog id="paid-notice" class="sheet" aria-labelledby="paid-title">
+  <div class="done">
+    <div class="done-icon paid" aria-hidden="true">✓</div>
+    <h2 id="paid-title">Оплата подтверждена</h2>
+    <p id="paid-text"></p>
+    <button type="button" class="primary" data-close>Хорошо</button>
+  </div>
+</dialog>
+
+<script src="/shop.js"></script>
+</body>
+</html>

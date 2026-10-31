@@ -4,18 +4,31 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Мой магазин</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="theme.css" id="theme-css">
 </head>
 <body>
 <nav class="nav" aria-label="Разделы">
   <div class="nav-inner">
-    <span class="logo">Мой магазин</span>
-    <a href="#home">Главная</a>
-    <a href="#pos">Касса</a>
-    <a href="#products">Товары</a>
-    <a href="#arrivals">Приход</a>
-    <a href="#sales">Чеки</a>
-    <button type="button" class="btn small ghost nav-logout" id="logout" hidden>Выйти</button>
+    <span class="logo" data-initial="М">Мой магазин</span>
+    <div class="nav-main">
+      <a href="#home" data-can="dashboard" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg><span>Главная</span></a>
+      <a href="#products" data-can="products" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg><span>Товары</span></a>
+      <a href="#sales" data-can="sales" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 7h6M9 11h6M9 15h4"/></svg><span>Продажи</span></a>
+      <a href="#more" id="nav-more"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg><span>Ещё</span> <span class="badge" id="orders-badge" hidden></span> <span class="badge task-badge" data-task-badge hidden title="Задания"></span></a>
+      <a href="#owner" class="nav-owner" data-can="__owner" hidden><span class="nav-emoji" aria-hidden="true">⚙️</span><span>Админ-панель</span></a>
+      <a href="/kassa.html" target="_blank" class="nav-kassa" data-can="pos" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M7 7V4h10v3M7 12h4M7 16h2M15 12h2M15 16h2"/></svg><span>Касса</span></a>
+    </div>
+    <span class="nav-user">
+      <button type="button" class="btn small ghost" id="bell" hidden aria-pressed="false"></button>
+    </span>
+    <span class="nav-user" id="nav-user" hidden>
+      <button type="button" class="btn small ghost" id="me-password" title="Сменить пароль"></button>
+      <button type="button" class="btn small ghost" id="logout">Выйти</button>
+    </span>
   </div>
 </nav>
 
@@ -31,9 +44,36 @@
 
   <div id="notice" class="notice" hidden></div>
 
-  <section class="kpis" id="kpis" aria-label="Главные показатели"></section>
+  <section class="panel cash-desk" id="cash-desk" aria-label="Касса сейчас">
+    <div class="panel-head">
+      <div><h2>Касса сейчас</h2><p class="sub" id="desk-sub">Открытые смены и деньги в кассе</p></div>
+      <a class="btn small ghost" href="#shifts">Все смены</a>
+    </div>
+    <div class="desk-tiles" id="desk-tiles"></div>
+    <div id="desk-shifts" class="desk-shifts"></div>
+    <p class="pick-meta" id="desk-today"></p>
+  </section>
 
-  <section class="panel">
+  <section class="kpis kpis-seven" id="kpis" aria-label="Главные показатели"></section>
+
+  <section class="panel net-profit" id="net-profit" aria-label="Расходы и чистая прибыль">
+    <div class="panel-head">
+      <div><h2>Расходы и чистая прибыль</h2><p class="sub" id="np-sub">Выручка минус цена закупки, зарплата и расходы за период</p></div>
+      <div class="tools">
+        <button type="button" class="btn small" id="np-fixed-add" data-can="expenses" hidden>+ Постоянный расход</button>
+        <button type="button" class="btn small primary" id="np-add" data-can="expenses" hidden>+ Разовый расход</button>
+      </div>
+    </div>
+    <div class="np-body">
+      <div class="np-lines" id="np-lines"></div>
+      <div class="np-list">
+        <div id="np-fixed"></div>
+        <div id="np-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="home-chart">
     <div class="panel-head">
       <div>
         <h2>Выручка и прибыль</h2>
@@ -41,38 +81,49 @@
       </div>
       <div class="legend">
         <span><i style="background: var(--series)"></i>Прибыль</span>
-        <span><i style="background: var(--rest)"></i>Себестоимость</span>
+        <span><i style="background: var(--rest)"></i>Цена закупки</span>
       </div>
     </div>
     <div class="chart" id="chart"></div>
   </section>
 
-  <section class="hits" aria-label="Хиты продаж">
+  <section class="hits two" id="home-hits" aria-label="Топ товаров и сотрудников">
     <div class="panel">
-      <div class="panel-head"><div><h2>Хиты продаж</h2><p class="sub">Больше всего продано, шт.</p></div></div>
-      <ol class="top-list" id="top-qty"></ol>
+      <div class="panel-head">
+        <div><h2>Топ товары</h2><p class="sub" id="top-products-sub"></p></div>
+        <div class="chips" id="top-products-sort"></div>
+      </div>
+      <ol class="top-list" id="top-products"></ol>
     </div>
     <div class="panel">
-      <div class="panel-head"><div><h2>Больше всего выручки</h2><p class="sub">Сумма продаж по товару</p></div></div>
-      <ol class="top-list" id="top-revenue"></ol>
-    </div>
-    <div class="panel">
-      <div class="panel-head"><div><h2>Больше всего прибыли</h2><p class="sub">Выручка минус себестоимость</p></div></div>
-      <ol class="top-list" id="top-profit"></ol>
+      <div class="panel-head">
+        <div><h2>Топ сотрудники</h2><p class="sub" id="top-staff-sub"></p></div>
+        <div class="chips" id="top-staff-sort"></div>
+      </div>
+      <ol class="top-list" id="top-staff"></ol>
     </div>
   </section>
 
-  <section class="panel">
+  <section class="panel home-abc" id="home-abc" hidden>
+    <div class="panel-head">
+      <div><h2>ABC / XYZ матрица</h2><p class="sub" id="home-abc-sub"></p></div>
+      <a class="btn small ghost" href="#abc">Подробный анализ</a>
+    </div>
+    <div class="abc-matrix" id="home-abc-matrix"></div>
+  </section>
+
+  <section class="panel" id="home-stock">
     <div class="panel-head">
       <div>
         <h2>Товары и остатки</h2>
-        <p class="sub">Продажи за выбранный период. «Хватит на» считается по продажам за последние 30 дней. Изменить товары можно в разделе <a href="#products">«Товары»</a>.</p>
+        <p class="sub">Продажи за выбранный период. «Хватит на» считается по продажам за последние 30 дней. Нажмите на товар, чтобы открыть карточку и при необходимости изменить его.</p>
       </div>
       <div class="tools">
         <div class="chips" id="filters"></div>
         <input id="search" class="search" type="search" placeholder="Найти товар" aria-label="Найти товар">
       </div>
     </div>
+    <div class="stock-totals" id="stock-totals"></div>
     <div class="table-wrap">
       <table>
         <thead><tr id="thead"></tr></thead>
@@ -83,123 +134,1761 @@
   </section>
 </main>
 
-<main class="page" data-view="pos" hidden>
-  <header class="top">
-    <div class="title"><h1>Касса</h1></div>
-  </header>
-  <div class="pos">
-    <section class="panel pos-pick" aria-label="Подбор товаров">
-      <input id="pos-search" class="input big" type="search" placeholder="Название, код или штрихкод" autocomplete="off" aria-label="Найти товар">
-      <div id="pos-results" class="pick-list"></div>
-    </section>
-    <section class="panel pos-cart" aria-label="Чек">
-      <div class="panel-head"><h2>Чек</h2><button type="button" class="btn small ghost" id="cart-clear" hidden>Очистить</button></div>
-      <div id="cart" class="cart"></div>
-      <div class="cart-total"><span>Итого</span><b id="cart-total" class="num">0 ₽</b></div>
-      <div class="seg" id="pay" role="group" aria-label="Оплата">
-        <button type="button" data-pay="card" aria-pressed="true">Картой</button>
-        <button type="button" data-pay="cash" aria-pressed="false">Наличными</button>
-      </div>
-      <div class="field" id="cash-row" hidden>
-        <label for="cash-given">Получено от покупателя</label>
-        <input id="cash-given" class="input num" inputmode="decimal" placeholder="0" autocomplete="off">
-        <span id="change" class="change num"></span>
-      </div>
-      <button type="button" class="btn primary big" id="checkout" disabled>Пробить чек</button>
-      <p class="pick-meta">Чек сохраняется в программе и списывает товар со склада. Фискальный чек для налоговой по-прежнему печатает ваша онлайн-касса.</p>
-    </section>
-  </div>
-</main>
-
 <main class="page" data-view="products" hidden>
   <header class="top">
     <div class="title"><h1>Товары</h1><span class="source" id="products-summary"></span></div>
     <div class="tools">
-      <button type="button" class="btn" id="product-import">Импорт из Excel</button>
-      <button type="button" class="btn primary" id="product-add">Добавить товар</button>
+      <button type="button" class="btn" id="categories-open" data-can="products" hidden>Категории</button>
+      <button type="button" class="btn" id="product-import" data-can="import" hidden>Импорт из Excel</button>
+      <button type="button" class="btn primary" id="product-add" data-can="products" hidden>Добавить товар</button>
     </div>
   </header>
+  <section class="stock-totals as-tiles" id="products-totals"></section>
   <section class="panel">
     <div class="panel-head">
       <input id="products-search" class="input search" type="search" placeholder="Найти по названию, коду, категории или штрихкоду" aria-label="Найти товар">
+      <select id="products-category" class="input category-filter" aria-label="Категория"></select>
       <label class="check"><input type="checkbox" id="products-archived"> Показать убранные из продажи</label>
+    </div>
+    <div class="bulk-bar" id="bulk-bar" hidden>
+      <b id="bulk-count"></b>
+      <button type="button" class="btn small" data-bulk="price">Цена</button>
+      <button type="button" class="btn small" data-bulk="purchase">Закупка</button>
+      <button type="button" class="btn small" data-bulk="cost">Себестоимость</button>
+      <button type="button" class="btn small" data-bulk="category">Категория</button>
+      <button type="button" class="btn small" data-bulk="unit">Единица</button>
+      <button type="button" class="btn small" data-bulk="barcodes">Штрихкоды</button>
+      <button type="button" class="btn small" id="bulk-labels">Этикетки</button>
+      <button type="button" class="btn small" id="bulk-inventory" data-can="stock" hidden>📋 Инвентаризация</button>
+      <button type="button" class="btn small" id="bulk-writeoff" data-can="writeoff" hidden>🗑️ Списать</button>
+      <button type="button" class="btn small" data-bulk="archive" id="bulk-archive">Убрать из продажи</button>
+      <button type="button" class="btn small" data-bulk="restore" id="bulk-restore">Вернуть в продажу</button>
+      <button type="button" class="btn small danger-ghost" data-bulk="delete" data-can="products.delete" hidden>Удалить</button>
+      <button type="button" class="btn small ghost" id="bulk-clear">Снять выбор</button>
     </div>
     <div class="table-wrap">
       <table class="products-table">
-        <thead><tr><th>Товар</th><th>Код</th><th>Штрихкод</th><th>Цена</th><th>Себестоимость</th><th>Наценка</th><th>Остаток</th><th></th></tr></thead>
+        <thead><tr><th class="sel" data-can="products" hidden><input type="checkbox" id="products-all" aria-label="Выбрать все товары в списке"></th><th class="name-col">Товар</th><th>Код</th><th>Штрихкод</th><th>Цена</th><th>Закупка</th><th>Себестоимость</th><th>Наценка</th><th>Остаток</th><th>Поступление</th><th></th></tr></thead>
         <tbody id="products-body"></tbody>
       </table>
     </div>
   </section>
 </main>
 
-<main class="page" data-view="arrivals" hidden>
+<main class="page" data-view="docs" hidden>
   <header class="top">
-    <div class="title"><h1>Приход товара</h1></div>
+    <div class="title"><h1 id="docs-title">Документы</h1><span class="source" id="docs-sub"></span></div>
+    <div class="tools docs-new" id="docs-new"></div>
   </header>
-  <section class="panel">
-    <div class="arrival-head">
-      <div class="field">
-        <label for="arrival-supplier">Поставщик</label>
-        <input id="arrival-supplier" class="input" placeholder="Например, ООО «Молочный двор»" autocomplete="off">
-      </div>
-      <div class="field grow">
-        <label for="arrival-search">Добавить товар</label>
-        <div class="suggest-wrap">
-          <input id="arrival-search" class="input" type="search" placeholder="Название или штрихкод" autocomplete="off">
-          <div id="arrival-results" class="suggest-list" hidden></div>
-        </div>
-      </div>
+  <section class="panel period-bar docs-bar">
+    <div class="chips" id="docs-kinds"></div>
+    <div class="docs-bar-row">
+      <div class="periods" id="docs-status" role="group" aria-label="Статус"></div>
+      <div class="periods" id="docs-ranges" role="group" aria-label="Период"></div>
     </div>
-    <div class="table-wrap">
-      <table class="arrival-table">
-        <thead><tr><th>Товар</th><th>Количество</th><th>Закупочная цена</th><th>Сумма</th><th></th></tr></thead>
-        <tbody id="arrival-lines"></tbody>
-      </table>
-    </div>
-    <div class="arrival-foot">
-      <span>Итого: <b id="arrival-total" class="num">0 ₽</b></span>
-      <button type="button" class="btn primary" id="arrival-save" disabled>Провести приход</button>
-    </div>
-    <p class="pick-meta">После проведения остатки увеличатся, а себестоимость товара пересчитается как средняя по старому и новому товару.</p>
   </section>
   <section class="panel">
-    <div class="panel-head"><h2>Последние приходы</h2></div>
-    <div id="arrival-history" class="docs"></div>
+    <div class="table-wrap">
+      <table class="docs-table">
+        <thead><tr><th>Документ</th><th>Дата</th><th>Статус</th><th>Контрагент / комментарий</th><th>Строк</th><th>Сумма</th></tr></thead>
+        <tbody id="docs-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<dialog id="inv-start-dialog" class="wide" aria-labelledby="inv-start-title">
+  <h2 id="inv-start-title">Начать инвентаризацию</h2>
+  <p class="sub">Что пересчитываем? Документ откроется черновиком: вписывайте факт или сканируйте штрихкоды (каждый скан +1). Остатки изменятся, только когда отметите «✓ Проведён».</p>
+  <div class="inv-options">
+    <button type="button" class="inv-option" data-inv-start="all"><b>📦 Все товары</b><span class="pick-meta">Полная инвентаризация магазина · <span id="inv-start-count"></span></span></button>
+    <div class="inv-option"><b>🏷️ Одна категория</b><select id="inv-start-cat" class="input" aria-label="Категория"></select><button type="button" class="btn small primary" data-inv-start="cat">Начать</button></div>
+    <button type="button" class="inv-option" data-inv-start="scan"><b>📷 Сканировать по одному</b><span class="pick-meta">Пустой список: добавляйте товары сканером или поиском</span></button>
+  </div>
+  <div class="form-actions"><button type="button" class="btn ghost" id="inv-start-cancel">Отмена</button></div>
+</dialog>
+
+<main class="page" data-view="doc" hidden>
+  <header class="top">
+    <div class="title"><button type="button" class="btn small ghost" id="doc-back">← Документы</button><h1 id="doc-title"></h1></div>
+    <div class="doc-switch" id="doc-switch" role="group" aria-label="Статус документа"></div>
+  </header>
+  <p class="doc-posted-note" id="doc-posted-note"></p>
+  <section class="panel">
+    <p class="sub" id="doc-about"></p>
+    <div class="doc-head" id="doc-head"></div>
+  </section>
+  <section class="panel">
+    <div class="doc-add" id="doc-add">
+      <div class="suggest-wrap grow">
+        <input id="doc-search" class="input big" type="search" placeholder="Сканируйте штрихкод (каждый скан +1) или найдите товар" autocomplete="off" aria-label="Добавить товар">
+        <div id="doc-results" class="suggest-list" hidden></div>
+      </div>
+    </div>
+    <div class="doc-fill" id="doc-fill" hidden>
+      <button type="button" class="btn small" data-fill="all">+ Все товары</button>
+      <select id="doc-fill-cat" class="input" aria-label="Категория"></select>
+      <button type="button" class="btn small" data-fill="cat">+ Категорию</button>
+      <div class="chips" id="doc-filter" hidden></div>
+    </div>
+    <div class="table-wrap">
+      <table class="doc-table">
+        <thead><tr id="doc-cols"></tr></thead>
+        <tbody id="doc-lines"></tbody>
+      </table>
+    </div>
+    <div class="inv-foot">
+      <span id="doc-total"></span>
+      <button type="button" class="btn ghost" id="doc-delete" hidden>Удалить</button>
+      <button type="button" class="btn" id="doc-save">Сохранить черновик</button>
+    </div>
+    <p class="pick-meta">Enter в поле количества — переход к следующей строке. Пока документ «Не проведён», остатки не меняются; отметьте «✓ Проведён» вверху, чтобы провести.</p>
+  </section>
+</main>
+
+<main class="page" data-view="accounts" hidden>
+  <header class="top">
+    <div class="title"><h1>Счета</h1><span class="source" id="acc-sub"></span></div>
+    <div class="periods" id="acc-ranges" role="group" aria-label="Период"></div>
+  </header>
+  <div class="acc-list" id="acc-list"></div>
+  <section class="panel">
+    <div class="panel-head"><div><h2>Внесения, изъятия и переводы</h2><p class="sub">Остаток счёта = начальный остаток + оплаты чеков − комиссия банка − возвраты − оплаченные закупки ± эти операции.</p></div></div>
+    <div class="table-wrap">
+      <table class="docs-table"><thead><tr><th>Когда</th><th>Счёт</th><th>Операция</th><th>Комментарий</th><th>Сумма</th><th></th></tr></thead><tbody id="acc-ops"></tbody></table>
+    </div>
+  </section>
+</main>
+
+<main class="page" data-view="registers" hidden>
+  <header class="top">
+    <div class="title"><h1>Кассы</h1><span class="source">рабочие места: смена открывается на конкретной кассе</span></div>
+    <div class="tools"><button type="button" class="btn primary" id="reg-add" hidden>Добавить кассу</button></div>
+  </header>
+  <div class="acc-list" id="reg-list"></div>
+</main>
+
+<main class="page" data-view="branches" hidden>
+  <header class="top">
+    <div class="title"><h1>Магазины</h1><span class="source">филиалы: у каждого свои товары, остатки, сотрудники, кассы и документы</span></div>
+    <div class="tools"><button type="button" class="btn primary" id="branch-add" hidden>Открыть новый магазин</button></div>
+  </header>
+  <div class="acc-list" id="branches-list"></div>
+  <section class="panel">
+    <h2>Как работают филиалы</h2>
+    <p class="sub">Владелец (администратор основного магазина) входит один раз и переключается между магазинами списком вверху справа. Сотрудники филиала заводятся в самом филиале и видят только его. Email сотрудника один на все магазины. Товар между магазинами передаётся документом «Перемещение»: в одном магазине убавится, в другом прибавится (если такого товара там нет — он заведётся сам). Интернет-витрина и заказы с неё — у основного магазина.</p>
+  </section>
+</main>
+
+<main class="page" data-view="suppliers" hidden>
+  <header class="top">
+    <div class="title"><h1>Поставщики</h1></div>
+    <div class="tools"><button type="button" class="btn primary" id="suppliers-add" hidden>Добавить поставщика</button></div>
+  </header>
+  <section class="panel">
+    <div class="table-wrap">
+      <table class="docs-table">
+        <thead><tr><th>Поставщик</th><th>Телефон</th><th>ИНН</th><th>Закупок</th><th>На сумму</th><th>Последняя</th></tr></thead>
+        <tbody id="suppliers-body"></tbody>
+      </table>
+    </div>
   </section>
 </main>
 
 <main class="page" data-view="sales" hidden>
   <header class="top">
-    <div class="title"><h1>Чеки</h1></div>
+    <div class="title"><h1>Журнал продаж</h1></div>
     <div class="periods" id="sales-ranges" role="group" aria-label="Период"></div>
   </header>
   <section class="panel">
     <div class="sales-summary" id="sales-summary"></div>
+    <div class="sales-tools" id="sales-tools" hidden>
+      <label class="check"><input type="checkbox" id="sales-all"> Выбрать все на экране</label>
+      <button type="button" class="btn small danger-ghost-light" id="sales-del-selected" disabled>Удалить выбранные</button>
+      <button type="button" class="btn small ghost danger-text" id="sales-del-all">Удалить все продажи…</button>
+    </div>
     <div id="sales-list" class="docs"></div>
   </section>
 </main>
 
-<dialog id="product-dialog" aria-labelledby="product-dialog-title">
+<dialog id="sale-delete-dialog" aria-labelledby="sd-title">
+  <form id="sale-delete-form" novalidate>
+    <h2 id="sd-title">Удалить продажи</h2>
+    <div id="sd-scope" class="sd-scope">
+      <label class="check"><input type="radio" name="scope" value="period" checked> <span id="sd-period-label">За выбранный период</span></label>
+      <label class="check"><input type="radio" name="scope" value="all"> За всё время — все продажи магазина</label>
+    </div>
+    <p class="sd-count" id="sd-count">Считаю…</p>
+    <label class="check"><input type="checkbox" name="restock" checked> Вернуть проданный товар на склад</label>
+    <p class="sub">Чек пропадёт из журнала, главной и отчётов, бонусы по нему отменятся. Если чек удаляете потому, что покупатель вернул товар, лучше оформить возврат: тогда история сохранится. Удаление нельзя отменить, оно записывается в журнал действий.</p>
+    <div class="field" id="sd-confirm-field"><label for="sd-confirm">Чтобы подтвердить, напишите слово <b>УДАЛИТЬ</b></label><input id="sd-confirm" name="confirm" class="input" autocomplete="off"></div>
+    <p class="form-error" id="sd-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="sd-cancel">Отмена</button>
+      <button type="submit" class="btn danger" id="sd-submit">Удалить</button>
+    </div>
+  </form>
+</dialog>
+
+<main class="page" data-view="more" hidden>
+  <header class="top"><div class="title"><h1>Ещё</h1></div></header>
+  <div class="more-groups" id="more-groups"></div>
+</main>
+
+<main class="page" data-view="owner" hidden>
+  <header class="top">
+    <div class="title"><h1>⚙️ Админ-панель</h1><span class="source">только у владельца</span></div>
+    <div class="seg tabs owner-tabs" id="owner-tabs" role="tablist" aria-label="Админ-панель">
+      <button type="button" data-owner-tab="sections" aria-pressed="true">Разделы</button>
+      <button type="button" data-owner-tab="home" aria-pressed="false">Главная</button>
+      <button type="button" data-owner-tab="staff" aria-pressed="false">Сотрудники</button>
+      <button type="button" data-owner-tab="look" aria-pressed="false">Оформление</button>
+    </div>
+  </header>
+
+  <section class="owner-pane" data-owner-pane="sections">
+    <div class="panel">
+      <p class="sub">Переименуйте раздел, поменяйте значок, порядок, закрепите в верхнем меню или скройте. <b>Скрытый раздел</b> пропадает у всех сотрудников (у вас он остаётся бледным). <b>Кому доступно</b> — галочки сотрудникам: так раздел можно показать одному человеку и убрать у другого. Изменения сохраняются сразу.</p>
+      <div class="owner-tools"><button type="button" class="btn small ghost" id="owner-reset">Вернуть всё как было</button></div>
+    </div>
+    <div id="owner-sections"></div>
+  </section>
+
+  <section class="owner-pane" data-owner-pane="home" hidden>
+    <div class="panel">
+      <p class="sub">Какие блоки показывать на главной и в каком порядке. Действует для всех, кто видит главную.</p>
+      <div id="owner-home"></div>
+    </div>
+  </section>
+
+  <section class="owner-pane" data-owner-pane="staff" hidden>
+    <div class="panel">
+      <p class="sub">Все сотрудники всех магазинов: последний вход с IP и устройством, пароль и PIN, вход от имени сотрудника — вы увидите программу ровно так, как видит он. Все входы и изменения — в журнале действий.</p>
+      <div class="owner-tools"><a class="btn small" href="#users">Сотрудники и права</a> <a class="btn small" href="#audit">🛡️ Журнал действий</a></div>
+      <div class="table-wrap"><table class="owner-staff"><thead><tr><th>Сотрудник</th><th>Роль</th><th>Последний вход</th><th></th></tr></thead><tbody id="owner-staff"></tbody></table></div>
+    </div>
+  </section>
+
+  <section class="owner-pane" data-owner-pane="look" hidden>
+    <div class="panel owner-look">
+      <h2>Оформление</h2>
+      <p class="sub">Название магазина, цвета, шрифт, скругления и свой CSS — меняют вид всей программы, кассы и витрины.</p>
+      <a class="btn primary" href="#design">🎨 Открыть оформление</a>
+      <a class="btn" href="#shop">🛍️ Конструктор витрины</a>
+      <a class="btn" href="#settings">⚙️ Настройки и Telegram</a>
+    </div>
+  </section>
+</main>
+
+<main class="page pdz" data-view="print" hidden>
+  <header class="top">
+    <div class="title"><h1>🖨️ Чеки и этикетки</h1><span class="source" id="pz-dirty"></span></div>
+    <div class="tools">
+      <div class="seg" id="pz-tabs" role="group" aria-label="Что настраиваем"><button type="button" data-pz-tab="label" aria-pressed="true">🏷️ Этикетки</button><button type="button" data-pz-tab="receipt" aria-pressed="false">🧾 Чек</button></div>
+      <button type="button" class="btn" id="pz-test">🖨️ Пробная печать</button>
+      <button type="button" class="btn primary" id="pz-save">Сохранить</button>
+    </div>
+  </header>
+
+  <section class="lz" id="lz">
+    <div class="lz-bar">
+      <select id="lz-template" class="input" aria-label="Шаблон"></select>
+      <input id="lz-name" class="input" aria-label="Название шаблона" maxlength="60" placeholder="Название шаблона">
+      <button type="button" class="btn small" id="lz-new" title="Новый шаблон">＋ Новый</button>
+      <button type="button" class="btn small" id="lz-copy" title="Копия шаблона">⧉ Копия</button>
+      <button type="button" class="btn small" id="lz-default" title="Основной шаблон — печатается по умолчанию">★ Основной</button>
+      <button type="button" class="btn small ghost danger-text" id="lz-delete">Удалить</button>
+      <span class="lz-sep"></span>
+      <label class="lz-size">Размер <input id="lz-w" class="input num" inputmode="decimal" aria-label="Ширина, мм"> × <input id="lz-h" class="input num" inputmode="decimal" aria-label="Высота, мм"> мм</label>
+      <select id="lz-preset" class="input" aria-label="Готовый размер"><option value="">Готовые размеры…</option></select>
+      <select id="lz-rotate" class="input" aria-label="Поворот при печати" title="Как этикетка идёт в принтере"><option value="0">Печать: 0°</option><option value="90">Печать: 90°</option><option value="180">Печать: 180°</option><option value="270">Печать: 270°</option></select>
+      <label class="check"><input type="checkbox" id="lz-border"> Рамка</label>
+    </div>
+    <div class="lz-main">
+      <div class="lz-tools" id="lz-tools" role="toolbar" aria-label="Инструменты">
+        <button type="button" data-tool="select" title="Выбор и перемещение (V)" aria-pressed="true">➚<span>Выбор</span></button>
+        <button type="button" data-tool="text" title="Текст (T)">T<span>Текст</span></button>
+        <button type="button" data-tool="field" title="Поле данных: название, цена… (F)">{ }<span>Поле</span></button>
+        <button type="button" data-tool="barcode" title="Штрихкод (B)">▥<span>Штрихкод</span></button>
+        <button type="button" data-tool="qr" title="QR-код (Q)">▦<span>QR</span></button>
+        <button type="button" data-tool="line" title="Линия (L)">╱<span>Линия</span></button>
+        <button type="button" data-tool="rect" title="Прямоугольник (R)">▭<span>Рамка</span></button>
+        <button type="button" data-tool="ellipse" title="Эллипс (E)">◯<span>Эллипс</span></button>
+        <button type="button" data-tool="image" title="Картинка, логотип (I)">🖼<span>Картинка</span></button>
+        <div class="lz-fieldmenu" id="lz-fieldmenu" hidden></div>
+      </div>
+      <div class="lz-center">
+        <div class="lz-arrange" role="toolbar" aria-label="Расположение">
+          <button type="button" class="btn small" id="lz-undo" title="Отменить (Ctrl+Z)">↶</button>
+          <button type="button" class="btn small" id="lz-redo" title="Повторить (Ctrl+Y)">↷</button>
+          <span class="lz-sep"></span>
+          <button type="button" class="btn small" data-align="left" title="По левому краю">⇤</button>
+          <button type="button" class="btn small" data-align="hcenter" title="По центру по горизонтали">↔</button>
+          <button type="button" class="btn small" data-align="right" title="По правому краю">⇥</button>
+          <button type="button" class="btn small" data-align="top" title="По верху">⤒</button>
+          <button type="button" class="btn small" data-align="vcenter" title="По центру по вертикали">↕</button>
+          <button type="button" class="btn small" data-align="bottom" title="По низу">⤓</button>
+          <button type="button" class="btn small" data-align="hdist" title="Распределить по горизонтали">⋯</button>
+          <button type="button" class="btn small" data-align="vdist" title="Распределить по вертикали">⋮</button>
+          <button type="button" class="btn small" data-align="fullw" title="Растянуть на всю ширину этикетки">⟷</button>
+          <span class="lz-sep"></span>
+          <button type="button" class="btn small" data-order="front" title="На передний план">⬆</button>
+          <button type="button" class="btn small" data-order="back" title="На задний план">⬇</button>
+          <button type="button" class="btn small" id="lz-rot90" title="Повернуть на 90°">⟳ 90°</button>
+          <button type="button" class="btn small" id="lz-dup" title="Дублировать (Ctrl+D)">⧉</button>
+          <button type="button" class="btn small" id="lz-lock" title="Закрепить / открепить">🔒</button>
+          <button type="button" class="btn small danger-text" id="lz-del" title="Удалить (Delete)">🗑</button>
+          <span class="lz-sep"></span>
+          <button type="button" class="btn small" id="lz-zout" title="Уменьшить">−</button>
+          <button type="button" class="btn small" id="lz-zfit" title="Вписать в окно">⤢</button>
+          <span id="lz-zoom" class="lz-zoom">100%</span>
+          <button type="button" class="btn small" id="lz-zin" title="Увеличить">＋</button>
+          <label class="check"><input type="checkbox" id="lz-grid" checked> Сетка</label>
+          <select id="lz-step" class="input" aria-label="Шаг сетки"><option value="0.5">0,5 мм</option><option value="1" selected>1 мм</option><option value="2">2 мм</option><option value="5">5 мм</option></select>
+          <label class="check"><input type="checkbox" id="lz-snap" checked> Привязка</label>
+          <span class="lz-sep"></span>
+          <select id="lz-sample" class="input" aria-label="Товар для примера" title="Чьи данные подставлять в поля"></select>
+          <label class="check" title="Показывать поля как {название}, а не данные товара"><input type="checkbox" id="lz-raw"> {поля}</label>
+        </div>
+        <div class="lz-scroll" id="lz-scroll">
+          <div class="lz-paper" id="lz-paper">
+            <div class="lz-ruler lz-ruler-x" id="lz-rx"></div>
+            <div class="lz-ruler lz-ruler-y" id="lz-ry"></div>
+            <div class="lz-label lbl" id="lz-board"></div>
+            <div class="lz-overlay" id="lz-overlay"></div>
+          </div>
+        </div>
+        <div class="lz-status" id="lz-status"></div>
+      </div>
+      <aside class="lz-side">
+        <div class="seg lz-sidetabs" role="group"><button type="button" data-side="props" aria-pressed="true">Свойства</button><button type="button" data-side="layers" aria-pressed="false">Слои</button></div>
+        <div id="lz-props" class="lz-props"></div>
+        <div id="lz-layers" class="lz-layers" hidden></div>
+      </aside>
+    </div>
+  </section>
+
+  <section class="rz" id="rz" hidden>
+    <aside class="rz-blocks">
+      <div class="rz-head"><b>Блоки чека</b>
+        <select id="rz-add" class="input" aria-label="Добавить блок"><option value="">＋ Добавить блок…</option>
+          <option value="text">Текст (с полями)</option><option value="image">Картинка / логотип</option><option value="line">Разделитель</option>
+          <option value="items">Товары</option><option value="totals">Итого</option><option value="payments">Способы оплаты</option>
+          <option value="customer">Покупатель и бонусы</option><option value="code">Штрихкод / QR-код</option><option value="spacer">Отступ</option></select>
+      </div>
+      <p class="sub">Перетаскивайте блоки мышью или стрелками. Нажмите на блок — справа его настройки.</p>
+      <div id="rz-list" class="rz-list"></div>
+    </aside>
+    <div class="rz-preview">
+      <div class="rz-title" id="rz-title">Предпросмотр</div>
+      <div class="rz-stage"><div class="rz-paper" id="rz-paper"><iframe id="rz-frame" title="Предпросмотр чека"></iframe></div></div>
+    </div>
+    <aside class="lz-side rz-side"><div id="rz-props" class="lz-props"></div></aside>
+  </section>
+</main>
+
+<main class="page" data-view="certificates" hidden>
+  <header class="top">
+    <div class="title"><h1>🎁 Сертификаты</h1><span class="source" id="cert-sub"></span></div>
+    <div class="tools">
+      <button type="button" class="btn primary" id="cert-issue-open" data-can="certificates.manage" hidden>+ Новый сертификат</button>
+      <label class="cert-months">Срок действия
+        <select id="cert-months" class="input"><option value="3">3 месяца</option><option value="6">6 месяцев</option><option value="12">1 год</option><option value="24">2 года</option><option value="0">Без срока</option></select></label>
+    </div>
+  </header>
+  <section class="stock-totals as-tiles" id="cert-tiles"></section>
+  <section class="panel">
+    <div class="panel-head">
+      <div class="chips" id="cert-states"></div>
+      <input id="cert-search" class="input search" type="search" placeholder="Номер, покупатель или телефон" aria-label="Найти сертификат">
+    </div>
+    <div class="table-wrap">
+      <table class="cert-table">
+        <thead><tr><th>Сертификат</th><th>Покупатель</th><th>Продан</th><th>Номинал</th><th>Остаток</th><th>Действует до</th><th>Состояние</th></tr></thead>
+        <tbody id="cert-body"></tbody>
+      </table>
+    </div>
+    <p class="sub">Продают сертификаты на кассе кнопкой «🎁 Сертификат». Деньги приходят на счёт сразу, а в выручку и прибыль на главной сумма попадает, когда по сертификату покупают товар.</p>
+  </section>
+</main>
+
+<dialog id="cert-dialog" class="wide" aria-labelledby="cd-title">
+  <h2 id="cd-title">Сертификат</h2>
+  <div id="cd-body"></div>
+  <form id="cd-edit" class="cd-edit" data-can="certificates.manage" hidden novalidate>
+    <h3>Изменить</h3>
+    <div class="form-grid">
+      <div class="field"><label for="cd-balance">Остаток, сом</label><input id="cd-balance" name="balance" class="input num" inputmode="decimal" autocomplete="off"></div>
+      <div class="field"><label for="cd-expires">Действует до</label><input id="cd-expires" name="expires" type="date" class="input"></div>
+      <div class="field wide"><label for="cd-note">Причина</label><input id="cd-note" name="note" class="input" autocomplete="off" placeholder="Например, ошибка кассира, продление по просьбе клиента"></div>
+    </div>
+    <p class="pick-meta">Номинал сдвигается на ту же разницу. Деньги на счетах не меняются. Пустая дата — без срока.</p>
+    <div class="form-actions"><button type="submit" class="btn">Сохранить изменения</button></div>
+  </form>
+  <p class="form-error" id="cd-error" role="alert" hidden></p>
+  <div class="form-actions">
+    <button type="button" class="btn ghost danger-text" id="cd-delete" data-can="certificates.manage" hidden>Удалить сертификат</button>
+    <button type="button" class="btn ghost danger-text" id="cd-block"></button>
+    <button type="button" class="btn primary" id="cd-close">Закрыть</button>
+  </div>
+</dialog>
+
+<dialog id="cert-issue-dialog" aria-labelledby="ci-title">
+  <form id="ci-form" novalidate>
+    <h2 id="ci-title">+ Новый сертификат</h2>
+    <div class="form-grid">
+      <div class="field"><label for="ci-amount">Сумма, сом</label><input id="ci-amount" name="amount" class="input big num" inputmode="decimal" autocomplete="off" required></div>
+      <div class="field"><label for="ci-number">Номер</label>
+        <div class="input-row"><input id="ci-number" name="number" class="input num" autocomplete="off" placeholder="Сканируйте или «Новый»"><button type="button" class="btn" id="ci-number-new">Новый</button></div></div>
+      <div class="field wide"><label for="ci-cust">Покупатель</label>
+        <div class="suggest-wrap"><input id="ci-cust" class="input" type="search" autocomplete="off" placeholder="Телефон, ФИО или номер карты"><div id="ci-cust-results" class="suggest-list" hidden></div></div>
+        <div class="cs-cust-chosen" id="ci-cust-chosen" hidden></div>
+      </div>
+      <div class="field wide" id="ci-newcust" hidden>
+        <span class="label">Новый покупатель</span>
+        <div class="form-grid"><input class="input" name="newName" placeholder="ФИО" data-capitalize autocomplete="off"><input class="input" name="newPhone" inputmode="tel" placeholder="Телефон" autocomplete="off"></div>
+      </div>
+      <div class="field"><label for="ci-pay">Оплата</label><select id="ci-pay" name="pay" class="input"></select></div>
+      <div class="field"><label for="ci-expires">Действует до</label><input id="ci-expires" name="expires" type="date" class="input"></div>
+      <div class="field wide"><label for="ci-note">Комментарий</label><input id="ci-note" name="note" class="input" autocomplete="off" placeholder="Например, подарок постоянному клиенту"></div>
+    </div>
+    <p class="sub">«Без оплаты» — подарок от магазина: денег нет, а то, что по нему купят, уйдёт в расходы «Сертификаты в подарок».</p>
+    <p class="form-error" id="ci-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="ci-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Создать сертификат</button>
+    </div>
+  </form>
+</dialog>
+
+<main class="page" data-view="receive" hidden>
+  <header class="top">
+    <div class="title"><h1>Приход по накладной</h1><span class="source" id="rc-sub">Сфотографируйте накладную — программа сама разнесёт товар</span></div>
+  </header>
+
+  <section class="panel rc-key" id="rc-key" hidden>
+    <h2>Распознавание фото</h2>
+    <p class="sub">Фото накладной читает нейросеть Claude. Нужен ключ Claude API: зарегистрируйтесь на <b>console.anthropic.com</b>, пополните баланс и создайте ключ в разделе API Keys (начинается с <code>sk-ant-</code>). Одна накладная стоит примерно 1–5 центов. Ключ хранится в программе и нужен один раз для всех магазинов.</p>
+    <form id="rc-key-form" class="rc-key-form" novalidate>
+      <input class="input" name="key" type="password" autocomplete="off" placeholder="sk-ant-..." aria-label="Ключ Claude API">
+      <button type="submit" class="btn primary">Сохранить ключ</button>
+    </form>
+    <p class="pick-meta" id="rc-key-note"></p>
+  </section>
+
+  <section class="panel rc-head">
+    <div class="rc-grid">
+      <div class="field"><label for="rc-supplier">Поставщик</label><input id="rc-supplier" class="input" list="rc-suppliers" autocomplete="off" placeholder="Выберите или впишите нового"><datalist id="rc-suppliers"></datalist></div>
+      <div class="field"><label for="rc-number">№ накладной</label><input id="rc-number" class="input" autocomplete="off"></div>
+      <div class="field"><label for="rc-date">Дата</label><input id="rc-date" type="date" class="input"></div>
+      <div class="field"><label for="rc-currency">Валюта накладной</label>
+        <select id="rc-currency" class="input"><option value="USD">Доллар $</option><option value="KGS">Сом</option><option value="RUB">Рубль</option><option value="CNY">Юань</option><option value="KZT">Тенге</option><option value="EUR">Евро</option></select></div>
+      <div class="field rc-rate-field"><label for="rc-rate">Курс: 1 <span id="rc-cur-label">$</span> = … сом</label><input id="rc-rate" class="input num big" inputmode="decimal" autocomplete="off" placeholder="Например, 87,5"></div>
+      <div class="field"><label>Наценка</label>
+        <div class="rc-markup"><input id="rc-markup" class="input num" inputmode="decimal" autocomplete="off" placeholder="40">
+          <div class="seg small" id="rc-markup-mode"><button type="button" data-mode="pct" aria-pressed="true">%</button><button type="button" data-mode="sum" aria-pressed="false">сом</button></div></div>
+      </div>
+    </div>
+    <div class="rc-extras">
+      <div class="rc-extras-head"><b>Доп. расходы на этот приход</b><span class="pick-meta">зарплата грузчикам, доставка, растаможка — делятся по товарам пропорционально сумме и входят в себестоимость</span></div>
+      <div id="rc-extras"></div>
+      <button type="button" class="link" id="rc-extra-add">+ добавить расход</button>
+    </div>
+    <div class="rc-options">
+      <label class="check"><input type="checkbox" id="rc-markup-cost"> Наценку считать с учётом доп. расходов (от себестоимости)</label>
+      <label class="check"><input type="checkbox" id="rc-update-prices" checked> Менять цену продажи у товаров, которые уже есть</label>
+      <label class="check"><input type="checkbox" id="rc-expenses" checked> Записать доп. расходы в расходы магазина (для чистой прибыли)</label>
+    </div>
+  </section>
+
+  <section class="panel rc-photos">
+    <div class="panel-head">
+      <div><h2>Фото накладной</h2><p class="sub">Можно несколько страниц. Снимайте ровно, при хорошем свете, чтобы читались все строки.</p></div>
+      <div class="tools">
+        <label class="btn" for="rc-file">📷 Сфотографировать / выбрать</label>
+        <input type="file" id="rc-file" accept="image/*" capture="environment" multiple hidden>
+        <button type="button" class="btn primary" id="rc-recognize" disabled>Распознать</button>
+      </div>
+    </div>
+    <div class="rc-thumbs" id="rc-thumbs"></div>
+    <p class="pick-meta" id="rc-status"></p>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div><h2>Товары</h2><p class="sub" id="rc-lines-sub">Строки появятся после распознавания. Можно добавить и вручную.</p></div>
+      <div class="tools"><button type="button" class="btn small" id="rc-line-add">+ Строка вручную</button></div>
+    </div>
+    <datalist id="rc-products"></datalist>
+    <div class="table-wrap">
+      <table class="rc-table">
+        <thead><tr><th>Товар</th><th>Кол-во</th><th>Цена, <span class="rc-cur">$</span></th><th>Закупка, сом</th><th>+ расходы</th><th>Себестоимость</th><th>Цена продажи</th><th></th></tr></thead>
+        <tbody id="rc-lines"></tbody>
+      </table>
+    </div>
+    <div class="rc-totals" id="rc-totals"></div>
+    <p class="form-error" id="rc-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="rc-clear">Очистить</button>
+      <button type="button" class="btn" id="rc-save-draft">Сохранить черновиком</button>
+      <button type="button" class="btn primary" id="rc-save">Оприходовать</button>
+    </div>
+  </section>
+</main>
+
+<main class="page" data-view="money" hidden>
+  <header class="top">
+    <div class="title"><h1>💹 ДДС и прибыль</h1><span class="source" id="mn-sub"></span></div>
+    <div class="tools">
+      <div class="seg" id="mn-tabs" role="group"><button type="button" data-mn-tab="profit" aria-pressed="true">Прибыль</button><button type="button" data-mn-tab="cash" aria-pressed="false">ДДС — движение денег</button></div>
+      <button type="button" class="btn" id="mn-export">Скачать для Excel</button>
+    </div>
+  </header>
+  <section class="panel sr-settings">
+    <select id="mn-period" class="input" aria-label="Период"></select>
+    <select id="mn-account" class="input" aria-label="Счёт" hidden></select>
+    <span class="pick-meta" id="mn-hint"></span>
+  </section>
+  <section class="stock-totals as-tiles" id="mn-tiles"></section>
+  <section class="panel">
+    <div class="table-wrap mn-wrap"><table class="mn-table"><thead id="mn-head"></thead><tbody id="mn-body"></tbody></table></div>
+    <p class="pick-meta" id="mn-note"></p>
+  </section>
+</main>
+
+<main class="page" data-view="stockreport" hidden>
+  <header class="top">
+    <div class="title"><h1>📦 Товарный отчёт</h1><span class="source" id="sr-sub"></span></div>
+    <div class="tools"><button type="button" class="btn" id="sr-export">Скачать для Excel</button></div>
+  </header>
+  <section class="panel sr-settings">
+    <div class="seg" id="sr-mode" role="group"><button type="button" data-sr-mode="period" aria-pressed="true">За период</button><button type="button" data-sr-mode="date" aria-pressed="false">Остатки на дату</button></div>
+    <div class="periods" id="sr-ranges" role="group" aria-label="Период"></div>
+    <label class="sr-dates" id="sr-dates">с <input type="date" class="input" id="sr-from"> по <input type="date" class="input" id="sr-to"></label>
+    <label class="sr-dates" id="sr-ondate" hidden>на конец дня <input type="date" class="input" id="sr-at"></label>
+    <select id="sr-cat" class="input" aria-label="Категория"></select>
+    <input id="sr-q" class="input search" type="search" placeholder="Название, код, штрихкод, артикул" aria-label="Найти товар">
+    <label class="check"><input type="checkbox" id="sr-group" checked> Итоги по категориям</label>
+  </section>
+  <section class="stock-totals as-tiles" id="sr-tiles"></section>
+  <section class="panel">
+    <div class="table-wrap">
+      <table class="sr-table">
+        <thead id="sr-head"></thead>
+        <tbody id="sr-body"></tbody>
+      </table>
+    </div>
+    <p class="pick-meta">Наведите на приход или расход — видно, из чего он сложился (закупка, перемещение, продажа, списание…). Деньги — по нынешней цене закупки.</p>
+  </section>
+</main>
+
+<main class="page" data-view="deadstock" hidden>
+  <header class="top">
+    <div class="title"><h1>🐌 Неликвиды</h1><span class="source" id="ds-sub"></span></div>
+    <div class="tools">
+      <button type="button" class="btn" id="ds-labels-auto" title="Ценники товаров, которые уценила автоматика">🏷️ Ценники уценённых</button>
+      <button type="button" class="btn" id="ds-export">Скачать для Excel</button>
+      <a class="btn" href="#automation" data-can="automation">🤖 Автоматика</a>
+    </div>
+  </header>
+  <section class="stock-totals as-tiles" id="ds-tiles"></section>
+  <section class="panel">
+    <div class="panel-head">
+      <div class="chips" id="ds-days"></div>
+      <input id="ds-q" class="input search" type="search" placeholder="Найти товар" aria-label="Найти товар">
+    </div>
+    <div class="ds-bulk" id="ds-bulk" hidden>
+      <b id="ds-count"></b>
+      <label>Скидка <input id="ds-disc" class="input num" inputmode="decimal" value="20"> %</label>
+      <button type="button" class="btn small primary" id="ds-apply" data-can="products">Уценить</button>
+      <button type="button" class="btn small" id="ds-clear-disc" data-can="products">Снять скидку</button>
+      <button type="button" class="btn small" id="ds-print">🏷️ Ценники</button>
+      <button type="button" class="btn small ghost" id="ds-unselect">Снять выбор</button>
+    </div>
+    <div class="table-wrap">
+      <table class="ds-table">
+        <thead><tr><th><input type="checkbox" id="ds-all" aria-label="Выбрать все"></th><th>Товар</th><th>Остаток</th><th>Без продаж</th><th>Последняя продажа</th><th>Продано за 30 дн.</th><th>Заморожено</th><th>Скидка</th><th>Цена</th></tr></thead>
+        <tbody id="ds-body"></tbody>
+      </table>
+    </div>
+  </section>
+  <section class="panel" id="ds-archive-panel">
+    <div class="panel-head"><h2>Автоотчёты</h2><span class="pick-meta">Программа считает и присылает их сама — по расписанию из «Автоматики»</span></div>
+    <div id="ds-archive" class="ar-list"></div>
+  </section>
+</main>
+
+<main class="page" data-view="automation" hidden>
+  <header class="top">
+    <div class="title"><h1>🤖 Автоматика</h1><span class="source">Работает сама, без вас: считает, присылает в Telegram, уценивает</span></div>
+    <div class="tools"><button type="button" class="btn primary" id="au-save">Сохранить</button></div>
+  </header>
+  <p class="cash-mismatch" id="au-tg" hidden></p>
+  <div class="au-grid">
+    <section class="panel au-card">
+      <h2>🐌 Отчёт по неликвидам — каждую неделю</h2>
+      <label class="check"><input type="checkbox" id="au-w-on"> Присылать</label>
+      <div class="au-row">в <select id="au-w-day" class="input"><option value="1">понедельник</option><option value="2">вторник</option><option value="3">среду</option><option value="4">четверг</option><option value="5">пятницу</option><option value="6">субботу</option><option value="0">воскресенье</option></select>
+        в <select id="au-w-hour" class="input"></select></div>
+      <div class="au-row">Товары без продаж <input id="au-w-days" class="input num" inputmode="numeric"> дней и дольше</div>
+      <p class="pick-meta">Сколько товаров залежалось, сколько денег в них заморожено, топ-10 и файл для Excel со всем списком.</p>
+      <button type="button" class="btn small" data-au-run="weekly">▶ Прислать сейчас</button>
+    </section>
+    <section class="panel au-card">
+      <h2>📦 Товарный отчёт — каждый месяц</h2>
+      <label class="check"><input type="checkbox" id="au-m-on"> Присылать за прошлый месяц</label>
+      <div class="au-row"><select id="au-m-day" class="input"></select> числа в <select id="au-m-hour" class="input"></select></div>
+      <p class="pick-meta">На начало месяца, приход, расход, на конец — в штуках и деньгах, и файл по каждому товару.</p>
+      <button type="button" class="btn small" data-au-run="monthly">▶ Прислать сейчас</button>
+    </section>
+    <section class="panel au-card au-wide">
+      <h2>🏷️ Автоуценка неликвидов — каждый день</h2>
+      <label class="check"><input type="checkbox" id="au-md-on"> Уценивать автоматически</label>
+      <div class="au-row">Проверять каждый день в <select id="au-md-hour" class="input"></select></div>
+      <div id="au-stages" class="au-stages"></div>
+      <button type="button" class="btn small" id="au-stage-add">＋ Ступень</button>
+      <div class="au-row">Цена со скидкой — не ниже закупки + <input id="au-md-margin" class="input num" inputmode="numeric"> % наценки</div>
+      <label class="check"><input type="checkbox" id="au-md-reset"> Снимать автоуценку, когда пришла новая партия товара</label>
+      <details class="au-exclude"><summary>Не уценивать категории</summary><div id="au-md-cats" class="cat-list"></div></details>
+      <p class="pick-meta">Скидку, которую вы поставили сами и она больше, автоматика не трогает. После уценки придёт список в Telegram — распечатайте новые ценники кнопкой «Ценники уценённых» в «Неликвидах».</p>
+      <h3>Если включить сейчас</h3>
+      <div id="au-preview" class="au-preview"></div>
+      <button type="button" class="btn small" data-au-run="markdown">▶ Уценить сейчас</button>
+    </section>
+  </div>
+</main>
+
+<main class="page" data-view="abc" hidden>
+  <header class="top">
+    <div class="title"><h1>ABC / XYZ анализ</h1><span class="source" id="abc-sub"></span></div>
+    <div class="tools"><button type="button" class="btn" id="abc-export">Скачать для Excel</button></div>
+  </header>
+  <section class="panel abc-settings">
+    <div class="abc-set"><span class="abc-set-label">Период</span><div class="chips" id="abc-periods"></div></div>
+    <div class="abc-set"><span class="abc-set-label">ABC по</span><div class="chips" id="abc-by"></div></div>
+    <details class="abc-thresholds">
+      <summary>Границы групп</summary>
+      <div class="abc-th-grid">
+        <label>A — до <input class="input num" id="abc-a" inputmode="decimal" value="80"> % накопленной доли</label>
+        <label>B — до <input class="input num" id="abc-b" inputmode="decimal" value="95"> %, остальное — C</label>
+        <label>X — разброс до <input class="input num" id="abc-x" inputmode="decimal" value="20"> %</label>
+        <label>Y — до <input class="input num" id="abc-y" inputmode="decimal" value="40"> %, больше — Z</label>
+      </div>
+    </details>
+  </section>
+  <section class="abc-explain">
+    <div><b>ABC — сколько приносит.</b> Товары сортируются по выручке (или прибыли, количеству). <b>A</b> — те, что вместе дают первые 80% денег, <b>B</b> — следующие 15%, <b>C</b> — последние 5%.</div>
+    <div><b>XYZ — насколько ровно продаётся.</b> Смотрим продажи по неделям (месяцам): <b>X</b> — каждую неделю примерно одинаково, <b>Y</b> — с колебаниями, <b>Z</b> — то густо, то пусто или совсем не продаётся.</div>
+  </section>
+  <section class="abc-top">
+    <div class="panel abc-matrix-panel">
+      <div class="panel-head"><div><h2>Матрица</h2><p class="sub">Нажмите на клетку — в таблице останутся её товары</p></div></div>
+      <div class="abc-matrix" id="abc-matrix"></div>
+    </div>
+    <div class="panel abc-advice-panel">
+      <div class="panel-head"><div><h2 id="abc-advice-title">Что делать</h2><p class="sub" id="abc-advice-sub"></p></div></div>
+      <div id="abc-advice"></div>
+    </div>
+  </section>
+  <section class="panel">
+    <div class="panel-head">
+      <div><h2>Товары</h2><p class="sub" id="abc-table-sub"></p></div>
+      <div class="tools">
+        <div class="chips" id="abc-filter"></div>
+        <input id="abc-search" class="input search" type="search" placeholder="Найти товар" aria-label="Найти товар">
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="abc-table">
+        <thead><tr id="abc-head"></tr></thead>
+        <tbody id="abc-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<main class="page" data-view="kpi" hidden>
+  <header class="top">
+    <div class="title"><h1>Отчёты</h1><span class="source" id="kpi-sub"></span></div>
+    <div class="seg tabs" id="report-tabs" role="tablist" aria-label="Отчёт">
+      <button type="button" data-tab="pay" aria-pressed="true">Зарплата</button>
+      <button type="button" data-tab="sellers" aria-pressed="false">Топ продавцов</button>
+      <button type="button" data-tab="products" aria-pressed="false">Хиты товаров</button>
+      <button type="button" data-tab="payments" aria-pressed="false">Оплаты</button>
+    </div>
+  </header>
+  <section class="panel period-bar">
+    <div class="periods" id="kpi-ranges" role="group" aria-label="Период"></div>
+    <div class="period-custom">
+      <select id="kpi-halves" class="input" aria-label="Выплатный период"></select>
+      <label class="period-dates"><input type="date" id="kpi-from" class="input" aria-label="С"> — <input type="date" id="kpi-to" class="input" aria-label="По"></label>
+    </div>
+  </section>
+  <section class="kpis" id="kpi-cards" aria-label="Итоги"></section>
+
+  <div data-report="pay">
+    <section class="panel">
+      <div class="panel-head">
+        <div><h2>Зарплата за период</h2><p class="sub" id="kpi-note"></p></div>
+        <span class="tools">
+          <button type="button" class="btn primary" id="bonus-add" data-can="salary" hidden>+ Бонус</button>
+          <button type="button" class="btn" id="pay-print">Распечатать ведомость</button>
+        </span>
+      </div>
+      <div class="table-wrap">
+        <table class="kpi-table pay-table">
+          <thead><tr><th>Сотрудник</th><th>Выходов</th><th>За смены</th><th>Выручка</th><th>% от продаж</th><th>Бонусы</th><th>Штрафы</th><th>К выплате</th><th data-can="salary" hidden></th></tr></thead>
+          <tbody id="pay-body"></tbody>
+          <tfoot id="pay-foot"></tfoot>
+        </table>
+      </div>
+    </section>
+    <section class="panel" id="bonus-panel" hidden>
+      <div class="panel-head"><div><h2>Бонусы за период</h2><p class="sub">Начисленные вручную. Бонус за выполнение плана считается сам и здесь не показывается.</p></div></div>
+      <div class="table-wrap">
+        <table class="fines-table">
+          <thead><tr><th>Дата</th><th>Сотрудник</th><th>За что</th><th>Сумма</th><th>Начислил</th><th></th></tr></thead>
+          <tbody id="bonus-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div data-report="sellers" hidden>
+    <section class="panel">
+      <div class="panel-head"><div><h2>Кто сколько продал</h2><p class="sub">Выручка без возвратов. Штрих — план продаж на этот период.</p></div></div>
+      <div id="kpi-bars" class="kpi-bars"></div>
+    </section>
+    <section class="panel">
+      <div class="table-wrap">
+        <table class="kpi-table">
+          <thead><tr>
+            <th>Место</th><th>Сотрудник</th><th>Чеки</th><th>Выручка</th><th>Средний чек</th><th>Прибыль</th><th>Возвраты</th>
+            <th title="Чеки, к которым привязан покупатель из программы лояльности">С картой</th><th>План</th>
+          </tr></thead>
+          <tbody id="kpi-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div data-report="payments" hidden>
+    <section class="panel">
+      <div class="panel-head"><div><h2>Сколько денег каким способом</h2><p class="sub">Чеки без возвратов. «Деньгами» — без части, оплаченной бонусами.</p></div></div>
+      <div id="pay-bars" class="kpi-bars"></div>
+      <div class="table-wrap">
+        <table class="hits-table">
+          <thead><tr><th>Способ оплаты</th><th>Тип</th><th>Чеков</th><th>Получено</th><th>Комиссия</th><th>К зачислению</th><th>Доля</th></tr></thead>
+          <tbody id="pay-report-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div data-report="products" hidden>
+    <section class="panel">
+      <div class="panel-head">
+        <div class="chips" id="hits-sort"></div>
+        <input id="hits-search" class="input search" type="search" placeholder="Найти товар" aria-label="Найти товар">
+      </div>
+      <div class="table-wrap">
+        <table class="hits-table">
+          <thead><tr><th>Место</th><th>Товар</th><th>Продано</th><th>Чеков</th><th>Выручка</th><th>Прибыль</th><th>Доля выручки</th></tr></thead>
+          <tbody id="hits-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</main>
+
+<main class="page" data-view="crm" hidden>
+  <header class="top">
+    <div class="title"><h1>CRM</h1><span class="source" id="crm-sub"></span></div>
+    <div class="tools">
+      <input id="crm-search" class="input search" type="search" placeholder="Имя, телефон, Instagram" aria-label="Поиск сделок">
+      <select id="crm-source" class="input" aria-label="Источник"></select>
+      <label class="check"><input type="checkbox" id="crm-mine"> Только мои</label>
+      <button type="button" class="btn primary" id="crm-add">+ Сделка</button>
+    </div>
+  </header>
+  <section class="crm-tasks" id="crm-tasks" hidden></section>
+  <div class="kanban" id="crm-board"></div>
+</main>
+
+<dialog id="lead-dialog" class="lead-dialog" aria-labelledby="lead-title">
+  <div class="lead-grid">
+    <form id="lead-form" class="lead-info" novalidate>
+      <div class="lead-head"><h2 id="lead-title">Новая сделка</h2><button type="button" class="icon-btn" id="lead-close" aria-label="Закрыть">×</button></div>
+      <div class="field"><label for="ld-title">Что хочет клиент</label><input id="ld-title" name="title" class="input" autocomplete="off" placeholder="Например, кроссовки 39 размера"></div>
+      <div class="form-grid">
+        <div class="field"><label for="ld-name">Имя</label><input id="ld-name" name="name" class="input" autocomplete="off"></div>
+        <div class="field"><label for="ld-phone">Телефон</label><input id="ld-phone" name="phone" class="input" inputmode="tel" autocomplete="off" placeholder="+996"></div>
+        <div class="field"><label for="ld-ig">Instagram</label><input id="ld-ig" name="instagram" class="input" autocomplete="off" placeholder="@ник"></div>
+        <div class="field"><label for="ld-source">Откуда</label><select id="ld-source" name="source" class="input"></select></div>
+        <div class="field"><label for="ld-stage">Этап</label><select id="ld-stage" name="stage" class="input"></select></div>
+        <div class="field"><label for="ld-amount">Сумма сделки, сом</label><input id="ld-amount" name="amount" class="input num" inputmode="decimal" autocomplete="off"></div>
+        <div class="field wide"><label for="ld-user">Ответственный</label><select id="ld-user" name="user_id" class="input"></select></div>
+        <div class="field wide" id="ld-lost-field" hidden><label for="ld-lost">Причина отказа</label><input id="ld-lost" name="lost_reason" class="input" autocomplete="off" placeholder="Дорого, нет размера, купил в другом месте…"></div>
+      </div>
+      <div class="lead-links" id="lead-links"></div>
+      <p class="form-error" id="lead-error" role="alert" hidden></p>
+      <div class="form-actions">
+        <button type="button" class="btn ghost danger-text" id="lead-delete" hidden>Удалить</button>
+        <button type="submit" class="btn primary">Сохранить</button>
+      </div>
+    </form>
+    <section class="lead-side" id="lead-side" hidden>
+      <div class="lead-tasks">
+        <h3>Задачи</h3>
+        <div id="lead-task-list"></div>
+        <form id="lead-task-form" class="task-add" novalidate>
+          <input name="text" class="input" placeholder="Что сделать: перезвонить, отправить фото…" autocomplete="off" aria-label="Что сделать">
+          <input name="due" type="datetime-local" class="input" aria-label="Когда">
+          <button type="submit" class="btn">Добавить</button>
+        </form>
+      </div>
+      <h3>История и переписка</h3>
+      <div class="timeline" id="lead-timeline"></div>
+      <form id="lead-note-form" class="composer" novalidate>
+        <div class="seg compose-kind" id="compose-kind">
+          <button type="button" data-kind="note" aria-pressed="true">Заметка</button>
+          <button type="button" data-kind="call" aria-pressed="false">Звонок</button>
+          <button type="button" data-kind="instagram" aria-pressed="false" id="compose-ig" hidden>Ответ в Instagram</button>
+          <button type="button" data-kind="whatsapp" aria-pressed="false" id="compose-wa" hidden>Ответ в WhatsApp</button>
+        </div>
+        <textarea name="text" class="input" rows="2" placeholder="Что обсудили, о чём договорились" aria-label="Текст"></textarea>
+        <button type="submit" class="btn primary">Добавить</button>
+      </form>
+    </section>
+  </div>
+</dialog>
+
+<main class="page" data-view="timesheet" hidden>
+  <header class="top">
+    <div class="title"><h1>Табель</h1><span class="source" id="ts-sub"></span></div>
+    <div class="tools"><button type="button" class="btn" id="ts-export">Скачать для Excel</button></div>
+  </header>
+  <section class="panel period-bar ts-bar">
+    <div class="ts-month-nav">
+      <button type="button" class="icon-btn" id="ts-prev" aria-label="Предыдущий месяц">‹</button>
+      <b id="ts-month"></b>
+      <button type="button" class="icon-btn" id="ts-next" aria-label="Следующий месяц">›</button>
+    </div>
+    <div class="periods" id="ts-parts" role="group" aria-label="Выплатный период"></div>
+    <div class="ts-legend"><span class="lg worked">8 ч / 1 200</span> рабочий день: часы и заработок за день <span class="lg off">В</span> выходной <span class="lg noshift">без смены</span> продажи без открытой смены <i class="plus"></i> бонус <i class="minus"></i> штраф <span class="lg">✎</span> изменено вручную</div>
+  </section>
+  <section class="panel ts-editbar" id="ts-editbar" hidden>
+    <div class="ts-edit-hint" id="ts-edit-hint">Чтобы изменить табель, нажмите на дни — можно выбрать сразу несколько. Нажмите на имя сотрудника — выберется вся строка, на число месяца — весь столбец.</div>
+    <div class="ts-edit-actions" id="ts-edit-actions" hidden>
+      <b id="ts-sel-count"></b>
+      <button type="button" class="btn small" data-ts-act="work">Рабочий день</button>
+      <button type="button" class="btn small" data-ts-act="off">Выходной</button>
+      <button type="button" class="btn small" data-ts-act="auto" title="Выход считается по открытым сменам">По сменам</button>
+      <button type="button" class="btn small" data-ts-act="amount">Сумма за день…</button>
+      <span class="ts-swatches" role="group" aria-label="Цвет ячеек">
+        <button type="button" class="ts-swatch" data-ts-color="" title="Без цвета" aria-label="Без цвета">⌀</button>
+        <button type="button" class="ts-swatch ts-c-green" data-ts-color="green" title="Зелёный" aria-label="Зелёный"></button>
+        <button type="button" class="ts-swatch ts-c-yellow" data-ts-color="yellow" title="Жёлтый" aria-label="Жёлтый"></button>
+        <button type="button" class="ts-swatch ts-c-red" data-ts-color="red" title="Красный" aria-label="Красный"></button>
+        <button type="button" class="ts-swatch ts-c-blue" data-ts-color="blue" title="Синий" aria-label="Синий"></button>
+        <button type="button" class="ts-swatch ts-c-purple" data-ts-color="purple" title="Фиолетовый" aria-label="Фиолетовый"></button>
+        <button type="button" class="ts-swatch ts-c-gray" data-ts-color="gray" title="Серый" aria-label="Серый"></button>
+      </span>
+      <button type="button" class="btn small ghost danger-text" data-ts-act="clear">Сбросить правки</button>
+      <button type="button" class="btn small ghost" data-ts-act="unselect">Снять выбор</button>
+    </div>
+  </section>
+  <section class="panel ts-panel">
+    <div class="ts-wrap"><table class="ts-table" id="ts-table"></table></div>
+    <p class="sub">Заработок за день — ставка за выход и процент от выручки этого дня (без комиссии банков). Оклад, бонус за план и исправления из «Отчёты» → «Зарплата» входят в итоги периода справа. Наведите на ячейку, чтобы увидеть время смены, выручку, штрафы и бонусы.</p>
+  </section>
+  <section class="panel ts-fines" id="ts-fines"></section>
+</main>
+
+<main class="page" data-view="tasks" hidden>
+  <header class="top">
+    <div class="title"><h1>Задания</h1></div>
+    <div class="tools"><button type="button" class="btn primary" id="task-add" hidden>Дать задание</button></div>
+  </header>
+  <section class="panel period-bar">
+    <div class="periods" id="tasks-filter" role="group" aria-label="Какие задания"></div>
+  </section>
+  <section class="panel"><div id="tasks-list" class="tasks"></div></section>
+</main>
+
+<main class="page" data-view="shifts" hidden>
+  <header class="top">
+    <div class="title"><h1>Смены</h1><span class="source" id="shifts-sub"></span></div>
+    <div class="tools"><button type="button" class="btn primary" id="shift-add" data-can="shifts" hidden>Добавить смену</button></div>
+  </header>
+  <section class="panel period-bar">
+    <div class="periods" id="shifts-ranges" role="group" aria-label="Период"></div>
+  </section>
+  <section class="panel">
+    <p class="sub">Кассир открывает и закрывает смену в окне кассы. Каждый день со сменой — один выход, за него начисляется ставка из карточки сотрудника. Забыли открыть или закрыть — исправьте здесь.</p>
+    <div class="table-wrap">
+      <table class="shifts-table">
+        <thead><tr><th>Сотрудник</th><th>Начало</th><th>Конец</th><th>Длительность</th><th>Чеков</th><th>Выручка</th><th>Наличные / карта</th><th>Деньги в кассе</th><th></th></tr></thead>
+        <tbody id="shifts-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<main class="page" data-view="fines" hidden>
+  <header class="top">
+    <div class="title"><h1>Штрафы</h1><span class="source" id="fines-sub"></span></div>
+    <div class="tools"><button type="button" class="btn primary" id="fine-add" data-can="fines" hidden>Выписать штраф</button></div>
+  </header>
+  <section class="panel period-bar">
+    <div class="periods" id="fines-ranges" role="group" aria-label="Период"></div>
+  </section>
+  <section class="panel">
+    <div class="table-wrap">
+      <table class="fines-table">
+        <thead><tr><th>Дата</th><th>Сотрудник</th><th>Причина</th><th>Сумма</th><th>Выписал</th><th></th></tr></thead>
+        <tbody id="fines-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<main class="page" data-view="audit" hidden>
+  <header class="top">
+    <div class="title"><h1>Журнал действий</h1><span class="source" id="audit-sub"></span></div>
+  </header>
+  <section class="panel period-bar">
+    <div class="periods" id="audit-ranges" role="group" aria-label="Период"></div>
+    <div class="chips" id="audit-kinds"></div>
+    <input id="audit-search" class="input search" type="search" placeholder="Сотрудник, действие, IP" aria-label="Поиск по журналу">
+  </section>
+  <section class="panel">
+    <div class="table-wrap">
+      <table class="audit-table">
+        <thead><tr><th>Время</th><th>Кто</th><th>Что сделал</th><th>Подробности</th><th>IP-адрес</th><th>Устройство</th></tr></thead>
+        <tbody id="audit-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<dialog id="shift-dialog" aria-labelledby="shift-title">
+  <form id="shift-form" novalidate>
+    <h2 id="shift-title">Смена</h2>
+    <div class="form-grid">
+      <div class="field wide"><label for="sh-user">Сотрудник</label><select id="sh-user" name="user_id" class="input"></select></div>
+      <div class="field"><label for="sh-open">Начало</label><input id="sh-open" name="opened" type="datetime-local" class="input" required></div>
+      <div class="field"><label for="sh-close">Конец (пусто — смена ещё идёт)</label><input id="sh-close" name="closed" type="datetime-local" class="input"></div>
+      <div class="field wide"><label for="sh-note">Комментарий</label><input id="sh-note" name="note" class="input" autocomplete="off" placeholder="Например, забыла закрыть смену"></div>
+    </div>
+    <p class="form-error" id="shift-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost danger-text" id="shift-delete" hidden>Удалить</button>
+      <button type="button" class="btn ghost" id="shift-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="task-dialog" aria-labelledby="task-title">
+  <form id="task-form" novalidate>
+    <h2 id="task-title">Дать задание</h2>
+    <div class="form-grid">
+      <div class="field wide"><label for="tk-title">Что сделать</label><input id="tk-title" name="title" class="input" autocomplete="off" required placeholder="Например, разложить новый товар на витрине"></div>
+      <div class="field wide"><label for="tk-desc">Подробности (необязательно)</label><textarea id="tk-desc" name="description" class="input" rows="3"></textarea></div>
+      <div class="field wide"><span class="label">Срок</span>
+        <div class="seg" id="tk-period" role="group" aria-label="Срок">
+          <button type="button" data-period="day">День</button>
+          <button type="button" data-period="week">Неделя</button>
+          <button type="button" data-period="month">Месяц</button>
+          <button type="button" data-period="date">К дате</button>
+        </div>
+      </div>
+      <div class="field wide" id="tk-date-row" hidden><label for="tk-due">Выполнить до (включительно)</label><input id="tk-due" name="due" type="date" class="input"></div>
+      <fieldset class="rights wide">
+        <legend>Кому <button type="button" class="link" id="tk-all">все</button></legend>
+        <div id="tk-staff" class="pm-checks"></div>
+      </fieldset>
+    </div>
+    <p class="sub">«День» — до конца сегодняшнего дня, «Неделя» — до конца воскресенья, «Месяц» — до конца месяца. Каждый сотрудник получит своё задание и отметит его сам.</p>
+    <p class="form-error" id="task-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="task-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Дать задание</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="fix-dialog" aria-labelledby="fix-title">
+  <form id="fix-form" novalidate>
+    <h2 id="fix-title">Исправить сумму</h2>
+    <p class="sub" id="fix-sub"></p>
+    <div class="form-grid">
+      <div class="field wide"><label for="fx-amount">Сумма, сом</label><input id="fx-amount" name="amount" class="input big num" inputmode="decimal" autocomplete="off" required></div>
+      <div class="field wide"><label for="fx-reason">Причина (необязательно)</label><input id="fx-reason" name="reason" class="input" autocomplete="off" placeholder="Например, забыла открыть смену 12-го"></div>
+    </div>
+    <p class="sub">Исправление действует только за этот выплатный период и записывается в журнал действий.</p>
+    <p class="form-error" id="fix-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="fix-reset" hidden>Вернуть расчёт</button>
+      <button type="button" class="btn ghost" id="fix-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="bonus-dialog" aria-labelledby="bonus-title">
+  <form id="bonus-form" novalidate>
+    <h2 id="bonus-title">Начислить бонус</h2>
+    <div class="form-grid">
+      <div class="field wide"><label for="bn-user">Сотрудник</label><select id="bn-user" name="user_id" class="input"></select></div>
+      <div class="field"><label for="bn-amount">Сумма, сом</label><input id="bn-amount" name="amount" class="input num" inputmode="decimal" autocomplete="off" required></div>
+      <div class="field"><label for="bn-date">Дата</label><input id="bn-date" name="date" type="date" class="input" required></div>
+      <div class="field wide"><label for="bn-reason">За что</label><textarea id="bn-reason" name="reason" class="input" rows="2" required placeholder="Например, лучший продавец недели"></textarea></div>
+    </div>
+    <p class="sub">Бонус прибавляется к зарплате за выплатный период, в который попадает дата.</p>
+    <p class="form-error" id="bonus-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="bonus-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Начислить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="pay-dialog" aria-labelledby="pay-title">
+  <form id="pay-form" novalidate>
+    <h2 id="pay-title">Зарплата сотрудника</h2>
+    <div class="form-grid">
+      <div class="field"><label for="pf-rate">За выход на смену, сом</label><input id="pf-rate" name="shift_rate" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+      <div class="field"><label for="pf-salary">Оклад в месяц, сом</label><input id="pf-salary" name="salary" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+      <div class="field"><label for="pf-percent">Процент от продаж, %</label><input id="pf-percent" name="percent" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+      <div class="field"><label for="pf-plan">План продаж в месяц, сом</label><input id="pf-plan" name="plan" class="input num" inputmode="decimal" autocomplete="off" placeholder="Без плана"></div>
+      <div class="field wide"><label for="pf-plan-bonus">Бонус за выполнение плана, сом в месяц</label><input id="pf-plan-bonus" name="plan_bonus" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+    </div>
+    <p class="sub">Новые условия сразу пересчитывают зарплату в отчёте за любой период. План и бонус за план задаются на месяц: за выплатный период с 1 по 15 — половина плана и половина бонуса. Бонус начисляется, когда выручка сотрудника за период достигла плана.</p>
+    <p class="form-error" id="pay-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="pay-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<main class="page" data-view="bonuses" hidden>
+  <header class="top">
+    <div class="title"><h1>Бонусы сотрудникам</h1><span class="source" id="sbonus-sub"></span></div>
+    <div class="tools"><button type="button" class="btn primary" id="sbonus-add" data-can="bonuses" hidden>🎁 Дать бонус</button></div>
+  </header>
+  <section class="panel period-bar">
+    <div class="periods" id="sbonus-ranges" role="group" aria-label="Период"></div>
+  </section>
+  <section class="panel">
+    <div class="table-wrap">
+      <table class="fines-table">
+        <thead><tr><th>Дата</th><th>Сотрудник</th><th>За что</th><th>Сумма</th><th>Начислил</th><th></th></tr></thead>
+        <tbody id="sbonus-body"></tbody>
+      </table>
+    </div>
+    <p class="sub">Бонус прибавляется к зарплате за выплатный период (1–15 или 16–конец месяца), в который попадает дата. Сотрудник видит его в «Моём табеле» в кассе — с суммой, причиной и тем, кто начислил.</p>
+  </section>
+</main>
+
+<dialog id="sbonus-dialog" aria-labelledby="sbonus-title">
+  <form id="sbonus-form" novalidate>
+    <h2 id="sbonus-title">Дать бонус</h2>
+    <div class="form-grid">
+      <div class="field wide"><label for="sbn-user">Сотрудник</label><select id="sbn-user" name="user_id" class="input"></select></div>
+      <div class="field"><label for="sbn-amount">Сумма, сом</label><input id="sbn-amount" name="amount" class="input num" inputmode="decimal" autocomplete="off" required></div>
+      <div class="field"><label for="sbn-date">Дата</label><input id="sbn-date" name="date" type="date" class="input" required></div>
+      <div class="field wide"><label for="sbn-reason">За что</label><textarea id="sbn-reason" name="reason" class="input" rows="2" required placeholder="Например, лучший продавец недели"></textarea></div>
+    </div>
+    <p class="form-error" id="sbonus-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="sbonus-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Начислить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="fine-dialog" aria-labelledby="fine-title">
+  <form id="fine-form" novalidate>
+    <h2 id="fine-title">Выписать штраф</h2>
+    <div class="form-grid">
+      <div class="field wide"><label for="fn-user">Сотрудник</label><select id="fn-user" name="user_id" class="input"></select></div>
+      <div class="field"><label for="fn-amount">Сумма, сом</label><input id="fn-amount" name="amount" class="input num" inputmode="decimal" autocomplete="off" required></div>
+      <div class="field"><label for="fn-date">Дата</label><input id="fn-date" name="date" type="date" class="input" required></div>
+      <div class="field wide"><label for="fn-reason">Причина</label><textarea id="fn-reason" name="reason" class="input" rows="2" required placeholder="Например, опоздание на 30 минут"></textarea></div>
+    </div>
+    <p class="sub">Штраф вычитается из зарплаты за выплатный период, в который попадает дата.</p>
+    <p class="form-error" id="fine-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="fine-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Выписать</button>
+    </div>
+  </form>
+</dialog>
+
+<main class="page" data-view="loyalty" hidden>
+  <header class="top">
+    <div class="title"><h1>Покупатели</h1><span class="source" id="loyalty-summary"></span></div>
+    <div class="tools"><button type="button" class="btn primary" id="customer-add">Добавить покупателя</button></div>
+  </header>
+  <section class="panel">
+    <form id="loyalty-form" class="loyalty-rules" novalidate>
+      <div><h2>Правила бонусов</h2><p class="sub">1 бонус = 1 сом. Бонусы начисляются на сумму, оплаченную деньгами, и округляются вниз. Скидка именинника даётся на кассе один раз в год, если у покупателя указана дата рождения.</p></div>
+      <label class="check"><input type="checkbox" name="enabled"> Программа лояльности включена</label>
+      <div class="field"><label for="lf-percent">Начислять с покупки, %</label><input id="lf-percent" name="percent" class="input num" inputmode="decimal"></div>
+      <div class="field"><label for="lf-max">Оплатить бонусами можно до, % чека</label><input id="lf-max" name="maxPay" class="input num" inputmode="decimal"></div>
+      <div class="field"><label for="lf-bday">Скидка в день рождения, %</label><input id="lf-bday" name="birthdayDiscount" class="input num" inputmode="decimal" placeholder="0 — без скидки"></div>
+      <div class="field"><label for="lf-bdays">Действует дней до и после</label><input id="lf-bdays" name="birthdayDays" class="input num" inputmode="numeric" placeholder="0 — только в сам день"></div>
+      <button type="submit" class="btn primary" data-can="loyalty">Сохранить правила</button>
+    </form>
+  </section>
+  <section class="panel codes-panel" id="codes-panel" hidden>
+    <div class="panel-head">
+      <div><h2>🔑 Коды подтверждения для покупателей</h2>
+      <p class="sub">Покупатель запросил код на витрине («Забыл пароль» или регистрация на номер, который уже есть у нас). Позвоните или напишите ему и назовите код — он действует 15 минут. Чтобы коды уходили сами, настройте WhatsApp в «Настройках».</p></div>
+    </div>
+    <div id="codes-list" class="codes-list"></div>
+  </section>
+  <section class="panel">
+    <div class="panel-head">
+      <div><h2>Рейтинг покупателей</h2><p class="sub">Кто чаще и больше покупает. Учитываются чеки без возвратов, к которым привязан покупатель, — на кассе и выданные заказы с витрины.</p></div>
+    </div>
+    <div class="panel-head">
+      <div class="chips" id="segments"></div>
+      <input id="customers-search" class="input search" type="search" placeholder="Найти по имени или телефону" aria-label="Найти покупателя">
+    </div>
+    <div class="table-wrap">
+      <table class="customers-table">
+        <thead><tr id="customers-head"></tr></thead>
+        <tbody id="customers-body"></tbody>
+      </table>
+    </div>
+    <div class="more" id="customers-more" hidden><button type="button" id="customers-more-btn">Показать ещё</button></div>
+  </section>
+</main>
+
+<main class="page" data-view="settings" hidden>
+  <header class="top"><div class="title"><h1>Настройки</h1></div></header>
+  <section class="panel">
+    <form id="telegram-form" class="settings-form" novalidate>
+      <div>
+        <h2>Уведомления о продажах в Telegram</h2>
+        <p class="sub">О каждом чеке с кассы придёт сообщение: кассир, сумма, товары и бонусы. В открытой программе уведомления видят администратор и управляющий, а в Telegram они приходят, даже когда программа закрыта.</p>
+      </div>
+      <ol class="steps">
+        <li>В Telegram откройте <b>@BotFather</b>, отправьте <code>/newbot</code> и придумайте имя. BotFather пришлёт токен — вставьте его ниже.</li>
+        <li>Напишите своему боту любое сообщение (или добавьте его в группу, куда должны приходить уведомления).</li>
+        <li>Узнайте ID чата: например, у бота <b>@userinfobot</b> для себя. У группы ID начинается с минуса.</li>
+      </ol>
+      <div class="field"><label for="tg-token">Токен бота</label><input id="tg-token" name="token" class="input" autocomplete="off" placeholder="123456789:AAE…"></div>
+      <div class="field"><label for="tg-chat">ID чата</label><input id="tg-chat" name="chatId" class="input num" autocomplete="off" placeholder="Например, 123456789 или -1001234567890"></div>
+      <label class="check"><input type="checkbox" name="enabled"> Присылать уведомление о каждой продаже</label>
+      <p class="form-error" id="telegram-error" role="alert" hidden></p>
+      <div class="form-actions start">
+        <button type="submit" class="btn primary">Сохранить</button>
+        <button type="button" class="btn" id="telegram-test">Отправить пробное</button>
+      </div>
+    </form>
+  </section>
+  <section class="panel">
+    <form id="instagram-form" class="settings-form" novalidate>
+      <div>
+        <h2>Instagram Direct → CRM</h2>
+        <p class="sub">Сообщения из Direct сами попадают в CRM новой сделкой, а ответить можно прямо из карточки клиента. Работает, когда программа открыта по адресу в интернете с HTTPS (например, montshop.kg), — с localhost Instagram достучаться не сможет.</p>
+      </div>
+      <ol class="steps">
+        <li>Аккаунт Instagram должен быть <b>профессиональным</b> (бизнес или автор): в приложении Instagram → Настройки → Тип аккаунта.</li>
+        <li>Зайдите на <b>developers.facebook.com</b> → «Мои приложения» → «Создать приложение» → тип «Бизнес» → добавьте продукт <b>Instagram</b> (API с входом через Instagram).</li>
+        <li>В разделе Instagram → «Настройка API» добавьте свой аккаунт Instagram и нажмите «Создать токен» — вставьте его ниже в «Токен доступа».</li>
+        <li>В «Настройки приложения» → «Основное» скопируйте <b>Секрет приложения</b> (App Secret) — вставьте ниже.</li>
+        <li>В «Настроить вебхуки» укажите адрес обратного вызова и токен подтверждения (ниже), нажмите «Подтвердить и сохранить», подпишитесь на поле <b>messages</b>.</li>
+        <li>Пока приложение в режиме разработки, сообщения приходят только от аккаунтов, добавленных в роли приложения. Чтобы писали все клиенты, отправьте приложение на проверку Meta (разрешение instagram_business_manage_messages).</li>
+      </ol>
+      <div class="field"><label>Адрес обратного вызова (Callback URL)</label><div class="input-row"><input id="ig-webhook" class="input" readonly><button type="button" class="btn" data-copy="#ig-webhook">Копировать</button></div></div>
+      <div class="field"><label>Токен подтверждения (Verify token)</label><div class="input-row"><input id="ig-verify" class="input" readonly><button type="button" class="btn" data-copy="#ig-verify">Копировать</button></div></div>
+      <div class="field"><label for="ig-secret">Секрет приложения (App Secret)</label><input id="ig-secret" name="appSecret" class="input" autocomplete="off"></div>
+      <div class="field"><label for="ig-token">Токен доступа Instagram</label><input id="ig-token" name="accessToken" class="input" autocomplete="off"></div>
+      <label class="check"><input type="checkbox" name="enabled"> Принимать сообщения из Instagram</label>
+      <p class="form-error" id="instagram-error" role="alert" hidden></p>
+      <div class="form-actions start"><button type="submit" class="btn primary">Сохранить</button></div>
+    </form>
+  </section>
+  <section class="panel" data-can="settings">
+    <div class="settings-form">
+      <div>
+        <h2>Способы оплаты</h2>
+        <p class="sub">Кнопки оплаты на кассе: наличные, банки (МБАНК, Оптима, Элсом…), QR, переводы — что угодно. Тип «Наличные» включает на кассе расчёт сдачи. Комиссия, % — сколько удерживает банк (например, М-Банк): касса и отчёты покажут сумму комиссии и сколько придёт на счёт. Выключенный способ пропадает с кассы, но остаётся в отчётах. Каким способом может принимать оплату каждый сотрудник — в его карточке («Сотрудники»).</p>
+      </div>
+      <form id="pm-add" class="pm-add" novalidate>
+        <input name="name" class="input" placeholder="Например, МБАНК" autocomplete="off" aria-label="Название способа оплаты">
+        <select name="kind" class="input" aria-label="Тип"></select>
+        <input name="commission" class="input num" inputmode="decimal" placeholder="Комиссия, %" autocomplete="off" aria-label="Комиссия банка, %">
+        <button type="submit" class="btn primary">Добавить</button>
+      </form>
+      <div id="pm-list" class="pm-list"></div>
+    </div>
+  </section>
+  <section class="panel">
+    <form id="sms-form" class="settings-form" novalidate>
+      <div>
+        <h2>SMS с кодами подтверждения</h2>
+        <p class="sub">Коды для регистрации и «Забыл пароль» на витрине уйдут покупателю по SMS. Если SMS не отправится, код попробует уйти в WhatsApp, а потом его увидит сотрудник в «Покупателях». Нужен договор с SMS-провайдером: обычно это оплата за каждое сообщение (порядка нескольких сомов) и одобренное имя отправителя.</p>
+      </div>
+      <div class="field"><label for="sms-provider">Провайдер</label><select id="sms-provider" name="provider" class="input"></select></div>
+      <div class="sms-help" id="sms-help"></div>
+      <div class="form-grid">
+        <div class="field" data-sms="login"><label for="sms-login" id="sms-login-label">Логин</label><input id="sms-login" name="login" class="input" autocomplete="off"></div>
+        <div class="field" data-sms="password"><label for="sms-password" id="sms-password-label">Пароль</label><input id="sms-password" name="password" type="password" class="input" autocomplete="new-password"></div>
+        <div class="field" data-sms="apiKey"><label for="sms-key">API-ключ</label><input id="sms-key" name="apiKey" class="input" autocomplete="off"></div>
+        <div class="field" data-sms="sender"><label for="sms-sender" id="sms-sender-label">Имя отправителя</label><input id="sms-sender" name="sender" class="input" autocomplete="off" placeholder="Например, MONTSHOP"></div>
+      </div>
+      <div class="custom-sms" data-sms="custom">
+        <div class="form-grid">
+          <div class="field"><label for="sms-method">Метод</label><select id="sms-method" name="method" class="input"><option>POST</option><option>GET</option></select></div>
+          <div class="field"><label for="sms-success">Слово успеха в ответе (необязательно)</label><input id="sms-success" name="successText" class="input" autocomplete="off" placeholder="например, OK"></div>
+          <div class="field wide"><label for="sms-url">Адрес запроса</label><input id="sms-url" name="url" class="input" autocomplete="off" placeholder="https://provider.kg/send?login={login}&to={phone}&text={text}"></div>
+          <div class="field wide"><label for="sms-body">Тело запроса (для POST)</label><textarea id="sms-body" name="body" class="input code" rows="3" spellcheck="false" placeholder='{"phone": "{phone}", "message": "{text}", "sender": "{sender}"}'></textarea></div>
+        </div>
+        <p class="sub">Подстановки: {phone} — номер вида 996700123456, {text} — текст SMS, {sender}, {login}, {password}, {apiKey} — из полей выше.</p>
+      </div>
+      <div class="field"><label for="sms-template">Текст SMS — {code} заменится кодом</label><input id="sms-template" name="template" class="input" autocomplete="off" placeholder="Код подтверждения: {code}. Никому не сообщайте его."></div>
+      <label class="check"><input type="checkbox" name="test"> Тестовый режим (провайдер принимает запрос, но SMS не отправляет — если он это поддерживает)</label>
+      <label class="check"><input type="checkbox" name="enabled"> Отправлять коды по SMS</label>
+      <p class="form-error" id="sms-error" role="alert" hidden></p>
+      <div class="form-actions start">
+        <button type="submit" class="btn primary">Сохранить</button>
+        <input id="sms-test-phone" class="input" inputmode="tel" placeholder="Ваш номер для пробы" aria-label="Номер для пробного SMS" style="max-width: 220px">
+        <button type="button" class="btn" id="sms-test">Отправить пробное SMS</button>
+      </div>
+    </form>
+  </section>
+  <section class="panel">
+    <form id="whatsapp-form" class="settings-form" novalidate>
+      <div>
+        <h2>WhatsApp → CRM</h2>
+        <p class="sub">Сообщения клиентов в WhatsApp сами попадают в CRM: новый номер — новая сделка, знакомый — в его открытую сделку. Ответить можно прямо из карточки. Работает через официальный WhatsApp Business Cloud API от Meta и только по адресу в интернете с HTTPS (например, montshop.kg).</p>
+      </div>
+      <ol class="steps">
+        <li>Нужен <b>отдельный номер</b> для WhatsApp Business API: номер, который уже работает в обычном WhatsApp или WhatsApp Business на телефоне, сначала придётся оттуда удалить (или взять новую сим-карту).</li>
+        <li>Зайдите на <b>developers.facebook.com</b> → «Мои приложения» → «Создать приложение» → тип «Бизнес» → добавьте продукт <b>WhatsApp</b>. Можно взять то же приложение, что для Instagram.</li>
+        <li>WhatsApp → «Настройка API»: добавьте свой номер и подтвердите его кодом из SMS. Скопируйте <b>ID номера телефона</b> (Phone number ID) — вставьте ниже.</li>
+        <li>Создайте <b>постоянный токен</b>: business.facebook.com → «Настройки компании» → «Пользователи системы» → добавить пользователя → «Создать токен» с разрешениями whatsapp_business_messaging и whatsapp_business_management. Вставьте его ниже. (Временный токен со страницы «Настройка API» работает только сутки.)</li>
+        <li>«Настройки приложения» → «Основное» → <b>Секрет приложения</b> (App Secret) — вставьте ниже.</li>
+        <li>WhatsApp → «Конфигурация» → вебхук: вставьте адрес и токен подтверждения (ниже), нажмите «Подтвердить и сохранить», подпишитесь на поле <b>messages</b>.</li>
+        <li>Чтобы писать любым клиентам, добавьте способ оплаты в WhatsApp Manager: Meta берёт плату за разговоры, начатые компанией; ответы клиенту, который написал сам, в течение 24 часов обычно бесплатны (уточняйте тарифы Meta для Кыргызстана).</li>
+      </ol>
+      <div class="field"><label>Адрес обратного вызова (Callback URL)</label><div class="input-row"><input id="wa-webhook" class="input" readonly><button type="button" class="btn" data-copy="#wa-webhook">Копировать</button></div></div>
+      <div class="field"><label>Токен подтверждения (Verify token)</label><div class="input-row"><input id="wa-verify" class="input" readonly><button type="button" class="btn" data-copy="#wa-verify">Копировать</button></div></div>
+      <div class="field"><label for="wa-phone-id">ID номера телефона (Phone number ID)</label><input id="wa-phone-id" name="phoneNumberId" class="input num" inputmode="numeric" autocomplete="off" placeholder="Например, 106540352242922"></div>
+      <div class="field"><label for="wa-secret">Секрет приложения (App Secret)</label><input id="wa-secret" name="appSecret" class="input" autocomplete="off"></div>
+      <div class="field"><label for="wa-token">Постоянный токен доступа</label><input id="wa-token" name="accessToken" class="input" autocomplete="off"></div>
+      <label class="check"><input type="checkbox" name="enabled"> Принимать сообщения из WhatsApp</label>
+      <fieldset class="rights">
+        <legend>Коды подтверждения для покупателей витрины</legend>
+        <p class="sub">Код для регистрации и «Забыл пароль» уйдёт покупателю в WhatsApp сам. Для этого в WhatsApp Manager создайте шаблон категории <b>«Аутентификация»</b> с кнопкой «Скопировать код» и дождитесь одобрения Meta. Если отправить не получится, код увидит сотрудник в «Покупателях», как без WhatsApp.</p>
+        <label class="check"><input type="checkbox" name="otpEnabled"> Отправлять коды через WhatsApp</label>
+        <div class="form-grid">
+          <div class="field"><label for="wa-otp-tpl">Название шаблона</label><input id="wa-otp-tpl" name="otpTemplate" class="input" autocomplete="off" placeholder="например, login_code"></div>
+          <div class="field"><label for="wa-otp-lang">Язык шаблона</label><input id="wa-otp-lang" name="otpLang" class="input" autocomplete="off" placeholder="ru"></div>
+        </div>
+      </fieldset>
+      <p class="form-error" id="whatsapp-error" role="alert" hidden></p>
+      <div class="form-actions start"><button type="submit" class="btn primary">Сохранить</button></div>
+    </form>
+  </section>
+</main>
+
+<dialog id="customer-dialog" class="wide" aria-labelledby="customer-dialog-title">
+  <form id="customer-form" novalidate>
+    <h2 id="customer-dialog-title">Покупатель</h2>
+    <div class="form-grid">
+      <div class="field"><label for="cf-phone">Телефон</label><input id="cf-phone" name="phone" class="input" inputmode="tel" required autocomplete="off" placeholder="+996 700 123 456"></div>
+      <div class="field"><label for="cf-name">ФИО</label><input id="cf-name" name="name" class="input" autocomplete="off" placeholder="Фамилия Имя Отчество" data-capitalize></div>
+      <div class="field"><label for="cf-bday">Дата рождения</label><input id="cf-bday" name="birthday" class="input" inputmode="numeric" autocomplete="off" placeholder="ДД.ММ.ГГГГ"></div>
+      <div class="field"><label for="cf-card">Номер карты (8 цифр)</label><input id="cf-card" name="card" class="input num" inputmode="numeric" maxlength="8" autocomplete="off" placeholder="Пусто — выдаст программа"></div>
+      <div class="field"><label for="cf-gender">Пол</label><select id="cf-gender" name="gender" class="input"><option value="">Не указан</option><option value="m">Мужской</option><option value="f">Женский</option></select></div>
+    </div>
+    <div class="shop-account" id="customer-account" hidden>
+      <h3>Аккаунт на витрине</h3>
+      <p class="sub" id="customer-account-info"></p>
+      <div class="tools" data-can="customers.accounts" hidden>
+        <button type="button" class="btn small" id="customer-temp-pass">Выдать временный пароль</button>
+        <button type="button" class="btn small ghost danger-text" id="customer-block"></button>
+      </div>
+      <p class="temp-pass" id="customer-temp-result" hidden></p>
+      <div id="customer-orders" class="history"></div>
+    </div>
+    <div id="customer-bonus" hidden>
+      <p class="balance">Бонусов: <b class="num" id="customer-balance"></b></p>
+      <div class="bonus-adjust" data-can="loyalty">
+        <div class="field"><label for="cf-delta">Добавить или списать (со знаком минус)</label><input id="cf-delta" name="delta" class="input num" inputmode="decimal" autocomplete="off" placeholder="Например, 500 или −200"></div>
+        <div class="field grow"><label for="cf-reason">Причина</label><input id="cf-reason" name="reason" class="input" autocomplete="off" placeholder="Например, подарок на день рождения"></div>
+        <button type="button" class="btn" id="bonus-apply">Изменить бонусы</button>
+      </div>
+      <h3>История бонусов</h3>
+      <div id="customer-history" class="history"></div>
+    </div>
+    <p class="form-error" id="customer-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="customer-cancel">Закрыть</button>
+      <button type="submit" class="btn primary" id="customer-save">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<main class="page" data-view="orders" hidden>
+  <header class="top">
+    <div class="title"><h1>Заказы с витрины</h1><span class="source" id="orders-summary"></span></div>
+    <div class="periods" id="orders-filter" role="group" aria-label="Статус"></div>
+  </header>
+  <section class="panel"><div id="orders-list" class="orders"></div></section>
+</main>
+
+<main class="page" data-view="shop" hidden>
+  <header class="top">
+    <div class="title"><h1>Интернет-витрина</h1><span class="source" id="shop-state"></span></div>
+    <div class="tools" id="shop-tools"></div>
+  </header>
+  <section class="panel shop-create" id="shop-create" hidden>
+    <h2>Свой интернет-магазин за минуту</h2>
+    <p class="sub">Витрина берёт товары, цены, фото и остатки прямо из программы. Покупатели выбирают товары, оформляют заказ с доставкой или самовывозом, а вам приходит уведомление. Оформление меняется как угодно: готовые шаблоны, свои цвета, шрифт, баннер, логотип и даже свой CSS.</p>
+    <button type="button" class="btn primary big" id="shop-create-btn">Создать интернет-витрину</button>
+  </section>
+  <div class="builder" id="shop-builder" hidden>
+    <form id="shop-form" class="builder-form" novalidate>
+      <details open><summary>Шаблон</summary><div class="templates" id="shop-templates"></div></details>
+      <details open><summary>Основное</summary>
+        <div class="field"><label>Название</label><input name="title" class="input" autocomplete="off"></div>
+        <div class="field"><label>Подзаголовок</label><input name="slogan" class="input" autocomplete="off"></div>
+        <div class="field"><label>О магазине</label><textarea name="about" class="input" rows="3"></textarea></div>
+        <div class="images-row">
+          <div class="field"><label>Логотип</label><div class="image-pick" data-image="logoId"></div></div>
+          <div class="field"><label>Баннер</label><div class="image-pick wide" data-image="bannerId"></div></div>
+        </div>
+      </details>
+      <details><summary>Цвета и шрифт</summary>
+        <div class="colors">
+          <label class="color"><input type="color" name="accent"> Основной</label>
+          <label class="color"><input type="color" name="bg"> Фон</label>
+          <label class="color"><input type="color" name="surface"> Карточки</label>
+          <label class="color"><input type="color" name="ink"> Текст</label>
+        </div>
+        <div class="field"><label>Шрифт</label><select name="font" class="input fonts"></select></div>
+        <div class="field"><label>Скругление углов: <span data-out="radius"></span> px</label><input type="range" name="radius" min="0" max="32"></div>
+      </details>
+      <details><summary>Каталог</summary>
+        <div class="field"><label>Вид карточек</label>
+          <select name="cardStyle" class="input"><option value="photo">Большое фото</option><option value="compact">Компактно</option><option value="list">Списком</option></select></div>
+        <div class="field"><label>Колонок на компьютере: <span data-out="columns"></span></label><input type="range" name="columns" min="2" max="6"></div>
+        <label class="check"><input type="checkbox" name="hideOutOfStock"> Скрывать товары, которых нет в наличии</label>
+        <label class="check"><input type="checkbox" name="showStock"> Показывать покупателям остаток</label>
+        <div class="field"><label>Категории на витрине (ничего не отмечено — все)</label><div class="cat-list" id="shop-cats"></div></div>
+      </details>
+      <details open><summary>Оплата заказов</summary>
+        <p class="sub">Покупатель выбирает способ, видит QR-код и сумму, переводит деньги и нажимает «Я оплатил». Заказ появляется в «Заказах» со статусом «Проверить оплату»: сверьте поступление и нажмите «Оплата поступила» — после этого заказ упаковывают и передают курьеру. Нет ни одного способа — оплата при получении.</p>
+        <div class="shop-pays" id="shop-pays"></div>
+        <button type="button" class="btn small" id="shop-pay-add">+ Способ оплаты</button>
+      </details>
+      <details><summary>Доставка и контакты</summary>
+        <label class="check"><input type="checkbox" name="pickup"> Самовывоз</label>
+        <label class="check"><input type="checkbox" name="delivery"> Доставка</label>
+        <div class="field"><label>Стоимость доставки, сом</label><input name="deliveryPrice" class="input num" inputmode="decimal"></div>
+        <div class="field"><label>Минимальная сумма заказа, сом</label><input name="minOrder" class="input num" inputmode="decimal"></div>
+        <div class="field"><label>Телефон</label><input name="phone" class="input" inputmode="tel"></div>
+        <div class="field"><label>Адрес</label><input name="address" class="input"></div>
+        <div class="field"><label>Часы работы</label><input name="hours" class="input" placeholder="Ежедневно 9:00–21:00"></div>
+        <div class="field"><label>WhatsApp (номер)</label><input name="whatsapp" class="input" inputmode="tel"></div>
+        <div class="field"><label>Telegram (имя без @)</label><input name="telegram" class="input"></div>
+      </details>
+      <details><summary>Свой CSS</summary>
+        <p class="sub">Для тех, кто хочет поменять что угодно. Примеры: <code>.card { box-shadow: none }</code>, <code>.hero h1 { font-size: 56px }</code>.</p>
+        <textarea name="css" class="input code" rows="8" spellcheck="false"></textarea>
+      </details>
+      <p class="form-error" id="shop-error" role="alert" hidden></p>
+      <div class="builder-actions">
+        <button type="submit" class="btn primary">Сохранить</button>
+        <span class="pick-meta" id="shop-dirty"></span>
+      </div>
+    </form>
+    <div class="builder-preview">
+      <div class="preview-bar">
+        <div class="seg small" id="preview-size"><button type="button" data-size="desktop" aria-pressed="true">Компьютер</button><button type="button" data-size="mobile" aria-pressed="false">Телефон</button></div>
+      </div>
+      <div class="preview-frame"><iframe id="shop-preview" title="Предпросмотр витрины" src="about:blank"></iframe></div>
+    </div>
+  </div>
+</main>
+
+<main class="page" data-view="design" hidden>
+  <header class="top"><div class="title"><h1>Оформление программы</h1></div></header>
+  <section class="panel">
+    <form id="design-form" class="settings-form" novalidate>
+      <p class="sub">Изменения видны сразу. Чтобы они остались, нажмите «Сохранить» — оформление поменяется у всех сотрудников.</p>
+      <div class="field"><label>Готовые варианты</label><div class="templates" id="design-presets"></div></div>
+      <div class="field"><label for="df-name">Название магазина</label><input id="df-name" name="name" class="input" autocomplete="off"></div>
+      <div class="field"><label for="df-theme">Тема</label>
+        <select id="df-theme" name="theme" class="input"><option value="auto">Как в системе устройства</option><option value="light">Всегда светлая</option><option value="dark">Всегда тёмная</option></select></div>
+      <div class="colors">
+        <label class="color"><input type="color" name="accent"> Основной цвет</label>
+        <label class="color"><input type="color" name="bg" data-optional> Фон <button type="button" class="link" data-reset="bg">по умолчанию</button></label>
+        <label class="color"><input type="color" name="surface" data-optional> Панели <button type="button" class="link" data-reset="surface">по умолчанию</button></label>
+        <label class="color"><input type="color" name="ink" data-optional> Текст <button type="button" class="link" data-reset="ink">по умолчанию</button></label>
+      </div>
+      <div class="field"><label for="df-font">Шрифт</label><select id="df-font" name="font" class="input fonts"></select></div>
+      <div class="field"><label>Скругление углов: <span data-out="radius"></span> px</label><input type="range" name="radius" min="0" max="24"></div>
+      <div class="field"><label for="df-css">Свой CSS — меняйте что угодно</label>
+        <textarea id="df-css" name="css" class="input code" rows="8" spellcheck="false" placeholder=".nav { background: #111; } .nav a { color: #fff; }"></textarea></div>
+      <p class="form-error" id="design-error" role="alert" hidden></p>
+      <div class="form-actions start">
+        <button type="submit" class="btn primary">Сохранить</button>
+        <button type="button" class="btn" id="design-reset">Вернуть как было</button>
+      </div>
+    </form>
+  </section>
+</main>
+
+<dialog id="bulk-dialog" aria-labelledby="bulk-title">
+  <form id="bulk-form" novalidate>
+    <h2 id="bulk-title"></h2>
+    <p class="sub" id="bulk-sub"></p>
+    <div id="bulk-fields" class="form-grid"></div>
+    <p class="form-error" id="bulk-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="bulk-cancel">Отмена</button>
+      <button type="submit" class="btn primary" id="bulk-submit">Применить</button>
+    </div>
+  </form>
+</dialog>
+
+<main class="page" data-view="users" hidden>
+  <header class="top">
+    <div class="title"><h1>Сотрудники</h1><span class="source" id="users-summary"></span></div>
+    <div class="tools"><button type="button" class="btn primary" id="user-add">Добавить сотрудника</button></div>
+  </header>
+  <section class="panel">
+    <div class="chips users-branches" id="users-branches" hidden></div>
+    <ul class="roles-help" id="roles-help"></ul>
+    <div class="table-wrap">
+      <table class="users-table">
+        <thead><tr><th>Сотрудник</th><th class="users-branch-col" hidden>Магазин</th><th>Роль</th><th>За смену</th><th>% от продаж</th><th>План в месяц</th><th>Доступ</th><th class="users-login-col" hidden>Последний вход</th><th></th></tr></thead>
+        <tbody id="users-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<dialog id="secrets-dialog" aria-labelledby="secrets-title">
+  <h2 id="secrets-title">Пароль сотрудника</h2>
+  <div id="secrets-body"></div>
+  <div class="form-actions"><button type="button" class="btn primary" id="secrets-close">Закрыть</button></div>
+</dialog>
+
+<dialog id="user-dialog" aria-labelledby="user-dialog-title">
+  <form id="user-form" novalidate>
+    <h2 id="user-dialog-title">Новый сотрудник</h2>
+    <div class="form-grid">
+      <div class="field wide"><label for="uf-email">Email для входа</label><input id="uf-email" name="email" type="email" class="input" required autocomplete="off"></div>
+      <div class="field wide"><label for="uf-name">Имя</label><input id="uf-name" name="name" class="input" autocomplete="off" placeholder="Необязательно"></div>
+      <div class="field"><label for="uf-role">Роль</label>
+        <select id="uf-role" name="role" class="input"></select>
+      </div>
+      <div class="field"><label for="uf-password" id="uf-password-label">Пароль</label><input id="uf-password" name="password" type="password" class="input" autocomplete="new-password" minlength="8"></div>
+      <div class="field"><label for="uf-pin" id="uf-pin-label">PIN для смены кассира, 4–6 цифр</label><input id="uf-pin" name="pin" type="password" class="input num" inputmode="numeric" autocomplete="off" maxlength="6" pattern="\d*">
+        <label class="check" id="uf-pin-clear-row" hidden><input type="checkbox" name="clearPin"> убрать PIN</label></div>
+      <p class="sub wide" id="uf-role-about"></p>
+      <div class="field"><label for="uf-rate">Оплата за выход на смену, сом</label><input id="uf-rate" name="shift_rate" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+      <div class="field"><label for="uf-salary">Оклад в месяц, сом (если есть)</label><input id="uf-salary" name="salary" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+      <div class="field"><label for="uf-percent">Процент от продаж, %</label><input id="uf-percent" name="percent" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+      <div class="field"><label for="uf-plan">План продаж в месяц, сом</label><input id="uf-plan" name="plan" class="input num" inputmode="decimal" autocomplete="off" placeholder="Без плана"></div>
+      <div class="field"><label for="uf-plan-bonus">Бонус за выполнение плана, сом</label><input id="uf-plan-bonus" name="plan_bonus" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+      <div class="field"><label for="uf-maxdisc">Скидка на кассе — не больше, % от чека</label><input id="uf-maxdisc" name="max_discount" class="input num" inputmode="decimal" autocomplete="off" placeholder="Без ограничения"></div>
+      <fieldset class="rights wide" id="uf-branch" hidden>
+        <legend>Магазин</legend>
+        <div class="form-grid">
+          <div class="field"><label for="uf-home">Работает в магазине</label><select id="uf-home" name="home" class="input"></select></div>
+          <div class="field"><span class="label">Может работать также в</span><div id="uf-stores" class="pm-checks"></div></div>
+        </div>
+        <p class="sub" id="uf-branch-note">Сменить магазин — перевести сотрудника: в старом магазине он закроется (история продаж и смен останется), в новом — откроется с теми же ролью, правами и ставкой. «Также в» — сотрудник сможет переключаться в эти магазины списком 🏬 вверху и работать там со своей ролью.</p>
+      </fieldset>
+      <fieldset class="rights wide" id="uf-methods">
+        <legend>Способы оплаты на кассе <button type="button" class="link" id="uf-methods-all">все</button></legend>
+        <div id="uf-methods-list" class="pm-checks"></div>
+      </fieldset>
+      <fieldset class="rights wide" id="uf-rights">
+        <legend>Права <button type="button" class="link" id="uf-rights-reset">как у роли</button></legend>
+        <div id="uf-rights-list"></div>
+      </fieldset>
+      <label class="check wide" id="user-disabled-field"><input type="checkbox" id="uf-disabled" name="disabled"> Закрыть доступ (сотрудник не сможет войти)</label>
+    </div>
+    <p class="form-error" id="user-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="user-delete" hidden>Удалить</button>
+      <button type="button" class="btn ghost" id="user-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="password-dialog" aria-labelledby="password-dialog-title">
+  <form id="password-form" novalidate>
+    <h2 id="password-dialog-title">Пароль и PIN-код</h2>
+    <div class="form-grid">
+      <div class="field wide"><label for="pw-current">Текущий пароль</label><input id="pw-current" name="current" type="password" class="input" autocomplete="current-password" required></div>
+      <div class="field wide"><label for="pw-new">Новый пароль, не короче 8 символов (пусто — не менять)</label><input id="pw-new" name="password" type="password" class="input" autocomplete="new-password" minlength="8"></div>
+      <div class="field wide"><label for="pw-pin">PIN для быстрой смены кассира, 4–6 цифр (пусто — не менять)</label><input id="pw-pin" name="pin" type="password" class="input num" inputmode="numeric" autocomplete="off" maxlength="6"></div>
+    </div>
+    <p class="pick-meta">Новый пароль и PIN-код видит владелец магазина.</p>
+    <p class="form-error" id="password-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="password-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="acc-dialog" aria-labelledby="acc-title">
+  <form id="acc-form" novalidate>
+    <h2 id="acc-title">Операция</h2>
+    <div class="form-grid">
+      <div class="field"><label for="ac-amount">Сумма, сом</label><input id="ac-amount" name="amount" class="input big num" inputmode="decimal" autocomplete="off" required></div>
+      <div class="field" id="acc-to-row" hidden><label for="ac-to">На какой счёт</label><select id="ac-to" name="to" class="input"></select></div>
+      <div class="field wide"><label for="ac-note">Комментарий</label><input id="ac-note" name="note" class="input" autocomplete="off"></div>
+    </div>
+    <p class="form-error" id="acc-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="acc-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Записать</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="branch-dialog" aria-labelledby="branch-title">
+  <form id="branch-form" novalidate>
+    <h2 id="branch-title">Новый магазин</h2>
+    <div class="form-grid">
+      <div class="field wide"><label for="br-name">Название</label><input id="br-name" name="name" class="input" required autocomplete="off" placeholder="Например, Филиал на Ахунбаева"></div>
+      <div class="field"><label for="br-address">Адрес</label><input id="br-address" name="address" class="input" autocomplete="off"></div>
+      <div class="field"><label for="br-phone">Телефон</label><input id="br-phone" name="phone" class="input" inputmode="tel" autocomplete="off"></div>
+      <label class="check wide"><input type="checkbox" name="copy" checked> Скопировать каталог товаров и категории из основного магазина (остатки — нули; товар привезёте перемещением или закупкой)</label>
+    </div>
+    <p class="form-error" id="branch-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="branch-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Открыть магазин</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="supplier-dialog" aria-labelledby="supplier-title">
+  <form id="supplier-form" novalidate>
+    <h2 id="supplier-title">Поставщик</h2>
+    <div class="form-grid">
+      <div class="field wide"><label for="sp-name">Название</label><input id="sp-name" name="name" class="input" required autocomplete="off" placeholder="Например, ОсОО «Молочный двор»"></div>
+      <div class="field"><label for="sp-phone">Телефон</label><input id="sp-phone" name="phone" class="input" inputmode="tel" autocomplete="off"></div>
+      <div class="field"><label for="sp-contact">Контактное лицо</label><input id="sp-contact" name="contact" class="input" autocomplete="off"></div>
+      <div class="field"><label for="sp-inn">ИНН</label><input id="sp-inn" name="inn" class="input num" inputmode="numeric" autocomplete="off"></div>
+      <div class="field"><label for="sp-address">Адрес</label><input id="sp-address" name="address" class="input" autocomplete="off"></div>
+      <div class="field wide"><label for="sp-note">Заметка</label><textarea id="sp-note" name="note" class="input" rows="2"></textarea></div>
+    </div>
+    <p class="form-error" id="supplier-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="supplier-delete" hidden>Удалить</button>
+      <button type="button" class="btn ghost" id="supplier-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="ts-amount-dialog" aria-labelledby="ts-amount-title">
+  <form id="ts-amount-form" novalidate>
+    <h2 id="ts-amount-title">Сумма за день</h2>
+    <p class="sub" id="ts-amount-sub"></p>
+    <div class="form-grid">
+      <div class="field wide"><label for="tsa-amount">Заработок за день, сом</label><input id="tsa-amount" name="amount" class="input num" inputmode="decimal" autocomplete="off" placeholder="Например, 1500"></div>
+      <div class="field wide"><label for="tsa-note">Комментарий</label><input id="tsa-note" name="note" class="input" autocomplete="off" placeholder="Необязательно: за что"></div>
+    </div>
+    <p class="pick-meta">Сумма заменяет расчёт дня (ставка за выход + % от выручки) и сразу входит в зарплату к выплате и в расходы на главной. Оставьте поле пустым и нажмите «Вернуть расчёт», чтобы снова считать по ставке.</p>
+    <p class="form-error" id="ts-amount-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="ts-amount-reset">Вернуть расчёт</button>
+      <button type="button" class="btn ghost" id="ts-amount-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="fixed-dialog" aria-labelledby="fixed-title">
+  <form id="fixed-form" novalidate>
+    <h2 id="fixed-title">Постоянный расход</h2>
+    <p class="sub">Аренда, таргет, интернет — то, что платите каждый месяц. Сумма в месяц делится на число дней месяца: аренда 100 000 сом в октябре (31 день) — 3 226 сом в день, и каждый день периода на главной несёт свою долю.</p>
+    <div class="form-grid">
+      <div class="field wide"><label for="fixexp-name">Название</label><input id="fixexp-name" name="name" class="input" list="ex-categories" required autocomplete="off" placeholder="Например, Аренда или Таргет"></div>
+      <div class="field"><label for="fixexp-amount">Сумма в месяц, сом</label><input id="fixexp-amount" name="amount" class="input num" inputmode="decimal" required autocomplete="off"></div>
+      <div class="field"><label for="fixexp-since">Действует с</label><input id="fixexp-since" name="since" type="date" class="input"></div>
+      <label class="check wide"><input type="checkbox" name="active" checked> Учитывать (снимите, чтобы временно не считать)</label>
+      <p class="pick-meta wide" id="fixexp-per-day"></p>
+    </div>
+    <p class="form-error" id="fixed-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost danger-text" id="fixed-delete" hidden>Удалить</button>
+      <button type="button" class="btn ghost" id="fixed-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="expense-dialog" aria-labelledby="expense-title">
+  <form id="expense-form" novalidate>
+    <h2 id="expense-title">Разовый расход</h2>
+    <p class="sub">Доставка, ремонт, налог — то, что заплатили один раз. Ежемесячные расходы (аренда, таргет) заведите как постоянные. Зарплату вносить не нужно: она считается сама по ставкам сотрудников.</p>
+    <div class="form-grid">
+      <div class="field wide"><label for="ex-category">Статья расхода</label><input id="ex-category" name="category" class="input" list="ex-categories" required autocomplete="off" placeholder="Например, Аренда"><datalist id="ex-categories"></datalist></div>
+      <div class="field"><label for="ex-amount">Сумма, сом</label><input id="ex-amount" name="amount" class="input num" inputmode="decimal" required autocomplete="off"></div>
+      <div class="field"><label for="ex-date">Дата</label><input id="ex-date" name="date" type="date" class="input"></div>
+      <div class="field wide"><label for="ex-method">Оплачено со счёта</label><select id="ex-method" name="method_id" class="input"></select></div>
+      <div class="field wide"><label for="ex-note">Комментарий</label><input id="ex-note" name="note" class="input" autocomplete="off" placeholder="Необязательно"></div>
+    </div>
+    <p class="form-error" id="expense-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="expense-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="product-card" class="product-card" aria-labelledby="pc-title">
+  <div class="pc-head">
+    <div class="pc-photo" id="pc-photo"></div>
+    <div class="pc-title-box"><h2 id="pc-title"></h2><p class="sub" id="pc-sub"></p></div>
+    <div class="pc-head-actions">
+      <button type="button" class="btn primary small" id="pc-edit" hidden>✎ Редактировать</button>
+      <button type="button" class="icon-btn" id="pc-close" aria-label="Закрыть">×</button>
+    </div>
+  </div>
+  <div class="seg pc-tabs" id="pc-tabs" role="tablist" aria-label="Разделы карточки товара">
+    <button type="button" role="tab" data-pc-tab="info" aria-pressed="true">Информация</button>
+    <button type="button" role="tab" data-pc-tab="prices" aria-pressed="false">Цены и скидки</button>
+    <button type="button" role="tab" data-pc-tab="stock" aria-pressed="false">Склад</button>
+    <button type="button" role="tab" data-pc-tab="history" aria-pressed="false">История</button>
+  </div>
+  <div class="pc-pane" data-pc-pane="info">
+    <div class="pc-grid" id="pc-info"></div>
+    <div id="pc-variants"></div>
+    <div class="pc-sales" id="pc-sales"></div>
+  </div>
+  <div class="pc-pane" data-pc-pane="prices" hidden>
+    <div class="pc-grid" id="pc-prices"></div>
+    <p class="pick-meta" id="pc-prices-note"></p>
+    <div id="pc-prices-variants"></div>
+  </div>
+  <div class="pc-pane" data-pc-pane="stock" hidden>
+    <div id="pc-stores"></div>
+    <div class="form-actions pc-stock-actions">
+      <button type="button" class="btn" id="pc-stock" hidden>Пересчитать остаток</button>
+      <button type="button" class="btn" id="pc-writeoff" hidden>Списать</button>
+    </div>
+  </div>
+  <div class="pc-pane" data-pc-pane="history" hidden>
+    <div id="pc-history"></div>
+  </div>
+  <div class="form-actions">
+    <button type="button" class="btn ghost" id="pc-open">Открыть в «Товарах»</button>
+  </div>
+</dialog>
+
+<dialog id="product-dialog" class="product-dialog" aria-labelledby="product-dialog-title">
   <form id="product-form" novalidate>
     <h2 id="product-dialog-title">Новый товар</h2>
+    <p class="sub" id="product-variant-of" hidden></p>
     <div class="form-grid">
-      <div class="field wide"><label for="pf-name">Название</label><input id="pf-name" name="name" class="input" required autocomplete="off"></div>
-      <div class="field wide"><label for="pf-category">Категория</label><input id="pf-category" name="category" class="input" list="categories" autocomplete="off"><datalist id="categories"></datalist></div>
-      <div class="field"><label for="pf-code">Код товара</label><input id="pf-code" name="code" class="input" autocomplete="off" placeholder="Необязательно"></div>
-      <div class="field"><label for="pf-barcode">Штрихкод</label><input id="pf-barcode" name="barcode" class="input" inputmode="numeric" autocomplete="off" placeholder="Можно отсканировать"></div>
-      <div class="field"><label for="pf-price">Цена продажи, ₽</label><input id="pf-price" name="price" class="input num" inputmode="decimal" required autocomplete="off"></div>
-      <div class="field"><label for="pf-cost">Себестоимость, ₽</label><input id="pf-cost" name="cost" class="input num" inputmode="decimal" autocomplete="off" placeholder="Закупочная цена"></div>
-      <div class="field"><label for="pf-unit">Единица</label>
+      <div class="field wide" id="pf-name-field"><label for="pf-name">Название</label><input id="pf-name" name="name" class="input" required autocomplete="off"></div>
+      <div class="wide variant-options" id="pf-variant-options" hidden></div>
+      <div class="field wide" id="pf-category-field"><label for="pf-category">Категория</label><input id="pf-category" name="category" class="input" list="categories" autocomplete="off"><datalist id="categories"></datalist></div>
+
+      <fieldset class="prices wide">
+        <legend>Цены и скидки</legend>
+        <div class="field"><label for="pf-purchase">Цена закупки, сом</label><input id="pf-purchase" name="purchase" class="input num" inputmode="decimal" autocomplete="off" placeholder="Сколько платите поставщику"></div>
+        <div class="field"><label for="pf-cost">Себестоимость, сом</label><input id="pf-cost" name="cost" class="input num" inputmode="decimal" autocomplete="off" placeholder="Закупка + расходы"></div>
+        <div class="field"><label for="pf-markup">Наценка, %</label><input id="pf-markup" name="markup" class="input num" inputmode="decimal" autocomplete="off" placeholder="Например, 40"></div>
+        <div class="field"><label for="pf-price">Цена продажи, сом</label><input id="pf-price" name="price" class="input num" inputmode="decimal" required autocomplete="off"></div>
+        <div class="field"><label for="pf-discount">Скидка, %</label><input id="pf-discount" name="discount" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+        <p class="pick-meta price-note" id="pf-profit">Меняете наценку — пересчитывается цена, меняете цену — пересчитывается наценка.</p>
+        <p class="pick-meta price-note">Цена закупки — только стоимость товара у поставщика. Себестоимость — закупка плюс расходы на единицу: доставка, зарплата, налоги. Наценка и маржинальность считаются от цены закупки.</p>
+      </fieldset>
+
+      <div class="field"><label for="pf-code">Код товара</label><input id="pf-code" name="code" class="input" autocomplete="off" placeholder="Программа присвоит сама"></div>
+      <div class="field"><label for="pf-article">Артикул</label><input id="pf-article" name="article" class="input" autocomplete="off" placeholder="Артикул производителя"></div>
+      <div class="field wide" id="pf-supplier-field"><label for="pf-supplier">Поставщик</label><select id="pf-supplier" name="supplier_id" class="input"></select></div>
+      <div class="field"><label for="pf-barcode">Штрихкод</label>
+        <div class="input-row"><input id="pf-barcode" name="barcode" class="input" inputmode="numeric" autocomplete="off" placeholder="Отсканируйте или создайте">
+        <button type="button" class="btn" id="pf-barcode-new" title="Создать уникальный штрихкод EAN-13">Создать</button></div>
+      </div>
+      <div class="wide barcode-preview" id="pf-barcode-preview" hidden></div>
+      <div class="field" id="pf-unit-field"><label for="pf-unit">Единица</label>
         <select id="pf-unit" name="unit" class="input"><option>шт</option><option>кг</option><option>л</option><option>м</option><option>уп</option></select>
       </div>
       <div class="field" id="product-stock-field"><label for="pf-stock">Сейчас на складе</label><input id="pf-stock" name="stock" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+      <div class="field wide" id="pf-description-field"><label for="pf-description">Описание для интернет-витрины</label><textarea id="pf-description" name="description" class="input" rows="3" placeholder="Необязательно: состав, размер, особенности"></textarea></div>
+
+      <section class="variants wide" id="pf-variants" hidden>
+        <div class="variants-head">
+          <h3>Модификации</h3>
+          <span class="pick-meta">Цвета, размеры, объёмы — у каждой свой остаток, штрихкод и при желании своя цена.</span>
+        </div>
+        <div id="pf-variants-list"></div>
+        <details class="variant-gen" id="pf-gen">
+          <summary>Добавить модификации</summary>
+          <p class="pick-meta">Перечислите свойства и их значения через запятую — программа составит все сочетания.</p>
+          <div id="pf-gen-options"></div>
+          <button type="button" class="link" id="pf-gen-add">+ ещё свойство</button>
+          <div id="pf-gen-preview"></div>
+          <label class="check"><input type="checkbox" id="pf-gen-barcodes" checked> Создать каждой модификации свой штрихкод</label>
+        </details>
+      </section>
+
       <label class="check wide" id="product-archived-field"><input type="checkbox" id="pf-archived" name="archived"> Убрать из продажи (товар скроется из кассы и списков, история продаж сохранится)</label>
     </div>
     <p class="form-error" id="product-error" role="alert" hidden></p>
     <div class="form-actions">
+      <button type="button" class="btn ghost danger-text" id="product-delete" hidden>Удалить товар</button>
+      <button type="button" class="btn ghost" id="product-labels" hidden>Этикетка</button>
       <button type="button" class="btn ghost" id="product-cancel">Отмена</button>
       <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="categories-dialog" class="wide" aria-labelledby="cat-title">
+  <div class="cat-manager">
+    <div class="lead-head"><h2 id="cat-title">Категории</h2><button type="button" class="icon-btn" id="cat-close" aria-label="Закрыть">×</button></div>
+    <p class="sub">Переименование меняет категорию у всех её товаров — и на витрине тоже. Картинка показывается на витрине рядом с названием категории. Порядок стрелками — так категории идут на витрине.</p>
+    <form id="cat-add" class="cat-add" novalidate>
+      <input name="name" class="input" placeholder="Новая категория" autocomplete="off" aria-label="Название новой категории">
+      <button type="submit" class="btn primary">Добавить</button>
+    </form>
+    <div id="cat-list" class="cat-list"></div>
+  </div>
+</dialog>
+
+<dialog id="labels-dialog" aria-labelledby="labels-title">
+  <form id="labels-form" novalidate>
+    <h2 id="labels-title">Печать этикеток</h2>
+    <p class="sub" id="labels-sub"></p>
+    <div class="form-grid">
+      <div class="field wide"><label for="labels-template">Шаблон этикетки</label><select id="labels-template" name="template" class="input"></select></div>
+      <div class="field wide"><label for="labels-format">Куда печатать</label><select id="labels-format" name="format" class="input"><option value="thermal">Термопринтер этикеток (рулон)</option><option value="a4">Обычный принтер, лист A4</option></select></div>
+      <div class="field wide"><label>Сколько этикеток</label>
+        <label class="check"><input type="radio" name="count" value="fixed" checked> Одинаково на каждый товар</label>
+        <label class="check"><input type="radio" name="count" value="stock"> По остатку на складе</label>
+      </div>
+      <div class="field" id="labels-copies"><label for="labels-n">Штук на товар</label><input id="labels-n" name="copies" class="input num" inputmode="numeric" value="1"></div>
+
+    </div>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="labels-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Печать</button>
     </div>
   </form>
 </dialog>
@@ -225,13 +1914,38 @@
 <div id="toasts" class="toasts" aria-live="polite"></div>
 
 <script src="common.js"></script>
+<script src="barcode.js"></script>
 <script src="dashboard.js"></script>
-<script src="pos.js"></script>
 <script src="products.js"></script>
-<script src="arrivals.js"></script>
+<script src="docs.js"></script>
+<script src="refs.js"></script>
+<script src="branches.js"></script>
 <script src="sales.js"></script>
+<script src="codes.js"></script>
+<script src="print.js"></script>
+<script src="labels.js"></script>
+<script src="print-designer.js"></script>
 <script src="xlsx.js"></script>
 <script src="import.js"></script>
-<script>route();</script>
+<script src="more.js"></script>
+<script src="kpi.js"></script>
+<script src="abc.js"></script>
+<script src="stock-reports.js"></script>
+<script src="money-reports.js"></script>
+<script src="receive.js"></script>
+<script src="owner.js"></script>
+<script src="certificates.js"></script>
+<script src="staff-time.js"></script>
+<script src="timesheet.js"></script>
+<script src="tasks.js"></script>
+<script src="audit.js"></script>
+<script src="crm.js"></script>
+<script src="loyalty.js"></script>
+<script src="users.js"></script>
+<script src="settings.js"></script>
+<script src="orders.js"></script>
+<script src="shop-builder.js"></script>
+<script src="design.js"></script>
+<script>session.ready.then(route);</script>
 </body>
 </html>

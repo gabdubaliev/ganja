@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Касса — Мой магазин</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#2a78d6">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="theme.css" id="theme-css">
+</head>
+<body class="kassa">
+<nav class="nav" aria-label="Разделы кассы">
+  <div class="nav-inner">
+    <span class="logo" data-initial="К">Касса</span>
+    <div class="nav-main">
+      <a href="#pos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h2l2.4 10.2a1 1 0 0 0 1 .8h8.9a1 1 0 0 0 1-.8L20 7H6.2"/><circle cx="9" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/></svg><span>Продажа</span></a>
+      <a href="#sales"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 7h6M9 11h6M9 15h4"/></svg><span>Мои чеки</span></a>
+      <a href="#orders" data-can="orders" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8h14l-1 13H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg><span>Заказы</span> <span class="badge" id="orders-badge" hidden></span></a>
+      <a href="#mytimesheet" data-can="mytimesheet" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4M8 14h2M14 14h2M8 18h2"/></svg><span>Мой табель</span></a>
+      <a href="#tasks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l2 2 4-4"/><rect x="4" y="4" width="16" height="16" rx="3"/></svg><span>Задания</span> <span class="badge" data-task-badge hidden></span></a>
+      <a href="#photos" data-can="photos" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><span>Фото</span></a>
+    </div>
+    <span class="nav-user" id="nav-user" hidden>
+      <button type="button" class="btn small switch-btn" id="switch-user" title="Сменить кассира"><span aria-hidden="true">⇄</span><span class="switch-label">Сменить кассира</span></button>
+      <button type="button" class="btn small ghost" id="me-password" title="Сменить пароль"></button>
+      <button type="button" class="btn small ghost" id="logout">Выйти</button>
+    </span>
+  </div>
+</nav>
+
+<main class="page" data-view="pos" hidden>
+  <div class="shift-bar" id="shift-bar" hidden></div>
+  <div class="pos">
+    <section class="panel pos-pick" aria-label="Подбор товаров">
+      <input id="pos-search" class="input big" type="search" placeholder="Название, код или штрихкод" autocomplete="off" aria-label="Найти товар">
+      <div id="pos-cats" class="pos-cats" hidden></div>
+      <div id="pos-results" class="pick-list"></div>
+    </section>
+    <section class="panel pos-cart" aria-label="Чек">
+      <div class="panel-head"><h2>Чек</h2><div class="tools"><button type="button" class="btn small cert-btn" id="cert-sell-open" data-can="certificates.sell" hidden>🎁 Сертификат</button><button type="button" class="btn small" id="cart-print" hidden title="Напечатать чек покупателю по последней продаже">🖨️ Печать чека</button><button type="button" class="btn small ghost" id="cart-clear" hidden>Очистить</button></div></div>
+      <div id="cart" class="cart"></div>
+      <div class="customer-box" id="customer-box" hidden>
+        <div class="customer-find" id="customer-find">
+          <div class="suggest-wrap grow">
+            <input id="customer-phone" class="input" type="search" placeholder="Клиент: телефон, ФИО, карта" autocomplete="off" aria-label="Найти покупателя">
+            <div id="customer-results" class="suggest-list" hidden></div>
+          </div>
+          <button type="button" class="btn" id="customer-lookup">Найти</button>
+          <button type="button" class="btn primary" id="customer-add" data-can="customers.create" hidden>+ Новый клиент</button>
+        </div>
+        <div class="customer-new" id="customer-new" hidden></div>
+        <div class="customer-card" id="customer-card" hidden>
+          <div><b id="customer-title"></b><span class="pick-meta" id="customer-meta"></span></div>
+          <button type="button" class="icon-btn" id="customer-clear" aria-label="Убрать покупателя из чека">×</button>
+          <label class="check birthday-offer" id="customer-bday-row" hidden><input type="checkbox" id="customer-bday"> <span id="customer-bday-text"></span></label>
+          <label class="field customer-spend" id="customer-spend-row">
+            <span>Списать бонусов</span>
+            <input id="customer-spend" class="input num" inputmode="decimal" placeholder="0" autocomplete="off">
+            <span class="pick-meta" id="customer-spend-hint"></span>
+          </label>
+          <div class="customer-certs" id="customer-certs" hidden></div>
+        </div>
+      </div>
+      <div class="discount-bar" id="discount-bar" hidden>
+        <button type="button" class="btn small" id="discount-open">% Скидка</button>
+        <button type="button" class="btn small ghost" id="discount-select-all">Выбрать все</button>
+        <span class="pick-meta" id="discount-info"></span>
+      </div>
+      <div class="cart-total"><span>Итого</span><b id="cart-total" class="num">0 сом</b></div>
+      <div class="cert-use" id="cert-use" hidden></div>
+      <div class="cart-topay" id="cart-topay" hidden><span>К оплате деньгами</span><b id="cart-paid" class="num"></b></div>
+      <div class="pay-head"><span>Оплата</span><span class="tools"><button type="button" class="btn small ghost" id="cert-pay-open" data-can="certificates.accept" hidden>🎁 Сертификатом</button><button type="button" class="btn small ghost" id="split-toggle" hidden>Разделить оплату</button></span></div>
+      <div class="pay-methods" id="pay" role="group" aria-label="Способ оплаты"></div>
+      <p class="pick-meta pay-fee" id="pay-fee" hidden></p>
+      <div class="field" id="cash-row" hidden>
+        <label for="cash-given" id="cash-label">Получено от покупателя</label>
+        <input id="cash-given" class="input num" inputmode="decimal" placeholder="0" autocomplete="off">
+        <span id="change" class="change num"></span>
+      </div>
+      <button type="button" class="btn primary big" id="checkout" disabled>Пробить чек</button>
+      <p class="pick-meta">Чек сохраняется в программе и списывает товар со склада. Фискальный чек для налоговой по-прежнему печатает ваша онлайн-касса.</p>
+    </section>
+  </div>
+</main>
+
+<main class="page" data-view="orders" hidden>
+  <header class="top">
+    <div class="title"><h1>Онлайн-заказы</h1><span class="source" id="orders-summary"></span></div>
+    <div class="periods" id="orders-filter" role="group" aria-label="Статус"></div>
+  </header>
+  <section class="panel"><div id="orders-list" class="orders"></div></section>
+</main>
+
+<main class="page" data-view="sales" hidden>
+  <header class="top">
+    <div class="title"><h1>Мои чеки</h1></div>
+    <div class="periods" id="sales-ranges" role="group" aria-label="Период"></div>
+  </header>
+  <section class="panel">
+    <div class="sales-summary" id="sales-summary"></div>
+    <div id="sales-list" class="docs"></div>
+  </section>
+</main>
+
+<main class="page" data-view="photos" hidden>
+  <header class="top">
+    <div class="title"><h1>Фото товаров</h1><span class="source" id="photos-summary"></span></div>
+  </header>
+  <section class="panel">
+    <div class="panel-head">
+      <input id="photos-search" class="input search" type="search" placeholder="Найти товар" aria-label="Найти товар">
+      <label class="check"><input type="checkbox" id="photos-missing"> Только без фото</label>
+    </div>
+    <div id="photos-grid" class="photo-grid"></div>
+  </section>
+  <section class="panel">
+    <div class="panel-head"><div><h2>Фото категорий</h2><p class="sub">Показываются в кассе над товарами и на интернет-витрине. Нажмите на кружок, чтобы добавить или заменить фото.</p></div></div>
+    <div id="photos-cats" class="photo-cats"></div>
+  </section>
+</main>
+
+<dialog id="cert-sell-dialog" aria-labelledby="cs-title">
+  <form id="cs-form" novalidate>
+    <h2 id="cs-title">🎁 Продать сертификат</h2>
+    <div id="cs-fields">
+      <div class="form-grid">
+        <div class="field"><label for="cs-amount">Сумма сертификата, сом</label><input id="cs-amount" name="amount" class="input big num" inputmode="decimal" autocomplete="off" placeholder="Например, 3000" required></div>
+        <div class="field"><label for="cs-number">Номер сертификата</label>
+          <div class="input-row"><input id="cs-number" name="number" class="input num" inputmode="numeric" autocomplete="off" placeholder="Сканируйте сертификат"><button type="button" class="btn" id="cs-number-new" title="Программа выдаст номер и напечатает сертификат">Новый</button></div>
+        </div>
+        <div class="field wide"><label for="cs-cust">Покупатель</label>
+          <div class="cs-cust-row">
+            <div class="suggest-wrap grow">
+              <input id="cs-cust" class="input" type="search" autocomplete="off" placeholder="Телефон, ФИО или номер карты">
+              <div id="cs-cust-results" class="suggest-list" hidden></div>
+            </div>
+            <button type="button" class="btn" id="cs-cust-new" data-can="customers.create" hidden>+ Новый клиент</button>
+          </div>
+          <div class="cs-cust-chosen" id="cs-cust-chosen" hidden></div>
+        </div>
+        <div class="field wide"><span class="label">Оплата</span><div class="pay-methods" id="cs-methods" role="group" aria-label="Способ оплаты сертификата"></div></div>
+        <div class="field" id="cs-cash-row" hidden><label for="cs-given">Получено наличными</label><input id="cs-given" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"><span class="change num" id="cs-change"></span></div>
+      </div>
+      <p class="sub" id="cs-note">Деньги за сертификат приходят на счёт сразу, товар со склада не уходит. Товар спишется, когда по сертификату что-то купят.</p>
+      <p class="form-error" id="cs-error" role="alert" hidden></p>
+      <div class="form-actions">
+        <button type="button" class="btn ghost" id="cs-cancel">Отмена</button>
+        <button type="submit" class="btn primary" id="cs-submit">Продать сертификат</button>
+      </div>
+    </div>
+    <div id="cs-done" hidden>
+      <div class="cs-done-box" id="cs-done-box"></div>
+      <div class="form-actions">
+        <button type="button" class="btn" id="cs-print">🖨 Печать сертификата</button>
+        <button type="button" class="btn primary" id="cs-close">Готово</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="cert-pay-dialog" aria-labelledby="cp-title">
+  <form id="cp-form" novalidate>
+    <h2 id="cp-title">🎁 Оплата сертификатом</h2>
+    <div class="field"><label for="cp-number">Номер сертификата</label>
+      <div class="input-row"><input id="cp-number" class="input big num" inputmode="numeric" autocomplete="off" placeholder="Сканируйте или введите номер"><button type="button" class="btn" id="cp-find">Найти</button></div>
+    </div>
+    <div class="cp-info" id="cp-info" hidden></div>
+    <div class="field" id="cp-amount-row" hidden><label for="cp-amount">Списать с сертификата, сом</label><input id="cp-amount" class="input num" inputmode="decimal" autocomplete="off"></div>
+    <p class="form-error" id="cp-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="cp-cancel">Отмена</button>
+      <button type="submit" class="btn primary" id="cp-apply" disabled>Применить к чеку</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="shift-open-dialog" aria-labelledby="so-title">
+  <form id="so-form" novalidate>
+    <h2 id="so-title">Открыть смену</h2>
+    <div class="form-grid">
+      <div class="field wide" id="so-register-row" hidden><label for="so-register">Касса</label><select id="so-register" class="input"></select></div>
+      <div class="field wide" id="so-cash-row"><label for="so-cash">Сколько наличных в кассе сейчас? Пересчитайте, сом</label>
+        <input id="so-cash" name="cash" class="input big num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+      <p class="sub wide" id="so-busy" hidden>На этой кассе уже работает другой сотрудник — деньги пересчитывать не нужно.</p>
+      <div class="cash-mismatch wide" id="so-mismatch" hidden></div>
+      <div class="field wide" id="so-note-row" hidden><label for="so-note">Причина расхождения (увидит владелец)</label>
+        <textarea id="so-note" class="input" rows="2" placeholder="Например: владелец взял 1 000 сом на покупку пакетов"></textarea></div>
+    </div>
+    <p class="form-error" id="so-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="so-cancel">Отмена</button>
+      <button type="submit" class="btn primary" id="so-submit">Открыть смену</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="shift-close-dialog" aria-labelledby="sc-title">
+  <form id="sc-form" novalidate>
+    <h2 id="sc-title">Закрыть смену</h2>
+    <p class="sub" id="sc-summary"></p>
+    <div id="sc-count">
+      <div class="form-grid">
+        <div class="field wide"><label for="sc-counted">1. Пересчитайте наличные в кассе — сколько всего, сом</label>
+          <input id="sc-counted" class="input big num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+        <div class="field"><label for="sc-deposited">2. Сколько сдаёте через терминал на счёт</label>
+          <input id="sc-deposited" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+        <div class="field"><label for="sc-account">На какой счёт</label><select id="sc-account" class="input"></select></div>
+        <div class="field wide"><label for="sc-left">3. Сколько оставляете в кассе на завтра</label>
+          <input id="sc-left" class="input num" inputmode="decimal" autocomplete="off" placeholder="0">
+          <span class="pick-meta" id="sc-left-hint"></span></div>
+        <div class="cash-mismatch wide" id="sc-mismatch" hidden></div>
+        <div class="field wide" id="sc-note-row" hidden><label for="sc-note">Причина расхождения (увидит владелец)</label>
+          <textarea id="sc-note" class="input" rows="2"></textarea></div>
+      </div>
+      <p class="sub">Завтра при открытии смены сумма в кассе должна совпасть с той, что вы оставляете сейчас.</p>
+    </div>
+    <p class="sub" id="sc-busy" hidden>На этой кассе остаётся другой сотрудник — деньги посчитает тот, кто закроет смену последним.</p>
+    <p class="form-error" id="sc-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="sc-cancel">Отмена</button>
+      <button type="submit" class="btn primary" id="sc-submit">Закрыть смену</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="cust-dialog" aria-labelledby="cust-title">
+  <form id="cust-form" novalidate>
+    <h2 id="cust-title">Новый клиент</h2>
+    <div class="form-grid">
+      <div class="field wide"><label for="cu-name">ФИО</label><input id="cu-name" name="name" class="input big" autocomplete="off" autocapitalize="words" placeholder="Фамилия Имя Отчество" data-capitalize></div>
+      <div class="field"><label for="cu-phone">Номер телефона</label><input id="cu-phone" name="phone" class="input" inputmode="tel" autocomplete="off" required placeholder="0700 123 456"></div>
+      <div class="field"><label for="cu-card">Номер карточки (8 цифр)</label>
+        <div class="input-row"><input id="cu-card" name="card" class="input num" inputmode="numeric" maxlength="8" autocomplete="off" placeholder="Сканируйте карту"><button type="button" class="btn" id="cu-card-new" title="Программа сама подберёт свободный номер">Новый</button></div>
+      </div>
+      <div class="field"><label for="cu-bday">Дата рождения</label><input id="cu-bday" name="birthday" class="input" inputmode="numeric" autocomplete="off" placeholder="ДД.ММ.ГГГГ" maxlength="10"></div>
+      <div class="field"><span class="label">Пол</span>
+        <div class="seg cu-gender" id="cu-gender" role="group" aria-label="Пол"><button type="button" data-g="m" aria-pressed="false">👨 Мужской</button><button type="button" data-g="f" aria-pressed="false">👩 Женский</button></div>
+      </div>
+    </div>
+    <p class="sub">Карточку можно не сканировать — программа выдаст номер сама. Бонусы начнут копиться с этого чека.</p>
+    <p class="form-error" id="cust-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="cust-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить и добавить в чек</button>
+    </div>
+  </form>
+</dialog>
+
+<main class="page" data-view="mytimesheet" hidden>
+  <header class="top">
+    <div class="title"><h1>Мой табель</h1><span class="source" id="mts-sub"></span></div>
+  </header>
+  <section class="panel period-bar mts-bar">
+    <div class="ts-month-nav">
+      <button type="button" class="icon-btn" id="mts-prev" aria-label="Предыдущий месяц">‹</button>
+      <b id="mts-month"></b>
+      <button type="button" class="icon-btn" id="mts-next" aria-label="Следующий месяц">›</button>
+    </div>
+    <div class="ts-legend"><span class="lg worked">рабочий</span> часы и заработок за день <span class="lg off">В</span> выходной <i class="plus"></i> бонус <i class="minus"></i> штраф</div>
+  </section>
+  <section class="mts-totals" id="mts-totals"></section>
+  <section class="panel">
+    <div class="mts-week" aria-hidden="true"><span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span class="we">Сб</span><span class="we">Вс</span></div>
+    <div class="mts-grid" id="mts-grid"></div>
+    <div class="mts-fines" id="mts-fines"></div>
+    <p class="pick-meta mts-note">Только просмотр. Заработок за день — ставка за выход и ваш процент от продаж этого дня. Оклад и бонус за план — в итогах периода. Если что-то не так, скажите администратору.</p>
+  </section>
+</main>
+
+<main class="page" data-view="tasks" hidden>
+  <header class="top">
+    <div class="title"><h1>Задания</h1></div>
+    <div class="tools"><button type="button" class="btn primary" id="task-add" hidden>Дать задание</button></div>
+  </header>
+  <section class="panel period-bar">
+    <div class="periods" id="tasks-filter" role="group" aria-label="Какие задания"></div>
+  </section>
+  <section class="panel"><div id="tasks-list" class="tasks"></div></section>
+</main>
+
+<dialog id="task-dialog" aria-labelledby="task-title">
+  <form id="task-form" novalidate>
+    <h2 id="task-title">Дать задание</h2>
+    <div class="form-grid">
+      <div class="field wide"><label for="tk-title">Что сделать</label><input id="tk-title" name="title" class="input" autocomplete="off" required placeholder="Например, разложить новый товар на витрине"></div>
+      <div class="field wide"><label for="tk-desc">Подробности (необязательно)</label><textarea id="tk-desc" name="description" class="input" rows="3"></textarea></div>
+      <div class="field wide"><span class="label">Срок</span>
+        <div class="seg" id="tk-period" role="group" aria-label="Срок">
+          <button type="button" data-period="day">День</button>
+          <button type="button" data-period="week">Неделя</button>
+          <button type="button" data-period="month">Месяц</button>
+          <button type="button" data-period="date">К дате</button>
+        </div>
+      </div>
+      <div class="field wide" id="tk-date-row" hidden><label for="tk-due">Выполнить до (включительно)</label><input id="tk-due" name="due" type="date" class="input"></div>
+      <fieldset class="rights wide">
+        <legend>Кому <button type="button" class="link" id="tk-all">все</button></legend>
+        <div id="tk-staff" class="pm-checks"></div>
+      </fieldset>
+    </div>
+    <p class="sub">«День» — до конца сегодняшнего дня, «Неделя» — до конца воскресенья, «Месяц» — до конца месяца. Каждый сотрудник получит своё задание и отметит его сам.</p>
+    <p class="form-error" id="task-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="task-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Дать задание</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="variant-dialog" class="variant-dialog" aria-labelledby="variant-title">
+  <div class="variant-head">
+    <div class="variant-photo" id="variant-photo"></div>
+    <div><h2 id="variant-title"></h2><p class="sub" id="variant-sub"></p></div>
+    <button type="button" class="icon-btn" id="variant-close" aria-label="Закрыть">×</button>
+  </div>
+  <div id="variant-options" class="picker-options"></div>
+  <div class="variant-result" id="variant-result"></div>
+  <div class="variant-buy">
+    <div class="stepper" id="variant-qty">
+      <button type="button" data-vq="-1" aria-label="Меньше">−</button>
+      <input class="num" inputmode="decimal" value="1" aria-label="Количество">
+      <button type="button" data-vq="1" aria-label="Больше">+</button>
+    </div>
+    <button type="button" class="btn primary big" id="variant-add" disabled>Добавить в чек</button>
+  </div>
+</dialog>
+
+<dialog id="discount-dialog" class="discount-dialog" aria-labelledby="discount-title">
+  <form id="discount-form" novalidate>
+    <h2 id="discount-title">Скидка</h2>
+    <p class="sub" id="discount-sub"></p>
+    <div class="seg" id="discount-scope" role="group" aria-label="На что скидка">
+      <button type="button" data-target="check">Весь чек</button>
+      <button type="button" data-target="lines">Выбранные</button>
+    </div>
+    <div class="seg" id="discount-types" role="group" aria-label="Как считать">
+      <button type="button" data-type="pct">В %</button>
+      <button type="button" data-type="sum">В сомах</button>
+      <button type="button" data-type="price">Новая цена</button>
+    </div>
+    <input id="discount-value" class="input big num" inputmode="decimal" autocomplete="off" aria-label="Размер скидки">
+    <p class="pick-meta" id="discount-limit"></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="discount-remove">Убрать скидку</button>
+      <button type="button" class="btn ghost" id="discount-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Применить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="switch-dialog" class="switch-dialog" aria-labelledby="switch-title">
+  <div class="switch-head">
+    <h2 id="switch-title">Сменить кассира</h2>
+    <button type="button" class="icon-btn" id="switch-close" aria-label="Закрыть">×</button>
+  </div>
+  <div id="switch-users" class="switch-users"></div>
+  <form id="switch-form" class="switch-form" novalidate hidden>
+    <button type="button" class="link" id="switch-back">← другой сотрудник</button>
+    <div class="switch-who" id="switch-who"></div>
+    <input id="switch-code" class="input big num switch-code" type="password" autocomplete="off" aria-label="PIN-код или пароль">
+    <div class="pin-pad" id="pin-pad">
+      <button type="button" data-key="1">1</button><button type="button" data-key="2">2</button><button type="button" data-key="3">3</button>
+      <button type="button" data-key="4">4</button><button type="button" data-key="5">5</button><button type="button" data-key="6">6</button>
+      <button type="button" data-key="7">7</button><button type="button" data-key="8">8</button><button type="button" data-key="9">9</button>
+      <button type="button" data-key="clear" aria-label="Стереть всё">C</button><button type="button" data-key="0">0</button><button type="button" data-key="back" aria-label="Стереть цифру">⌫</button>
+    </div>
+    <p class="form-error" id="switch-error" role="alert" hidden></p>
+    <button type="submit" class="btn primary big">Войти</button>
+    <p class="pick-meta" id="switch-hint"></p>
+  </form>
+</dialog>
+
+<dialog id="password-dialog" aria-labelledby="password-dialog-title">
+  <form id="password-form" novalidate>
+    <h2 id="password-dialog-title">Пароль и PIN-код</h2>
+    <div class="form-grid">
+      <div class="field wide"><label for="pw-current">Текущий пароль</label><input id="pw-current" name="current" type="password" class="input" autocomplete="current-password" required></div>
+      <div class="field wide"><label for="pw-new">Новый пароль, не короче 8 символов (пусто — не менять)</label><input id="pw-new" name="password" type="password" class="input" autocomplete="new-password" minlength="8"></div>
+      <div class="field wide"><label for="pw-pin">PIN для быстрой смены кассира, 4–6 цифр (пусто — не менять)</label><input id="pw-pin" name="pin" type="password" class="input num" inputmode="numeric" autocomplete="off" maxlength="6"></div>
+    </div>
+    <p class="pick-meta">Новый пароль и PIN-код видит владелец магазина.</p>
+    <p class="form-error" id="password-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="password-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toasts" class="toasts" aria-live="polite"></div>
+
+<script src="common.js"></script>
+<script src="barcode.js"></script>
+<script src="codes.js"></script>
+<script src="print.js"></script>
+<script src="pos.js"></script>
+<script src="sales.js"></script>
+<script src="photos.js"></script>
+<script src="orders.js"></script>
+<script src="tasks.js"></script>
+<script src="my-timesheet.js"></script>
+<script src="certificates-kassa.js"></script>
+<script>session.ready.then(route);</script>
+</body>
+</html>
