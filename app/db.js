@@ -147,6 +147,9 @@ function open(file) {
     );
   `);
   addColumns('orders', [['sale_id', 'INTEGER']]);
+  // Предоплата переводом: способ (из настроек витрины), «Я оплатил» от покупателя и подтверждение сотрудником.
+  addColumns('orders', [['pay_id', "TEXT NOT NULL DEFAULT ''"], ['pay_name', "TEXT NOT NULL DEFAULT ''"], ['pay_method_id', 'INTEGER'],
+    ['paid_claimed_at', 'INTEGER'], ['paid_at', 'INTEGER'], ['paid_by', "TEXT NOT NULL DEFAULT ''"]]);
   // Способы оплаты: наличные, МБАНК, Оптима и всё, что заведёт владелец. kind — тип: cash, card, transfer, qr, other.
   // У чека — ссылка на способ и его название на момент продажи (чтобы переименование не меняло историю).
   db.exec(`
@@ -554,6 +557,16 @@ function open(file) {
   // Новые права (галочки): тем, у кого права настроены вручную, добавляем их по смыслу — один раз,
   // чтобы после обновления никто не потерял то, что уже видел.
   // Сертификаты: продавать и принимать — у кого была «Касса», список — у кого были «Покупатели».
+  // Подтверждать оплату заказов с витрины — у кого были «Заказы с витрины».
+  if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v6'").get()) {
+    const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
+    for (const u of db.prepare('SELECT id, rights FROM users WHERE rights IS NOT NULL').all()) {
+      let list;
+      try { list = JSON.parse(u.rights); } catch { continue; }
+      if (Array.isArray(list) && list.includes('orders') && !list.includes('orders.payment')) set.run(JSON.stringify([...list, 'orders.payment']), u.id);
+    }
+    db.prepare("INSERT INTO settings (key, value) VALUES ('rights_v6', '1')").run();
+  }
   if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v5'").get()) {
     const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
     for (const u of db.prepare('SELECT id, rights FROM users WHERE rights IS NOT NULL').all()) {
@@ -803,6 +816,9 @@ const SHOP_DEFAULTS = {
   pickup: true,
   minOrder: 0,
   deliveryPrice: 0,
+  // Способы оплаты переводом: { id, name, qrId — картинка QR, details — реквизиты, methodId — счёт в программе }.
+  // Если хоть один задан — заказ только по предоплате: покупатель платит и жмёт «Я оплатил», сотрудник сверяет.
+  payments: [],
   categories: [],
   bannerId: null,
   logoId: null,
@@ -3447,6 +3463,16 @@ function createStore(file) {
         pickup: Boolean(v.pickup),
         minOrder: round2(number(v.minOrder || 0, 'Минимальный заказ')),
         deliveryPrice: round2(number(v.deliveryPrice || 0, 'Стоимость доставки')),
+        payments: (Array.isArray(v.payments) ? v.payments : []).slice(0, 8).map((x, i) => {
+          const name = text(x?.name, 'Название способа оплаты', { max: 60 });
+          if (!name) throw new UserError(`Способ оплаты ${i + 1}: укажите название`);
+          const qrId = imageId(x.qrId);
+          const details = text(x.details, 'Реквизиты', { max: 500 });
+          if (!qrId && !details) throw new UserError(`«${name}»: загрузите QR-код или напишите реквизиты`);
+          const methodId = x.methodId ? Number(x.methodId) : null;
+          if (methodId && !db.prepare('SELECT 1 FROM payment_methods WHERE id = ?').get(methodId)) throw new UserError(`«${name}»: счёт не найден`);
+          return { id: String(x.id || '').replace(/[^\w-]/g, '').slice(0, 20) || `p${Date.now().toString(36)}${i}`, name, qrId, details, methodId };
+        }),
         categories: Array.isArray(v.categories) ? v.categories.map((c) => String(c).slice(0, 200)).slice(0, 500) : [],
         bannerId: imageId(v.bannerId),
         logoId: imageId(v.logoId),
@@ -3513,13 +3539,44 @@ function createStore(file) {
       const total = round2(goods + (delivery === 'delivery' ? s.deliveryPrice : 0));
       const address = text(input.address, 'Адрес', { max: 300 });
       if (delivery === 'delivery' && !address) throw new UserError('Укажите адрес доставки');
+      // Предоплата: покупатель уже перевёл деньги по QR и нажал «Я оплатил» — заказ ждёт сверки оплаты.
+      let pay = null;
+      if (s.payments.length) {
+        pay = s.payments.find((x) => x.id === String(input.payId || ''));
+        if (!pay) throw new UserError('Выберите способ оплаты');
+      }
       return transaction(db, () => {
-        const { lastInsertRowid: id } = db.prepare('INSERT INTO orders (created_at, name, phone, comment, delivery, address, total, customer_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-          .run(Date.now(), text(input.name || customer.name, 'Имя', { required: true, max: 80 }), customer.phone, text(input.comment, 'Комментарий', { max: 1000 }), delivery, address, total, customer.id);
+        const now = Date.now();
+        const { lastInsertRowid: id } = db.prepare(`INSERT INTO orders (created_at, name, phone, comment, delivery, address, total, customer_id, status, pay_id, pay_name, pay_method_id, paid_claimed_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(now, text(input.name || customer.name, 'Имя', { required: true, max: 80 }), customer.phone, text(input.comment, 'Комментарий', { max: 1000 }), delivery, address, total, customer.id,
+            pay ? (input.paid ? 'checking' : 'unpaid') : 'new', pay?.id || '', pay?.name || '', pay?.methodId ?? null, pay && input.paid ? now : null);
         const add = db.prepare('INSERT INTO order_items (order_id, product_id, name, qty, price) VALUES (?, ?, ?, ?, ?)');
         for (const l of lines) add.run(id, l.p.id, l.p.name, l.qty, l.p.price);
         return this.getOrder(id);
       });
+    },
+
+    // Покупатель нажал «Я оплатил» по своему заказу.
+    claimOrderPaid(id, customer) {
+      const o = this.getOrder(id);
+      if (!customer || (o.customer_id !== customer.id && o.phone !== customer.phone)) throw new UserError('Заказ не найден');
+      if (!o.pay_id) throw new UserError('Этот заказ оплачивается при получении');
+      if (o.status !== 'unpaid') throw new UserError(o.status === 'checking' ? 'Мы уже проверяем оплату' : 'Заказ уже оплачен или закрыт');
+      db.prepare("UPDATE orders SET status = 'checking', paid_claimed_at = ?, updated_at = ? WHERE id = ?").run(Date.now(), Date.now(), o.id);
+      return this.getOrder(o.id);
+    },
+
+    // Один раз: предоплата по QR-коду, который прислал владелец; самовывоз выключен (владелец: «неактуален»).
+    setupPrepay(defaultQr) {
+      if (this.setting('shop_prepay_v1', '0') === '1') return;
+      const s = this.shop();
+      if (!s.payments.length && defaultQr) {
+        const { id } = this.addImage({ mime: 'image/jpeg', data: defaultQr.toString('base64') });
+        this.setSetting('shop', JSON.stringify({ ...s, delivery: true, pickup: false,
+          payments: [{ id: 'qr', name: 'Перевод по QR-коду', qrId: id, details: '', methodId: null }] }));
+      }
+      this.setSetting('shop_prepay_v1', '1');
     },
 
     getOrder(id) {
@@ -3528,19 +3585,33 @@ function createStore(file) {
       return { ...o, items: db.prepare('SELECT product_id, name, qty, price FROM order_items WHERE order_id = ?').all(o.id) };
     },
 
+    // status 'active' — все незакрытые.
     listOrders({ status = '' } = {}) {
-      const rows = db.prepare(`SELECT id FROM orders WHERE ? = '' OR status = ? ORDER BY created_at DESC LIMIT 300`).all(status, status);
+      const rows = db.prepare(`SELECT id FROM orders WHERE ? = '' OR status = ? OR (? = 'active' AND status NOT IN ('done', 'cancelled'))
+        ORDER BY status = 'checking' DESC, created_at DESC LIMIT 300`).all(status, status, status);
       return rows.map((r) => this.getOrder(r.id));
     },
 
-    // Статусы: new — новый, confirmed — подтверждён, ready — собран, shipped — передан курьеру,
-    // done — выдан (доставлен), cancelled — отменён.
+    // Статусы: unpaid — ждёт оплату (предоплата), checking — покупатель нажал «Я оплатил», сверить перевод,
+    // new — новый (без предоплаты), confirmed — подтверждён / оплачен, ready — собран (упакован),
+    // shipped — передан курьеру, done — выдан (доставлен), cancelled — отменён.
     // При выдаче заказ пробивается чеком: товар списывается, выручка идёт тому, кто выдал.
-    setOrderStatus(id, { status, payment, methodId }, user = null) {
+    // canPay — есть право «Подтверждать оплату»: только с ним заказ из unpaid/checking уходит дальше.
+    setOrderStatus(id, { status, payment, methodId }, user = null, { canPay = true } = {}) {
       const o = this.getOrder(id);
-      if (!['new', 'confirmed', 'ready', 'shipped', 'done', 'cancelled'].includes(status)) throw new UserError('Неизвестный статус');
+      if (!['unpaid', 'checking', 'new', 'confirmed', 'ready', 'shipped', 'done', 'cancelled'].includes(status)) throw new UserError('Неизвестный статус');
       if (o.status === 'done' || o.status === 'cancelled') throw new UserError('Заказ уже закрыт');
+      const prepaid = Boolean(o.pay_id);
+      const unpaid = prepaid && !o.paid_at;
+      if (unpaid && !['unpaid', 'checking', 'confirmed', 'cancelled'].includes(status)) throw new UserError('Сначала подтвердите оплату заказа');
+      if (prepaid && ['unpaid', 'checking'].includes(status) && o.paid_at) throw new UserError('Оплата уже подтверждена');
+      if (unpaid && status !== 'cancelled' && status !== 'checking' && !canPay) throw new UserError('Подтверждать оплату может сотрудник с правом «Подтверждать оплату заказов»');
+      // Оплаченный заказ выдаётся на счёт, куда пришёл перевод.
+      if (status === 'done' && prepaid && !methodId && o.pay_method_id) methodId = o.pay_method_id;
       return transaction(db, () => {
+        if (unpaid && status === 'confirmed') {
+          db.prepare('UPDATE orders SET paid_at = ?, paid_by = ? WHERE id = ?').run(Date.now(), user ? user.name || user.email : '', o.id);
+        }
         let saleId = null;
         if (status === 'done') {
           // Покупатель с витрины попадает в программу лояльности по телефону: так его покупки видны в рейтинге.
@@ -3554,7 +3625,7 @@ function createStore(file) {
     },
 
     countNewOrders() {
-      return db.prepare("SELECT COUNT(*) AS n FROM orders WHERE status = 'new'").get().n;
+      return db.prepare("SELECT COUNT(*) AS n FROM orders WHERE status IN ('new', 'checking')").get().n;
     },
 
     setSetting(key, value) {

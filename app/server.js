@@ -121,6 +121,13 @@ if (mainStore.setting('shared_customers', '0') !== '1') {
 }
 // Аккаунты покупателей витрины — только у основного магазина (покупатели общие).
 const mainShopAuth = () => contextOf(1).shopAuth;
+// Один раз: предоплата по QR-коду владельца (assets/pay-qr.jpg), самовывоз выключен.
+try {
+  const qrFile = path.join(__dirname, 'assets', 'pay-qr.jpg');
+  mainStore.setupPrepay(fs.existsSync(qrFile) ? fs.readFileSync(qrFile) : null);
+} catch (err) {
+  console.error('Не получилось настроить оплату по QR:', err.message);
+}
 const storeName = (id) => branchList().find((b) => b.id === (id || 1))?.name || '';
 
 // Администратор из переменных. APP_PASSWORD — пароль из прошлых версий, где вход был без email.
@@ -800,7 +807,7 @@ const routes = [
   ['PUT', '/api/shop', (p, url, body) => store.setShop(body), 'shop'],
   ['GET', '/api/orders', (p, url) => store.listOrders({ status: url.searchParams.get('status') || '' }), 'orders'],
   ['PUT', '/api/orders/:id', (p, url, body, user) => {
-    const order = store.setOrderStatus(p.id, body, user);
+    const order = store.setOrderStatus(p.id, body, user, { canPay: !auth.enabled || can(user, 'orders.payment') });
     if (body.status === 'done' && order.sale_id) notifier.sale({ ...store.getSale(order.sale_id), items: order.items, paid: order.total }, user);
     return order;
   }, 'orders'],
@@ -959,7 +966,7 @@ const AUDIT_LABELS = {
   'PUT /api/customers/:id/login': 'Изменил доступ покупателя к витрине',
   'POST /api/settings/telegram/test': 'Отправил пробное уведомление',
 };
-const ORDER_NAMES = { confirmed: 'подтверждён', ready: 'собран', shipped: 'передан курьеру', done: 'выдан', cancelled: 'отменён' };
+const ORDER_NAMES = { unpaid: '— оплата не найдена', checking: '— на проверке оплаты', confirmed: 'подтверждён (оплата подтверждена)', ready: 'собран', shipped: 'передан курьеру', done: 'выдан', cancelled: 'отменён' };
 
 // Подробности для журнала: о чём именно речь. Пароли и токены сюда не попадают.
 const docTitle = (d) => `${store.docKinds[d.kind]?.name || d.kind} №${d.number}${d.direction === 'in' ? ' (входящее)' : ''} — ${d.status === 'posted' ? 'проведён' : 'не проведён'}, ${d.items?.length ?? ''} поз., ${d.kind === 'inventory' ? `недостача ${d.shortage_cost}, излишек ${d.surplus_cost}` : `${d.total} сом`}`;
@@ -1274,7 +1281,9 @@ async function handlePublic(req, res, url, user) {
   if (req.method === 'GET' && pathname === '/shop/theme.css') return sendBytes(res, 'text/css; charset=utf-8', shopCss(shop));
   if (req.method === 'GET' && pathname === '/shop/data') {
     if (!open) return sendJson(res, 404, { error: 'Витрина закрыта' });
-    const { css, ...publicSettings } = shop;
+    const { css, payments, ...rest } = shop;
+    // Способы оплаты: без счёта программы — покупателю он не нужен.
+    const publicSettings = { ...rest, payments: payments.map((x) => ({ id: x.id, name: x.name, details: x.details, qr: x.qrId ? `/img/${x.qrId}` : null })) };
     const products = store.shopProducts();
     return sendJson(res, 200, { settings: { ...publicSettings, preview: !shop.enabled }, products, categories: store.shopCategories(products) });
   }
@@ -1285,6 +1294,21 @@ async function handlePublic(req, res, url, user) {
     return sendBytes(res, found.mime, Buffer.from(found.data), 'public, max-age=86400');
   }
   if (pathname.startsWith('/shop/account/')) return shopAccount(req, res, url);
+  // Покупатель нажал «Я оплатил» — заказ ждёт сверки перевода.
+  const paidClaim = req.method === 'POST' && pathname.match(/^\/shop\/order\/(\d+)\/paid$/);
+  if (paidClaim) {
+    try {
+      const customer = shopAuth.current(req);
+      if (!customer) return sendJson(res, 401, { error: 'Войдите снова' });
+      const order = store.claimOrderPaid(paidClaim[1], customer);
+      notifier.orderPaid(order);
+      store.audit({ kind: 'change', userName: `Покупатель: ${order.name}`, ip: clientIp(req), device: device(req), action: 'Покупатель отметил оплату заказа', details: `Заказ №${order.id} на ${order.total} сом, ${order.pay_name}` });
+      return sendJson(res, 200, { ok: true, status: order.status });
+    } catch (err) {
+      if (err instanceof UserError) return sendJson(res, 400, { error: err.message });
+      throw err;
+    }
+  }
   if (req.method === 'POST' && pathname === '/shop/order') {
     const ip = clientIp(req);
     const now = Date.now();
@@ -1307,7 +1331,7 @@ async function handlePublic(req, res, url, user) {
         console.error('CRM: заказ не попал в сделки:', err.message);
       }
       store.audit({ kind: 'change', userName: `Покупатель: ${order.name}`, ip, device: device(req), action: 'Новый заказ с витрины', details: `Заказ №${order.id} на ${order.total} сом` });
-      return sendJson(res, 200, { ok: true, id: order.id, total: order.total });
+      return sendJson(res, 200, { ok: true, id: order.id, total: order.total, status: order.status });
     } catch (err) {
       if (err instanceof UserError) return sendJson(res, 400, { error: err.message });
       console.error(err);

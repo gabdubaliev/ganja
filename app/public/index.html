@@ -1257,6 +1257,11 @@
         <label class="check"><input type="checkbox" name="showStock"> Показывать покупателям остаток</label>
         <div class="field"><label>Категории на витрине (ничего не отмечено — все)</label><div class="cat-list" id="shop-cats"></div></div>
       </details>
+      <details open><summary>Оплата заказов</summary>
+        <p class="sub">Покупатель выбирает способ, видит QR-код и сумму, переводит деньги и нажимает «Я оплатил». Заказ появляется в «Заказах» со статусом «Проверить оплату»: сверьте поступление и нажмите «Оплата поступила» — после этого заказ упаковывают и передают курьеру. Нет ни одного способа — оплата при получении.</p>
+        <div class="shop-pays" id="shop-pays"></div>
+        <button type="button" class="btn small" id="shop-pay-add">+ Способ оплаты</button>
+      </details>
       <details><summary>Доставка и контакты</summary>
         <label class="check"><input type="checkbox" name="pickup"> Самовывоз</label>
         <label class="check"><input type="checkbox" name="delivery"> Доставка</label>

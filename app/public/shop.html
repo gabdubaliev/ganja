@@ -66,6 +66,7 @@
     <div class="ways" id="ways"></div>
     <div class="checkout-who" id="checkout-who"></div>
     <label id="address-row" hidden>Адрес доставки<input name="address" autocomplete="street-address"></label>
+    <div class="pay-box" id="pay-box" hidden></div>
     <label>Комментарий<textarea name="comment" rows="2" placeholder="Необязательно"></textarea></label>
     <label class="hp" aria-hidden="true">Сайт<input name="website" tabindex="-1" autocomplete="off"></label>
     <p class="error" id="checkout-error" role="alert" hidden></p>
@@ -74,7 +75,7 @@
       <p>Чтобы оформить заказ, войдите — это займёт минуту.</p>
       <div class="row2"><button type="button" class="primary" data-account="login">Войти</button><button type="button" class="ghost" data-account="register">Регистрация</button></div>
     </div>
-    <p class="small">Оплата при получении. Мы позвоним, чтобы подтвердить заказ.</p>
+    <p class="small" id="checkout-note">Оплата при получении. Мы позвоним, чтобы подтвердить заказ.</p>
   </form>
 </dialog>
 

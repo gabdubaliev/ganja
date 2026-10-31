@@ -77,6 +77,7 @@ function createNotifier(store) {
       `🛒 Новый заказ №${o.id} с витрины — ${rub(o.total)}`,
       `${o.name}, +${o.phone}`,
       o.delivery === 'delivery' ? `Доставка: ${o.address}` : 'Самовывоз',
+      o.pay_name ? `Оплата: ${o.pay_name}${o.status === 'checking' ? ' — покупатель отметил «Я оплатил», проверьте поступление' : ''}` : '',
       ...o.items.slice(0, 15).map((i) => `• ${i.name} × ${i.qty} = ${rub(i.qty * i.price)}`),
       o.items.length > 15 ? `…и ещё ${o.items.length - 15}` : '',
       o.comment ? `Комментарий: ${o.comment}` : '',
@@ -84,7 +85,16 @@ function createNotifier(store) {
     sendTelegram(lines.join('\n'), tg).catch((err) => console.error('Уведомление в Telegram не отправлено:', err.message));
   }
 
-  return { subscribe, broadcast, sale, order, sendTelegram, telegramSettings };
+  // Покупатель нажал «Я оплатил» — сверить поступление денег.
+  function orderPaid(o) {
+    broadcast('order', { id: o.id, total: o.total, name: o.name, items: o.items.length, at: Date.now() }, 'orders');
+    const tg = telegramSettings();
+    if (!tg.enabled) return;
+    sendTelegram(`💳 Заказ №${o.id}: покупатель отметил оплату ${rub(o.total)} (${o.pay_name}). Проверьте поступление и подтвердите в «Заказах».\n${o.name}, +${o.phone}`, tg)
+      .catch((err) => console.error('Уведомление в Telegram не отправлено:', err.message));
+  }
+
+  return { subscribe, broadcast, sale, order, orderPaid, sendTelegram, telegramSettings };
 }
 
 module.exports = { createNotifier };

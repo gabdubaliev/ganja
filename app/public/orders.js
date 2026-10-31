@@ -2,19 +2,43 @@
 
 // Заказы с интернет-витрины: подтвердить, собрать, выдать (пробивается чек) или отменить.
 
+// Предоплата переводом: «Ждёт оплату» → покупатель нажал «Я оплатил» → «Проверить оплату» →
+// сотрудник сверил поступление → «Оплачен — упаковать» → «Упакован» → «У курьера» → «Доставлен» (пробивается чек).
 const ORDER_STATUS = {
+  active: 'Активные',
+  checking: 'Проверить оплату',
+  unpaid: 'Ждут оплату',
   new: 'Новые',
-  confirmed: 'Подтверждены',
+  confirmed: 'Подтверждены, оплачены',
   ready: 'Собраны',
   shipped: 'У курьера',
   done: 'Выданы',
   cancelled: 'Отменены',
 };
-const ORDER_ONE = { new: 'Новый', confirmed: 'Подтверждён', ready: 'Собран', shipped: 'Передан курьеру', done: 'Выдан', cancelled: 'Отменён' };
+const ORDER_ONE = { unpaid: 'Ждёт оплату', checking: 'Проверить оплату', new: 'Новый', confirmed: 'Подтверждён', ready: 'Собран', shipped: 'Передан курьеру', done: 'Выдан', cancelled: 'Отменён' };
+const orderOne = (o) => (o.pay_id ? { confirmed: 'Оплачен — упаковать', ready: 'Упакован', done: 'Доставлен' }[o.status] : null) || ORDER_ONE[o.status] || o.status;
 // Доставку после сборки передают курьеру, самовывоз сразу выдают.
 const orderNext = (o) => ({ new: 'confirmed', confirmed: 'ready', ready: o.delivery === 'delivery' ? 'shipped' : 'done', shipped: 'done' })[o.status];
-const ORDER_NEXT_LABEL = { confirmed: 'Подтвердить', ready: 'Собран', shipped: 'Передать курьеру', done: 'Выдать и пробить чек' };
-const ordersView = { status: 'new', list: [], confirmCancel: null, methods: [] };
+const orderNextLabel = (o, next) => (o.pay_id ? { ready: 'Упакован', done: 'Доставлен — пробить чек' }[next] : null)
+  || { confirmed: 'Подтвердить', ready: 'Собран', shipped: 'Передать курьеру', done: 'Выдать и пробить чек' }[next];
+const ordersView = { status: 'active', list: [], confirmCancel: null, methods: [] };
+
+// Кнопки заказа: сверка оплаты, следующий шаг, выдача (способ оплаты — сам, если перевод уже пришёл на известный счёт).
+function orderActions(o) {
+  if (o.status === 'checking' || o.status === 'unpaid') {
+    if (!session.can('orders.payment')) return '<span class="pick-meta">Оплату подтверждает сотрудник с правом «Подтверждать оплату заказов»</span>';
+    return `<button type="button" class="btn small primary" data-order="${o.id}" data-to="confirmed">✓ Оплата поступила</button>
+      ${o.status === 'checking' ? `<button type="button" class="btn small" data-order="${o.id}" data-to="unpaid">Оплата не найдена</button>` : ''}`;
+  }
+  const next = orderNext(o);
+  if (next !== 'done') return `<button type="button" class="btn small primary" data-order="${o.id}" data-to="${next}">${orderNextLabel(o, next)}</button>`;
+  if (o.pay_id && o.pay_method_id) return `<button type="button" class="btn small primary" data-order="${o.id}" data-to="done">${orderNextLabel(o, next)}</button>`;
+  return ordersView.methods.length ? `<span class="pick-meta">${o.pay_id ? 'Доставлен, деньги пришли на:' : 'Выдать, оплата:'}</span>` + ordersView.methods.map((m, i) => `
+    <button type="button" class="btn small ${i === 0 ? 'primary' : ''}" data-order="${o.id}" data-to="done" data-method="${m.id}">${esc(m.name)}</button>`).join('')
+    : '<span class="neg">Нет доступных способов оплаты</span>';
+}
+const orderPayLine = (o) => (o.pay_id ? `<div class="order-pay">💳 ${esc(o.pay_name)}${o.paid_at ? ` · <b class="pos">оплата подтверждена</b> ${dateTime(o.paid_at)}${o.paid_by ? `, ${esc(o.paid_by)}` : ''}`
+  : o.status === 'checking' ? ` · покупатель нажал «Я оплатил» ${o.paid_claimed_at ? dateTime(o.paid_claimed_at) : ''} — <b>сверьте поступление ${money2(o.total)}</b>` : ' · <span class="neg">оплата не получена</span>'}</div>` : '');
 
 async function renderOrders() {
   try { ordersView.methods = await api('/api/payment-methods?mine=1'); } catch { ordersView.methods = []; }
@@ -26,16 +50,15 @@ async function renderOrders() {
     return toast(err.message, 'error');
   }
   const list = ordersView.list;
-  if (ordersView.status === 'new') setOrdersBadge(list.length);
+  if (ordersView.status === 'active') setOrdersBadge(list.filter((o) => o.status === 'new' || o.status === 'checking').length);
   $('#orders-summary').textContent = `${list.length} ${plural(list.length, ['заказ', 'заказа', 'заказов'])}`;
   $('#orders-list').innerHTML = list.length ? list.map((o) => {
-    const next = orderNext(o);
     const open = o.status !== 'done' && o.status !== 'cancelled';
     return `<article class="order ${o.status}">
       <header>
         <b class="num">№${o.id}</b>
         <span>${dateTime(o.created_at)}</span>
-        <span class="seg-tag ${o.status}">${ORDER_ONE[o.status]}</span>
+        <span class="seg-tag ${o.status}">${orderOne(o)}</span>
         <b class="num order-total">${money2(o.total)}</b>
       </header>
       <div class="order-body">
@@ -44,18 +67,16 @@ async function renderOrders() {
           <a href="tel:+${esc(o.phone)}">${phoneFmt(o.phone)}</a>
           <div>${o.delivery === 'delivery' ? `🚚 Доставка: ${esc(o.address)}` : '🏬 Самовывоз'}</div>
           ${o.comment ? `<div class="pick-meta">«${esc(o.comment)}»</div>` : ''}
+          ${orderPayLine(o)}
         </div>
         <ul class="order-items">${o.items.map((i) => `<li><span>${esc(i.name)}</span><span class="num">${qtyFmt.format(i.qty)} × ${money2(i.price)}</span></li>`).join('')}</ul>
       </div>
       ${open ? `<div class="doc-actions">
-        ${next === 'done' ? (ordersView.methods.length ? `<span class="pick-meta">Выдать, оплата:</span>` + ordersView.methods.map((m, i) => `
-          <button type="button" class="btn small ${i === 0 ? 'primary' : ''}" data-order="${o.id}" data-to="done" data-method="${m.id}">${esc(m.name)}</button>`).join('')
-          : '<span class="neg">Нет доступных способов оплаты</span>')
-        : `<button type="button" class="btn small primary" data-order="${o.id}" data-to="${next}">${ORDER_NEXT_LABEL[next]}</button>`}
+        ${orderActions(o)}
         <button type="button" class="btn small ${ordersView.confirmCancel === o.id ? 'danger' : 'ghost'}" data-order="${o.id}" data-to="cancelled">${ordersView.confirmCancel === o.id ? 'Точно отменить?' : 'Отменить'}</button>
       </div>` : `<p class="pick-meta">${o.status === 'done' ? `Выдан ${o.updated_at ? dateTime(o.updated_at) : ''}${o.updated_by ? ', ' + esc(o.updated_by) : ''}${o.sale_id ? ` · чек №${o.sale_id}` : ''}` : `Отменён ${o.updated_by ? esc(o.updated_by) : ''}`}</p>`}
     </article>`;
-  }).join('') : `<p class="empty">${ordersView.status === 'new' ? 'Новых заказов нет. Как только покупатель оформит заказ на витрине, он появится здесь.' : 'Заказов нет'}</p>`;
+  }).join('') : `<p class="empty">${ordersView.status === 'active' || ordersView.status === 'new' ? 'Открытых заказов нет. Как только покупатель оформит заказ на витрине, он появится здесь.' : 'Заказов нет'}</p>`;
 }
 
 $('#orders-filter').addEventListener('click', (e) => {
@@ -75,7 +96,7 @@ $('#orders-list').addEventListener('click', async (e) => {
   ordersView.confirmCancel = null;
   try {
     const o = await api(`/api/orders/${id}`, { method: 'PUT', body: { status: btn.dataset.to, methodId: btn.dataset.method ? Number(btn.dataset.method) : undefined } });
-    toast(o.status === 'done' ? `Заказ №${o.id} выдан, чек №${o.sale_id} пробит` : `Заказ №${o.id}: ${ORDER_ONE[o.status].toLowerCase()}`);
+    toast(o.status === 'done' ? `Заказ №${o.id} выдан, чек №${o.sale_id} пробит` : `Заказ №${o.id}: ${orderOne(o).toLowerCase()}`);
     renderOrders();
   } catch (err) {
     toast(err.message, 'error');

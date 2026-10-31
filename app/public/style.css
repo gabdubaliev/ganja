@@ -419,6 +419,13 @@ button.thumb:hover { border-color: var(--series); }
 .customer-find, .customer-new { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .customer-find .input, .customer-new .input { flex: 1 1 160px; width: auto; }
 .customer-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.shop-pays { display: grid; gap: 10px; }
+.shop-pay { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; }
+.shop-pay .qr { display: grid; gap: 6px; justify-items: center; align-content: start; }
+.shop-pay .qr img { width: 120px; height: 120px; object-fit: contain; background: #fff; border-radius: 8px; border: 1px solid var(--line); }
+.shop-pay .qr .empty-qr { width: 120px; height: 120px; display: grid; place-items: center; border: 1px dashed var(--line); border-radius: 8px; color: var(--ink-2); font-size: 12px; text-align: center; }
+.shop-pay .fields { display: grid; gap: 6px; }
+.shop-pay textarea { min-height: 54px; }
 .customer-certs { grid-column: 1 / -1; display: grid; gap: 6px; }
 .customer-cert-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border-radius: 10px; background: var(--accent-soft, rgba(37, 99, 235, 0.08)); font-size: 13px; }
 .customer-cert-row b, .customer-cert-row > .pick-meta { white-space: nowrap; }
@@ -545,6 +552,9 @@ tr.variant-row .pname { font-weight: 500; }
 .seg-tag.leaving, .seg-tag.ready { background: rgba(236, 131, 90, 0.18); color: #a04a1f; }
 .seg-tag.sleeping, .seg-tag.cancelled { background: rgba(208, 59, 59, 0.12); color: var(--critical); }
 .seg-tag.new { background: var(--critical); color: #fff; }
+.seg-tag.checking { background: #f59e0b; color: #fff; }
+.seg-tag.unpaid { background: var(--critical-soft, rgba(225, 29, 72, 0.12)); color: var(--critical); }
+.order-pay { margin-top: 4px; font-size: 13px; }
 .customers-table { min-width: 980px; }
 .customers-table th:nth-child(2), .customers-table td:nth-child(2) { text-align: left; }
 

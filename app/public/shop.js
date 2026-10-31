@@ -16,7 +16,7 @@ const FONTS = {
   condensed: '"Roboto Condensed", "Arial Narrow", "Segoe UI", system-ui, sans-serif',
 };
 
-const state = { settings: null, products: [], categories: [], cat: '', query: '', way: 'pickup', cart: loadCart(), open: null, sel: {}, me: null, orders: [], codeFor: null };
+const state = { settings: null, products: [], categories: [], cat: '', query: '', way: 'pickup', payId: '', payOrder: null, cart: loadCart(), open: null, sel: {}, me: null, orders: [], codeFor: null };
 
 function loadCart() {
   try { return JSON.parse(localStorage.getItem('shop.cart')) || {}; } catch { return {}; }
@@ -267,10 +267,34 @@ function renderCart() {
   for (const el of $('#checkout').querySelectorAll('#ways, #checkout-who, label, button[type=submit], .small')) el.hidden = guest || (el.id === 'address-row' && state.way !== 'delivery');
   $('#ways').hidden = guest || !(s.pickup && s.delivery);
   $('#checkout-who').innerHTML = state.me ? `Заказ на <b>${esc(state.me.name)}</b>, ${esc(phoneText(state.me.phone))}` : '';
+  // Предоплата: способ оплаты, QR-код и сумма — до оформления. Заказ уходит, когда покупатель нажал «Я оплатил».
+  const pays = s.payments || [];
+  if (pays.length && !pays.some((x) => x.id === state.payId)) state.payId = pays[0].id;
+  $('#pay-box').hidden = guest || !pays.length;
+  if (pays.length && !guest) $('#pay-box').innerHTML = payBoxHtml(pays, state.payId, goods + delivery, 'checkout');
+  $('#checkout-note').textContent = pays.length
+    ? `${s.delivery && !s.pickup ? 'Доставка только по предоплате. ' : ''}После проверки оплаты мы упакуем заказ и передадим курьеру.`
+    : 'Оплата при получении. Мы позвоним, чтобы подтвердить заказ.';
   const short = s.minOrder && goods < s.minOrder;
   const submit = $('#checkout button[type=submit]');
   submit.disabled = Boolean(short);
-  submit.textContent = short ? `Минимальный заказ — ${rub(s.minOrder)}` : 'Оформить заказ';
+  submit.textContent = short ? `Минимальный заказ — ${rub(s.minOrder)}` : pays.length ? '✅ Я оплатил — оформить заказ' : 'Оформить заказ';
+}
+
+// Блок оплаты: выбор способа, сумма, QR-код (можно сохранить и открыть в приложении банка) и реквизиты.
+function payBoxHtml(pays, payId, amount, where) {
+  const p = pays.find((x) => x.id === payId) || pays[0];
+  return `<h3>Оплата</h3>
+    ${pays.length > 1 ? `<div class="pay-ways">${pays.map((x) => `<button type="button" data-pay="${esc(x.id)}" data-pay-where="${where}" aria-pressed="${x.id === p.id}">${esc(x.name)}</button>`).join('')}</div>` : `<div><b>${esc(p.name)}</b></div>`}
+    <div class="pay-amount">Переведите <b>${rub(amount)}</b></div>
+    ${p.qr ? `<img class="pay-qr" src="${p.qr}" alt="QR-код для оплаты: ${esc(p.name)}">
+      <div class="pay-links"><a href="${p.qr}" download="qr-oplata.jpg">⬇ Сохранить QR-код</a></div>` : ''}
+    ${p.details ? `<div class="pay-details">${esc(p.details)}</div><div class="pay-links"><button type="button" data-copy="${esc(p.details)}">Скопировать реквизиты</button></div>` : ''}
+    <ol class="pay-steps">
+      <li>Отсканируйте QR-код в приложении банка${p.qr ? ' (с телефона — сохраните картинку и выберите её в приложении)' : ''}.</li>
+      <li>Переведите ${rub(amount)}.</li>
+      <li>Нажмите «Я оплатил» — мы проверим поступление.</li>
+    </ol>`;
 }
 
 function renderAll() {
@@ -302,6 +326,19 @@ document.addEventListener('click', (e) => {
     renderCats();
     return renderGrid();
   }
+  const pay = e.target.closest('[data-pay]');
+  if (pay) {
+    state.payId = pay.dataset.pay;
+    if (pay.dataset.payWhere === 'checkout') return renderCart();
+    return renderProfile();
+  }
+  const copy = e.target.closest('[data-copy]');
+  if (copy) {
+    navigator.clipboard?.writeText(copy.dataset.copy).then(() => toast('Реквизиты скопированы'), () => toast('Выделите реквизиты и скопируйте вручную'));
+    return;
+  }
+  const claim = e.target.closest('[data-paid]');
+  if (claim) return claimPaid(Number(claim.dataset.paid), claim);
   const way = e.target.closest('[data-way]');
   if (way) {
     state.way = way.dataset.way;
@@ -333,6 +370,7 @@ $('#checkout').addEventListener('submit', async (e) => {
       body: JSON.stringify({
         address: f.elements.address.value,
         comment: f.elements.comment.value, website: f.elements.website.value, delivery: state.way,
+        payId: state.payId, paid: Boolean(state.settings.payments?.length),
         items: cartLines().map((l) => ({ productId: l.p.id, qty: l.qty })),
       }),
     });
@@ -344,7 +382,9 @@ $('#checkout').addEventListener('submit', async (e) => {
     saveCart();
     renderAll();
     $('#cart').close();
-    $('#done-text').textContent = `Номер заказа: ${data.id}. Сумма: ${rub(data.total)}. Мы скоро позвоним, чтобы подтвердить.`;
+    $('#done-text').textContent = data.status === 'checking'
+      ? `Номер заказа: ${data.id}. Сумма: ${rub(data.total)}. Мы проверим поступление оплаты, упакуем заказ и передадим курьеру. Статус — в «Моих заказах».`
+      : `Номер заказа: ${data.id}. Сумма: ${rub(data.total)}. Мы скоро позвоним, чтобы подтвердить.`;
     $('#done').showModal();
     f.reset();
   } catch (error) {
@@ -358,7 +398,23 @@ $('#checkout').addEventListener('submit', async (e) => {
 
 /* ---------- Аккаунт покупателя ---------- */
 const phoneText = (p) => (p.length === 12 && p.startsWith('996') ? `+996 ${p.slice(3, 6)} ${p.slice(6, 9)} ${p.slice(9)}` : '+' + p);
-const ORDER_STATUS = { new: 'Принят', confirmed: 'Подтверждён', ready: 'Собран', shipped: 'Передан курьеру', done: 'Получен', cancelled: 'Отменён' };
+const ORDER_STATUS = { unpaid: 'Ждём оплату', checking: 'Проверяем оплату', new: 'Принят', confirmed: 'Подтверждён', ready: 'Собран', shipped: 'Передан курьеру', done: 'Получен', cancelled: 'Отменён' };
+// У оплаченного заказа «подтверждён» — значит, оплата пришла и заказ упаковывают.
+const orderStatusText = (o) => (o.pay_id && o.status === 'confirmed' ? 'Оплачен, упаковываем' : o.pay_id && o.status === 'ready' ? 'Упакован' : ORDER_STATUS[o.status] || o.status);
+
+// «Я оплатил» по заказу, где оплата не нашлась или покупатель ещё не платил.
+async function claimPaid(id, btn) {
+  btn.disabled = true;
+  try {
+    await account(`../order/${id}/paid`);
+    toast('Спасибо! Проверим поступление оплаты');
+    await loadMe();
+    renderProfile();
+  } catch (err) {
+    toast(err.message);
+    btn.disabled = false;
+  }
+}
 
 async function account(path, body, method = 'POST') {
   const res = await fetch('/shop/account/' + path, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
@@ -462,9 +518,11 @@ function renderProfile() {
   renderBonusLog();
   $('#profile-orders').innerHTML = state.orders.length ? state.orders.map((o) => `
     <div class="profile-order">
-      <div><b>№${o.id}</b> · ${new Date(o.created_at).toLocaleDateString('ru-RU')} <span class="status s-${o.status}">${ORDER_STATUS[o.status] || o.status}</span></div>
+      <div><b>№${o.id}</b> · ${new Date(o.created_at).toLocaleDateString('ru-RU')} <span class="status s-${o.status}">${orderStatusText(o)}</span></div>
       <div class="small left">${o.items.map((i) => `${esc(i.name)} × ${qtyFmt.format(i.qty)}`).join(', ')}</div>
       <b>${rub(o.total)}</b>
+      ${o.status === 'unpaid' && state.settings?.payments?.length ? `<p class="small left">Мы не нашли оплату по этому заказу. Если вы уже перевели деньги — свяжитесь с нами${state.settings.phone ? `: ${esc(state.settings.phone)}` : ''}. Если нет — оплатите и нажмите «Я оплатил».</p>
+        <div class="pay-box">${payBoxHtml(state.settings.payments, state.payId, o.total, 'profile')}<button type="button" class="primary" data-paid="${o.id}">✅ Я оплатил</button></div>` : ''}
     </div>`).join('') : '<p class="small left">Онлайн-заказов пока нет</p>';
   const f = $('#profile-form');
   f.elements.name.value = me.name;

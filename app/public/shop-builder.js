@@ -30,6 +30,7 @@ async function renderShop() {
   renderShopTools();
   if (!created) return;
   fillShopForm();
+  loadPayAccounts();
   if (shopFrame().src.endsWith('about:blank')) {
     builder.ready = false;
     shopFrame().src = '/shop';
@@ -64,9 +65,68 @@ function fillShopForm() {
   const cats = [...new Set(builder.products.map((p) => p.category).filter(Boolean))].sort();
   $('#shop-cats').innerHTML = cats.length ? cats.map((c) => `<label class="check"><input type="checkbox" data-cat="${esc(c)}" ${d.categories.includes(c) ? 'checked' : ''}> ${esc(c)}</label>`).join('') : '<span class="pick-meta">У товаров пока нет категорий</span>';
   renderImagePicks();
+  renderPays();
   renderOutputs();
   markDirty();
 }
+
+/* ---------- Способы оплаты: QR-код, реквизиты, счёт ---------- */
+let payAccounts = [];
+async function loadPayAccounts() {
+  try { payAccounts = (await api('/api/payment-methods')).methods || []; } catch { payAccounts = []; }
+  renderPays();
+}
+function renderPays() {
+  const list = builder.draft.payments || [];
+  $('#shop-pays').innerHTML = list.length ? list.map((p, i) => `<div class="shop-pay">
+      <div class="qr">${p.qrId ? `<img src="/img/${p.qrId}" alt="QR-код">` : '<div class="empty-qr">QR-кода нет</div>'}
+        <button type="button" class="btn small" data-pay-qr="${i}">${p.qrId ? 'Заменить QR' : 'Загрузить QR'}</button>
+        ${p.qrId ? `<button type="button" class="btn small ghost" data-pay-qr-del="${i}">Убрать QR</button>` : ''}</div>
+      <div class="fields">
+        <div class="field"><label>Название для покупателя</label><input class="input" data-pay-i="${i}" data-pay-f="name" value="${esc(p.name || '')}" placeholder="Например: МБАНК по QR"></div>
+        <div class="field"><label>Реквизиты (необязательно)</label><textarea class="input" data-pay-i="${i}" data-pay-f="details" placeholder="Номер телефона или счёта, получатель">${esc(p.details || '')}</textarea></div>
+        <div class="field"><label>Куда приходят деньги (счёт в программе)</label><select class="input" data-pay-i="${i}" data-pay-f="methodId">
+          <option value="">— выбрать при выдаче —</option>${payAccounts.map((m) => `<option value="${m.id}" ${Number(p.methodId) === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select></div>
+        <button type="button" class="btn small ghost danger-text" data-pay-del="${i}">Удалить способ</button>
+      </div></div>`).join('') : '<p class="pick-meta">Способов оплаты нет — покупатели платят при получении.</p>';
+}
+$('#shop-pays').addEventListener('input', (e) => {
+  const el = e.target.closest('[data-pay-f]');
+  if (!el) return;
+  const p = builder.draft.payments[Number(el.dataset.payI)];
+  p[el.dataset.payF] = el.dataset.payF === 'methodId' ? (el.value ? Number(el.value) : null) : el.value;
+});
+$('#shop-pays').addEventListener('change', (e) => { if (e.target.closest('[data-pay-f]')) { markDirty(); pushPreview(); } });
+$('#shop-pay-add').addEventListener('click', () => {
+  builder.draft.payments = [...(builder.draft.payments || []), { id: '', name: 'Перевод по QR-коду', qrId: null, details: '', methodId: null }];
+  renderPays();
+  markDirty();
+});
+$('#shop-pays').addEventListener('click', async (e) => {
+  const qr = e.target.closest('[data-pay-qr]');
+  const qrDel = e.target.closest('[data-pay-qr-del]');
+  const del = e.target.closest('[data-pay-del]');
+  const list = builder.draft.payments;
+  if (del) {
+    list.splice(Number(del.dataset.payDel), 1);
+  } else if (qrDel) {
+    list[Number(qrDel.dataset.payQrDel)].qrId = null;
+  } else if (qr) {
+    const file = await pickFile();
+    if (!file) return;
+    try {
+      // PNG без сжатия деталей — чтобы QR-код точно считывался.
+      const { id } = await api('/api/images', { method: 'POST', body: { mime: 'image/png', data: await shrinkPhoto(file, 1000, 'image/png') } });
+      list[Number(qr.dataset.payQr)].qrId = id;
+      toast('QR-код загружен. Нажмите «Сохранить», чтобы покупатели увидели новый');
+    } catch (err) {
+      return toast(err.message, 'error');
+    }
+  } else return;
+  renderPays();
+  markDirty();
+  pushPreview();
+});
 
 function renderImagePicks() {
   for (const el of document.querySelectorAll('#shop-form .image-pick')) {
@@ -102,7 +162,8 @@ function draftProducts() {
 
 function pushPreview() {
   if (!builder.ready) return;
-  shopFrame().contentWindow.postMessage({ type: 'shop-preview', settings: builder.draft, products: draftProducts() }, location.origin);
+  const settings = { ...builder.draft, payments: (builder.draft.payments || []).map((p) => ({ ...p, qr: p.qrId ? `/img/${p.qrId}` : null })) };
+  shopFrame().contentWindow.postMessage({ type: 'shop-preview', settings, products: draftProducts() }, location.origin);
 }
 
 function markDirty() {
