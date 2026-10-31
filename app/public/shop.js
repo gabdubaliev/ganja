@@ -372,6 +372,10 @@ async function loadMe() {
     const d = await fetch('/shop/account/me').then((r) => r.json());
     state.me = d.customer;
     state.orders = d.orders || [];
+    state.purchases = d.purchases || [];
+    state.bonusLog = d.bonusLog || [];
+    state.loyalty = d.loyalty || null;
+    if ($('#account').open && !$('#account [data-view="profile"]').hidden) renderProfile();
   } catch {
     state.me = null;
   }
@@ -380,7 +384,7 @@ async function loadMe() {
 }
 
 function renderAccountButton() {
-  $('#account-label').textContent = state.me ? state.me.name.split(' ')[0] : 'Войти';
+  $('#account-label').textContent = state.me ? state.me.name.split(' ')[0] + (state.me.bonus ? ` · ${new Intl.NumberFormat('ru-RU').format(state.me.bonus)} Б` : '') : 'Войти';
 }
 
 function openAccount(view) {
@@ -451,12 +455,14 @@ function renderProfile() {
   $('#profile-card').textContent = me.card || '—';
   $('#profile-bday').hidden = !me.birthdayDiscount;
   $('#profile-bday').textContent = me.birthdayDiscount ? `🎂 С днём рождения! Скидка ${me.birthdayDiscount}% — назовите номер телефона на кассе.` : '';
+  renderPurchases();
+  renderBonusLog();
   $('#profile-orders').innerHTML = state.orders.length ? state.orders.map((o) => `
     <div class="profile-order">
       <div><b>№${o.id}</b> · ${new Date(o.created_at).toLocaleDateString('ru-RU')} <span class="status s-${o.status}">${ORDER_STATUS[o.status] || o.status}</span></div>
       <div class="small left">${o.items.map((i) => `${esc(i.name)} × ${qtyFmt.format(i.qty)}`).join(', ')}</div>
       <b>${rub(o.total)}</b>
-    </div>`).join('') : '<p class="small left">Заказов пока нет</p>';
+    </div>`).join('') : '<p class="small left">Онлайн-заказов пока нет</p>';
   const f = $('#profile-form');
   f.elements.name.value = me.name;
   for (const r of f.querySelectorAll('input[name="gender"]')) r.checked = r.value === me.gender;
@@ -466,7 +472,48 @@ function renderProfile() {
   f.elements.newPassword.value = '';
 }
 
-$('#account-open').addEventListener('click', () => openAccount());
+const dayText = (t) => { const d = new Date(t); return d.toLocaleDateString('ru-RU', d.getFullYear() === new Date().getFullYear() ? { day: 'numeric', month: 'long' } : { day: 'numeric', month: 'long', year: 'numeric' }); };
+const bonusFmt = (n) => new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(n);
+
+// Покупки в магазине и выданные онлайн-заказы.
+function renderPurchases() {
+  const list = state.purchases || [];
+  const paid = list.filter((s) => !s.refunded_at);
+  $('#profile-purchases-sum').textContent = paid.length
+    ? `Покупок: ${paid.length} на ${rub(paid.reduce((sum, s) => sum + s.total, 0))}`
+    : '';
+  $('#profile-purchases').innerHTML = list.length ? list.map((s) => `
+    <div class="profile-order${s.refunded_at ? ' refunded' : ''}">
+      <div class="row"><span><b>Чек №${s.id}</b> · ${dayText(s.created_at)}${s.order_id ? ` <span class="status">заказ №${s.order_id}</span>` : ''}${s.refunded_at ? ' <span class="status s-cancelled">Возврат</span>' : ''}</span><b>${rub(s.total)}</b></div>
+      <div class="small left">${s.items.map((i) => `${esc(i.name)} × ${qtyFmt.format(i.qty)} — ${rub(i.price)}`).join('<br>')}</div>
+      ${s.bonus_spent || s.bonus_earned ? `<div class="bonus-tag">${s.bonus_spent ? `<span class="bonus-minus">−${bonusFmt(s.bonus_spent)}</span> бонусов списано` : ''}${s.bonus_spent && s.bonus_earned ? ' · ' : ''}${s.bonus_earned ? `<span class="bonus-plus">+${bonusFmt(s.bonus_earned)}</span> бонусов начислено` : ''}</div>` : ''}
+    </div>`).join('') : '<p class="small left">Покупок пока нет. Назовите номер телефона на кассе — покупка появится здесь, и вам начислятся бонусы.</p>';
+}
+
+// Как работают бонусы и история: начисления и списания.
+function renderBonusLog() {
+  const l = state.loyalty;
+  $('#profile-bonus-rules').textContent = l && l.enabled
+    ? `С каждой покупки возвращается ${l.percent}% бонусами. 1 бонус = 1 сом: бонусами можно оплатить до ${l.maxPay}% покупки. Назовите номер телефона на кассе.`
+    : 'Бонусная программа сейчас не действует.';
+  const log = state.bonusLog || [];
+  $('#profile-bonus-log').innerHTML = log.length ? log.map((b) => `
+    <div class="profile-order"><div class="row">
+      <span>${esc(b.reason || (b.delta > 0 ? 'Начислено' : 'Списано'))}<br><span class="bonus-tag">${dayText(b.created_at)}</span></span>
+      <span class="${b.delta > 0 ? 'bonus-plus' : 'bonus-minus'}">${b.delta > 0 ? '+' : '−'}${bonusFmt(Math.abs(b.delta))}</span>
+    </div></div>`).join('') : '<p class="small left">Начислений и списаний пока не было.</p>';
+}
+
+$('#account .profile-tabs').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-ptab]');
+  if (b) showProfileTab(b.dataset.ptab);
+});
+function showProfileTab(tab) {
+  for (const b of document.querySelectorAll('#account [data-ptab]')) b.setAttribute('aria-selected', String(b.dataset.ptab === tab));
+  for (const p of document.querySelectorAll('#account [data-pane]')) p.hidden = p.dataset.pane !== tab;
+}
+
+$('#account-open').addEventListener('click', () => { if (state.me) loadMe(); openAccount(); });
 document.addEventListener('click', (e) => {
   const link = e.target.closest('[data-account]');
   if (!link) return;
@@ -533,6 +580,8 @@ $('#logout').addEventListener('click', async () => {
   await account('logout').catch(() => {});
   state.me = null;
   state.orders = [];
+  state.purchases = [];
+  state.bonusLog = [];
   renderAccountButton();
   renderCart();
   $('#account').close();

@@ -1155,7 +1155,12 @@ async function shopAccount(req, res, url) {
       const c = shopAuth.current(req);
       if (!c) return sendJson(res, 200, { customer: null });
       const full = store.findCustomer(c.id);
-      return sendJson(res, 200, { customer: { ...shopAuth.publicCustomer(c), birthdayDiscount: full.birthdayDiscount }, orders: shopAuth.myOrders(c), loyalty: store.loyalty() });
+      const { enabled, percent, maxPay } = store.loyalty();
+      return sendJson(res, 200, {
+        customer: { ...shopAuth.publicCustomer(c), birthdayDiscount: full.birthdayDiscount },
+        orders: shopAuth.myOrders(c), purchases: shopAuth.myPurchases(c), bonusLog: shopAuth.myBonusLog(c),
+        loyalty: { enabled, percent, maxPay },
+      });
     }
     if (req.method !== 'POST' && req.method !== 'PUT') return sendJson(res, 405, { error: 'Неверный запрос' });
     const body = await readBody(req);

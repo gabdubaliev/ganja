@@ -121,6 +121,17 @@ img { max-width: 100%; display: block; }
 .status { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 650; background: var(--accent-soft); color: var(--accent); }
 .status.s-done { background: rgba(22, 163, 74, 0.14); color: #15803d; }
 .status.s-cancelled { background: rgba(225, 29, 72, 0.12); color: #be123c; }
+.profile-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; border-radius: 999px; background: var(--accent-soft); }
+.profile-tabs button { border: 0; background: none; padding: 9px 6px; border-radius: 999px; font-weight: 650; font-size: 14px; color: inherit; cursor: pointer; }
+.profile-tabs button[aria-selected="true"] { background: var(--surface); color: var(--accent); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+.profile-pane { display: grid; gap: 8px; }
+.profile-pane[hidden] { display: none; }
+.profile-order .row { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.profile-order .row > :last-child { white-space: nowrap; }
+.bonus-tag { font-size: 13px; color: var(--muted, #666); }
+.bonus-plus { color: #15803d; font-weight: 700; }
+.bonus-minus { color: #be123c; font-weight: 700; }
+.profile-order.refunded { opacity: 0.6; }
 .profile-edit summary { cursor: pointer; font-weight: 600; color: var(--accent); }
 .acc-form { display: grid; gap: 10px; margin-top: 10px; }
 .shop-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 50; background: #141625; color: #fff; padding: 12px 20px; border-radius: 999px; font-weight: 600; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); }

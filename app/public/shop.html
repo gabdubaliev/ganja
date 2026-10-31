@@ -133,8 +133,22 @@
       <div><span class="small left">Номер карты</span><b id="profile-card"></b></div>
     </div>
     <p class="birthday-note" id="profile-bday" hidden></p>
-    <h3>Мои заказы</h3>
-    <div id="profile-orders" class="profile-orders"></div>
+    <div class="profile-tabs" role="tablist">
+      <button type="button" role="tab" data-ptab="purchases" aria-selected="true">🧾 Покупки</button>
+      <button type="button" role="tab" data-ptab="bonus" aria-selected="false">🎁 Бонусы</button>
+      <button type="button" role="tab" data-ptab="orders" aria-selected="false">📦 Заказы</button>
+    </div>
+    <div class="profile-pane" data-pane="purchases">
+      <p class="small left" id="profile-purchases-sum"></p>
+      <div id="profile-purchases" class="profile-orders"></div>
+    </div>
+    <div class="profile-pane" data-pane="bonus" hidden>
+      <p class="small left" id="profile-bonus-rules"></p>
+      <div id="profile-bonus-log" class="profile-orders"></div>
+    </div>
+    <div class="profile-pane" data-pane="orders" hidden>
+      <div id="profile-orders" class="profile-orders"></div>
+    </div>
     <details class="profile-edit">
       <summary>Изменить данные или пароль</summary>
       <form id="profile-form" class="acc-form" novalidate>

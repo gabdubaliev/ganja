@@ -269,6 +269,22 @@ function createShopAuth(store, { onCodeRequested } = {}) {
         .map((r) => store.getOrder(r.id));
     },
 
+    // Покупки покупателя в магазине (чеки с кассы и выданные онлайн-заказы), последние 100.
+    myPurchases(c) {
+      const sales = db.prepare(`SELECT s.id, s.created_at, s.total, s.bonus_spent, s.bonus_earned, s.refunded_at, s.discount,
+          (SELECT o.id FROM orders o WHERE o.sale_id = s.id LIMIT 1) AS order_id
+        FROM sales s WHERE s.customer_id = ? ORDER BY s.created_at DESC, s.id DESC LIMIT 100`).all(c.id);
+      if (!sales.length) return [];
+      const items = db.prepare(`SELECT sale_id, name, qty, price FROM sale_items WHERE sale_id IN (${sales.map(() => '?').join(',')}) ORDER BY id`)
+        .all(...sales.map((s) => s.id));
+      return sales.map((s) => ({ ...s, items: items.filter((i) => i.sale_id === s.id).map(({ sale_id, ...i }) => i) }));
+    },
+
+    // История бонусов для покупателя — без имён сотрудников.
+    myBonusLog(c) {
+      return db.prepare('SELECT id, created_at, delta, reason, sale_id FROM bonus_log WHERE customer_id = ? ORDER BY created_at DESC, id DESC LIMIT 200').all(c.id);
+    },
+
     updateProfile(c, input) {
       const name = personName(input.name);
       if (!name) throw new UserError('Укажите имя');
