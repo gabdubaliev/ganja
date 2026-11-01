@@ -119,9 +119,10 @@ install -d -o shop -g shop -m 750 "$BACKUP_DIR"
 
 # База, принесённая рядом со скриптом. Файлы -wal и -shm — её часть, переносим вместе.
 # Базы филиалов (branch-N.db) — вместе с основной: покупатели, бонусы и сертификаты у них общие.
+# studio.db — MONT AI Studio (съёмки, исходники, задания), если ею пользовались.
 if [[ -f $SRC_DIR/shop.db && ! -f $DATA_DIR/shop.db ]]; then
   say "Переношу базу $SRC_DIR/shop.db"
-  for f in "$SRC_DIR"/shop.db "$SRC_DIR"/shop.db-wal "$SRC_DIR"/shop.db-shm "$SRC_DIR"/branch-*.db "$SRC_DIR"/branch-*.db-wal "$SRC_DIR"/branch-*.db-shm; do
+  for f in "$SRC_DIR"/shop.db "$SRC_DIR"/shop.db-wal "$SRC_DIR"/shop.db-shm "$SRC_DIR"/branch-*.db "$SRC_DIR"/branch-*.db-wal "$SRC_DIR"/branch-*.db-shm "$SRC_DIR"/studio.db "$SRC_DIR"/studio.db-wal "$SRC_DIR"/studio.db-shm; do
     [[ -f $f ]] && install -o shop -g shop -m 640 "$f" "$DATA_DIR/$(basename "$f")"
   done
 fi
