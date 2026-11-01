@@ -218,6 +218,20 @@
   </div>
 </dialog>
 
+<script>
+// Ошибки скриптов: отправляются на сервер (журнал сервиса), а с ?debug=1 в адресе — видны прямо на странице.
+window.shopError = function (where, e) {
+  var msg = where + ': ' + ((e && (e.stack || e.message)) || String(e));
+  try { navigator.sendBeacon('/shop/client-error', msg.slice(0, 2000)); } catch (x) { /* без отчёта */ }
+  if (/debug/.test(location.search)) {
+    var box = document.getElementById('debug-errors');
+    if (!box) { box = document.createElement('pre'); box.id = 'debug-errors'; box.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:99999;max-height:45vh;overflow:auto;margin:0;padding:10px;background:#b00020;color:#fff;font:12px/1.4 monospace;white-space:pre-wrap'; document.body.appendChild(box); }
+    box.textContent += msg + '\n\n';
+  }
+};
+window.addEventListener('error', function (ev) { window.shopError('страница', ev.error || (ev.message + ' @ ' + ev.filename + ':' + ev.lineno)); });
+window.addEventListener('unhandledrejection', function (ev) { window.shopError('промис', ev.reason); });
+</script>
 <script src="/colors.js"></script>
 <script src="/shop.js"></script>
 </body>

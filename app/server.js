@@ -1124,6 +1124,7 @@ function match(method, pathname) {
   return null;
 }
 
+const clientErrors = { at: 0, n: 0 };
 function serveStatic(res, pathname) {
   const file = path.join(PUBLIC, pathname === '/' ? 'index.html' : pathname);
   if (!file.startsWith(PUBLIC + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
@@ -1620,6 +1621,18 @@ async function handlePublic(req, res, url, user) {
     if (!found) return sendJson(res, 404, { error: 'Фото нет' });
     return sendBytes(res, found.mime, Buffer.from(found.data), 'public, max-age=86400');
   }
+  // Ошибки скриптов витрины у покупателей (браузер сам присылает текст ошибки) — в журнал сервиса:
+  // journalctl -u shop | grep 'Витрина: ошибка'. Не больше 20 сообщений в минуту, короткий текст.
+  if (req.method === 'POST' && pathname === '/shop/client-error') {
+    const now = Date.now();
+    if (now - clientErrors.at > 60e3) Object.assign(clientErrors, { at: now, n: 0 });
+    if (++clientErrors.n <= 20) {
+      let text = '';
+      for await (const chunk of req) { text += chunk; if (text.length > 4000) break; }
+      console.error('Витрина: ошибка у покупателя', String(req.headers['user-agent'] || '').slice(0, 200), '|', text.slice(0, 2000).replace(/\s+/g, ' '));
+    }
+    res.writeHead(204); return res.end();
+  }
   if (pathname.startsWith('/shop/account/')) return shopAccount(req, res, url);
   // Покупатель прикрепил чек об оплате (скриншот перевода или PDF).
   const receipt = req.method === 'POST' && pathname.match(/^\/shop\/order\/(\d+)\/receipt$/);
@@ -1689,7 +1702,7 @@ async function handlePublic(req, res, url, user) {
 // (например, baza.montshop.kg) — программа для владельца и сотрудников. На адресе витрины программы не видно.
 const SHOP_DOMAIN = String(process.env.SHOP_DOMAIN || '').toLowerCase().trim();
 const ADMIN_DOMAIN = String(process.env.ADMIN_DOMAIN || '').toLowerCase().trim();
-const SHOP_PATHS = new Set(['/shop', '/shop.js', '/shop.css', '/icon.svg', '/favicon.ico']);
+const SHOP_PATHS = new Set(['/shop', '/shop.js', '/shop.css', '/colors.js', '/icon.svg', '/favicon.ico']);
 const hostOf = (req) => String(req.headers.host || '').toLowerCase().replace(/:\d+$/, '');
 
 const server = http.createServer((req, res) => {

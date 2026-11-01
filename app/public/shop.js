@@ -270,6 +270,7 @@ function showCardColor(id, color) {
 function cardHtml(p, i = 0) {
   try { return cardHtmlFull(p, i); } catch (e) {
     console.error('Карточка товара', p?.id, e);
+    if (!cardHtml.reported) { cardHtml.reported = true; window.shopError?.('карточка ' + p?.id, e); }
     const pic = (() => { try { return photo(p) || ''; } catch { return ''; } })();
     return `<article class="card" role="button" tabindex="0" data-open="${p.id}" style="--i:${Math.min(i, 12)}">
       <div class="pic">${pic ? `<img src="${pic}" alt="${esc(p.name)}" loading="lazy">` : esc(String(p.name || '?').slice(0, 1))}</div>
