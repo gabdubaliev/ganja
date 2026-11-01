@@ -404,6 +404,52 @@ $('#bulk-bar').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-bulk]');
   if (btn) openBulk(btn.dataset.bulk);
 });
+/* ---------- Экспорт товаров в Excel ---------- */
+// Общий: все товары по текущему поиску и категории (модификации — все, даже свёрнутые). Выборочный: отмеченные галочками
+// (у отмеченного товара с модификациями выгружаются его модификации). Столбцы совпадают с импортом — файл можно
+// поправить и загрузить обратно через «Импорт из Excel».
+async function exportProducts(onlySelected) {
+  const list = productsView.list || catalog.list;
+  const byId = new Map(list.map((p) => [p.id, p]));
+  const kids = new Map();
+  for (const p of list) if (p.parent_id) kids.set(p.parent_id, [...(kids.get(p.parent_id) || []), p]);
+  const catOf = (p) => (p.parent_id ? byId.get(p.parent_id)?.category ?? p.category : p.category);
+  let picked;
+  if (onlySelected) {
+    const ids = new Set();
+    for (const id of productsView.selected) { const k = kids.get(id); if (k) k.forEach((x) => ids.add(x.id)); else ids.add(id); }
+    picked = list.filter((p) => ids.has(p.id));
+  } else {
+    const q = productsView.query.trim().toLowerCase();
+    const matches = (p) => !q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q) || p.barcode.includes(q) || p.code.toLowerCase().includes(q);
+    const inCat = (p) => !productsView.category || (productsView.category === '—' ? !catOf(p) : catOf(p) === productsView.category);
+    // Товар с модификациями выгружается своими модификациями; модификация попадает, если подходит она или её товар.
+    picked = list.filter((p) => !kids.has(p.id) && inCat(p) && (matches(p) || (p.parent_id && matches(byId.get(p.parent_id) || {}))));
+  }
+  if (!picked.length) return toast('Нечего выгружать: нет товаров', 'error');
+  const sortKey = (p) => (p.parent_id ? `${byId.get(p.parent_id)?.name ?? ''}\u0001${p.name}` : p.name).toLowerCase();
+  picked.sort((a, b) => sortKey(a).localeCompare(sortKey(b), 'ru'));
+  let suppliers = new Map();
+  try { suppliers = new Map((await api('/api/suppliers')).map((s) => [s.id, s.name])); } catch { /* без права — без поставщика */ }
+  const withStock = picked.some((p) => p.stock !== null);
+  const head = ['Название', 'Основной товар', 'Свойства', 'Категория', 'Код товара', 'Штрихкод', 'Цена продажи', 'Скидка, %', 'Цена со скидкой', 'Себестоимость', 'Цена закупки',
+    ...(withStock ? ['Остаток', 'Остаток в ценах продажи'] : []), 'Единица', 'Поставщик', 'Описание', 'В продаже'];
+  const rows = picked.map((p) => {
+    const base = p.parent_id ? byId.get(p.parent_id) : null;
+    const purchase = p.purchase ?? p.cost;
+    return [p.name, base?.name || '', optionsText(p), catOf(p) || '', p.code || '', p.barcode || '', p.price, p.discount || 0, salePrice(p), p.cost || 0, purchase || 0,
+      ...(withStock ? [p.stock ?? '', p.stock === null ? '' : Math.round(p.stock * salePrice(p) * 100) / 100] : []),
+      p.unit || 'шт', suppliers.get(p.supplier_id) || '', (base?.description ?? p.description) || '', p.archived ? 'нет' : 'да'];
+  });
+  const widths = [38, 26, 18, 18, 12, 16, 13, 10, 15, 14, 13, ...(withStock ? [10, 20] : []), 9, 20, 40, 10];
+  const date = new Date().toLocaleDateString('ru-RU').split('.').reverse().join('-');
+  // Имя файла латиницей: с русскими буквами некоторые браузеры сохраняют файл как «download» без расширения.
+  downloadBlob(writeXlsx([{ name: 'Товары', rows: [head, ...rows], widths }]), `tovary${onlySelected ? '-vybrannye' : productsView.category ? '-kategoriya' : ''}-${date}.xlsx`);
+  toast(`В Excel: ${rows.length} ${plural(rows.length, ['строка', 'строки', 'строк'])}`);
+}
+$('#product-export').addEventListener('click', () => exportProducts(productsView.selected.size > 0));
+$('#bulk-export').addEventListener('click', () => exportProducts(true));
+
 $('#bulk-labels').addEventListener('click', async () => {
   const list = productsView.archived ? await api('/api/products?archived=1') : catalog.list;
   // Этикетки печатаются на то, что лежит на полке: основной товар заменяется его модификациями.
