@@ -178,4 +178,30 @@ function buildPrompt(operation, rawParams, product, sources) {
   return { prompt, params };
 }
 
-module.exports = { buildPrompt, normalizeParams, OPERATIONS, DETAILS, ROLES, BACKGROUNDS, ASPECTS, GENDERS, AGES, BUILDS, POSES, FRAMINGS, SETTINGS, PLATFORMS, AD_STYLES, KEEP };
+// Повторная генерация после отклонения: исходное задание целиком (все требования к товару остаются)
+// + замечания по всем прошлым попыткам + что было верно. corrections: [{ attempt, note }] — по порядку.
+function buildRetryPrompt({ basePrompt, attempt, corrections, keepOk = [], withPrevious = false }) {
+  const lines = [
+    String(basePrompt || '').trim(),
+    '',
+    `ИСПРАВЛЕНИЯ — попытка ${attempt}. Предыдущий результат не подошёл.`,
+    'Все требования из задания выше остаются в силе. Дополнительно исправь замечания:',
+    ...corrections.map((c, i) => `${i + 1}. ${clean(c.note, 500)}${corrections.length > 1 ? ` (замечание к попытке ${c.attempt})` : ''}`),
+  ];
+  if (keepOk.length) lines.push(`В прошлом результате было верно — сохрани: ${keepOk.join('; ')}.`);
+  if (withPrevious) lines.push('Если приложен отклонённый прошлый результат — он только для того, чтобы понять, что исправить. Образец вещи — исходные фото товара, а не прошлый результат.');
+  lines.push('Не вноси никаких других изменений, кроме перечисленных исправлений. Сделай одно новое изображение.');
+  return lines.join('\n');
+}
+
+// Короткая поправка, если продолжаете в том же чате ChatGPT.
+function buildFollowup({ note, keepOk = [] }) {
+  return [
+    `Этот результат не подходит. Исправь: ${clean(note, 500)}`,
+    keepOk.length ? `Это было верно — оставь как есть: ${keepOk.join('; ')}.` : '',
+    'Все требования из первого сообщения остаются: вещь точно как на исходных фото — цвет, ткань, крой, длина, карманы, пуговицы, молнии, швы, принты и логотипы; ничего не добавляй и не придумывай.',
+    'Сделай новое изображение.',
+  ].filter(Boolean).join('\n');
+}
+
+module.exports = { buildRetryPrompt, buildFollowup, buildPrompt, normalizeParams, OPERATIONS, DETAILS, ROLES, BACKGROUNDS, ASPECTS, GENDERS, AGES, BUILDS, POSES, FRAMINGS, SETTINGS, PLATFORMS, AD_STYLES, KEEP };

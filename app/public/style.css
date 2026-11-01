@@ -1812,3 +1812,8 @@ h2.inline { display: inline; font-size: 16px; }
 .ed-controls label > input[type="range"], .ed-controls label > select { display: block; width: 100%; margin-top: 4px; }
 .ed-controls label.check { display: inline-flex; gap: 8px; align-items: center; }
 @media (max-width: 640px) { .st-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .st-ops { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.st-retry-notes { margin-top: 8px; padding: 10px 12px; border-radius: calc(var(--radius) - 4px); background: #fff7e6; font-size: 13px; }
+.st-retry-notes ol { margin: 6px 0; padding-left: 20px; }
+.st-retry-notes small { color: var(--ink-2); }
+.st-chip.retried { background: #fde9d7; color: #8a4300; }
+.st-task.flash { box-shadow: 0 0 0 3px var(--series); transition: box-shadow .3s; }

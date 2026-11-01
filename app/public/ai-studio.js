@@ -5,7 +5,7 @@
 // своей подпиской. Локальная обработка (кадр, поворот, формат, однотонный фон) — в ai-studio-editor.js.
 
 const st = { meta: null, list: [], session: null, sessionId: null, filter: 'open', op: 'catalog', newProduct: null };
-const STATUS_TASK = { prepared: 'подготовлено', sent: 'отправлено в ChatGPT', result: 'есть результат', done: 'в каталоге', cancelled: 'отменено' };
+const STATUS_TASK = { prepared: 'подготовлено', sent: 'отправлено в ChatGPT', result: 'есть результат', retried: 'отклонено → новая попытка', done: 'в каталоге', cancelled: 'отменено' };
 const STATUS_ASSET = { new: '', pending: 'на согласовании', approved: 'одобрено', rejected: 'отклонено', attached: 'в галерее товара' };
 const studioFileUrl = (id) => `/api/studio/assets/${id}/file`;
 const fmtKb = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} МБ` : `${Math.max(1, Math.round(n / 1024))} КБ`);
@@ -42,7 +42,8 @@ document.body.insertAdjacentHTML('beforeend', `
   <input type="range" id="st-cmp-slider" min="0" max="100" value="50" hidden aria-label="Граница наложения">
   <p class="st-warn">Результат ChatGPT может отличаться от настоящей вещи. Одобряйте, только если всё совпадает с оригиналом — покупатель увидит именно это фото.</p>
   <div class="st-checklist" id="st-cmp-check"></div>
-  <div class="field"><label for="st-cmp-note">Комментарий (при отклонении — обязательно: что не так)</label><textarea id="st-cmp-note" class="input" rows="2" maxlength="500"></textarea></div>
+  <div class="field"><label for="st-cmp-note">Что не так (для отклонения — обязательно)</label><textarea id="st-cmp-note" class="input" rows="2" maxlength="500" placeholder="Например: цвет темнее оригинала, пропал левый нагрудный карман, логотип искажён"></textarea>
+    <small class="sub">Чтобы отклонить, достаточно комментария — пункты выше отмечать не нужно. Отмеченные пункты новый промпт попросит сохранить, а комментарий станет исправлением в следующей попытке.</small></div>
   <p class="form-error" id="st-cmp-error" role="alert" hidden></p>
   <div class="form-actions">
     <button type="button" class="btn ghost" id="st-cmp-reject">Отклонить</button>
@@ -246,11 +247,15 @@ function taskCard(t, results) {
   const m = st.meta;
   const canShare = typeof navigator.canShare === 'function';
   return `<article class="st-task ${t.status}" data-task="${t.id}">
-    <header><b>№${t.id} · ${esc(t.operationName)}</b> <span class="st-chip ${t.status}">${STATUS_TASK[t.status]}</span> <small>${when(t.createdAt)} · фото: ${t.sourceIds.map((x) => `№${x}`).join(', ')}</small></header>
+    <header><b>№${t.id} · ${esc(t.operationName)}${t.attempt > 1 ? ` · попытка ${t.attempt}` : ''}</b> <span class="st-chip ${t.status}">${STATUS_TASK[t.status] || t.status}</span> <small>${when(t.createdAt)} · фото: ${t.sourceIds.map((x) => `№${x}`).join(', ')}${t.attempt > 1 ? ` · повтор задания №${t.rootId}` : ''}</small></header>
+    ${t.notes?.length ? `<div class="st-retry-notes"><b>Замечания по прошлым попыткам (вошли в новый промпт):</b><ol>${t.notes.map((n) => `<li>${esc(n.note)} <small>— попытка ${n.attempt}, результат №${n.result_id}${n.reviewed_by ? `, ${esc(n.reviewed_by)}` : ''}</small></li>`).join('')}</ol>
+      ${t.keepOk?.length ? `<small>Сохранить, что было верно: ${t.keepOk.map(esc).join('; ')}</small>` : ''}</div>` : ''}
     ${t.status === 'cancelled' ? `<div class="st-acts"><button type="button" class="btn small" data-st-reopen="${t.id}">Вернуть задание</button></div>` : `
     <ol class="st-steps">
-      <li><button type="button" class="btn small primary" data-st-copy="${t.id}">📋 Копировать промпт</button></li>
+      <li><button type="button" class="btn small primary" data-st-copy="${t.id}">📋 Копировать ${t.attempt > 1 ? 'новый ' : ''}промпт</button>
+        ${t.followup ? `<button type="button" class="btn small" data-st-followup="${t.id}" title="Если продолжаете в том же чате ChatGPT">💬 Поправка для того же чата</button>` : ''}</li>
       <li><button type="button" class="btn small" data-st-dlsrc="${t.id}">⬇ Скачать фото (${t.sourceIds.length})</button>
+        ${t.prevResultId ? `<button type="button" class="btn small ghost" data-st-dl="${t.prevResultId}" title="Необязательно: приложите, чтобы ChatGPT видел, что исправить">⬇ Прошлый результат</button>` : ''}
         ${canShare ? `<button type="button" class="btn small" data-st-share="${t.id}">📤 Поделиться в ChatGPT…</button>` : ''}</li>
       <li><button type="button" class="btn small" data-st-chatgpt="${t.id}">↗ Открыть ChatGPT</button> <small>приложите фото, вставьте промпт, отправьте; готовую картинку сохраните на устройство</small></li>
       <li><button type="button" class="btn small primary" data-st-result="${t.id}">⬆ Загрузить результат</button></li>
@@ -265,6 +270,9 @@ function taskCard(t, results) {
       ${a.status === 'approved' && m.canAttach && !st.session.product.deleted ? `<button type="button" class="btn small primary" data-st-attach="${a.id}">В галерею товара</button>` : ''}
       ${a.status === 'attached' ? `<small>в галерее (фото №${a.attached.imageId})</small>` : ''}
       ${a.reviewNote ? `<small class="st-note">«${esc(a.reviewNote)}»</small>` : ''}
+      ${a.status === 'rejected' ? (() => { const next = st.session.tasks.find((x) => x.prevResultId === a.id && x.status !== 'cancelled'); return next
+        ? `<button type="button" class="btn small" data-st-goto-task="${next.id}">→ Попытка ${next.attempt} (задание №${next.id})</button>`
+        : `<button type="button" class="btn small primary" data-st-retry="${a.id}">🔁 Повторить генерацию</button>`; })() : ''}
       <button type="button" class="btn small ghost" data-st-dl="${a.id}" title="Скачать">⬇</button>
       ${a.status !== 'attached' ? `<button type="button" class="btn small ghost" data-st-del="${a.id}" title="Удалить">✕</button>` : ''}</span>`)).join('')}</div>` : ''}
   </article>`;
@@ -452,6 +460,19 @@ $('[data-view="studio"]').addEventListener('click', async (e) => {
       else { document.querySelector(`[data-task="${t.id}"] details`).open = true; toast('Не получилось скопировать автоматически — выделите текст задания и скопируйте вручную', 'error'); }
       return;
     }
+    if ((x = b('[data-st-followup]'))) {
+      const t = findTask(x.dataset.stFollowup);
+      if (await copyText(t.followup)) { toast('Поправка скопирована — вставьте её в тот же чат ChatGPT'); await taskEvent(t.id, { status: 'sent', event: 'copied' }); }
+      else toast('Не получилось скопировать — откройте текст задания и скопируйте вручную', 'error');
+      return;
+    }
+    if ((x = b('[data-st-retry]'))) {
+      const t = await api(`/api/studio/assets/${x.dataset.stRetry}/retry`, { method: 'POST' });
+      toast(`Новый промпт готов — попытка ${t.attempt}`);
+      await reloadSession();
+      return showTask(t.id);
+    }
+    if ((x = b('[data-st-goto-task]'))) return showTask(Number(x.dataset.stGotoTask));
     if ((x = b('[data-st-dlsrc]'))) {
       const t = findTask(x.dataset.stDlsrc);
       for (const id of t.sourceIds) { const a = findAsset(id); if (a) saveBlob(await fetchBlob(id), assetName(a)); }
@@ -563,14 +584,31 @@ $('#st-cmp-orig').addEventListener('change', (e) => { cmp.origId = Number(e.targ
 $('#st-cmp-slider').addEventListener('input', (e) => { const top = $('#st-cmp .top'); if (top) top.style.clipPath = `inset(0 0 0 ${e.target.value}%)`; });
 async function sendReview(decision) {
   const checklist = Object.fromEntries([...document.querySelectorAll('#st-cmp-check [data-chk]')].map((c) => [c.dataset.chk, c.checked]));
+  if (decision === 'rejected' && !$('#st-cmp-note').value.trim()) {
+    $('#st-cmp-note').focus();
+    return showFormError('#st-cmp-error', new Error('Напишите, что не так — по этому комментарию составится новый промпт. Пункты отмечать не нужно.'));
+  }
   try {
-    await api(`/api/studio/assets/${cmp.a.id}/review`, { method: 'POST', body: { decision, checklist, note: $('#st-cmp-note').value } });
+    const r = await api(`/api/studio/assets/${cmp.a.id}/review`, { method: 'POST', body: { decision, checklist, note: $('#st-cmp-note').value } });
     $('#st-compare').close();
+    if (decision === 'rejected' && r.retryTask) {
+      toast(`Отклонено. Готов новый промпт — попытка ${r.retryTask.attempt}: скопируйте его и снова откройте ChatGPT`);
+      await reloadSession();
+      return showTask(r.retryTask.id);
+    }
     toast(decision === 'approved' ? 'Одобрено — теперь можно добавить в галерею товара' : 'Отклонено');
     reloadSession();
   } catch (err) {
     showFormError('#st-cmp-error', err);
   }
+}
+// Показать задание: прокрутить к нему и подсветить.
+function showTask(id) {
+  const card = document.querySelector(`[data-task="${id}"]`);
+  if (!card) return;
+  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  card.classList.add('flash');
+  setTimeout(() => card.classList.remove('flash'), 2500);
 }
 $('#st-cmp-approve').addEventListener('click', () => sendReview('approved'));
 $('#st-cmp-reject').addEventListener('click', () => sendReview('rejected'));

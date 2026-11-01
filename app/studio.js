@@ -120,6 +120,13 @@ function createStudio(file, { UserError }) {
     CREATE INDEX IF NOT EXISTS studio_log_session ON studio_log (session_id, at);
   `);
 
+  // Цепочка попыток (повторная генерация после отклонения): колонки добавляются к уже созданной базе.
+  const taskCols = new Set(db.prepare('PRAGMA table_info(studio_tasks)').all().map((c) => c.name));
+  for (const [name, type] of [['root_id', 'INTEGER'], ['parent_id', 'INTEGER'], ['attempt', 'INTEGER NOT NULL DEFAULT 1'], ['prev_result_id', 'INTEGER'], ['feedback', "TEXT NOT NULL DEFAULT ''"], ['keep_ok', "TEXT NOT NULL DEFAULT '[]'"], ['followup', "TEXT NOT NULL DEFAULT ''"]]) {
+    if (!taskCols.has(name)) db.exec(`ALTER TABLE studio_tasks ADD COLUMN ${name} ${type}`);
+  }
+  db.exec('UPDATE studio_tasks SET root_id = id WHERE root_id IS NULL');
+
   const who = (user) => String(user?.name || user?.email || '');
   const now = () => Date.now();
   const log = (sessionId, user, action, details = '') => db.prepare('INSERT INTO studio_log (session_id, at, user, action, details) VALUES (?, ?, ?, ?, ?)')
@@ -131,7 +138,13 @@ function createStudio(file, { UserError }) {
     reviewedBy: a.reviewed_by, reviewedAt: a.reviewed_at, attached: a.attached_image_id ? { branchId: a.attached_branch_id, productId: a.attached_product_id, imageId: a.attached_image_id, by: a.attached_by, at: a.attached_at } : null,
     createdBy: a.created_by, createdAt: a.created_at,
   });
-  const taskOut = (t) => ({ id: t.id, operation: t.operation, operationName: prompts.OPERATIONS[t.operation], params: JSON.parse(t.params), prompt: t.prompt, sourceIds: JSON.parse(t.source_ids), status: t.status, createdBy: t.created_by, createdAt: t.created_at, updatedAt: t.updated_at });
+  // История замечаний цепочки: все отклонённые результаты попыток до этой включительно.
+  const chainNotes = (t) => db.prepare(`SELECT t.attempt, a.id AS result_id, a.review_note AS note, a.reviewed_by, a.reviewed_at FROM studio_tasks t
+      JOIN studio_assets a ON a.task_id = t.id AND a.kind = 'result' AND a.status = 'rejected' AND a.review_note <> ''
+      WHERE t.root_id = ? AND t.attempt < ? ORDER BY t.attempt, a.id`).all(t.root_id ?? t.id, t.attempt ?? 1).map((r) => ({ ...r }));
+  const taskOut = (t) => ({ id: t.id, operation: t.operation, operationName: prompts.OPERATIONS[t.operation], params: JSON.parse(t.params), prompt: t.prompt, sourceIds: JSON.parse(t.source_ids), status: t.status, createdBy: t.created_by, createdAt: t.created_at, updatedAt: t.updated_at,
+    rootId: t.root_id ?? t.id, parentId: t.parent_id, attempt: t.attempt ?? 1, prevResultId: t.prev_result_id, feedback: t.feedback || '', followup: t.followup || '', keepOk: JSON.parse(t.keep_ok || '[]'),
+    notes: (t.attempt ?? 1) > 1 ? chainNotes(t) : [] });
 
   function session(id, branchId) {
     const s = db.prepare('SELECT * FROM studio_sessions WHERE id = ?').get(Number(id));
@@ -277,6 +290,7 @@ function createStudio(file, { UserError }) {
       const t = now();
       const { lastInsertRowid } = db.prepare('INSERT INTO studio_tasks (session_id, operation, params, prompt, source_ids, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
         .run(s.id, operation, JSON.stringify(norm), prompt, JSON.stringify(sources.map((x) => x.id)), 'prepared', who(user), t, t);
+      db.prepare('UPDATE studio_tasks SET root_id = id WHERE id = ?').run(Number(lastInsertRowid));
       touch(s.id);
       log(s.id, user, `Подготовлено задание №${lastInsertRowid}: ${prompts.OPERATIONS[operation]}`, `фото: ${sources.map((x) => `№${x.id}`).join(', ')}`);
       return taskOut(db.prepare('SELECT * FROM studio_tasks WHERE id = ?').get(Number(lastInsertRowid)));
@@ -315,13 +329,48 @@ function createStudio(file, { UserError }) {
         const missing = Object.entries(marks).filter(([, v]) => !v).map(([k]) => CHECKLIST[k]);
         if (missing.length) throw new UserError(`Сначала сравните с оригиналом и отметьте: ${missing.join('; ')}`);
       }
+      // Отклонение: нужен только комментарий. Пункты списка не обязательны — отмеченные попадут в новый промпт как «сохранить».
       const text = String(note ?? '').trim().slice(0, 500);
-      if (decision === 'rejected' && a.kind === 'result' && !text) throw new UserError('Напишите, что не так — это пригодится для нового задания');
-      db.prepare('UPDATE studio_assets SET status = ?, checklist = ?, review_note = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ?')
-        .run(decision, JSON.stringify(marks), text, decision === 'pending' ? '' : who(user), decision === 'pending' ? null : now(), a.id);
+      if (decision === 'rejected' && a.kind === 'result' && !text) throw new UserError('Напишите, что не так — по этому комментарию составится новый промпт');
+      let retryTask = null;
+      transaction(db, () => {
+        db.prepare('UPDATE studio_assets SET status = ?, checklist = ?, review_note = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ?')
+          .run(decision, JSON.stringify(marks), text, decision === 'pending' ? '' : who(user), decision === 'pending' ? null : now(), a.id);
+        touch(a.session_id);
+        log(a.session_id, user, `${a.kind === 'result' ? 'Результат' : 'Обработка'} №${a.id}: ${{ approved: 'одобрено', rejected: 'отклонено', pending: 'снова на согласовании' }[decision]}`, text);
+        if (decision === 'rejected' && a.kind === 'result') retryTask = this.retry(a.id, branchId, user);
+      });
+      return { ...assetMeta(asset(a.id)), retryTask };
+    },
+
+    // Повторная генерация: новое задание (следующая попытка) из исходного задания цепочки + все замечания + что было верно.
+    // Если по этому результату попытка уже есть и не отменена — возвращается она (без дублей).
+    retry(resultId, branchId, user) {
+      const a = asset(resultId);
+      session(a.session_id, branchId);
+      if (a.kind !== 'result' || !a.task_id) throw new UserError('Повторить можно только результат из задания ChatGPT');
+      if (a.status !== 'rejected') throw new UserError('Сначала отклоните результат и напишите, что не так');
+      const existing = db.prepare("SELECT * FROM studio_tasks WHERE prev_result_id = ? AND status <> 'cancelled' ORDER BY id DESC LIMIT 1").get(a.id);
+      if (existing) return taskOut(existing);
+      const prev = db.prepare('SELECT * FROM studio_tasks WHERE id = ?').get(a.task_id);
+      const root = db.prepare('SELECT * FROM studio_tasks WHERE id = ?').get(prev.root_id ?? prev.id);
+      const attempt = (prev.attempt ?? 1) + 1;
+      // Замечания всей цепочки до этой попытки (включая только что отклонённый результат).
+      const corrections = db.prepare(`SELECT t.attempt, a.review_note AS note FROM studio_tasks t
+          JOIN studio_assets a ON a.task_id = t.id AND a.kind = 'result' AND a.status = 'rejected' AND a.review_note <> ''
+          WHERE t.root_id = ? AND t.attempt < ? ORDER BY t.attempt, a.id`).all(root.id, attempt).map((r) => ({ attempt: r.attempt, note: r.note }));
+      const marks = JSON.parse(a.checklist || '{}');
+      const keepOk = Object.keys(CHECKLIST).filter((k) => marks[k]).map((k) => CHECKLIST[k]);
+      const prompt = prompts.buildRetryPrompt({ basePrompt: root.prompt, attempt, corrections, keepOk, withPrevious: true });
+      const followup = prompts.buildFollowup({ note: a.review_note, keepOk });
+      const t = now();
+      const { lastInsertRowid } = db.prepare(`INSERT INTO studio_tasks (session_id, operation, params, prompt, source_ids, status, created_by, created_at, updated_at,
+          root_id, parent_id, attempt, prev_result_id, feedback, keep_ok, followup) VALUES (?, ?, ?, ?, ?, 'prepared', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(a.session_id, root.operation, root.params, prompt, root.source_ids, who(user), t, t, root.id, prev.id, attempt, a.id, a.review_note, JSON.stringify(keepOk), followup);
+      db.prepare("UPDATE studio_tasks SET status = 'retried', updated_at = ? WHERE id = ? AND status NOT IN ('done', 'cancelled')").run(t, prev.id);
       touch(a.session_id);
-      log(a.session_id, user, `${a.kind === 'result' ? 'Результат' : 'Обработка'} №${a.id}: ${{ approved: 'одобрено', rejected: 'отклонено', pending: 'снова на согласовании' }[decision]}`, text);
-      return assetMeta(asset(a.id));
+      log(a.session_id, user, `Повторная генерация: задание №${lastInsertRowid} (попытка ${attempt}) по замечанию к результату №${a.id}`, a.review_note);
+      return taskOut(db.prepare('SELECT * FROM studio_tasks WHERE id = ?').get(Number(lastInsertRowid)));
     },
 
     // Проверки перед добавлением в галерею (сама запись — в базе магазина, см. server.js).

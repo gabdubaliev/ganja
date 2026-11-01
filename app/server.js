@@ -761,6 +761,7 @@ const routes = [
   }, 'studio'],
   ['PUT', '/api/studio/tasks/:id', (p, url, body, user) => studio.updateTask(p.id, current().id, body, user), 'studio'],
   ['POST', '/api/studio/assets/:id/review', (p, url, body, user) => studio.review(p.id, current().id, body, user), 'studio'],
+  ['POST', '/api/studio/assets/:id/retry', (p, url, body, user) => studio.retry(p.id, current().id, user), 'studio'],
   // В галерею товара: только одобренное фото, только этот товар или его модификация, только в конец галереи.
   // Основное фото и остальные фото товара не меняются. Нужно ещё право «Фото».
   ['POST', '/api/studio/assets/:id/attach', (p, url, body, user) => {
@@ -1158,6 +1159,7 @@ const AUDIT_LABELS = {
   'POST /api/studio/sessions': 'AI Studio: новая съёмка',
   'POST /api/studio/sessions/:id/tasks': 'AI Studio: задание для ChatGPT',
   'POST /api/studio/assets/:id/review': 'AI Studio: согласование фото',
+  'POST /api/studio/assets/:id/retry': 'AI Studio: повторная генерация',
   'POST /api/studio/assets/:id/attach': 'AI Studio: фото добавлено в галерею товара',
   'DELETE /api/studio/assets/:id': 'AI Studio: удалён файл съёмки',
   'POST /api/products/bulk': 'Групповое изменение товаров',
