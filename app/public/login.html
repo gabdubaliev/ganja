@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Вход — Мой магазин</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -32,6 +32,10 @@
   </form>
 </main>
 <script>
+
+// Масштаб страницы не меняется: iPhone не слушает user-scalable=no, поэтому жесты «щипок» гасим сами.
+for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
+document.addEventListener('touchmove', (e) => { if (e.scale !== undefined && e.scale !== 1) e.preventDefault(); }, { passive: false });
 // Название магазина из раздела «Оформление».
 fetch('/api/brand').then((r) => r.json()).then((b) => {
   document.querySelector('h1').textContent = b.name;

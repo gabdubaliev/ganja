@@ -5,6 +5,10 @@
 // через postMessage, чтобы изменения были видны сразу.
 
 const $ = (sel) => document.querySelector(sel);
+
+// Масштаб страницы не меняется: iPhone не слушает user-scalable=no, поэтому жесты «щипок» гасим сами.
+for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
+document.addEventListener('touchmove', (e) => { if (e.scale !== undefined && e.scale !== 1) e.preventDefault(); }, { passive: false });
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const rub = (n) => `${new Intl.NumberFormat('ru-RU', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 }).format(n)} сом`;
 const qtyFmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 3 });
@@ -474,7 +478,124 @@ document.body.insertAdjacentHTML('beforeend', `<dialog id="zoom" class="zoom" ar
   <button type="button" class="pd-arrow next" data-zoom-step="1" aria-label="Следующее фото">›</button>
   <div class="zoom-count" id="zoom-count"></div>
 </dialog>`);
+/* Масштаб фото в увеличенном окне: щипок двумя пальцами, двойное касание (двойной щелчок), колесо мыши,
+   перетаскивание увеличенного фото. Страница при этом не масштабируется. */
+const pz = { img: null, s: 1, x: 0, y: 0, pinch: null, pan: null, tap: 0, tapX: 0, tapY: 0, moved: false };
+const clampN = (v, a, b) => Math.min(b, Math.max(a, v));
+function pzApply(animate = true) {
+  const img = pz.img;
+  if (!img) return;
+  img.classList.toggle('dragging', !animate);
+  img.style.transform = pz.s > 1 ? `translate(${pz.x}px, ${pz.y}px) scale(${pz.s})` : '';
+  img.classList.toggle('zoomed', pz.s > 1);
+  $('#zoom-track').classList.toggle('locked', pz.s > 1);
+}
+function pzClamp() {
+  const img = pz.img;
+  const box = img.parentElement.getBoundingClientRect();
+  const mx = Math.max(0, (img.offsetWidth * pz.s - box.width) / 2);
+  const my = Math.max(0, (img.offsetHeight * pz.s - box.height) / 2);
+  pz.x = clampN(pz.x, -mx, mx);
+  pz.y = clampN(pz.y, -my, my);
+}
+function pzReset() {
+  if (pz.img) { pz.s = 1; pz.x = pz.y = 0; pzApply(); }
+  pz.img = null;
+}
+// Точка относительно центра блока фото.
+function pzRel(img, cx, cy) {
+  const r = img.parentElement.getBoundingClientRect();
+  return { x: cx - (r.left + r.width / 2), y: cy - (r.top + r.height / 2) };
+}
+// Увеличить до s так, чтобы точка p (относительно центра) осталась под пальцем.
+function pzZoomAt(img, s, p) {
+  if (pz.img !== img) { pzReset(); pz.img = img; }
+  const k = s / pz.s;
+  pz.x = p.x - (p.x - pz.x) * k;
+  pz.y = p.y - (p.y - pz.y) * k;
+  pz.s = s;
+  if (pz.s <= 1.02) { pz.s = 1; pz.x = pz.y = 0; }
+  pzClamp();
+}
+function pzToggle(img, cx, cy) {
+  const p = pzRel(img, cx, cy);
+  if (pz.img === img && pz.s > 1) { pz.s = 1; pz.x = pz.y = 0; } else pzZoomAt(img, 2.5, p);
+  pzApply();
+}
+const zoomImg = (e) => e.target.closest?.('.zoom-slide img');
+$('#zoom-track').addEventListener('touchstart', (e) => {
+  const img = zoomImg(e);
+  if (!img) return;
+  if (pz.img !== img) { pzReset(); pz.img = img; }
+  pz.moved = false;
+  if (e.touches.length === 2) {
+    e.preventDefault();
+    const [a, b] = e.touches;
+    pz.pinch = { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), s: pz.s };
+    pz.pan = null;
+  } else if (e.touches.length === 1 && pz.s > 1) {
+    pz.pan = { x: e.touches[0].clientX - pz.x, y: e.touches[0].clientY - pz.y };
+  }
+}, { passive: false });
+$('#zoom-track').addEventListener('touchmove', (e) => {
+  if (!pz.img) return;
+  if (pz.pinch && e.touches.length === 2) {
+    e.preventDefault();
+    const [a, b] = e.touches;
+    const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+    pzZoomAt(pz.img, clampN(pz.pinch.s * (d / pz.pinch.d), 1, 5), pzRel(pz.img, (a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2));
+    pz.moved = true;
+    pzApply(false);
+  } else if (pz.pan && e.touches.length === 1 && pz.s > 1) {
+    e.preventDefault();
+    pz.x = e.touches[0].clientX - pz.pan.x;
+    pz.y = e.touches[0].clientY - pz.pan.y;
+    pz.moved = true;
+    pzClamp();
+    pzApply(false);
+  }
+}, { passive: false });
+$('#zoom-track').addEventListener('touchend', (e) => {
+  if (e.touches.length < 2) pz.pinch = null;
+  if (!e.touches.length) {
+    pz.pan = null;
+    if (pz.img) pzApply();
+    // Двойное касание — увеличить в этой точке или вернуть как было.
+    const t = e.changedTouches[0];
+    const img = zoomImg(e);
+    if (img && !pz.moved && t) {
+      const now = Date.now();
+      if (now - pz.tap < 300 && Math.hypot(t.clientX - pz.tapX, t.clientY - pz.tapY) < 30) {
+        e.preventDefault();
+        pz.tap = 0;
+        pzToggle(img, t.clientX, t.clientY);
+      } else Object.assign(pz, { tap: now, tapX: t.clientX, tapY: t.clientY });
+    }
+  }
+}, { passive: false });
+// Компьютер: двойной щелчок, колесо мыши и перетаскивание мышью.
+$('#zoom-track').addEventListener('dblclick', (e) => { const img = zoomImg(e); if (img) pzToggle(img, e.clientX, e.clientY); });
+$('#zoom-track').addEventListener('wheel', (e) => {
+  const img = zoomImg(e);
+  if (!img) return;
+  e.preventDefault();
+  if (pz.img !== img) { pzReset(); pz.img = img; }
+  pzZoomAt(img, clampN(pz.s * Math.exp(-e.deltaY * 0.002), 1, 5), pzRel(img, e.clientX, e.clientY));
+  pzApply(false);
+}, { passive: false });
+$('#zoom-track').addEventListener('mousedown', (e) => {
+  const img = zoomImg(e);
+  if (!img || pz.img !== img || pz.s <= 1) return;
+  e.preventDefault();
+  pz.pan = { x: e.clientX - pz.x, y: e.clientY - pz.y };
+  const move = (ev) => { pz.x = ev.clientX - pz.pan.x; pz.y = ev.clientY - pz.pan.y; pzClamp(); pzApply(false); };
+  const up = () => { pz.pan = null; document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); };
+  document.addEventListener('mousemove', move);
+  document.addEventListener('mouseup', up);
+});
+
 function openZoom(i) {
+  pzReset();
   const urls = state.galUrls || [];
   if (!urls.length) return;
   $('#zoom-track').innerHTML = urls.map((u) => `<div class="zoom-slide"><img src="${u}" alt="" draggable="false"></div>`).join('');
@@ -483,6 +604,7 @@ function openZoom(i) {
   zoomGo(i, false);
 }
 function zoomGo(i, smooth = true) {
+  pzReset();
   const t = $('#zoom-track');
   const n = t.children.length;
   const at = (i + n) % n;
@@ -505,6 +627,7 @@ $('#zoom').addEventListener('click', (e) => {
 });
 // Окно товара после увеличения показывает то же фото, что смотрели (номер — до закрытия, пока лента видна).
 function closeZoom() {
+  pzReset();
   const t = $('#zoom-track');
   const at = Math.round(t.scrollLeft / Math.max(1, t.clientWidth));
   $('#zoom').close();
