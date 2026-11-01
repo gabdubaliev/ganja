@@ -93,6 +93,7 @@ async function openProductCard(id, stats = null) {
   $('#pc-history').innerHTML = '';
   $('#pc-edit').hidden = !session.can('products');
   $('#pc-gallery').hidden = !session.can('photos') || typeof openGallery !== 'function';
+  $('#pc-studio').hidden = !session.can('studio') || typeof openStudioForProduct !== 'function';
   // Счётчик на кнопке: сколько всего фото у товара (основное + дополнительные).
   $('#pc-gallery').textContent = '🖼 Фото товара';
   if (!$('#pc-gallery').hidden) {
@@ -216,6 +217,12 @@ $('#pc-tabs').addEventListener('click', (e) => {
   if (b) showCardTab(b.dataset.pcTab);
 });
 $('#pc-close').addEventListener('click', () => $('#product-card').close());
+// MONT AI Studio: новая съёмка с этим товаром (или его модификацией).
+$('#pc-studio').addEventListener('click', () => {
+  if (!cardProduct) return;
+  $('#product-card').close();
+  openStudioForProduct(cardProduct.id);
+});
 // Галерея фото этого товара (у модификации — своя). После сохранения карточка обновляется.
 $('#pc-gallery').addEventListener('click', () => {
   if (!cardProduct) return;

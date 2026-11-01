@@ -177,8 +177,8 @@ EOF
 cat > /usr/local/bin/shop-backup <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-# Основной магазин и все филиалы (branch-N.db): у каждого своя копия на дату.
-for db in $DATA_DIR/shop.db $DATA_DIR/branch-*.db; do
+# Основной магазин, все филиалы (branch-N.db) и MONT AI Studio (studio.db): у каждого своя копия на дату.
+for db in $DATA_DIR/shop.db $DATA_DIR/branch-*.db $DATA_DIR/studio.db; do
   [[ -f \$db ]] || continue
   name=\$(basename "\$db" .db)
   file=$BACKUP_DIR/\$name-\$(date +%F).db
@@ -186,6 +186,7 @@ for db in $DATA_DIR/shop.db $DATA_DIR/branch-*.db; do
   /usr/bin/node --disable-warning=ExperimentalWarning -e "new (require('node:sqlite').DatabaseSync)('\$db', { readOnly: true }).exec(\"VACUUM INTO '\$file'\")"
 done
 ls -1t $BACKUP_DIR/shop-*.db | tail -n +31 | xargs -r rm -f
+ls -1t $BACKUP_DIR/studio-*.db 2>/dev/null | tail -n +31 | xargs -r rm -f
 for b in \$(ls $BACKUP_DIR/branch-*.db 2>/dev/null | sed -E 's/-[0-9]{4}-[0-9]{2}-[0-9]{2}\.db$//' | sort -u); do
   ls -1t \$b-*.db | tail -n +31 | xargs -r rm -f
 done

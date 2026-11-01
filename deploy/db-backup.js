@@ -20,6 +20,7 @@ const readline = require('node:readline');
 const { DatabaseSync } = require('node:sqlite');
 
 const MAIN = 'shop.db';
+const STUDIO = 'studio.db'; // MONT AI Studio: исходники и результаты фото, если студией пользовались
 const BRANCH_RE = /^branch-\d+\.db$/;
 const CONFIRM_WORD = 'ВОССТАНОВИТЬ';
 
@@ -51,6 +52,7 @@ const stamp = (d = new Date()) => {
 function listDatabases(dataDir) {
   if (!fs.existsSync(path.join(dataDir, MAIN))) fail(`в папке ${dataDir} нет основной базы ${MAIN}`);
   const files = [MAIN, ...fs.readdirSync(dataDir).filter((f) => BRANCH_RE.test(f)).sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]))];
+  if (fs.existsSync(path.join(dataDir, STUDIO))) files.push(STUDIO);
   const db = open(path.join(dataDir, MAIN));
   try {
     let row;
@@ -195,7 +197,7 @@ async function restore(dir, dataDir) {
   const manifest = verify(dir);
   const running = runningServers();
   if (running.length) fail(`программа запущена (процесс ${running.join(', ')}). Остановите её и повторите восстановление.`);
-  const current = fs.existsSync(dataDir) ? fs.readdirSync(dataDir).filter((f) => f === MAIN || BRANCH_RE.test(f) || /^(shop|branch-\d+)\.db-(wal|shm)$/.test(f)) : [];
+  const current = fs.existsSync(dataDir) ? fs.readdirSync(dataDir).filter((f) => f === MAIN || f === STUDIO || BRANCH_RE.test(f) || /^(shop|studio|branch-\d+)\.db-(wal|shm)$/.test(f)) : [];
   process.stderr.write(`\nВосстановление баз из копии ${dir}\n  создана: ${manifest.created}\n  базы в копии: ${manifest.files.map((f) => f.name).join(', ')}\n`);
   process.stderr.write(`  папка баз: ${dataDir}\n  сейчас там: ${current.join(', ') || '— пусто —'}\n`);
   process.stderr.write('Текущие файлы баз НЕ удаляются: они будут перенесены в отдельную папку replaced-<дата>.\n');

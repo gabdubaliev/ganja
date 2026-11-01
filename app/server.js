@@ -10,6 +10,8 @@ process.env.TZ ||= 'Asia/Bishkek';
 const { createStore, useFontsFrom, UserError, phone: normalizePhone } = require('./db');
 const { seedDemo } = require('./demo');
 const invoice = require('./invoice');
+const { createStudio } = require('./studio');
+const studioPrompts = require('./studio-prompts');
 const crypto = require('node:crypto');
 const { AsyncLocalStorage } = require('node:async_hooks');
 const { createAuth, hashPassword, checkPassword } = require('./auth');
@@ -54,6 +56,8 @@ function loadEnv(file) {
    в контексте своего магазина (AsyncLocalStorage), поэтому код маршрутов работает с «store» как раньше. */
 const mainStore = createStore(DB_FILE);
 useFontsFrom(mainStore);
+// MONT AI Studio — своя база studio.db рядом с основной (исходники и черновики много весят).
+const studio = createStudio(path.join(path.dirname(DB_FILE), 'studio.db'), { UserError });
 const contexts = new Map(); // id магазина -> { id, store, notifier, crm, shopAuth }
 const als = new AsyncLocalStorage();
 const current = () => als.getStore() || contexts.get(1);
@@ -109,6 +113,58 @@ function contextOf(id) {
   const b = branchList().find((x) => x.id === n);
   if (!b || b.main) return null;
   return makeContext(n, createStore(path.join(path.dirname(DB_FILE), b.file)));
+}
+
+/* ---------- MONT AI Studio: товары берутся из базы своего магазина, не копируются ---------- */
+function studioProduct(branchId, id) {
+  const ctx = contextOf(branchId);
+  if (!ctx) throw new UserError('Магазин не найден');
+  const p = ctx.store.db.prepare('SELECT id, name, category, description, parent_id, options, price, discount, deleted, photo_at FROM products WHERE id = ?').get(Number(id));
+  if (!p || p.deleted) throw new UserError('Товар не найден или удалён');
+  return p;
+}
+const variantLabel = (v) => { try { return Object.values(JSON.parse(v.options || '{}')).join(', ') || v.name; } catch { return v.name; } };
+function studioVariant(branchId, base, id) {
+  const v = studioProduct(branchId, id);
+  if (v.parent_id !== base.id) throw new UserError('Модификация не от этого товара');
+  return v;
+}
+function studioBranchProducts(branchId, base) {
+  const ctx = contextOf(branchId);
+  const kids = ctx.store.db.prepare('SELECT id, name, options, photo_at, price, discount FROM products WHERE parent_id = ? AND deleted = 0 ORDER BY id').all(base.id);
+  const counts = ctx.store.galleryCounts();
+  return { kids, counts };
+}
+function studioProductBrief(s) {
+  try {
+    const p = studioProduct(s.branch_id, s.product_id);
+    const v = s.variant_id ? studioProduct(s.branch_id, s.variant_id) : null;
+    return { id: p.id, name: p.name, category: p.category, photoAt: p.photo_at, variant: v && { id: v.id, label: variantLabel(v), photoAt: v.photo_at } };
+  } catch {
+    return { id: s.product_id, name: 'Товар удалён', deleted: true };
+  }
+}
+function studioSessionOut(s) {
+  let product;
+  try {
+    const p = studioProduct(s.branch_id, s.product_id);
+    const { kids, counts } = studioBranchProducts(s.branch_id, p);
+    const price = (x) => (x.discount > 0 ? Math.round(x.price * (1 - x.discount / 100) * 100) / 100 : x.price);
+    product = {
+      id: p.id, name: p.name, category: p.category, description: p.description, photoAt: p.photo_at, price: price(p), gallery: counts[p.id] || 0,
+      variants: kids.map((k) => ({ id: k.id, label: variantLabel(k), photoAt: k.photo_at, price: price(k), gallery: counts[k.id] || 0 })),
+    };
+  } catch {
+    product = { id: s.product_id, name: 'Товар удалён', deleted: true, variants: [] };
+  }
+  return { ...s, product };
+}
+// Данные товара для текста задания: название, категория, описание и свойства выбранной модификации.
+function studioFacts(s) {
+  const p = studioProduct(s.branch_id, s.product_id);
+  let options = {};
+  if (s.variant_id) { try { options = JSON.parse(studioProduct(s.branch_id, s.variant_id).options || '{}'); } catch { options = {}; } }
+  return { name: p.name, category: p.category, description: p.description, options };
 }
 makeContext(1, mainStore);
 for (const b of branchList()) if (!b.main) contextOf(b.id);
@@ -675,6 +731,48 @@ const routes = [
   ['PUT', '/api/products/:id/photo', (p, url, body) => store.setPhoto(p.id, body), 'photos'],
   ['DELETE', '/api/products/:id/photo', (p) => store.deletePhoto(p.id), 'photos'],
   ['GET', '/api/products/gallery-counts', () => store.galleryCounts(), 'photos'],
+  /* ---------- MONT AI Studio (без платных API: задания для ChatGPT вручную + локальная обработка) ---------- */
+  ['GET', '/api/studio/meta', (p, url, body, user) => ({
+    operations: studioPrompts.OPERATIONS, roles: studioPrompts.ROLES, details: studioPrompts.DETAILS, backgrounds: studioPrompts.BACKGROUNDS, aspects: studioPrompts.ASPECTS,
+    genders: studioPrompts.GENDERS, ages: studioPrompts.AGES, builds: studioPrompts.BUILDS, poses: studioPrompts.POSES, framings: studioPrompts.FRAMINGS,
+    settings: studioPrompts.SETTINGS, platforms: studioPrompts.PLATFORMS, adStyles: studioPrompts.AD_STYLES, checklist: studio.CHECKLIST, canAttach: can(user, 'photos'),
+  }), 'studio'],
+  ['GET', '/api/studio/sessions', (p, url) => studio.listSessions(current().id, { status: url.searchParams.get('status') || 'open' }).map((s) => ({ ...s, product: studioProductBrief(s) })), 'studio'],
+  ['POST', '/api/studio/sessions', (p, url, body, user) => {
+    let product = studioProduct(current().id, body.productId);
+    let variant = null;
+    if (product.parent_id) { variant = product; product = studioProduct(current().id, product.parent_id); }
+    if (body.variantId) variant = studioVariant(current().id, product, body.variantId);
+    return studioSessionOut(studio.createSession({ branchId: current().id, product, variant: variant && { id: variant.id, label: variantLabel(variant) }, title: body.title }, user));
+  }, 'studio'],
+  ['GET', '/api/studio/sessions/:id', (p) => studioSessionOut(studio.getSession(p.id, current().id)), 'studio'],
+  ['PUT', '/api/studio/sessions/:id', (p, url, body, user) => {
+    const s = studio.getSession(p.id, current().id);
+    let variant = null;
+    if (body.variantId) variant = studioVariant(s.branch_id, studioProduct(s.branch_id, s.product_id), body.variantId);
+    return studioSessionOut(studio.updateSession(p.id, current().id, body, user, { variant: variant && { id: variant.id, label: variantLabel(variant) } }));
+  }, 'studio'],
+  ['POST', '/api/studio/sessions/:id/assets', (p, url, body, user) => studio.addAsset(p.id, current().id, body, user), 'studio'],
+  ['PUT', '/api/studio/assets/:id', (p, url, body, user) => studio.setRole(p.id, current().id, body.role, user), 'studio'],
+  ['DELETE', '/api/studio/assets/:id', (p, url, body, user) => studio.deleteAsset(p.id, current().id, user), 'studio'],
+  ['POST', '/api/studio/sessions/:id/tasks', (p, url, body, user) => {
+    const s = studio.getSession(p.id, current().id);
+    return studio.createTask(s.id, current().id, body, studioFacts(s), user);
+  }, 'studio'],
+  ['PUT', '/api/studio/tasks/:id', (p, url, body, user) => studio.updateTask(p.id, current().id, body, user), 'studio'],
+  ['POST', '/api/studio/assets/:id/review', (p, url, body, user) => studio.review(p.id, current().id, body, user), 'studio'],
+  // В галерею товара: только одобренное фото, только этот товар или его модификация, только в конец галереи.
+  // Основное фото и остальные фото товара не меняются. Нужно ещё право «Фото».
+  ['POST', '/api/studio/assets/:id/attach', (p, url, body, user) => {
+    if (!can(user, 'photos')) throw new UserError('Добавлять фото в галерею товара может сотрудник с правом «Фото»');
+    const { session: s } = studio.attachable(p.id, current().id);
+    const base = studioProduct(s.branch_id, s.product_id);
+    const targetId = Number(body.productId || s.variant_id || s.product_id);
+    const target = targetId === base.id ? base : studioVariant(s.branch_id, base, targetId);
+    const added = contextOf(s.branch_id).store.appendGalleryImage(target.id, { data: body.data });
+    const label = `${base.name}${target !== base ? ` · ${variantLabel(target)}` : ''}: фото №${added.imageId}, ${added.count}-е в галерее`;
+    return { ...studio.markAttached(p.id, { branchId: s.branch_id, productId: target.id, imageId: added.imageId }, user, label), gallery: added };
+  }, 'studio'],
   ['GET', '/api/products/:id/gallery', (p) => store.listGallery(p.id), 'photos'],
   ['PUT', '/api/products/:id/gallery', (p, url, body) => store.saveGallery(p.id, body), 'photos'],
 
@@ -1057,6 +1155,11 @@ const AUDIT_LABELS = {
   'PUT /api/products/:id/photo': 'Поменял фото товара',
   'DELETE /api/products/:id/photo': 'Удалил фото товара',
   'PUT /api/products/:id/gallery': 'Изменил галерею фото товара',
+  'POST /api/studio/sessions': 'AI Studio: новая съёмка',
+  'POST /api/studio/sessions/:id/tasks': 'AI Studio: задание для ChatGPT',
+  'POST /api/studio/assets/:id/review': 'AI Studio: согласование фото',
+  'POST /api/studio/assets/:id/attach': 'AI Studio: фото добавлено в галерею товара',
+  'DELETE /api/studio/assets/:id': 'AI Studio: удалён файл съёмки',
   'POST /api/products/bulk': 'Групповое изменение товаров',
   'POST /api/products/:id/variants': 'Добавил модификации',
   'POST /api/expenses': 'Внёс расход',
@@ -1614,6 +1717,15 @@ async function handleRequest(req, res, url, user, owner) {
       return sendJson(res, 400, { error: 'Неверный адрес' });
     }
     return serveStatic(res, pathname);
+  }
+  // Файл MONT AI Studio — только с правом «AI Studio» и только своей съёмки текущего магазина.
+  const studioFile = req.method === 'GET' && url.pathname.match(/^\/api\/studio\/assets\/(\d+)\/file$/);
+  if (studioFile) {
+    if (!can(user, 'studio')) return sendJson(res, 403, { error: 'Нет доступа к AI Studio' });
+    const found = studio.assetFile(studioFile[1], current().id);
+    if (!found) return sendJson(res, 404, { error: 'Файла нет' });
+    res.writeHead(200, { 'Content-Type': found.mime, 'Cache-Control': 'private, max-age=31536000, immutable' });
+    return res.end(Buffer.from(found.data));
   }
   // Дополнительное фото товара (галерея) — так же, только своё фото этого товара.
   const extraPhoto = req.method === 'GET' && url.pathname.match(/^\/api\/products\/(\d+)\/images\/(\d+)$/);
