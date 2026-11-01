@@ -522,6 +522,32 @@ function renderBarcodePreview() {
   if (svg) $('#pf-barcode-preview').innerHTML = svg;
 }
 
+// Калькулятор $ → сом в карточке товара. Курс — из «Настроек»; в базу записываются только сомы.
+let usdRate = null;
+const round2 = (n) => Math.round(n * 100) / 100;
+function loadUsdRate() {
+  api('/api/settings/currency').then((r) => { usdRate = r.usdRate || null; }, () => { usdRate = null; }).finally(renderUsd);
+}
+function renderUsd() {
+  $('#pf-usd').hidden = false;
+  const on = usdRate > 0;
+  for (const id of ['#pf-usd-purchase', '#pf-usd-price']) $(id).closest('.field').hidden = !on;
+  $('#pf-usd-note').innerHTML = on
+    ? `Курс: 1 $ = ${esc(fmtNum(usdRate))} сом${session.can('settings') ? ' (меняется в «Настройках»)' : ''}. Вводите цену в $ — сомы посчитаются сами; цена продажи округляется до целого сома.`
+    : session.can('settings') ? 'Чтобы вводить цены в долларах, укажите курс доллара в «Настройках».' : 'Цены в долларах можно вводить, когда владелец укажет курс доллара в «Настройках».';
+  fillUsdFromSom();
+}
+// $-поля повторяют сомы (кроме поля, которое сейчас вводят).
+function fillUsdFromSom(skip = '') {
+  if (!(usdRate > 0)) return;
+  const f = $('#product-form');
+  for (const [id, key] of [['pf-usd-purchase', 'purchase'], ['pf-usd-price', 'price']]) {
+    if (id === skip) continue;
+    const som = parseNum(f.elements[key].value);
+    $('#' + id).value = som > 0 ? fmtNum(round2(som / usdRate)) : '';
+  }
+}
+
 function openProductDialog(product = null, onSaved = null) {
   editingProduct = product;
   productDialogDone = onSaved;
@@ -572,6 +598,8 @@ function openProductDialog(product = null, onSaved = null) {
   renderGenOptions();
   $('#categories').innerHTML = categories.names().map((c) => `<option value="${esc(c)}">`).join('');
   syncPrices();
+  renderUsd();
+  loadUsdRate();
   renderBarcodePreview();
   $('#product-dialog').showModal();
   (variant ? $('#pf-variant-options input') : f.elements.name)?.focus();
@@ -651,7 +679,16 @@ function collectVariants() {
 
 $('#product-form').addEventListener('input', (e) => {
   const name = e.target.name;
-  if (['cost', 'price', 'markup', 'purchase', 'discount'].includes(name)) syncPrices(name);
+  if (['cost', 'price', 'markup', 'purchase', 'discount'].includes(name)) { syncPrices(name); fillUsdFromSom(); }
+  if ((e.target.id === 'pf-usd-purchase' || e.target.id === 'pf-usd-price') && usdRate > 0) {
+    const usd = parseNum(e.target.value);
+    const price = e.target.id === 'pf-usd-price';
+    const key = price ? 'price' : 'purchase';
+    $('#product-form').elements[key].value = e.target.value.trim() && usd >= 0 ? fmtNum(price ? round0(usd * usdRate) : round2(usd * usdRate)) : '';
+    syncPrices(key);
+    fillUsdFromSom(e.target.id);
+    return;
+  }
   if (name === 'barcode') renderBarcodePreview();
   const combo = e.target.closest('tr[data-label]');
   if (combo && e.target.dataset.combo) {

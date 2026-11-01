@@ -809,6 +809,15 @@ const routes = [
   ['POST', '/api/docs/:id/unpost', (p, url, body, user) => docRight(user, store.getDoc(p.id).kind) && store.unpostDoc(p.id, user), 'docs.unpost'],
   ['DELETE', '/api/docs/:id', (p, url, body, user) => docRight(user, store.getDoc(p.id).kind) && store.deleteDoc(p.id), ['docs.sale', 'arrivals', 'refund', 'writeoff', 'stock', 'transfer']],
   ['GET', '/api/docs-writeoff-summary', (p, url) => store.writeoffSummary(range(url)), 'writeoff'],
+  // Курс доллара (сом за 1 $): задаёт владелец в «Настройках»; им же пересчитываются цены из $ в карточке товара
+  // и по нему по умолчанию считается приход по фото накладной в долларах.
+  ['GET', '/api/settings/currency', () => ({ usdRate: Number(store.setting('usd_rate', '0')) || null }), ['products', 'settings', 'arrivals', 'receive.photo']],
+  ['PUT', '/api/settings/currency', (p, url, body) => {
+    const rate = body.usdRate === '' || body.usdRate === null ? 0 : Number(String(body.usdRate).replace(',', '.').replace(/\s/g, ''));
+    if (!Number.isFinite(rate) || rate < 0 || rate > 100000) throw new UserError('Курс доллара: укажите число, например 87,5');
+    store.setSetting('usd_rate', rate ? String(Math.round(rate * 10000) / 10000) : '0');
+    return { usdRate: rate || null };
+  }, 'settings'],
   ['GET', '/api/suppliers', () => store.listSuppliers(), ['arrivals', 'transfer', 'stock', 'writeoff', 'products']],
   // Приход по фото накладной: распознать, подобрать товары, провести.
   ['GET', '/api/invoice/status', () => ({ configured: Boolean(invoice.apiKey(mainStore)), fromEnv: Boolean(process.env.ANTHROPIC_API_KEY), model: invoice.MODEL,

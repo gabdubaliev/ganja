@@ -3,6 +3,9 @@
 // Настройки: уведомления о продажах в Telegram.
 
 async function renderSettings() {
+  if (session.can('settings')) {
+    api('/api/settings/currency').then((c) => { $('#currency-form').elements.usdRate.value = c.usdRate ? String(c.usdRate).replace('.', ',') : ''; }).catch(() => {});
+  }
   const f = $('#telegram-form');
   $('#telegram-error').hidden = true;
   try {
@@ -15,6 +18,18 @@ async function renderSettings() {
     toast(err.message, 'error');
   }
 }
+
+$('#currency-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('#currency-error').hidden = true;
+  try {
+    const c = await api('/api/settings/currency', { method: 'PUT', body: { usdRate: e.target.elements.usdRate.value.trim() } });
+    e.target.elements.usdRate.value = c.usdRate ? String(c.usdRate).replace('.', ',') : '';
+    toast(c.usdRate ? `Курс сохранён: 1 $ = ${String(c.usdRate).replace('.', ',')} сом` : 'Курс доллара убран');
+  } catch (err) {
+    showFormError('#currency-error', err);
+  }
+});
 
 $('#telegram-form').addEventListener('submit', async (e) => {
   e.preventDefault();

@@ -1273,6 +1273,17 @@
 
 <main class="page" data-view="settings" hidden>
   <header class="top"><div class="title"><h1>Настройки</h1></div></header>
+  <section class="panel" data-can="settings">
+    <form id="currency-form" class="settings-form" novalidate>
+      <div>
+        <h2>Курс доллара</h2>
+        <p class="sub">Сколько сом за 1 $. В карточке товара можно вводить цену закупки и продажи в долларах — программа сама пересчитает в сомы по этому курсу. В базе цены хранятся только в сомах; при смене курса старые цены не меняются. Этот же курс подставляется в приход по фото накладной в долларах.</p>
+      </div>
+      <div class="field"><label for="usd-rate">1 $ =, сом</label><input id="usd-rate" name="usdRate" class="input num" inputmode="decimal" autocomplete="off" placeholder="Например, 87,5"></div>
+      <p class="form-error" id="currency-error" role="alert" hidden></p>
+      <div class="form-actions start"><button type="submit" class="btn primary">Сохранить</button></div>
+    </form>
+  </section>
   <section class="panel">
     <form id="telegram-form" class="settings-form" novalidate>
       <div>
@@ -1874,6 +1885,11 @@
 
       <fieldset class="prices wide">
         <legend>Цены и скидки</legend>
+        <div class="usd-calc" id="pf-usd" hidden>
+          <div class="field"><label for="pf-usd-purchase">Закупка в $</label><input id="pf-usd-purchase" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+          <div class="field"><label for="pf-usd-price">Продажа в $</label><input id="pf-usd-price" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+          <p class="pick-meta" id="pf-usd-note"></p>
+        </div>
         <div class="field"><label for="pf-purchase">Цена закупки, сом</label><input id="pf-purchase" name="purchase" class="input num" inputmode="decimal" autocomplete="off" placeholder="Сколько платите поставщику"></div>
         <div class="field"><label for="pf-cost">Себестоимость, сом</label><input id="pf-cost" name="cost" class="input num" inputmode="decimal" autocomplete="off" placeholder="Закупка + расходы"></div>
         <div class="field"><label for="pf-markup">Наценка, %</label><input id="pf-markup" name="markup" class="input num" inputmode="decimal" autocomplete="off" placeholder="Например, 40"></div>

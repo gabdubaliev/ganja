@@ -492,6 +492,9 @@ textarea.code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size
 .prices { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px 10px; margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .prices legend { padding: 0 6px; color: var(--ink-2); font-size: 13px; }
 .prices .price-note { grid-column: 1 / -1; margin: 0; }
+.usd-calc { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 10px; padding: 8px 10px; border-radius: var(--radius); background: color-mix(in srgb, var(--series) 7%, transparent); }
+.usd-calc .pick-meta { grid-column: 1 / -1; margin: 0; }
+.usd-calc .field[hidden] { display: none; }
 #pf-markup { border-color: var(--series); }
 .input-row { display: flex; gap: 6px; }
 .input-row .input { flex: 1; min-width: 0; }
