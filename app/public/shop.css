@@ -597,3 +597,14 @@ body[data-look="minimal"] .zoom-close { border-radius: 0; background: none; }
   .pd-info .product-desc, .pd-info > p.small, .pd-info .pd-perks { order: 2; }
   .pd-buy { order: 1; position: static; margin-top: 4px; padding: 6px 0 0; background: none; }
 }
+
+/* Окно товара на телефоне и планшете — обычная колонка (не сетка): в Safari на iPhone строка сетки с фото
+   сжималась, и фото наезжало на название, цену и цвета. Блок фото — во всю ширину, высота задана явно. */
+@media (max-width: 860px) {
+  .pd { display: block; }
+  .pd-pic { width: 100%; aspect-ratio: auto; height: min(calc(100vw / (var(--ratio))), 62dvh); max-height: none; }
+  .pd-info { position: relative; z-index: 1; background: var(--bg); }
+}
+@media (max-width: 640px) {
+  .pd-pic { height: min(calc(100vw / (var(--ratio))), 50vh); height: min(calc(100vw / (var(--ratio))), 50svh); }
+}
