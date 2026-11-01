@@ -193,7 +193,8 @@ function renderSession() {
   const variant = p.variants?.find((v) => v.id === s.variant_id);
   $('#st-sub').textContent = `${p.name}${variant ? ` · ${variant.label}` : ''}`;
   $('#st-tools').innerHTML = `<button type="button" class="btn" id="st-back">← Все съёмки</button>
-    <button type="button" class="btn ghost" id="st-archive">${s.status === 'archived' ? 'Вернуть в работу' : 'В архив'}</button>`;
+    <button type="button" class="btn ghost" id="st-archive">${s.status === 'archived' ? 'Вернуть в работу' : 'В архив'}</button>
+    <button type="button" class="btn ghost danger" id="st-delete">Удалить</button>`;
   const roleSelect = (a) => `<select class="input small" data-st-role="${a.id}" aria-label="Что на фото">${Object.entries(m.roles).map(([k, v]) => `<option value="${k}" ${a.role === k ? 'selected' : ''}>${v}</option>`).join('')}</select>`;
   const pickable = [...sources, ...edits.filter((e) => e.status !== 'rejected')];
   $('#st-body').innerHTML = `
@@ -432,6 +433,22 @@ $('[data-view="studio"]').addEventListener('click', async (e) => {
   const b = (sel) => e.target.closest(sel);
   let x;
   try {
+    if ((x = b('#st-delete'))) {
+      const files = st.session.assets.length;
+      const kept = st.session.assets.filter((a) => a.attached).length;
+      if (!confirm(`Удалить навсегда? Файл нельзя будет восстановить.\n\nБудут удалены: фото и результаты съёмки (${files}), задания (${st.session.tasks.length}) и история.${kept ? `\nФото, уже добавленные в галерею товаров (${kept}), останутся в каталоге.` : ''}`)) return;
+      x.disabled = true;
+      try {
+        const r = await api(`/api/studio/sessions/${st.session.id}`, { method: 'DELETE' });
+        st.sessionId = null;
+        st.session = null;
+        toast(`Съёмка удалена навсегда: файлов ${r.files}, заданий ${r.tasks}${r.attachedKept ? `; в каталоге осталось фото: ${r.attachedKept}` : ''}`);
+        return renderStudio();
+      } catch (err) {
+        x.disabled = false;
+        throw err;
+      }
+    }
     if (b('#st-archive')) {
       st.session = await api(`/api/studio/sessions/${st.session.id}`, { method: 'PUT', body: { status: st.session.status === 'archived' ? 'open' : 'archived' } });
       return renderSession();

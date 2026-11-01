@@ -746,6 +746,7 @@ const routes = [
     return studioSessionOut(studio.createSession({ branchId: current().id, product, variant: variant && { id: variant.id, label: variantLabel(variant) }, title: body.title }, user));
   }, 'studio'],
   ['GET', '/api/studio/sessions/:id', (p) => studioSessionOut(studio.getSession(p.id, current().id)), 'studio'],
+  ['DELETE', '/api/studio/sessions/:id', (p, url, body, user) => studio.deleteSession(p.id, current().id, user), 'studio'],
   ['PUT', '/api/studio/sessions/:id', (p, url, body, user) => {
     const s = studio.getSession(p.id, current().id);
     let variant = null;
@@ -1162,6 +1163,7 @@ const AUDIT_LABELS = {
   'POST /api/studio/assets/:id/retry': 'AI Studio: повторная генерация',
   'POST /api/studio/assets/:id/attach': 'AI Studio: фото добавлено в галерею товара',
   'DELETE /api/studio/assets/:id': 'AI Studio: удалён файл съёмки',
+  'DELETE /api/studio/sessions/:id': 'AI Studio: съёмка удалена навсегда',
   'POST /api/products/bulk': 'Групповое изменение товаров',
   'POST /api/products/:id/variants': 'Добавил модификации',
   'POST /api/expenses': 'Внёс расход',

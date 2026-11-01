@@ -55,6 +55,8 @@ function createStudio(file, { UserError }) {
   db.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA busy_timeout = 5000;
+    -- Удалённые фото не остаются в файле базы: освободившееся место перезаписывается нулями.
+    PRAGMA secure_delete = ON;
     CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS studio_sessions (
       id INTEGER PRIMARY KEY,
@@ -271,6 +273,33 @@ function createStudio(file, { UserError }) {
       touch(a.session_id);
       log(a.session_id, user, `Удалён файл №${a.id}`, { source: 'исходное фото', edit: 'обработка', result: 'результат' }[a.kind]);
       return { ok: true };
+    },
+
+    // Удалить съёмку навсегда: все её файлы (исходники, обработки, результаты ChatGPT), задания и историю.
+    // Фото, уже добавленные в галерею товара, — это отдельные копии в базе магазина: они остаются в каталоге.
+    // Всё или ничего (транзакция). Затем журнал WAL сбрасывается в базу, а при большом освободившемся месте база сжимается.
+    deleteSession(id, branchId, user) {
+      const s = session(id, branchId);
+      const files = db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(bytes), 0) AS bytes, COUNT(attached_image_id) AS attached FROM studio_assets WHERE session_id = ?').get(s.id);
+      const tasks = db.prepare('SELECT COUNT(*) AS n FROM studio_tasks WHERE session_id = ?').get(s.id).n;
+      transaction(db, () => {
+        db.prepare('DELETE FROM studio_assets WHERE session_id = ?').run(s.id);
+        db.prepare('DELETE FROM studio_tasks WHERE session_id = ?').run(s.id);
+        db.prepare('DELETE FROM studio_log WHERE session_id = ?').run(s.id);
+        const r = db.prepare('DELETE FROM studio_sessions WHERE id = ?').run(s.id);
+        if (r.changes !== 1) throw new UserError('Съёмка не удалилась — попробуйте ещё раз');
+      });
+      // Данные уже удалены и затёрты; сжатие файла — дополнительно, его сбой не отменяет удаление.
+      let compacted = false;
+      try {
+        db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+        const free = db.prepare('PRAGMA freelist_count').get().freelist_count * db.prepare('PRAGMA page_size').get().page_size;
+        if (free > 20e6) { db.exec('VACUUM'); db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); compacted = true; }
+      } catch (err) {
+        console.error('AI Studio: сжатие базы после удаления не выполнено:', err.message);
+      }
+      console.log(`AI Studio: удалена съёмка №${s.id} (${files.n} файлов, ${tasks} заданий) — ${who(user) || 'без входа'}`);
+      return { ok: true, id: s.id, files: files.n, bytes: files.bytes, tasks, attachedKept: files.attached, compacted };
     },
 
     // Задание для ChatGPT: текст собирается здесь, из данных товара и выбранных фото.
