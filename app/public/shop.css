@@ -589,3 +589,11 @@ dialog.zoom .pd-arrow { position: fixed; opacity: 1; }
 dialog.zoom.single .pd-arrow { display: none; }
 .zoom-count { position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); font-size: 13px; font-weight: 700; color: var(--ink-soft); }
 body[data-look="minimal"] .zoom-close { border-radius: 0; background: none; }
+
+/* Окно товара на телефоне: фото не выше половины экрана, кнопка «В корзину» не закреплена поверх цветов и размеров,
+   а стоит сразу после выбора цвета, размера и таблицы размеров; описание и преимущества — ниже. */
+@media (max-width: 640px) {
+  .pd-pic { max-height: 50vh; max-height: 50svh; }
+  .pd-info .product-desc, .pd-info > p.small, .pd-info .pd-perks { order: 2; }
+  .pd-buy { order: 1; position: static; margin-top: 4px; padding: 6px 0 0; background: none; }
+}
