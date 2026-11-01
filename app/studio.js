@@ -128,6 +128,9 @@ function createStudio(file, { UserError }) {
     if (!taskCols.has(name)) db.exec(`ALTER TABLE studio_tasks ADD COLUMN ${name} ${type}`);
   }
   db.exec('UPDATE studio_tasks SET root_id = id WHERE root_id IS NULL');
+  // Съёмка по расцветке: цвет (например, «Чёрный») — фото для всех размеров этого цвета сразу.
+  const sessCols = new Set(db.prepare('PRAGMA table_info(studio_sessions)').all().map((c) => c.name));
+  if (!sessCols.has('color')) db.exec("ALTER TABLE studio_sessions ADD COLUMN color TEXT NOT NULL DEFAULT ''");
 
   const who = (user) => String(user?.name || user?.email || '');
   const now = () => Date.now();
@@ -174,10 +177,10 @@ function createStudio(file, { UserError }) {
       return rows.map((r) => ({ ...r }));
     },
 
-    createSession({ branchId, product, variant, title }, user) {
+    createSession({ branchId, product, variant, color = '', title }, user) {
       const t = now();
-      const { lastInsertRowid } = db.prepare('INSERT INTO studio_sessions (branch_id, product_id, variant_id, title, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(branchId, product.id, variant?.id ?? null, String(title || '').trim().slice(0, 120), who(user), t, t);
+      const { lastInsertRowid } = db.prepare('INSERT INTO studio_sessions (branch_id, product_id, variant_id, color, title, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(branchId, product.id, variant?.id ?? null, String(color || '').slice(0, 80), String(title || '').trim().slice(0, 120), who(user), t, t);
       const id = Number(lastInsertRowid);
       log(id, user, 'Создана съёмка', `${product.name}${variant ? ` · ${variant.label}` : ''}`);
       return this.getSession(id, branchId);
@@ -191,7 +194,7 @@ function createStudio(file, { UserError }) {
       return { ...s, assets: assets.map(assetMeta), tasks: tasks.map(taskOut), history: history.map((h) => ({ ...h })), checklist: CHECKLIST };
     },
 
-    updateSession(id, branchId, patch, user, { variant } = {}) {
+    updateSession(id, branchId, patch, user, { variant, color } = {}) {
       const s = session(id, branchId);
       const next = {
         title: patch.title === undefined ? s.title : String(patch.title).trim().slice(0, 120),
@@ -199,9 +202,10 @@ function createStudio(file, { UserError }) {
         status: patch.status === undefined ? s.status : patch.status === 'archived' ? 'archived' : 'open',
         variant_id: patch.variantId === undefined ? s.variant_id : variant ? variant.id : null,
       };
-      db.prepare('UPDATE studio_sessions SET title = ?, note = ?, status = ?, variant_id = ?, updated_at = ? WHERE id = ?').run(next.title, next.note, next.status, next.variant_id, now(), s.id);
+      next.color = patch.variantId === undefined ? s.color : String(color || '').slice(0, 80);
+      db.prepare('UPDATE studio_sessions SET title = ?, note = ?, status = ?, variant_id = ?, color = ?, updated_at = ? WHERE id = ?').run(next.title, next.note, next.status, next.variant_id, next.color, now(), s.id);
       if (patch.status !== undefined && patch.status !== s.status) log(s.id, user, next.status === 'archived' ? 'Съёмка в архиве' : 'Съёмка снова открыта');
-      if (patch.variantId !== undefined && next.variant_id !== s.variant_id) log(s.id, user, 'Выбрана модификация', variant ? variant.label : 'весь товар');
+      if (patch.variantId !== undefined && (next.variant_id !== s.variant_id || next.color !== s.color)) log(s.id, user, next.color ? 'Выбрана расцветка' : 'Выбрана модификация', next.color || (variant ? variant.label : 'весь товар'));
       return this.getSession(s.id, branchId);
     },
 

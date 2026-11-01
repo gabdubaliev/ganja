@@ -132,12 +132,35 @@ function renderNewList() {
     <span class="thumb">${p.photo_at ? `<img src="${photoUrl(p)}" alt="" loading="lazy">` : '📦'}</span><span>${esc(p.name)}<small>${esc([p.category, catalog.isGroup(p) ? `${catalog.children(p.id).length} модиф.` : ''].filter(Boolean).join(' · '))}</small></span></button>`).join('')
     || '<p class="empty">Ничего не найдено</p>';
 }
+// Расцветки товара по модификациям: [{ color, sizes }] — фото делается на цвет, а не на каждый размер.
+function stColorsOf(kids) {
+  const opts = (k) => { try { return JSON.parse(k.options || '{}'); } catch { return {}; } };
+  const name = typeof detectColorOption === 'function' ? detectColorOption(kids.map(opts)) : null;
+  if (!name) return [];
+  const map = new Map();
+  for (const k of kids) {
+    const c = opts(k)[name];
+    if (!c) continue;
+    const sizes = map.get(c) || [];
+    sizes.push(Object.entries(opts(k)).filter(([n]) => n !== name).map(([, v]) => v).join(', '));
+    map.set(c, sizes);
+  }
+  return [...map.entries()].map(([color, sizes]) => ({ color, sizes: typeof sizeSort === 'function' ? sizeSort(sizes.filter(Boolean)) : sizes.filter(Boolean) }));
+}
+const stColorOption = (c, selected) => `<option value="c:${esc(c.color)}" ${selected ? 'selected' : ''}>${esc(c.color)}${c.sizes?.length ? ` — все размеры (${esc(c.sizes.join(', '))})` : ''}</option>`;
+// Значение выбора: '' — весь товар, 'c:Цвет' — расцветка, число — отдельная модификация.
+const stPickBody = (v) => (String(v).startsWith('c:') ? { color: String(v).slice(2), variantId: null } : { variantId: Number(v) || null, color: '' });
+
 function pickNewProduct(p, variantId = null) {
   stNewPick = p;
   const kids = catalog.children(p.id);
+  const colors = stColorsOf(kids);
   $('#st-new-variant-box').hidden = !kids.length;
-  $('#st-new-variant').innerHTML = '<option value="">Весь товар (без модификации)</option>' + kids.map((k) => `<option value="${k.id}">${esc(optionsText(k) || k.name)}</option>`).join('');
-  $('#st-new-variant').value = variantId ? String(variantId) : '';
+  $('#st-new-variant-box label').textContent = colors.length ? 'Расцветка' : 'Модификация';
+  const pre = variantId && colors.length ? (() => { const k = catalog.byId(variantId); return colors.find((c) => k && optionsText(k).includes(c.color)); })() : null;
+  $('#st-new-variant').innerHTML = '<option value="">Весь товар</option>' + (colors.length
+    ? colors.map((c) => stColorOption(c, pre === c)).join('')
+    : kids.map((k) => `<option value="${k.id}" ${k.id === variantId ? 'selected' : ''}>${esc(optionsText(k) || k.name)}</option>`).join(''));
   $('#st-new-q').value = p.name;
   $('#st-new-ok').disabled = false;
   renderNewList();
@@ -149,7 +172,7 @@ $('#st-new-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!stNewPick) return;
   try {
-    const s = await api('/api/studio/sessions', { method: 'POST', body: { productId: stNewPick.id, variantId: Number($('#st-new-variant').value) || null, title: $('#st-new-title-in').value } });
+    const s = await api('/api/studio/sessions', { method: 'POST', body: { productId: stNewPick.id, ...stPickBody($('#st-new-variant').value), title: $('#st-new-title-in').value } });
     $('#st-new').close();
     openStudioSession(s.id, s);
   } catch (err) {
@@ -191,7 +214,7 @@ function renderSession() {
   const edits = s.assets.filter((a) => a.kind === 'edit');
   const results = s.assets.filter((a) => a.kind === 'result');
   const variant = p.variants?.find((v) => v.id === s.variant_id);
-  $('#st-sub').textContent = `${p.name}${variant ? ` · ${variant.label}` : ''}`;
+  $('#st-sub').textContent = `${p.name}${s.color ? ` · ${s.color} (все размеры)` : variant ? ` · ${variant.label}` : ''}`;
   $('#st-tools').innerHTML = `<button type="button" class="btn" id="st-back">← Все съёмки</button>
     <button type="button" class="btn ghost" id="st-archive">${s.status === 'archived' ? 'Вернуть в работу' : 'В архив'}</button>
     <button type="button" class="btn ghost danger" id="st-delete">Удалить</button>`;
@@ -204,7 +227,8 @@ function renderSession() {
       <div class="st-head-body">
         <input class="input st-title-in" id="st-title" value="${esc(s.title)}" placeholder="Название съёмки" maxlength="120">
         <div class="st-head-line"><b>${esc(p.name)}</b>${p.category ? ` · ${esc(p.category)}` : ''} · основное фото и галерея товара меняются только вами, по кнопке «Добавить в галерею»</div>
-        ${p.variants?.length ? `<label class="st-head-line">Модификация: <select class="input small" id="st-variant"><option value="">Весь товар</option>${p.variants.map((v) => `<option value="${v.id}" ${v.id === s.variant_id ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}</select> <small>(цвет и размер попадут в задание)</small></label>` : ''}
+        ${p.colors?.length ? `<label class="st-head-line">Расцветка: <select class="input small" id="st-variant"><option value="">Весь товар</option>${p.colors.map((c) => stColorOption(c, c.color === s.color)).join('')}${!s.color && s.variant_id ? `<option value="${s.variant_id}" selected>${esc(variant?.label || 'модификация')}</option>` : ''}</select> <small>(цвет попадёт в задание; фото — для всех размеров этого цвета)</small></label>`
+          : p.variants?.length ? `<label class="st-head-line">Модификация: <select class="input small" id="st-variant"><option value="">Весь товар</option>${p.variants.map((v) => `<option value="${v.id}" ${v.id === s.variant_id ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}</select> <small>(свойства попадут в задание)</small></label>` : ''}
       </div>
     </section>
 
@@ -415,7 +439,7 @@ $('[data-view="studio"]').addEventListener('change', async (e) => {
     return;
   }
   if (e.target.id === 'st-variant') {
-    try { st.session = await api(`/api/studio/sessions/${st.session.id}`, { method: 'PUT', body: { variantId: Number(e.target.value) || null } }); renderSession(); } catch (err) { toast(err.message, 'error'); }
+    try { st.session = await api(`/api/studio/sessions/${st.session.id}`, { method: 'PUT', body: stPickBody(e.target.value) }); renderSession(); } catch (err) { toast(err.message, 'error'); }
     return;
   }
   if (e.target.id === 'st-title') {
@@ -636,9 +660,17 @@ function openAttach(id) {
   const p = st.session.product;
   attachId = id;
   $('#st-att-preview').innerHTML = `<img src="${studioFileUrl(a.id)}" alt="">`;
-  const targets = [{ id: p.id, label: `${p.name} — весь товар`, gallery: p.gallery }, ...(p.variants || []).map((v) => ({ id: v.id, label: `${p.name} · ${v.label}`, gallery: v.gallery }))];
-  $('#st-att-target').innerHTML = targets.map((t) => `<option value="${t.id}" ${t.id === (st.session.variant_id || p.id) ? 'selected' : ''}>${esc(t.label)} (доп. фото: ${t.gallery}/12)</option>`).join('');
-  $('#st-att-info').textContent = 'В карточке товара на витрине фото появится среди дополнительных. Сделать его основным можно потом в окне «Фото товара».';
+  // Цели: весь товар и расцветки (фото видно для всех размеров цвета); без цветов — модификации по отдельности.
+  const s = st.session;
+  const targets = [{ value: String(p.id), label: `${p.name} — весь товар`, gallery: p.gallery, on: !s.color && !s.variant_id },
+    ...(p.colors?.length
+      ? p.colors.map((c) => ({ value: `c:${c.color}`, label: `${p.name} · ${c.color} — все размеры${c.sizes?.length ? ` (${c.sizes.join(', ')})` : ''}`, gallery: c.gallery, on: s.color === c.color }))
+      : (p.variants || []).map((v) => ({ value: String(v.id), label: `${p.name} · ${v.label}`, gallery: v.gallery, on: v.id === s.variant_id })))];
+  if (p.colors?.length && !s.color && s.variant_id) { const v = p.variants.find((x) => x.id === s.variant_id); if (v) targets.push({ value: String(v.id), label: `${p.name} · ${v.label} (только эта модификация)`, gallery: v.gallery, on: true }); }
+  $('#st-att-target').innerHTML = targets.map((t) => `<option value="${esc(t.value)}" ${t.on ? 'selected' : ''}>${esc(t.label)} (доп. фото: ${t.gallery}/12)</option>`).join('');
+  $('#st-att-info').textContent = p.colors?.length
+    ? 'Фото расцветки увидят покупатели на витрине при любом размере этого цвета. Сделать его основным можно потом в окне «Фото товара».'
+    : 'В карточке товара на витрине фото появится среди дополнительных. Сделать его основным можно потом в окне «Фото товара».';
   $('#st-att-error').hidden = true;
   $('#st-att-ok').disabled = false;
   $('#st-attach').showModal();
@@ -647,7 +679,8 @@ $('#st-att-ok').addEventListener('click', async () => {
   $('#st-att-ok').disabled = true;
   try {
     const data = await galleryJpeg(attachId);
-    const r = await api(`/api/studio/assets/${attachId}/attach`, { method: 'POST', body: { productId: Number($('#st-att-target').value), data } });
+    const v = $('#st-att-target').value;
+    const r = await api(`/api/studio/assets/${attachId}/attach`, { method: 'POST', body: { ...(v.startsWith('c:') ? { color: v.slice(2) } : { productId: Number(v), color: '' }), data } });
     $('#st-attach').close();
     toast(`Добавлено в галерею товара: фото №${r.gallery.imageId}, ${r.gallery.count}-е дополнительное`);
     reloadSession();

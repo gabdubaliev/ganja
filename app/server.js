@@ -135,11 +135,47 @@ function studioBranchProducts(branchId, base) {
   const counts = ctx.store.galleryCounts();
   return { kids, counts };
 }
+// Расцветки товара: свойство «Цвет» (по названию) и его значения. Для каждого цвета — модификации всех размеров
+// и «хранитель» фото: модификация этого цвета, у которой уже есть галерея (или основное фото), иначе первая.
+// Витрина показывает галерею любой модификации того же цвета для всех его размеров.
+const STUDIO_SIZES = ['XXXS', 'XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', 'XXXL', '3XL', '4XL', '5XL', '6XL'];
+function studioSizeSort(values) {
+  const rank = (v) => { const u = String(v).toUpperCase().replace(/\s/g, ''); const i = STUDIO_SIZES.indexOf(u === '2XL' ? 'XXL' : u === 'XXXL' ? '3XL' : u); if (i >= 0) return i; const n = parseFloat(String(v).replace(',', '.')); return Number.isFinite(n) ? 100 + n : null; };
+  return values.every((v) => rank(v) !== null) ? [...values].sort((a, b) => rank(a) - rank(b)) : values;
+}
+const STUDIO_COLOR_RE = /цвет|расцв|оттен|окрас|^тон$|colou?r/i;
+function studioColors(branchId, base) {
+  const { kids, counts } = studioBranchProducts(branchId, base);
+  const opts = (k) => { try { return JSON.parse(k.options || '{}'); } catch { return {}; } };
+  const name = [...new Set(kids.flatMap((k) => Object.keys(opts(k))))].find((n) => STUDIO_COLOR_RE.test(n.trim()));
+  if (!name) return { name: null, list: [] };
+  const groups = new Map();
+  for (const k of kids) {
+    const c = opts(k)[name];
+    if (!c) continue;
+    const g = groups.get(c) || { color: c, ids: [], sizes: [], kids: [] };
+    g.ids.push(k.id);
+    g.kids.push(k);
+    g.sizes.push(Object.entries(opts(k)).filter(([n]) => n !== name).map(([, v]) => v).join(', '));
+    groups.set(c, g);
+  }
+  const list = [...groups.values()].map((g) => {
+    const holder = g.kids.find((k) => counts[k.id]) || g.kids.find((k) => k.photo_at) || g.kids[0];
+    return { color: g.color, ids: g.ids, sizes: studioSizeSort(g.sizes.filter(Boolean)), rep: holder.id, gallery: counts[holder.id] || 0, photoAt: holder.photo_at };
+  });
+  return { name, list };
+}
+function studioColorPick(branchId, base, color) {
+  const c = studioColors(branchId, base).list.find((x) => x.color === color);
+  if (!c) throw new UserError(`Расцветка «${color}» у этого товара не найдена`);
+  return { variant: studioVariant(branchId, base, c.rep), color: c.color };
+}
+
 function studioProductBrief(s) {
   try {
     const p = studioProduct(s.branch_id, s.product_id);
     const v = s.variant_id ? studioProduct(s.branch_id, s.variant_id) : null;
-    return { id: p.id, name: p.name, category: p.category, photoAt: p.photo_at, variant: v && { id: v.id, label: variantLabel(v), photoAt: v.photo_at } };
+    return { id: p.id, name: p.name, category: p.category, photoAt: p.photo_at, variant: v && { id: v.id, label: s.color || variantLabel(v), photoAt: v.photo_at } };
   } catch {
     return { id: s.product_id, name: 'Товар удалён', deleted: true };
   }
@@ -153,6 +189,7 @@ function studioSessionOut(s) {
     product = {
       id: p.id, name: p.name, category: p.category, description: p.description, photoAt: p.photo_at, price: price(p), gallery: counts[p.id] || 0,
       variants: kids.map((k) => ({ id: k.id, label: variantLabel(k), photoAt: k.photo_at, price: price(k), gallery: counts[k.id] || 0 })),
+      colors: studioColors(s.branch_id, p).list,
     };
   } catch {
     product = { id: s.product_id, name: 'Товар удалён', deleted: true, variants: [] };
@@ -164,6 +201,8 @@ function studioFacts(s) {
   const p = studioProduct(s.branch_id, s.product_id);
   let options = {};
   if (s.variant_id) { try { options = JSON.parse(studioProduct(s.branch_id, s.variant_id).options || '{}'); } catch { options = {}; } }
+  // Съёмка по расцветке — в задание идёт только цвет, без размера.
+  if (s.color) { const name = studioColors(s.branch_id, p).name; options = name ? { [name]: s.color } : {}; }
   return { name: p.name, category: p.category, description: p.description, options };
 }
 makeContext(1, mainStore);
@@ -743,7 +782,9 @@ const routes = [
     let variant = null;
     if (product.parent_id) { variant = product; product = studioProduct(current().id, product.parent_id); }
     if (body.variantId) variant = studioVariant(current().id, product, body.variantId);
-    return studioSessionOut(studio.createSession({ branchId: current().id, product, variant: variant && { id: variant.id, label: variantLabel(variant) }, title: body.title }, user));
+    let color = '';
+    if (body.color) ({ variant, color } = studioColorPick(current().id, product, String(body.color)));
+    return studioSessionOut(studio.createSession({ branchId: current().id, product, variant: variant && { id: variant.id, label: color || variantLabel(variant) }, color, title: body.title }, user));
   }, 'studio'],
   ['GET', '/api/studio/sessions/:id', (p) => studioSessionOut(studio.getSession(p.id, current().id)), 'studio'],
   ['DELETE', '/api/studio/sessions/:id', (p, url, body, user) => studio.deleteSession(p.id, current().id, user), 'studio'],
@@ -751,7 +792,9 @@ const routes = [
     const s = studio.getSession(p.id, current().id);
     let variant = null;
     if (body.variantId) variant = studioVariant(s.branch_id, studioProduct(s.branch_id, s.product_id), body.variantId);
-    return studioSessionOut(studio.updateSession(p.id, current().id, body, user, { variant: variant && { id: variant.id, label: variantLabel(variant) } }));
+    let color = '';
+    if (body.color) { ({ variant, color } = studioColorPick(s.branch_id, studioProduct(s.branch_id, s.product_id), String(body.color))); body.variantId = variant.id; }
+    return studioSessionOut(studio.updateSession(p.id, current().id, body, user, { variant: variant && { id: variant.id, label: color || variantLabel(variant) }, color }));
   }, 'studio'],
   ['POST', '/api/studio/sessions/:id/assets', (p, url, body, user) => studio.addAsset(p.id, current().id, body, user), 'studio'],
   ['PUT', '/api/studio/assets/:id', (p, url, body, user) => studio.setRole(p.id, current().id, body.role, user), 'studio'],
@@ -769,10 +812,12 @@ const routes = [
     if (!can(user, 'photos')) throw new UserError('Добавлять фото в галерею товара может сотрудник с правом «Фото»');
     const { session: s } = studio.attachable(p.id, current().id);
     const base = studioProduct(s.branch_id, s.product_id);
-    const targetId = Number(body.productId || s.variant_id || s.product_id);
+    // Расцветка (body.color или цвет съёмки) — фото в галерею «хранителя» этого цвета: его видят все размеры цвета.
+    const color = body.color !== undefined ? String(body.color || '') : body.productId ? '' : s.color;
+    const targetId = color ? studioColorPick(s.branch_id, base, color).variant.id : Number(body.productId || s.variant_id || s.product_id);
     const target = targetId === base.id ? base : studioVariant(s.branch_id, base, targetId);
     const added = contextOf(s.branch_id).store.appendGalleryImage(target.id, { data: body.data });
-    const label = `${base.name}${target !== base ? ` · ${variantLabel(target)}` : ''}: фото №${added.imageId}, ${added.count}-е в галерее`;
+    const label = `${base.name}${color ? ` · ${color} (все размеры)` : target !== base ? ` · ${variantLabel(target)}` : ''}: фото №${added.imageId}, ${added.count}-е в галерее`;
     return { ...studio.markAttached(p.id, { branchId: s.branch_id, productId: target.id, imageId: added.imageId }, user, label), gallery: added };
   }, 'studio'],
   ['GET', '/api/products/:id/gallery', (p) => store.listGallery(p.id), 'photos'],
