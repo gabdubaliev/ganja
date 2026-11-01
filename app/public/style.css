@@ -1859,3 +1859,14 @@ h2.inline { display: inline; font-size: 16px; }
 .dv-row small { color: var(--ink-2); font-size: 12px; }
 .dv-in { color: var(--series) !important; font-weight: 600; }
 @media (max-width: 520px) { .dv-qty-all { margin-left: 0; } .dv-row { grid-template-columns: auto minmax(0, 1fr) 70px; } .dv-row > small.num { display: none; } }
+
+/* Журнал: отмена действий сотрудника */
+#undo-dialog { width: min(560px, calc(100vw - 24px)); }
+.undo-scope { display: grid; gap: 6px; margin: 10px 0; }
+.undo-scope label { display: flex; gap: 8px; align-items: center; }
+.undo-plan { display: grid; gap: 6px; max-height: 45dvh; overflow-y: auto; }
+.undo-plan p { margin: 0; }
+.undo-list { margin: 0; padding-left: 18px; font-size: 13px; display: grid; gap: 2px; }
+.undo-conflicts { padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, #e11d48 10%, var(--surface)); color: var(--ink); font-size: 13px; }
+.undo-conflicts ul { margin: 6px 0 0; padding-left: 18px; }
+.undo-done { font-size: 12px; color: var(--ink-2); white-space: nowrap; }

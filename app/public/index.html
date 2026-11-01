@@ -1067,7 +1067,7 @@
   <section class="panel">
     <div class="table-wrap">
       <table class="audit-table">
-        <thead><tr><th>Время</th><th>Кто</th><th>Что сделал</th><th>Подробности</th><th>IP-адрес</th><th>Устройство</th></tr></thead>
+        <thead><tr><th>Время</th><th>Кто</th><th>Что сделал</th><th>Подробности</th><th>Отмена</th><th>IP-адрес</th><th>Устройство</th></tr></thead>
         <tbody id="audit-body"></tbody>
       </table>
     </div>
@@ -1872,6 +1872,23 @@
   <div class="form-actions">
     <button type="button" class="btn ghost" id="pc-open">Открыть в «Товарах»</button>
   </div>
+</dialog>
+
+<dialog id="undo-dialog" aria-labelledby="undo-title">
+  <form method="dialog" id="undo-form">
+    <h2 id="undo-title">Отменить действие</h2>
+    <p class="sub" id="undo-what"></p>
+    <div class="seg undo-scope" role="radiogroup" aria-label="Что отменить">
+      <label><input type="radio" name="scope" value="one" checked> Только это действие</label>
+      <label><input type="radio" name="scope" value="after"> <span id="undo-after-label">Это и все следующие действия сотрудника</span></label>
+    </div>
+    <div id="undo-plan" class="undo-plan"></div>
+    <p class="form-error" id="undo-error" role="alert" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="undo-cancel">Закрыть</button>
+      <button type="submit" class="btn danger" id="undo-go">Отменить</button>
+    </div>
+  </form>
 </dialog>
 
 <dialog id="doc-variants" aria-labelledby="dv-title">

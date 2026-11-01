@@ -721,8 +721,40 @@ function open(file) {
   `);
   // Уценка, которую поставила автоматика (а не человек): её можно снять при новом поступлении.
   addColumns('products', [['auto_discount', 'REAL NOT NULL DEFAULT 0']]);
+  // Отмена действий сотрудников: пока выполняется действие, которое можно отменить, сервер кладёт его метку
+  // в undo_ctx, а триггеры записывают в undo_log каждую изменённую строку «до» и «после» (без картинок-BLOB).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS undo_log (
+      id INTEGER PRIMARY KEY, token TEXT NOT NULL, audit_id INTEGER, tbl TEXT NOT NULL, row_id INTEGER NOT NULL,
+      op TEXT NOT NULL, old TEXT, new TEXT, at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS undo_log_audit ON undo_log(audit_id);
+    CREATE INDEX IF NOT EXISTS undo_log_row ON undo_log(tbl, row_id);
+    CREATE INDEX IF NOT EXISTS undo_log_token ON undo_log(token);
+    CREATE TEMP TABLE IF NOT EXISTS undo_ctx (token TEXT);
+    INSERT INTO undo_ctx (token) SELECT NULL WHERE NOT EXISTS (SELECT 1 FROM undo_ctx);
+  `);
+  addColumns('audit', [['undoable', 'INTEGER NOT NULL DEFAULT 0'], ['undone_at', 'INTEGER'], ['undone_by', "TEXT NOT NULL DEFAULT ''"], ['undone_in', 'INTEGER'], ['undo_of', 'INTEGER']]);
+  const now = "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)";
+  for (const t of UNDO_TABLES) {
+    const cols = undoColumns(db, t);
+    const obj = (row) => `json_object(${cols.map((c) => `'${c}', ${row}."${c}"`).join(', ')})`;
+    const when = 'WHEN (SELECT token FROM undo_ctx) IS NOT NULL';
+    const ins = (op, oldJ, newJ, row) => `INSERT INTO undo_log (token, tbl, row_id, op, old, new, at) VALUES ((SELECT token FROM undo_ctx), '${t}', ${row}.rowid, '${op}', ${oldJ}, ${newJ}, ${now});`;
+    db.exec(`
+      DROP TRIGGER IF EXISTS temp.undo_${t}_i; DROP TRIGGER IF EXISTS temp.undo_${t}_u; DROP TRIGGER IF EXISTS temp.undo_${t}_d;
+      CREATE TEMP TRIGGER undo_${t}_i AFTER INSERT ON main.${t} ${when} BEGIN ${ins('I', 'NULL', obj('NEW'), 'NEW')} END;
+      CREATE TEMP TRIGGER undo_${t}_u AFTER UPDATE ON main.${t} ${when} BEGIN ${ins('U', obj('OLD'), obj('NEW'), 'NEW')} END;
+      CREATE TEMP TRIGGER undo_${t}_d AFTER DELETE ON main.${t} ${when} BEGIN ${ins('D', obj('OLD'), 'NULL', 'OLD')} END;
+    `);
+  }
   return db;
 }
+
+// Таблицы, изменения в которых можно отменить, — в порядке «родитель раньше детей».
+const UNDO_TABLES = ['categories', 'suppliers', 'products', 'docs', 'doc_items', 'expenses', 'recurring_expenses', 'stock_moves'];
+const UNDO_NAMES = { categories: 'категории', suppliers: 'поставщики', products: 'товары', docs: 'документы', doc_items: 'строки документов', expenses: 'расходы', recurring_expenses: 'постоянные расходы', stock_moves: 'движения остатков' };
+const undoColumns = (db, t) => db.prepare(`PRAGMA table_info(${t})`).all().filter((c) => !/blob/i.test(c.type)).map((c) => c.name);
 
 // Следующий свободный код товара: 00001, 00002… Длинные коды (штрихкоды, вписанные как код) не учитываются.
 function nextCode(db) {
@@ -2770,11 +2802,143 @@ function createStore(file) {
 
     // kind: login — вход, login_failed — неудачная попытка, logout — выход, change — изменение.
     audit(entry) {
-      db.prepare('INSERT INTO audit (at, kind, user_id, user_name, ip, device, action, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      const { lastInsertRowid } = db.prepare('INSERT INTO audit (at, kind, user_id, user_name, ip, device, action, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
         .run(Date.now(), entry.kind, entry.user?.id ?? null, entry.user ? entry.user.name || entry.user.email : entry.userName || '',
           String(entry.ip || '').slice(0, 64), String(entry.device || '').slice(0, 120), String(entry.action).slice(0, 200), String(entry.details || '').slice(0, 1000));
       // Журнал хранит последние 100 000 записей.
       if (Math.random() < 0.01) db.prepare('DELETE FROM audit WHERE id <= (SELECT MAX(id) - 100000 FROM audit)').run();
+      // Историю для отмены храним 60 дней.
+      if (Math.random() < 0.01) {
+        const old = Date.now() - 60 * 864e5;
+        db.prepare('UPDATE audit SET undoable = 0 WHERE undoable = 1 AND at < ?').run(old);
+        db.prepare('DELETE FROM undo_log WHERE at < ?').run(old);
+      }
+      return Number(lastInsertRowid);
+    },
+
+    /* ---------- Отмена действий сотрудников ---------- */
+
+    undoBegin(token) { db.prepare('UPDATE undo_ctx SET token = ?').run(token); },
+    undoEnd() { db.prepare('UPDATE undo_ctx SET token = NULL').run(); },
+    undoDiscard(token) { db.prepare('DELETE FROM undo_log WHERE token = ? AND audit_id IS NULL').run(token); },
+    // Привязать записанные изменения к записи журнала. Действия с продажами, возвратами денег и перемещениями
+    // между магазинами отменять нельзя: они меняют кассу, счета и другой магазин.
+    undoAttach(token, auditId) {
+      const rows = db.prepare('SELECT tbl, old, new FROM undo_log WHERE token = ? AND audit_id IS NULL').all(token);
+      if (!rows.length) return false;
+      const risky = rows.some((r) => r.tbl === 'docs' && [r.old, r.new].some((j) => j && ['sale', 'transfer', 'return'].includes(JSON.parse(j).kind)));
+      if (risky) { this.undoDiscard(token); return false; }
+      db.prepare('UPDATE undo_log SET audit_id = ? WHERE token = ? AND audit_id IS NULL').run(auditId, token);
+      db.prepare('UPDATE audit SET undoable = 1 WHERE id = ?').run(auditId);
+      return true;
+    },
+
+    // План отмены: какие записи журнала, что изменится и что мешает (строку после этого изменил кто-то другой).
+    // scope: 'one' — только это действие; 'after' — это и все следующие отменяемые действия того же сотрудника.
+    undoPlan(auditId, scope = 'one') {
+      const a = db.prepare('SELECT * FROM audit WHERE id = ?').get(Number(auditId));
+      if (!a) throw new UserError('Запись журнала не найдена');
+      if (!a.undoable) throw new UserError('Это действие нельзя отменить');
+      if (a.undone_at) throw new UserError('Это действие уже отменено');
+      const audits = scope === 'after'
+        ? db.prepare('SELECT * FROM audit WHERE id >= ? AND undoable = 1 AND undone_at IS NULL AND user_id IS ? AND user_name = ? ORDER BY id').all(a.id, a.user_id, a.user_name)
+        : [a];
+      const ids = audits.map((x) => x.id);
+      const entries = db.prepare(`SELECT * FROM undo_log WHERE audit_id IN (${ids.map(() => '?').join(',')}) ORDER BY id`).all(...ids);
+      const rows = new Map();
+      for (const e of entries) {
+        const key = `${e.tbl}:${e.row_id}`;
+        const r = rows.get(key) || { tbl: e.tbl, id: e.row_id, first: e, last: e, cols: new Set() };
+        r.last = e;
+        if (e.op === 'U') { const o = JSON.parse(e.old), n = JSON.parse(e.new); for (const c of Object.keys(n)) if (JSON.stringify(o[c]) !== JSON.stringify(n[c])) r.cols.add(c); }
+        rows.set(key, r);
+      }
+      const current = (t, id) => {
+        const cols = undoColumns(db, t);
+        const j = db.prepare(`SELECT json_object(${cols.map((c) => `'${c}', "${c}"`).join(', ')}) AS j FROM ${t} WHERE rowid = ?`).get(id);
+        return j ? JSON.parse(j.j) : null;
+      };
+      const label = (r, v) => (r.tbl === 'products' ? `товар «${v?.name || r.id}»` : r.tbl === 'docs' ? `документ №${v?.number ?? r.id}` : r.tbl === 'categories' ? `категория «${v?.name || r.id}»`
+        : r.tbl === 'suppliers' ? `поставщик «${v?.name || r.id}»` : r.tbl === 'expenses' ? `расход ${v?.amount ?? ''} сом` : `${UNDO_NAMES[r.tbl]} (${r.id})`);
+      const conflicts = [];
+      for (const r of rows.values()) {
+        if (r.tbl === 'stock_moves') continue;
+        const want = r.last.op === 'D' ? null : JSON.parse(r.last.new);
+        const cur = current(r.tbl, r.id);
+        // Остаток товара возвращается разницей (продажи после действия не мешают), поэтому в проверке его нет.
+        const delta = r.tbl === 'products' && r.first.op === 'U' && r.last.op === 'U';
+        const cols = (r.first.op === 'U' && r.last.op === 'U' ? [...r.cols] : Object.keys(want || cur || {})).filter((c) => !(delta && c === 'stock'));
+        const changed = (!want) !== (!cur) || (want && cols.some((c) => JSON.stringify(cur[c]) !== JSON.stringify(want[c])));
+        if (!changed) continue;
+        const later = db.prepare(`SELECT a.user_name, a.action, a.at FROM undo_log l JOIN audit a ON a.id = l.audit_id
+          WHERE l.tbl = ? AND l.row_id = ? AND l.id > ? AND l.audit_id NOT IN (${ids.map(() => '?').join(',')}) ORDER BY l.id DESC LIMIT 1`).get(r.tbl, r.id, r.last.id, ...ids);
+        const v = cur || want || JSON.parse(r.first.old || r.first.new || '{}');
+        conflicts.push(later
+          ? `${label(r, v)} потом изменил(а) ${later.user_name || '—'} («${later.action}») — сначала отмените то действие или выберите «Это и все следующие»`
+          : `${label(r, v)} изменён позже другим действием (продажа, возврат, перемещение или действие без отмены)`);
+      }
+      const counts = {};
+      for (const r of rows.values()) if (r.tbl !== 'stock_moves') counts[UNDO_NAMES[r.tbl]] = (counts[UNDO_NAMES[r.tbl]] || 0) + 1;
+      const sample = [...rows.values()].filter((r) => ['products', 'docs', 'categories', 'suppliers', 'expenses'].includes(r.tbl)).slice(0, 12)
+        .map((r) => `${label(r, JSON.parse(r.first.old || r.first.new || '{}'))}: ${r.first.op === 'I' ? 'будет удалён(а)' : r.last.op === 'D' ? 'будет восстановлен(а)' : 'вернётся как было'}`);
+      return { audits: audits.map((x) => ({ id: x.id, at: x.at, user_name: x.user_name, action: x.action, details: x.details })), ids, rows, counts, sample, conflicts };
+    },
+
+    // Отменить: вернуть строки к состоянию до действий. Сама отмена тоже попадает в журнал и её можно отменить.
+    undoActions(auditId, { scope = 'one', dryRun = false } = {}, user = null, meta = {}) {
+      const plan = this.undoPlan(auditId, scope);
+      const pub = { audits: plan.audits, counts: plan.counts, sample: plan.sample, conflicts: plan.conflicts };
+      if (dryRun) return pub;
+      if (plan.conflicts.length) throw new UserError('Отменить нельзя: ' + plan.conflicts.slice(0, 5).join('; '));
+      const token = `undo-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const who = user ? user.name || user.email : '';
+      const list = [...plan.rows.values()];
+      transaction(db, () => {
+        db.exec('PRAGMA defer_foreign_keys = ON');
+        this.undoBegin(token);
+        db.prepare("UPDATE move_ctx SET kind = 'undo-tmp', ref = '', at = NULL").run();
+        try {
+          const cols = Object.fromEntries(UNDO_TABLES.map((t) => [t, undoColumns(db, t)]));
+          const exists = (t, id) => db.prepare(`SELECT 1 FROM ${t} WHERE rowid = ?`).get(id);
+          // 1) удалить созданное (дети раньше родителей), 2) вернуть удалённое (родители раньше), 3) вернуть изменённые поля.
+          const created = list.filter((r) => r.first.op === 'I').sort((x, y) => UNDO_TABLES.indexOf(y.tbl) - UNDO_TABLES.indexOf(x.tbl));
+          for (const r of created) {
+            if (!exists(r.tbl, r.id)) continue;
+            if (r.tbl === 'products' && db.prepare('SELECT 1 FROM sale_items WHERE product_id = ? LIMIT 1').get(r.id)) {
+              db.prepare('UPDATE products SET deleted = 1, archived = 1 WHERE id = ?').run(r.id);
+            } else db.prepare(`DELETE FROM ${r.tbl} WHERE rowid = ?`).run(r.id);
+          }
+          const rest = list.filter((r) => r.first.op !== 'I').sort((x, y) => UNDO_TABLES.indexOf(x.tbl) - UNDO_TABLES.indexOf(y.tbl));
+          for (const r of rest) {
+            const before = JSON.parse(r.first.old);
+            const c = cols[r.tbl].filter((k) => Object.hasOwn(before, k));
+            if (!exists(r.tbl, r.id)) {
+              db.prepare(`INSERT INTO ${r.tbl} (${c.map((k) => `"${k}"`).join(', ')}) VALUES (${c.map(() => '?').join(', ')})`).run(...c.map((k) => before[k]));
+            } else {
+              const set = r.first.op === 'U' && r.last.op === 'U' ? [...r.cols].filter((k) => c.includes(k)) : c.filter((k) => k !== 'id');
+              const delta = r.tbl === 'products' && r.first.op === 'U' && r.last.op === 'U' && set.includes('stock');
+              const plain = delta ? set.filter((k) => k !== 'stock') : set;
+              if (plain.length) db.prepare(`UPDATE ${r.tbl} SET ${plain.map((k) => `"${k}" = ?`).join(', ')} WHERE rowid = ?`).run(...plain.map((k) => before[k]), r.id);
+              if (delta) db.prepare('UPDATE products SET stock = round((stock - ?) * 1000) / 1000 WHERE id = ?').run(JSON.parse(r.last.new).stock - before.stock, r.id);
+            }
+          }
+          // Движения остатков, которые создались от самой отмены, не нужны: исходные движения уже убраны/возвращены.
+          this.undoEnd();
+          db.prepare("DELETE FROM stock_moves WHERE kind = 'undo-tmp'").run();
+        } finally {
+          this.undoEnd();
+          db.prepare("UPDATE move_ctx SET kind = 'other', ref = '', at = NULL").run();
+        }
+        const first = plan.audits[0];
+        const auditId2 = this.audit({ kind: 'change', user, ip: meta.ip, device: meta.device, action: 'Отменил действие сотрудника',
+          details: `${plan.audits.length > 1 ? `${plan.audits.length} действий (${first.user_name}), начиная с` : `${first.user_name}:`} «${first.action}»${first.details ? ` — ${first.details}` : ''}`.slice(0, 1000) });
+        this.undoAttach(token, auditId2);
+        db.prepare(`UPDATE audit SET undone_at = ?, undone_by = ?, undone_in = ? WHERE id IN (${plan.ids.map(() => '?').join(',')})`).run(Date.now(), who, auditId2, ...plan.ids);
+        // Отменили отмену — исходные действия снова действуют.
+        for (const x of plan.audits) db.prepare("UPDATE audit SET undone_at = NULL, undone_by = '', undone_in = NULL WHERE undone_in = ?").run(x.id);
+        db.prepare('UPDATE audit SET undo_of = ? WHERE id = ?').run(first.id, auditId2);
+      });
+      return { ...pub, done: true };
     },
 
     listAudit({ from, to, kind = '', q = '', limit = 500 }) {

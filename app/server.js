@@ -966,6 +966,8 @@ const routes = [
     const s = crm.setInstagram(body);
     return { enabled: s.enabled, verifyToken: s.verifyToken, hasSecret: Boolean(s.appSecret), hasToken: Boolean(s.accessToken), webhookPath: '/webhooks/instagram' };
   }, 'settings'],
+  // Отмена действия сотрудника из журнала: dryRun — показать, что изменится и что мешает.
+  ['POST', '/api/audit/:id/undo', (p, url, body, user) => store.undoActions(p.id, { scope: body.scope === 'after' ? 'after' : 'one', dryRun: Boolean(body.dryRun) }, user, reqMeta), 'audit'],
   ['GET', '/api/audit', (p, url) => store.listAudit({ ...range(url), kind: url.searchParams.get('kind') || '', q: url.searchParams.get('q') || '' }), 'audit'],
   ['POST', '/api/demo', () => {
     if (!store.isEmpty()) throw new UserError('Пример можно загрузить только в пустую базу');
@@ -1283,6 +1285,18 @@ const AUDIT_LABELS = {
   'PUT /api/customers/:id/login': 'Изменил доступ покупателя к витрине',
   'POST /api/settings/telegram/test': 'Отправил пробное уведомление',
 };
+// Действия, которые можно отменить из журнала (меняют только товары, категории, поставщиков, документы склада и расходы).
+// Продажи, возвраты, сертификаты, деньги на счетах, сотрудники и настройки не отменяются.
+const UNDO_KEYS = new Set([
+  'POST /api/products', 'PUT /api/products/:id', 'DELETE /api/products/:id', 'POST /api/products/import', 'PUT /api/products/:id/stock',
+  'POST /api/products/bulk', 'POST /api/products/:id/variants', 'POST /api/expenses', 'DELETE /api/expenses/:id', 'POST /api/invoice/receive',
+  'POST /api/recurring-expenses', 'PUT /api/recurring-expenses/:id', 'DELETE /api/recurring-expenses/:id',
+  'POST /api/categories', 'PUT /api/categories/:id', 'DELETE /api/categories/:id', 'PUT /api/categories-order',
+  'POST /api/docs', 'PUT /api/docs/:id', 'POST /api/docs/:id/post', 'POST /api/docs/:id/unpost', 'DELETE /api/docs/:id',
+  'POST /api/suppliers', 'PUT /api/suppliers/:id', 'DELETE /api/suppliers/:id', 'POST /api/reports/dead/discount',
+]);
+// IP и устройство текущего запроса — для записей, которые делает сам обработчик (отмена действий).
+let reqMeta = {};
 const ORDER_NAMES = { unpaid: '— оплата не найдена', checking: '— на проверке оплаты', confirmed: 'подтверждён (оплата подтверждена)', ready: 'собран', shipped: 'передан курьеру', done: 'выдан', cancelled: 'отменён' };
 
 // Подробности для журнала: о чём именно речь. Пароли и токены сюда не попадают.
@@ -1812,18 +1826,36 @@ async function handleRequest(req, res, url, user, owner) {
     const body = req.method === 'GET' ? {} : await readBody(req);
     // actingAs — владелец, который смотрит программу от имени этого сотрудника.
     const actor = auth.ownerOf(req);
-    const result = await route.handler(route.params, url, body, user && { ...store.publicUser(user), owner: Boolean(owner), actingAs: actor && isOwner(actor) ? actor.name || actor.email : null });
     const key = `${req.method} ${route.pattern}`;
+    // Действие, которое можно отменить: изменения строк записываются под меткой (только синхронная часть обработчика).
+    const undoToken = UNDO_KEYS.has(key) && !body.dryRun ? `a-${Date.now()}-${Math.random().toString(36).slice(2)}` : null;
+    let result;
+    let undoOk = Boolean(undoToken);
+    if (undoToken) store.undoBegin(undoToken);
+    reqMeta = { ip: clientIp(req), device: device(req) };
+    try {
+      result = route.handler(route.params, url, body, user && { ...store.publicUser(user), owner: Boolean(owner), actingAs: actor && isOwner(actor) ? actor.name || actor.email : null });
+    } catch (err) {
+      if (undoToken) { store.undoEnd(); store.undoDiscard(undoToken); }
+      throw err;
+    }
+    if (undoToken) store.undoEnd();
+    if (result && typeof result.then === 'function') {
+      undoOk = false;
+      try { result = await result; } catch (err) { if (undoToken) store.undoDiscard(undoToken); throw err; }
+    }
     // Предварительный подсчёт (dryRun) ничего не меняет — в журнал не пишем.
     if (AUDIT_LABELS[key] && !body.dryRun) {
       try {
         // Действия, сделанные владельцем от имени сотрудника, помечаются — чтобы было видно, кто на самом деле.
         const prefix = actor && isOwner(actor) ? `[владелец ${actor.name || actor.email} от имени сотрудника] ` : '';
-        store.audit({ kind: 'change', user, ip: clientIp(req), device: device(req), action: AUDIT_LABELS[key], details: prefix + auditDetails(key, route.params, body, result) });
+        const auditId = store.audit({ kind: 'change', user, ip: clientIp(req), device: device(req), action: AUDIT_LABELS[key], details: prefix + auditDetails(key, route.params, body, result) });
+        if (undoToken) { if (undoOk) store.undoAttach(undoToken, auditId); else store.undoDiscard(undoToken); }
       } catch (err) {
         console.error('Журнал действий:', err.message);
+        if (undoToken) store.undoDiscard(undoToken);
       }
-    }
+    } else if (undoToken) store.undoDiscard(undoToken);
     if (result?.__file) return sendBytes(res, result.__file.mime, Buffer.from(result.__file.data), 'private, max-age=3600');
     sendJson(res, 200, result);
   } catch (err) {
