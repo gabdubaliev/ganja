@@ -1125,7 +1125,8 @@ function match(method, pathname) {
 }
 
 const clientErrors = { at: 0, n: 0 };
-function serveStatic(res, pathname) {
+// transform(html) — правка страницы перед отдачей (например, версия значка вкладки).
+function serveStatic(res, pathname, transform = null) {
   const file = path.join(PUBLIC, pathname === '/' ? 'index.html' : pathname);
   if (!file.startsWith(PUBLIC + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -1145,7 +1146,7 @@ function serveStatic(res, pathname) {
       return `${attr}="${url}?v=${Math.floor(fs.statSync(asset).mtimeMs).toString(36)}"`;
     });
     res.writeHead(200, headers);
-    return res.end(html);
+    return res.end(transform ? transform(html) : html);
   }
   if (res.req?.headers['if-none-match'] === etag) { res.writeHead(304, headers); return res.end(); }
   res.writeHead(200, headers);
@@ -1598,7 +1599,15 @@ async function handlePublic(req, res, url, user) {
       res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
       return res.end('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Магазин закрыт</title><p style="font:16px system-ui;text-align:center;margin-top:20vh">Интернет-магазин пока закрыт.</p>');
     }
-    return serveStatic(res, '/shop.html');
+    // Значок вкладки с номером картинки в адресе — после замены браузер возьмёт новый, а не старый из памяти.
+    const iconId = shop.faviconId || shop.logoId;
+    return serveStatic(res, '/shop.html', (html) => html.replaceAll('href="/shop/favicon"', `href="/shop/favicon?v=${iconId || 0}"`));
+  }
+  // Значок вкладки: своя картинка из конструктора, иначе логотип, иначе стандартный значок.
+  if (req.method === 'GET' && pathname === '/shop/favicon') {
+    const found = open && (shop.faviconId || shop.logoId) ? store.getImage(shop.faviconId || shop.logoId) : null;
+    if (found) return sendBytes(res, found.mime, Buffer.from(found.data), 'public, max-age=86400');
+    return sendBytes(res, 'image/svg+xml', fs.readFileSync(path.join(PUBLIC, 'icon.svg')), 'public, max-age=86400');
   }
   if (req.method === 'GET' && pathname === '/shop/theme.css') return sendBytes(res, 'text/css; charset=utf-8', shopCss(shop, mainStore.listFonts()));
   if (req.method === 'GET' && pathname === '/shop/data') {

@@ -944,6 +944,8 @@ const SHOP_DEFAULTS = {
   categories: [],
   bannerId: null,
   logoId: null,
+  // Значок вкладки браузера (квадратная картинка); пусто — берётся логотип.
+  faviconId: null,
   css: '',
   // Дизайн (вторая версия конструктора): шрифты из Google Fonts с кириллицей, стиль баннера, кнопок и карточек.
   headingFont: 'Manrope',
@@ -4524,6 +4526,7 @@ function createStore(file) {
         categories: Array.isArray(v.categories) ? v.categories.map((c) => String(c).slice(0, 200)).slice(0, 500) : [],
         bannerId: imageId(v.bannerId),
         logoId: imageId(v.logoId),
+        faviconId: imageId(v.faviconId),
         css: css(v.css),
         headingFont: SHOP_FONTS.includes(v.headingFont) || customFamilies().includes(v.headingFont) ? v.headingFont : 'Manrope',
         bodyFont: SHOP_FONTS.includes(v.bodyFont) || customFamilies().includes(v.bodyFont) ? v.bodyFont : 'Inter',

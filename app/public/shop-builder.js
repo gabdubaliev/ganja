@@ -154,6 +154,19 @@ $('#shop-pays').addEventListener('click', async (e) => {
   pushPreview();
 });
 
+// Значок вкладки: квадрат size×size по центру картинки, PNG (прозрачность сохраняется). Возвращает base64 без префикса.
+async function squareIcon(file, size) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => fail(new Error('Не удалось открыть картинку')); i.src = url; });
+    const side = Math.min(img.naturalWidth, img.naturalHeight);
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    c.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, size, size);
+    return c.toDataURL('image/png').split(',')[1];
+  } finally { URL.revokeObjectURL(url); }
+}
+
 function renderImagePicks() {
   for (const el of document.querySelectorAll('#shop-form .image-pick')) {
     const id = builder.draft[el.dataset.image];
@@ -411,9 +424,11 @@ $('#shop-form').addEventListener('click', async (e) => {
     const file = await pickFile();
     if (!file) return;
     const logo = add.dataset.imageAdd === 'logoId';
+    const icon = add.dataset.imageAdd === 'faviconId';
     try {
-      const type = logo ? 'image/png' : 'image/jpeg';
-      const { id } = await api('/api/images', { method: 'POST', body: { mime: type, data: await shrinkPhoto(file, logo ? 400 : 1800, type) } });
+      const type = logo || icon ? 'image/png' : 'image/jpeg';
+      const data = icon ? await squareIcon(file, 256) : await shrinkPhoto(file, logo ? 400 : 1800, type);
+      const { id } = await api('/api/images', { method: 'POST', body: { mime: type, data } });
       builder.draft[add.dataset.imageAdd] = id;
     } catch (err) {
       return toast(err.message, 'error');
