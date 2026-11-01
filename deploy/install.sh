@@ -252,7 +252,7 @@ EOF
 fi
 systemctl reload caddy || systemctl restart caddy
 
-say "Открываю порты 22 (SSH), 80 и 443"
+say "Открываю порты SSH (все, на которых он работает), 80 и 443"
 ufw allow OpenSSH >/dev/null
 # SSH мог быть перенесён на другой порт (например, если провайдер блокирует 22) — разрешаем все порты SSH, иначе потеряем доступ.
 for p in $(sshd -T 2>/dev/null | awk '$1 == "port" {print $2}'); do ufw allow "$p/tcp" >/dev/null; done
