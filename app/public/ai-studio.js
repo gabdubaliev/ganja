@@ -288,15 +288,14 @@ function renderOpForm() {
   const note = '<div class="field wide"><label>Дополнительно (необязательно)</label><input class="input" name="note" maxlength="400" placeholder="Например: без складок на рукавах"></div>';
   const f = {
     background: `<p class="st-tip">Ровный однотонный фон часто можно сделать здесь же, бесплатно: «✂ Обработать» → «Однотонный фон». Это заливка ровного фона от краёв кадра, а не вырезание контура — для сложного фона нужен ChatGPT.</p>${bg('white')}${aspect('3:4')}${note}`,
-    catalog: `${bg('white')}${aspect('3:4')}${note}`,
+    catalog: `${bg('white')}${aspect('1:1')}${note}`,
     model: `<p class="st-tip">Модель — вымышленный человек. Промпт требует сохранить цвет, ткань, крой, длину, карманы, пуговицы, швы, принты и логотипы — но проверка результата всё равно обязательна.</p>
       <div class="field"><label>Модель</label><select class="input" name="gender">${opt(m.genders, 'male')}</select></div>
       <div class="field"><label>Возраст</label><select class="input" name="age">${opt(m.ages, '25-35')}</select></div>
       <div class="field"><label>Телосложение</label><select class="input" name="build">${opt(m.builds, 'regular')}</select></div>
       <div class="field"><label>Поза</label><select class="input" name="pose">${opt(m.poses, 'standing')}</select></div>
-      <div class="field"><label>Кадр</label><select class="input" name="framing">${opt(m.framings, 'full')}</select></div>
       <div class="field"><label>Место</label><select class="input" name="setting">${opt(m.settings, 'studio')}</select></div>
-      ${bg('light')}${aspect('3:4')}${note}`,
+      ${bg('light')}${aspect('1:1')}${note}`,
     ad: `<div class="field"><label>Площадка</label><select class="input" name="platform">${Object.entries(m.platforms).map(([k, v]) => `<option value="${k}">${v.label} (${v.aspect})</option>`).join('')}</select></div>
       <div class="field"><label>Стиль</label><select class="input" name="style">${opt(m.adStyles, 'minimal')}</select></div>
       <div class="field"><label>Заголовок на картинке</label><input class="input" name="headline" maxlength="60" placeholder="Пусто — без текста"></div>

@@ -10,7 +10,8 @@
 // что фон, результат будет плохим — для этого есть задание «Удалить или заменить фон» в ChatGPT.
 
 const ED_ASPECTS = { original: 'Как у фото', '3:4': '3:4', '4:5': '4:5', '1:1': '1:1', '9:16': '9:16' };
-const ED_DEFAULT = { rot: 0, angle: 0, aspect: 'original', fit: 'crop', zoom: 1, pad: 6, offX: 0, offY: 0, bg: '#ffffff', fillBg: false, tol: 28,
+// По умолчанию — «целиком с полями» 12%: смена формата не срезает изделие. «Кадрировать» — только по выбору.
+const ED_DEFAULT = { rot: 0, angle: 0, aspect: 'original', fit: 'pad', zoom: 1, pad: 12, offX: 0, offY: 0, bg: '#ffffff', fillBg: false, tol: 28,
   brightness: 0, contrast: 0, saturate: 0, long: 2048, format: 'image/jpeg', quality: 90 };
 const ed = { asset: null, session: null, img: null, onSaved: null, s: { ...ED_DEFAULT }, ref: null, sizeTimer: null, drag: null };
 const canFilter = (() => { try { return typeof document.createElement('canvas').getContext('2d').filter === 'string'; } catch { return false; } })();
@@ -187,6 +188,7 @@ function edPreview() {
   const r = edRender($('#ed-canvas'), 720);
   const g = edGeometry(ed.s, ed.s.long);
   const warn = [];
+  if (ed.s.fit === 'crop' && (ed.s.aspect !== 'original' || ed.s.zoom > 1 || ed.s.angle)) warn.push('⚠ «Кадрировать» срезает края фото — проверьте, что изделие целиком (для каталога — «Целиком с полями»)');
   if (g.scale > 1.05) warn.push('⚠ фото растянуто больше оригинала — станет мягче, уменьшите увеличение или размер');
   if (ed.s.fillBg) warn.push(r.filled > 0.92 ? '⚠ залито почти всё — уменьшите чувствительность' : r.filled < 0.02 ? 'фон не найден: он неровный или другого цвета' : `залито ${Math.round(r.filled * 100)}% кадра`);
   $('#ed-info').textContent = `${g.W}×${g.H} · ${ed.s.format === 'image/webp' ? 'WebP' : 'JPEG'} · считаю размер…${warn.length ? ` · ${warn.join(' · ')}` : ''}`;
