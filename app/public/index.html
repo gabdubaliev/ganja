@@ -147,9 +147,11 @@
   <section class="panel">
     <div class="panel-head">
       <input id="products-search" class="input search" type="search" placeholder="Найти по названию, коду, категории или штрихкоду" aria-label="Найти товар">
-      <select id="products-category" class="input category-filter" aria-label="Категория"></select>
+      <select id="products-category" class="input category-filter" aria-label="Категория" hidden></select>
+      <button type="button" class="btn small" id="products-variants" title="Показать или скрыть модификации у всех товаров"></button>
       <label class="check"><input type="checkbox" id="products-archived"> Показать убранные из продажи</label>
     </div>
+    <div class="cat-chips" id="products-cats" role="group" aria-label="Категории"></div>
     <div class="bulk-bar" id="bulk-bar" hidden>
       <b id="bulk-count"></b>
       <button type="button" class="btn small" data-bulk="price">Цена</button>

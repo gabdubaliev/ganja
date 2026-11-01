@@ -2,7 +2,12 @@
 
 // Товары: справочник, добавление, изменение, инвентаризация.
 
-const productsView = { archived: false, query: '', category: '', selected: new Set(), rows: [] };
+const productsView = { archived: false, query: '', category: '', selected: new Set(), rows: [], list: [],
+  // Модификации: общий режим (по умолчанию скрыты, выбор запоминается) и исключения по отдельным товарам.
+  showVariants: (() => { try { return localStorage.getItem('products.variants') === 'show'; } catch { return false; } })(),
+  toggled: new Set() };
+// Открыты ли модификации товара: общий режим, изменённый кнопкой у самого товара.
+const variantsOpen = (id) => productsView.showVariants !== productsView.toggled.has(id);
 // Справочник категорий: для фильтра, карточки товара и переноса.
 const categories = {
   list: [],
@@ -285,10 +290,17 @@ async function renderProducts() {
   const sortKey = (p) => (p.parent_id ? `${byId.get(p.parent_id)?.name ?? ''}\u0001${p.name}` : p.name).toLowerCase();
   // Фильтр по категории: модификации идут за своим товаром.
   const catOf = (p) => (p.parent_id ? byId.get(p.parent_id)?.category ?? p.category : p.category);
+  const matches = (p) => !q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q) || p.barcode.includes(q) || p.code.toLowerCase().includes(q);
   const rows = list
     .filter((p) => !productsView.category || (productsView.category === '—' ? !catOf(p) : catOf(p) === productsView.category))
-    .filter((p) => !q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q) || p.barcode.includes(q) || p.code.toLowerCase().includes(q))
+    .filter(matches)
+    // Модификация видна, если у её товара открыты модификации или если поиск нашёл именно её.
+    .filter((p) => !p.parent_id || variantsOpen(p.parent_id) || (q && !matches(byId.get(p.parent_id) || {})))
     .sort((a, b) => sortKey(a).localeCompare(sortKey(b), 'ru'));
+  productsView.list = list;
+  renderCategoryChips(list, catOf);
+  $('#products-variants').hidden = !kids.size;
+  $('#products-variants').textContent = productsView.showVariants ? '▾ Скрыть все модификации' : '▸ Показать все модификации';
   productsView.rows = rows;
   renderCategoryFilter();
   // Выбранными остаются только товары, которые есть в этом списке.
@@ -311,7 +323,7 @@ async function renderProducts() {
     // Вся строка — кнопка: открывает карточку товара.
     const name = p.parent_id
       ? `<div class="pname"><span class="link-name">${esc(optionsText(p))}</span></div><div class="pcat">${esc(byId.get(p.parent_id)?.name ?? '')}</div>`
-      : `<div class="pname"><span class="link-name">${esc(p.name)}</span>${group ? ` <span class="role-tag">${children.length} ${plural(children.length, ['модификация', 'модификации', 'модификаций'])}</span>` : ''}</div>${p.category ? `<div class="pcat">${esc(p.category)}</div>` : ''}`;
+      : `<div class="pname"><span class="link-name">${esc(p.name)}</span>${group ? ` <button type="button" class="role-tag var-toggle" data-variants-toggle="${p.id}" aria-expanded="${variantsOpen(p.id)}" title="${variantsOpen(p.id) ? 'Скрыть' : 'Показать'} модификации">${variantsOpen(p.id) ? '▾' : '▸'} ${children.length} ${plural(children.length, ['модификация', 'модификации', 'модификаций'])}</button>` : ''}</div>${p.category ? `<div class="pcat">${esc(p.category)}</div>` : ''}`;
     const received = receivedOf(p, children);
     const purchase = p.purchase ?? p.cost;
     return `<tr class="clickable ${productsView.selected.has(p.id) ? 'selected' : ''} ${p.parent_id ? 'variant-row' : ''}" data-card="${p.id}" tabindex="0" title="Открыть карточку товара">
@@ -326,6 +338,7 @@ async function renderProducts() {
       <td class="${stock !== null && stock <= 0 ? 'neg' : ''}">${p.stock === null ? '—' : qty(stock, p.unit)}</td>
       <td class="nowrap">${received ? dateOnly(received) : '—'}</td>
       <td><div class="actions">
+        <button type="button" class="btn small ghost" data-print-labels="${p.id}" title="${group ? 'Печать этикеток: выбрать модификации' : 'Печать этикетки'}">🏷 Этикетка</button>
         ${productsView.archived || group || !session.can('stock') ? '' : `<button type="button" class="btn small ghost" data-stock="${p.id}">Пересчитать</button>`}
       </div></td>
     </tr>`;
@@ -769,6 +782,16 @@ $('#products-body').addEventListener('click', async (e) => {
   }
   const stock = e.target.closest('[data-stock]');
   if (stock) return openStockDialog(catalog.byId(stock.dataset.stock));
+  // Показать / скрыть модификации этого товара.
+  const vt = e.target.closest('[data-variants-toggle]');
+  if (vt) {
+    const id = Number(vt.dataset.variantsToggle);
+    if (productsView.toggled.has(id)) productsView.toggled.delete(id); else productsView.toggled.add(id);
+    return renderProducts();
+  }
+  // Этикетка: у товара с модификациями — выбор, какие печатать.
+  const pl = e.target.closest('[data-print-labels]');
+  if (pl) return printProductLabels(Number(pl.dataset.printLabels));
   // Клик по ячейке выбора (мимо галочки) не открывает карточку.
   if (e.target.closest('td.sel')) return;
   const card = e.target.closest('[data-card]');
@@ -785,6 +808,92 @@ $('#bulk-form').addEventListener('change', (e) => {
   if (e.target.id === 'bf-value' && $('#bf-new-field')) $('#bf-new-field').hidden = e.target.value !== '__new';
 });
 $('#products-category').addEventListener('change', (e) => { productsView.category = e.target.value; productsView.selected.clear(); renderProducts(); });
+
+/* ---------- Этикетки на строке товара ---------- */
+// Обычный товар или модификация — сразу окно печати (шаблон из конструктора). Товар с модификациями —
+// сначала выбор: все, одна или несколько.
+let labelPickFor = [];
+document.body.insertAdjacentHTML('beforeend', `
+<dialog id="label-pick" aria-labelledby="label-pick-title">
+  <h2 id="label-pick-title">Этикетки</h2>
+  <p class="sub" id="label-pick-sub">Отметьте модификации, для которых печатать этикетки.</p>
+  <div class="label-pick-tools"><button type="button" class="btn small" data-lp-all="1">Выбрать все</button><button type="button" class="btn small ghost" data-lp-all="0">Снять все</button></div>
+  <div class="label-pick-list" id="label-pick-list"></div>
+  <p class="form-error" id="label-pick-error" role="alert" hidden></p>
+  <div class="form-actions"><button type="button" class="btn ghost" id="label-pick-cancel">Отмена</button><button type="button" class="btn primary" id="label-pick-ok">Дальше</button></div>
+</dialog>`);
+function printProductLabels(id) {
+  const list = productsView.list.length ? productsView.list : catalog.list;
+  const p = list.find((x) => x.id === id);
+  if (!p) return toast('Товар не найден — обновите страницу', 'error');
+  const kids = list.filter((x) => x.parent_id === id);
+  if (!kids.length) return openLabels([p]);
+  labelPickFor = kids;
+  $('#label-pick-title').textContent = `Этикетки: ${p.name}`;
+  $('#label-pick-list').innerHTML = kids.map((k) => `<label class="check label-pick-row"><input type="checkbox" value="${k.id}" checked>
+    <span><b>${esc(optionsText(k) || k.name)}</b><small>${esc([k.code && `код ${k.code}`, k.barcode || 'нет штрихкода', k.stock === null ? '' : `остаток ${qty(k.stock, k.unit)}`].filter(Boolean).join(' · '))}</small></span></label>`).join('');
+  syncLabelPick();
+  $('#label-pick').showModal();
+}
+function syncLabelPick() {
+  const n = $('#label-pick-list').querySelectorAll('input:checked').length;
+  $('#label-pick-ok').textContent = n ? `Дальше (${n})` : 'Дальше';
+  $('#label-pick-ok').disabled = !n;
+  $('#label-pick-error').hidden = true;
+}
+$('#label-pick-list').addEventListener('change', syncLabelPick);
+$('#label-pick').addEventListener('click', (e) => {
+  const all = e.target.closest('[data-lp-all]');
+  if (!all) return;
+  for (const c of $('#label-pick-list').querySelectorAll('input')) c.checked = all.dataset.lpAll === '1';
+  syncLabelPick();
+});
+$('#label-pick-cancel').addEventListener('click', () => $('#label-pick').close());
+$('#label-pick-ok').addEventListener('click', () => {
+  const ids = new Set([...$('#label-pick-list').querySelectorAll('input:checked')].map((c) => Number(c.value)));
+  if (!ids.size) return showFormError('#label-pick-error', new Error('Отметьте хотя бы одну модификацию'));
+  $('#label-pick').close();
+  openLabels(labelPickFor.filter((k) => ids.has(k.id)));
+});
+
+/* ---------- Модификации: показать / скрыть все ---------- */
+$('#products-variants').addEventListener('click', () => {
+  productsView.showVariants = !productsView.showVariants;
+  productsView.toggled.clear();
+  try { localStorage.setItem('products.variants', productsView.showVariants ? 'show' : 'hide'); } catch { /* без памяти */ }
+  renderProducts();
+});
+
+/* ---------- Категории над списком товаров ---------- */
+function renderCategoryChips(list, catOf) {
+  const goods = list.filter((p) => !p.parent_id);
+  const count = new Map();
+  for (const p of goods) count.set(catOf(p) || '—', (count.get(catOf(p) || '—') || 0) + 1);
+  const chip = (value, label, n) => `<button type="button" class="chip" data-cat-chip="${esc(value)}" aria-pressed="${productsView.category === value}">${esc(label)} <small>${n}</small></button>`;
+  $('#products-cats').innerHTML = chip('', 'Все', goods.length)
+    + categories.list.map((c) => chip(c.name, c.name, count.get(c.name) || 0)).join('')
+    + (count.get('—') ? chip('—', 'Без категории', count.get('—')) : '')
+    + (session.can('products') ? '<button type="button" class="chip add" id="products-cat-add">+ Категория</button>' : '');
+}
+$('#products-cats').addEventListener('click', async (e) => {
+  const c = e.target.closest('[data-cat-chip]');
+  if (c) {
+    productsView.category = c.dataset.catChip;
+    productsView.selected.clear();
+    return renderProducts();
+  }
+  if (e.target.closest('#products-cat-add')) {
+    const name = (prompt('Название новой категории') || '').trim();
+    if (!name) return;
+    try {
+      await api('/api/categories', { method: 'POST', body: { name } });
+      toast(`Категория «${name}» создана`);
+      renderProducts();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+});
 
 /* ---------- Справочник категорий ---------- */
 async function renderCategoryFilter() {

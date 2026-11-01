@@ -11,9 +11,8 @@ function openLabels(products) {
   $('#labels-sub').textContent = `${products.length} ${plural(products.length, ['товар', 'товара', 'товаров'])}` +
     (noCode ? `. У ${noCode} нет штрихкода — на месте штрихкода будет пусто. Сгенерировать штрихкоды можно кнопкой «Штрихкоды».` : '');
   printDesigns().then(({ labels }) => {
-    let saved = null;
-    try { saved = localStorage.getItem('labels.template'); } catch { /* без памяти */ }
-    const cur = labels.list.some((t) => t.id === saved) ? saved : labels.default;
+    // Всегда предлагается основной шаблон из конструктора («Ещё» → «Чеки и этикетки»); другой можно выбрать здесь же.
+    const cur = labels.list.some((t) => t.id === labels.default) ? labels.default : labels.list[0]?.id;
     $('#labels-template').innerHTML = labels.list.map((t) => `<option value="${esc(t.id)}" ${t.id === cur ? 'selected' : ''}>${esc(t.name)} — ${t.width}×${t.height} мм${t.id === labels.default ? ' (основной)' : ''}</option>`).join('');
     try { $('#labels-format').value = localStorage.getItem('labels.format') === 'a4' ? 'a4' : 'thermal'; } catch { /* без памяти */ }
   }).catch((err) => toast(err.message, 'error'));

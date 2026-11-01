@@ -1817,3 +1817,19 @@ h2.inline { display: inline; font-size: 16px; }
 .st-retry-notes small { color: var(--ink-2); }
 .st-chip.retried { background: #fde9d7; color: #8a4300; }
 .st-task.flash { box-shadow: 0 0 0 3px var(--series); transition: box-shadow .3s; }
+
+/* Товары: категории, модификации, этикетка на строке */
+.cat-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+.cat-chips .chip { padding: 6px 12px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent); background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.cat-chips .chip small { color: var(--ink-2); font-weight: 600; margin-left: 2px; }
+.cat-chips .chip[aria-pressed="true"] { background: var(--series); border-color: var(--series); color: #fff; }
+.cat-chips .chip[aria-pressed="true"] small { color: rgba(255, 255, 255, .8); }
+.cat-chips .chip.add { border-style: dashed; color: var(--series); }
+.var-toggle { cursor: pointer; border: 0; font: inherit; }
+.var-toggle:hover { filter: brightness(.95); }
+#label-pick { width: min(480px, calc(100vw - 24px)); }
+.label-pick-tools { display: flex; gap: 6px; margin: 8px 0; }
+.label-pick-list { display: grid; gap: 4px; max-height: 50dvh; overflow-y: auto; }
+.label-pick-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px; border-radius: 10px; background: color-mix(in srgb, var(--ink) 4%, var(--surface)); }
+.label-pick-row span { display: grid; gap: 2px; }
+.label-pick-row small { color: var(--ink-2); font-size: 12px; }
