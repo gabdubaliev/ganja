@@ -1011,7 +1011,7 @@ function renderCategoryChips(list, catOf) {
   $('#products-cats').innerHTML = chip('', 'Все', goods.length)
     + categories.list.map((c) => chip(c.name, c.name, count.get(c.name) || 0)).join('')
     + (count.get('—') ? chip('—', 'Без категории', count.get('—')) : '')
-    + (session.can('products') ? '<button type="button" class="chip add" id="products-cat-add">+ Категория</button>' : '');
+    + (session.can('products') || session.can('categories') ? '<button type="button" class="chip add" id="products-cat-add">+ Категория</button>' : '');
 }
 $('#products-cats').addEventListener('click', async (e) => {
   const c = e.target.closest('[data-cat-chip]');
@@ -1020,16 +1020,11 @@ $('#products-cats').addEventListener('click', async (e) => {
     productsView.selected.clear();
     return renderProducts();
   }
+  // «+ Категория» открывает окно категорий: там создать, переименовать, удалить, поменять порядок.
   if (e.target.closest('#products-cat-add')) {
-    const name = (prompt('Название новой категории') || '').trim();
-    if (!name) return;
-    try {
-      await api('/api/categories', { method: 'POST', body: { name } });
-      toast(`Категория «${name}» создана`);
-      renderProducts();
-    } catch (err) {
-      toast(err.message, 'error');
-    }
+    await renderCategoryManager();
+    $('#categories-dialog').showModal();
+    $('#cat-add').elements.name.focus();
   }
 });
 

@@ -13,6 +13,11 @@ const AUDIT_KINDS = {
 const auditView = { range: 'today', kind: '', q: '' };
 
 async function renderAudit() {
+  // Без права «Журнал» сотрудник видит только свои изменения и может их отменить.
+  const own = !session.can('audit');
+  $('#audit-kinds').hidden = own;
+  document.querySelector('[data-view="audit"] h1').textContent = own ? 'Мои действия' : 'Журнал действий';
+  if (own) auditView.kind = '';
   renderRanges($('#audit-ranges'), ['today', 'yesterday', 'week', 'month', 'prevMonth'], auditView.range);
   $('#audit-kinds').innerHTML = Object.entries(AUDIT_KINDS).map(([k, l]) => `<button type="button" class="chip" data-kind="${k}" aria-pressed="${k === auditView.kind}">${l}</button>`).join('');
   const [from, to] = RANGES[auditView.range][1]();
@@ -113,4 +118,4 @@ $('#undo-form').addEventListener('submit', async (e) => {
   }
 });
 
-views.audit = { show: renderAudit, right: 'audit' };
+views.audit = { show: renderAudit, right: ['audit', 'undo.own'] };

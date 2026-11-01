@@ -309,6 +309,7 @@ session.ready = api('/api/status').then((s) => {
   applyBrand(s.design.name);
   setOrdersBadge(s.newOrders);
   for (const el of document.querySelectorAll('[data-can]')) el.hidden = !session.can(el.dataset.can);
+  for (const el of document.querySelectorAll('[data-can-any]')) el.hidden = !el.dataset.canAny.split(' ').some((r) => session.can(r));
   $('#nav-user').hidden = !s.user;
   if (s.user) {
     $('#me-password').textContent = s.user.name || s.user.email;

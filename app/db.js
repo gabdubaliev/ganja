@@ -601,6 +601,18 @@ function open(file) {
   // Сертификаты: продавать и принимать — у кого была «Касса», список — у кого были «Покупатели».
   // Подтверждать оплату заказов с витрины — у кого были «Заказы с витрины».
   // ДДС и прибыль по месяцам — у кого были «Расходы и чистая прибыль» или «Счета».
+  // Категории — у кого были «Товары»; отменять свои изменения — всем.
+  if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v10'").get()) {
+    const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
+    for (const u of db.prepare('SELECT id, rights FROM users WHERE rights IS NOT NULL').all()) {
+      let list;
+      try { list = JSON.parse(u.rights); } catch { continue; }
+      if (!Array.isArray(list)) continue;
+      const add = [...(list.includes('products') && !list.includes('categories') ? ['categories'] : []), ...(!list.includes('undo.own') ? ['undo.own'] : [])];
+      if (add.length) set.run(JSON.stringify([...list, ...add]), u.id);
+    }
+    db.prepare("INSERT INTO settings (key, value) VALUES ('rights_v10', '1')").run();
+  }
   if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v9'").get()) {
     const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
     for (const u of db.prepare('SELECT id, rights FROM users WHERE rights IS NOT NULL').all()) {
@@ -2835,9 +2847,10 @@ function createStore(file) {
 
     // План отмены: какие записи журнала, что изменится и что мешает (строку после этого изменил кто-то другой).
     // scope: 'one' — только это действие; 'after' — это и все следующие отменяемые действия того же сотрудника.
-    undoPlan(auditId, scope = 'one') {
+    undoPlan(auditId, scope = 'one', onlyUser = null) {
       const a = db.prepare('SELECT * FROM audit WHERE id = ?').get(Number(auditId));
       if (!a) throw new UserError('Запись журнала не найдена');
+      if (onlyUser && a.user_id !== onlyUser.id) throw new UserError('Можно отменять только свои действия');
       if (!a.undoable) throw new UserError('Это действие нельзя отменить');
       if (a.undone_at) throw new UserError('Это действие уже отменено');
       const audits = scope === 'after'
@@ -2885,8 +2898,8 @@ function createStore(file) {
     },
 
     // Отменить: вернуть строки к состоянию до действий. Сама отмена тоже попадает в журнал и её можно отменить.
-    undoActions(auditId, { scope = 'one', dryRun = false } = {}, user = null, meta = {}) {
-      const plan = this.undoPlan(auditId, scope);
+    undoActions(auditId, { scope = 'one', dryRun = false, onlyUser = null } = {}, user = null, meta = {}) {
+      const plan = this.undoPlan(auditId, scope, onlyUser);
       const pub = { audits: plan.audits, counts: plan.counts, sample: plan.sample, conflicts: plan.conflicts };
       if (dryRun) return pub;
       if (plan.conflicts.length) throw new UserError('Отменить нельзя: ' + plan.conflicts.slice(0, 5).join('; '));
@@ -2941,11 +2954,15 @@ function createStore(file) {
       return { ...pub, done: true };
     },
 
-    listAudit({ from, to, kind = '', q = '', limit = 500 }) {
+    // userId — только действия этого сотрудника (право «Свои действия» без права «Журнал»): изменения, без IP.
+    listAudit({ from, to, kind = '', q = '', limit = 500, userId = null }) {
       const like = `%${String(q).trim()}%`;
-      return db.prepare(`SELECT * FROM audit WHERE at >= ? AND at < ? AND (? = '' OR kind = ?)
+      const own = userId !== null;
+      const rows = db.prepare(`SELECT * FROM audit WHERE at >= ? AND at < ? AND (? = '' OR kind = ?)
         AND (? = '%%' OR user_name LIKE ? OR action LIKE ? OR details LIKE ? OR ip LIKE ?)
-        ORDER BY at DESC, id DESC LIMIT ?`).all(from, to, kind, kind, like, like, like, like, like, limit);
+        AND (? = 0 OR (user_id = ? AND kind = 'change'))
+        ORDER BY at DESC, id DESC LIMIT ?`).all(from, to, kind, kind, like, like, like, like, like, own ? 1 : 0, own ? userId : 0, limit);
+      return own ? rows.map((r) => ({ ...r, ip: '', device: '' })) : rows;
     },
 
     /* ---------- Покупатели и бонусы ---------- */

@@ -714,12 +714,12 @@ const routes = [
   ['PUT', '/api/payment-methods-order', (p, url, body) => store.sortPaymentMethods(body.ids), 'settings'],
   ['GET', '/api/reports/payments', (p, url) => store.reportPayments(range(url)), ['kpi', 'sales']],
   ['GET', '/api/categories', () => store.listCategories(), 'any'],
-  ['POST', '/api/categories', (p, url, body) => store.createCategory(body), 'products'],
-  ['PUT', '/api/categories/:id', (p, url, body) => store.renameCategory(p.id, body), 'products'],
-  ['DELETE', '/api/categories/:id', (p, url) => store.deleteCategory(p.id, { moveTo: url.searchParams.get('moveTo') || '' }), 'products'],
-  ['PUT', '/api/categories-order', (p, url, body) => store.sortCategories(body.ids), ['products', 'shop']],
+  ['POST', '/api/categories', (p, url, body) => store.createCategory(body), ['products', 'categories']],
+  ['PUT', '/api/categories/:id', (p, url, body) => store.renameCategory(p.id, body), ['products', 'categories']],
+  ['DELETE', '/api/categories/:id', (p, url) => store.deleteCategory(p.id, { moveTo: url.searchParams.get('moveTo') || '' }), ['products', 'categories']],
+  ['PUT', '/api/categories-order', (p, url, body) => store.sortCategories(body.ids), ['products', 'shop', 'categories']],
   // Картинка категории для витрины: загрузить (mime + data) или убрать (пустое тело).
-  ['PUT', '/api/categories/:id/image', (p, url, body) => store.setCategoryImage(p.id, body.data ? store.addImage(body).id : null), ['products', 'shop', 'photos']],
+  ['PUT', '/api/categories/:id/image', (p, url, body) => store.setCategoryImage(p.id, body.data ? store.addImage(body).id : null), ['products', 'shop', 'photos', 'categories']],
   ['POST', '/api/products/:id/variants', (p, url, body) => store.createVariants(p.id, body), 'products'],
   ['GET', '/api/barcode', () => ({ barcode: store.newBarcode() }), 'products'],
   ['GET', '/api/products/:id/info', (p, url, body, user) => {
@@ -967,8 +967,9 @@ const routes = [
     return { enabled: s.enabled, verifyToken: s.verifyToken, hasSecret: Boolean(s.appSecret), hasToken: Boolean(s.accessToken), webhookPath: '/webhooks/instagram' };
   }, 'settings'],
   // Отмена действия сотрудника из журнала: dryRun — показать, что изменится и что мешает.
-  ['POST', '/api/audit/:id/undo', (p, url, body, user) => store.undoActions(p.id, { scope: body.scope === 'after' ? 'after' : 'one', dryRun: Boolean(body.dryRun) }, user, reqMeta), 'audit'],
-  ['GET', '/api/audit', (p, url) => store.listAudit({ ...range(url), kind: url.searchParams.get('kind') || '', q: url.searchParams.get('q') || '' }), 'audit'],
+  // С правом «Журнал» — отмена любых действий; с правом «Свои действия» — только своих.
+  ['POST', '/api/audit/:id/undo', (p, url, body, user) => store.undoActions(p.id, { scope: body.scope === 'after' ? 'after' : 'one', dryRun: Boolean(body.dryRun), onlyUser: can(user, 'audit') ? null : user }, user, reqMeta), ['audit', 'undo.own']],
+  ['GET', '/api/audit', (p, url, body, user) => store.listAudit({ ...range(url), kind: url.searchParams.get('kind') || '', q: url.searchParams.get('q') || '', userId: can(user, 'audit') ? null : user?.id ?? -1 }), ['audit', 'undo.own']],
   ['POST', '/api/demo', () => {
     if (!store.isEmpty()) throw new UserError('Пример можно загрузить только в пустую базу');
     seedDemo(store);

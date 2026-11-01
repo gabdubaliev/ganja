@@ -25,6 +25,7 @@ const RIGHTS = [
   { key: 'sales.delete', group: 'Касса', label: 'Удалять продажи: по одной, выбранные и все сразу' },
   { key: 'products', group: 'Товары', label: 'Заводить и менять товары, цены, групповое изменение' },
   { key: 'products.delete', group: 'Товары', label: 'Удалять товары' },
+  { key: 'categories', group: 'Товары', label: 'Категории: создавать, переименовывать, удалять, менять порядок и картинки' },
   { key: 'import', group: 'Товары', label: 'Импорт товаров из Excel' },
   { key: 'stock.view', group: 'Товары', label: 'Видеть остатки товаров (на кассе, в товарах, на главной)' },
   { key: 'products.history', group: 'Товары', label: 'Карточка товара: история движения с датами (продажи, закупки, списания, перемещения)' },
@@ -62,7 +63,8 @@ const RIGHTS = [
   { key: 'design', group: 'Управление', label: 'Оформление программы: цвета, шрифт, название' },
   { key: 'settings', group: 'Управление', label: 'Настройки и уведомления в Telegram' },
   { key: 'notify', group: 'Управление', label: 'Уведомления о каждой продаже и заказе' },
-  { key: 'audit', group: 'Управление', label: 'Журнал действий: входы, IP-адреса, попытки входа, все изменения' },
+  { key: 'audit', group: 'Управление', label: 'Журнал действий: входы, IP-адреса, попытки входа, все изменения; отмена действий любого сотрудника' },
+  { key: 'undo.own', group: 'Управление', label: 'Свои действия: видеть их в журнале и отменять свои изменения (товары, категории, документы, расходы)' },
   { key: 'staff.passwords', group: 'Управление', label: 'Видеть пароли и PIN-коды сотрудников и время, IP их входа' },
 ];
 const ALL = RIGHTS.map((r) => r.key);
@@ -84,17 +86,17 @@ const ROLES = {
   manager: {
     name: 'Управляющий',
     about: 'Видит всё и ведёт магазин, выписывает штрафы, правит смены, ведёт табель, даёт и проверяет задания. По умолчанию не меняет сотрудников, бонусы, оформление, настройки и не видит журнал действий.',
-    can: ['dashboard', 'kpi', 'pos', 'customers.create', 'certificates.sell', 'certificates.accept', 'certificates', 'sales', 'refund', 'discount', 'products', 'stock.view', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'orders.payment', 'notify', 'shifts', 'fines', 'timesheet', 'timesheet.edit', 'tasks', 'writeoff', 'docs.sale', 'transfer', 'docs.unpost', 'expenses', 'finance', 'abc', 'reports.stock', 'reports.money', 'products.history', 'receive.photo', 'mytimesheet'],
+    can: ['dashboard', 'kpi', 'pos', 'customers.create', 'certificates.sell', 'certificates.accept', 'certificates', 'sales', 'refund', 'discount', 'products', 'categories', 'stock.view', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'orders.payment', 'notify', 'shifts', 'fines', 'timesheet', 'timesheet.edit', 'tasks', 'writeoff', 'docs.sale', 'transfer', 'docs.unpost', 'expenses', 'finance', 'abc', 'reports.stock', 'reports.money', 'products.history', 'receive.photo', 'mytimesheet', 'undo.own'],
   },
   cashier: {
     name: 'Кассир',
     about: 'Работает в окне кассы: открывает смену, продаёт, видит свои чеки, отправляет онлайн-заказы, меняет фото товаров.',
-    can: ['pos', 'customers.create', 'certificates.sell', 'certificates.accept', 'photos', 'orders', 'orders.payment', 'discount', 'stock.view', 'mytimesheet'],
+    can: ['pos', 'customers.create', 'certificates.sell', 'certificates.accept', 'photos', 'orders', 'orders.payment', 'discount', 'stock.view', 'mytimesheet', 'undo.own'],
   },
   storekeeper: {
     name: 'Кладовщик',
     about: 'Товары, фото, приход и остатки. Не видит продажи и деньги.',
-    can: ['products', 'stock.view', 'stock', 'writeoff', 'photos', 'arrivals', 'transfer', 'receive.photo', 'products.history', 'mytimesheet'],
+    can: ['products', 'categories', 'stock.view', 'stock', 'writeoff', 'photos', 'arrivals', 'transfer', 'receive.photo', 'products.history', 'mytimesheet', 'undo.own'],
   },
 };
 
