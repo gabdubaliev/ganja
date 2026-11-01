@@ -326,11 +326,33 @@ function addDocProduct(p, { scan = false } = {}) {
   if (scan) $('#doc-search').focus(); else field?.select();
 }
 
+// Поиск: товар с модификациями показывается одной строкой (по названию или по найденной модификации),
+// нажатие открывает выбор модификаций галочками; обычные товары — как раньше.
+function docSearchList(q) {
+  const key = q.trim().toLowerCase();
+  if (!key) return [];
+  const out = [];
+  const seen = new Set();
+  const push = (p) => { if (p && !seen.has(p.id)) { seen.add(p.id); out.push(p); } };
+  for (const p of catalog.list) if (!p.parent_id && catalog.isGroup(p) && !p.archived && (p.name.toLowerCase().includes(key) || p.category.toLowerCase().includes(key) || (p.article || '').toLowerCase() === key)) push(p);
+  for (const p of catalog.search(q, 40)) {
+    const exact = (p.barcode && p.barcode === key) || (p.code && p.code.toLowerCase() === key);
+    push(p.parent_id && !exact ? catalog.byId(p.parent_id) || p : p);
+  }
+  return out.slice(0, 12);
+}
 $('#doc-search').addEventListener('input', () => {
   const q = $('#doc-search').value;
-  const list = catalog.search(q, 8).filter((p) => !catalog.isGroup(p));
+  const list = docSearchList(q);
   $('#doc-results').hidden = !q.trim();
-  $('#doc-results').innerHTML = list.length ? list.map((p) => `<button type="button" class="suggest" data-id="${p.id}"><span>${esc(p.name)}</span><span class="pick-meta num">${money2(p.price)}${p.stock === null ? '' : ` · ${qty(p.stock, p.unit)}`}</span></button>`).join('')
+  $('#doc-results').innerHTML = list.length ? list.map((p) => {
+    if (catalog.isGroup(p)) {
+      const kids = catalog.children(p.id);
+      const st = catalog.stockOf(p);
+      return `<button type="button" class="suggest" data-id="${p.id}"><span>${esc(p.name)} <b class="dv-badge">${kids.length} ${plural(kids.length, ['модификация', 'модификации', 'модификаций'])} ›</b></span><span class="pick-meta num">${money2(p.price)}${st === null ? '' : ` · ${qty(st, p.unit)}`}</span></button>`;
+    }
+    return `<button type="button" class="suggest" data-id="${p.id}"><span>${esc(p.name)}</span><span class="pick-meta num">${money2(p.price)}${p.stock === null ? '' : ` · ${qty(p.stock, p.unit)}`}</span></button>`;
+  }).join('')
     : '<p class="pick-meta" style="padding:8px 12px">Ничего не нашлось</p>';
 });
 $('#doc-search').addEventListener('keydown', (e) => {
@@ -346,7 +368,112 @@ $('#doc-search').addEventListener('keydown', (e) => {
 });
 $('#doc-results').addEventListener('click', (e) => {
   const b = e.target.closest('[data-id]');
-  if (b) addDocProduct(catalog.byId(b.dataset.id));
+  if (!b) return;
+  const p = catalog.byId(b.dataset.id);
+  if (catalog.isGroup(p)) openDocVariants(p);
+  else addDocProduct(p);
+});
+
+/* ---------- Выбор модификаций галочками ---------- */
+// Модификации сгруппированы по первому свойству (обычно цвет): галочка у цвета выбирает все его размеры.
+// У каждой строки — количество (в инвентаризации — фактический остаток).
+const dv = { base: null };
+function openDocVariants(base) {
+  dv.base = base;
+  const inv = doc.data.kind === 'inventory';
+  const kids = catalog.children(base.id).filter((k) => !k.archived);
+  const optNames = [...new Set(kids.flatMap((k) => Object.keys(k.options ? JSON.parse(k.options) : {})))];
+  const first = optNames[0];
+  const groups = new Map();
+  for (const k of kids) {
+    const g = first ? JSON.parse(k.options || '{}')[first] || '—' : '';
+    groups.set(g, [...(groups.get(g) || []), k]);
+  }
+  // Внутри цвета — размеры по порядку (XS, S, M, L, XL…), если это размеры.
+  if (typeof sizeSort === 'function') {
+    for (const [g, list] of groups) {
+      const label = (k) => Object.entries(JSON.parse(k.options || '{}')).filter(([n]) => n !== first).map(([, v]) => v).join(', ');
+      const order = sizeSort([...new Set(list.map(label))]);
+      groups.set(g, [...list].sort((a, b) => order.indexOf(label(a)) - order.indexOf(label(b))));
+    }
+  }
+  const inDoc = new Map(doc.data.items.map((l) => [l.productId, l]));
+  $('#dv-title').textContent = base.name;
+  $('#dv-sub').textContent = `Отметьте нужные модификации и укажите ${inv ? 'фактический остаток' : 'количество'}. Уже добавленные в документ отмечены «в документе».`;
+  $('#dv-qty-all').placeholder = inv ? 'факт' : '1';
+  $('#dv-list').innerHTML = [...groups.entries()].map(([g, list]) => `
+    <div class="dv-group">
+      ${first && groups.size > 1 ? `<label class="dv-group-head"><input type="checkbox" data-dv-group="${esc(g)}"> <b>${esc(first)}: ${esc(g)}</b> <small>${list.length}</small></label>` : ''}
+      ${list.map((k) => {
+        const rest = first && groups.size > 1 ? optionsText({ options: JSON.stringify(Object.fromEntries(Object.entries(JSON.parse(k.options || '{}')).filter(([n]) => n !== first))) }) : optionsText(k);
+        const was = inDoc.get(k.id);
+        return `<label class="dv-row" data-dv-row="${k.id}" data-group="${esc(g)}">
+          <input type="checkbox" data-dv-check="${k.id}">
+          <span class="dv-name">${esc(rest || k.name)}${was ? ' <small class="dv-in">в документе</small>' : ''}</span>
+          <small class="num">${k.stock === null ? '' : `ост. ${qty(k.stock, k.unit)}`}</small>
+          <input class="input num dv-q" data-dv-qty="${k.id}" inputmode="decimal" placeholder="${inv ? 'факт' : '1'}" aria-label="${inv ? 'Факт' : 'Количество'}">
+        </label>`;
+      }).join('')}
+    </div>`).join('');
+  syncDvButton();
+  $('#doc-variants').showModal();
+}
+function syncDvButton() {
+  const n = $('#dv-list').querySelectorAll('[data-dv-check]:checked').length;
+  $('#dv-add').textContent = n ? `Добавить (${n})` : 'Добавить';
+  $('#dv-add').disabled = !n;
+  for (const g of $('#dv-list').querySelectorAll('[data-dv-group]')) {
+    const boxes = [...$('#dv-list').querySelectorAll(`[data-group="${CSS.escape(g.dataset.dvGroup)}"] [data-dv-check]`)];
+    g.checked = boxes.length && boxes.every((b) => b.checked);
+    g.indeterminate = !g.checked && boxes.some((b) => b.checked);
+  }
+}
+$('#dv-list').addEventListener('change', (e) => {
+  if (e.target.dataset.dvGroup !== undefined) {
+    for (const b of $('#dv-list').querySelectorAll(`[data-group="${CSS.escape(e.target.dataset.dvGroup)}"] [data-dv-check]`)) b.checked = e.target.checked;
+  }
+  syncDvButton();
+});
+$('#dv-list').addEventListener('input', (e) => {
+  // Ввели количество — строка отмечается сама; стёрли — галочка остаётся (будет 1).
+  const id = e.target.dataset.dvQty;
+  if (id && e.target.value.trim() && parseNum(e.target.value) > 0) { $(`[data-dv-check="${id}"]`).checked = true; syncDvButton(); }
+});
+$('#dv-list').addEventListener('click', (e) => { if (e.target.matches('.dv-q')) e.preventDefault(); });
+$('#doc-variants').addEventListener('click', (e) => {
+  const all = e.target.closest('[data-dv-all]');
+  if (!all) return;
+  for (const b of $('#dv-list').querySelectorAll('[data-dv-check]')) b.checked = all.dataset.dvAll === '1';
+  syncDvButton();
+});
+$('#dv-qty-all').addEventListener('input', (e) => {
+  for (const b of $('#dv-list').querySelectorAll('[data-dv-check]:checked')) $(`[data-dv-qty="${b.dataset.dvCheck}"]`).value = e.target.value;
+});
+$('#dv-cancel').addEventListener('click', () => $('#doc-variants').close());
+$('#dv-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const k = doc.data.kind;
+  const inv = k === 'inventory';
+  let added = 0;
+  for (const b of [...$('#dv-list').querySelectorAll('[data-dv-check]:checked')].reverse()) {
+    const p = catalog.byId(b.dataset.dvCheck);
+    if (!p) continue;
+    const raw = $(`[data-dv-qty="${p.id}"]`).value.trim();
+    const n = raw === '' ? (inv ? null : 1) : Math.max(0, parseNum(raw) || 0);
+    let l = doc.data.items.find((x) => x.productId === p.id);
+    if (!l) {
+      l = { productId: p.id, qty: 0, price: k === 'sale' ? salePrice(p) : p.price, cost: ['purchase', 'receipt'].includes(k) ? p.purchase ?? p.cost : p.cost, actual: null, reason: k === 'writeoff' ? WRITEOFF_REASONS[0] : '' };
+      doc.data.items.unshift(l);
+    }
+    if (inv) { if (n !== null) l.actual = n; } else l.qty = (l.qty || 0) + (n || 0);
+    added++;
+  }
+  $('#doc-variants').close();
+  doc.dirty = true;
+  $('#doc-search').value = '';
+  $('#doc-results').hidden = true;
+  renderDoc();
+  toast(`Добавлено модификаций: ${added}`);
 });
 $('#doc-lines').addEventListener('change', (e) => {
   const tr = e.target.closest('tr[data-i]');

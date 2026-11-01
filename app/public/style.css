@@ -1843,3 +1843,19 @@ h2.inline { display: inline; font-size: 16px; }
 .label-pick-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px; border-radius: 10px; background: color-mix(in srgb, var(--ink) 4%, var(--surface)); }
 .label-pick-row span { display: grid; gap: 2px; }
 .label-pick-row small { color: var(--ink-2); font-size: 12px; }
+
+/* Документы: выбор модификаций галочками */
+#doc-variants { width: min(560px, calc(100vw - 24px)); }
+.dv-badge { font-weight: 600; font-size: 12px; color: var(--series); margin-left: 6px; white-space: nowrap; }
+.dv-tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
+.dv-qty-all { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); }
+.dv-qty-all .input { width: 80px; }
+.dv-list { display: grid; gap: 10px; max-height: 55dvh; overflow-y: auto; padding-right: 2px; }
+.dv-group { display: grid; gap: 4px; }
+.dv-group-head { display: flex; gap: 8px; align-items: center; padding: 4px 2px; }
+.dv-group-head small { color: var(--ink-2); }
+.dv-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto 84px; gap: 10px; align-items: center; padding: 6px 8px; border-radius: 10px; background: color-mix(in srgb, var(--ink) 4%, var(--surface)); cursor: pointer; }
+.dv-row:has(input:checked) { background: color-mix(in srgb, var(--series) 12%, var(--surface)); }
+.dv-row small { color: var(--ink-2); font-size: 12px; }
+.dv-in { color: var(--series) !important; font-weight: 600; }
+@media (max-width: 520px) { .dv-qty-all { margin-left: 0; } .dv-row { grid-template-columns: auto minmax(0, 1fr) 70px; } .dv-row > small.num { display: none; } }

@@ -1874,6 +1874,23 @@
   </div>
 </dialog>
 
+<dialog id="doc-variants" aria-labelledby="dv-title">
+  <form method="dialog" id="dv-form">
+    <h2 id="dv-title">Модификации</h2>
+    <p class="sub" id="dv-sub"></p>
+    <div class="dv-tools">
+      <button type="button" class="btn small" data-dv-all="1">Выбрать все</button>
+      <button type="button" class="btn small ghost" data-dv-all="0">Снять все</button>
+      <label class="dv-qty-all">Всем выбранным: <input class="input num" id="dv-qty-all" inputmode="decimal" placeholder="1" aria-label="Количество всем выбранным"></label>
+    </div>
+    <div class="dv-list" id="dv-list"></div>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="dv-cancel">Отмена</button>
+      <button type="submit" class="btn primary" id="dv-add">Добавить</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="product-dialog" class="product-dialog" aria-labelledby="product-dialog-title">
   <form id="product-form" novalidate>
     <h2 id="product-dialog-title">Новый товар</h2>
