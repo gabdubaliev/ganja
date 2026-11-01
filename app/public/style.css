@@ -512,6 +512,13 @@ textarea.code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size
 .variant-gen summary { font-weight: 600; cursor: pointer; color: var(--series); }
 .variant-gen[open] { display: grid; gap: 8px; }
 .gen-row { display: grid; grid-template-columns: 140px minmax(0, 1fr) 32px; gap: 6px; align-items: center; margin-bottom: 6px; }
+.gen-chips { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 6px; }
+.gen-chips:empty { display: none; }
+.gen-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border: 1px solid var(--border); border-radius: 999px; background: var(--card, #fff); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; }
+.gen-chip i { width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .15); }
+.gen-chip[aria-pressed="true"] { border-color: var(--series); background: color-mix(in srgb, var(--series) 14%, transparent); font-weight: 650; }
+.gen-chip[aria-pressed="true"]::before { content: "✓"; color: var(--series); font-weight: 800; }
+.gen-chip-all { font-size: 13px; }
 tr.variant-row td.name-col { padding-left: 34px; }
 tr.variant-row .pname { font-weight: 500; }
 /* Выбор модификации на кассе */

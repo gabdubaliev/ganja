@@ -564,7 +564,8 @@ function openProductDialog(product = null, onSaved = null) {
   if (variant) {
     const opts = JSON.parse(product.options || '{}');
     $('#pf-variant-options').innerHTML = Object.entries(opts).map(([k, v]) => `
-      <div class="field"><label>${esc(k)}</label><input class="input" data-opt="${esc(k)}" value="${esc(v)}" autocomplete="off"></div>`).join('');
+      <div class="field"><label>${esc(k)}</label><input class="input" data-opt="${esc(k)}" value="${esc(v)}" autocomplete="off" list="opt-list-${esc(k.replace(/\W/g, '_'))}">
+      <datalist id="opt-list-${esc(k.replace(/\W/g, '_'))}">${knownValues(k).map((x) => `<option value="${esc(x)}">`).join('')}</datalist></div>`).join('');
   }
   $('#product-stock-field').hidden = Boolean(product) || !session.can('stock.view');
   // Основной товар с модификациями не продают: штрихкод и код — у модификаций, его цена — по умолчанию для новых.
@@ -620,12 +621,65 @@ function renderVariantsList() {
     </table>` : '';
 }
 
+// Готовые значения свойства — галочками, чтобы не писать каждый раз заново:
+// сначала те, что уже есть у товаров (чаще встречающиеся — раньше), затем стандартные цвета или размеры.
+const PRESET_COLORS = ['Черный', 'Белый', 'Серый', 'Темно-серый', 'Темно-синий', 'Синий', 'Голубой', 'Бежевый', 'Молочный', 'Хаки', 'Оливковый', 'Зеленый', 'Коричневый', 'Бордовый', 'Красный'];
+const PRESET_SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'];
+const SIZE_RANK = ['XXXS', 'XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', 'XXXL', '3XL', '4XL', '5XL', '6XL'];
+const isSizeOption = (name) => /размер|рост|size/i.test(name);
+function sizeSort(values) {
+  const rank = (v) => {
+    const u = String(v).toUpperCase().replace(/\s/g, '');
+    const i = SIZE_RANK.indexOf(u === '2XL' ? 'XXL' : u === 'XXXL' ? '3XL' : u);
+    if (i >= 0) return i;
+    const n = parseFloat(String(v).replace(',', '.'));
+    return Number.isFinite(n) ? 100 + n : null;
+  };
+  return values.every((v) => rank(v) !== null) ? [...values].sort((a, b) => rank(a) - rank(b)) : values;
+}
+function knownValues(name) {
+  const key = String(name || '').trim().toLowerCase();
+  if (!key) return [];
+  const count = new Map();
+  for (const p of catalog.list) {
+    if (!p.parent_id || !p.options) continue;
+    let opts;
+    try { opts = typeof p.options === 'string' ? JSON.parse(p.options) : p.options; } catch { continue; }
+    for (const [k, v] of Object.entries(opts || {})) {
+      if (normVal(k) !== normVal(key) || !String(v).trim()) continue;
+      const val = String(v).trim();
+      const same = [...count.keys()].find((x) => normVal(x) === normVal(val)) || val;
+      count.set(same, (count.get(same) || 0) + 1);
+    }
+  }
+  let list = [...count.entries()].sort((a, b) => b[1] - a[1]).map(([v]) => v);
+  const preset = typeof isColorOption === 'function' && isColorOption(name) ? PRESET_COLORS : isSizeOption(name) ? PRESET_SIZES : [];
+  for (const v of preset) if (!list.some((x) => normVal(x) === normVal(v))) list.push(v);
+  if (isSizeOption(name)) list = sizeSort(list);
+  return list.slice(0, 40);
+}
+const normVal = (v) => String(v).trim().toLowerCase().replace(/ё/g, 'е');
+const genValues = (text) => String(text || '').split(/[,;\n]/).map((v) => v.trim()).filter(Boolean);
+function genChipsHtml(o, i) {
+  const vals = knownValues(o.name);
+  if (!vals.length) return '';
+  const chosen = new Set(genValues(o.values).map(normVal));
+  const color = typeof isColorOption === 'function' && isColorOption(o.name);
+  return vals.map((v) => `<button type="button" class="gen-chip" data-chip-i="${i}" data-chip-v="${esc(v)}" aria-pressed="${chosen.has(normVal(v))}">${color && typeof swatchBg === 'function' ? `<i style="background:${swatchBg(v)}"></i>` : ''}${esc(v)}</button>`).join('')
+    + `<button type="button" class="link gen-chip-all" data-chip-all="${i}">${vals.every((v) => chosen.has(normVal(v))) ? 'Снять все' : 'Выбрать все'}</button>`;
+}
+function renderGenChips(i) {
+  const box = $(`#pf-gen-options .gen-row[data-i="${i}"] .gen-chips`);
+  if (box) box.innerHTML = genChipsHtml(gen.options[i], i);
+}
+
 function renderGenOptions() {
   $('#pf-gen-options').innerHTML = gen.options.map((o, i) => `
     <div class="gen-row" data-i="${i}">
       <input class="input" data-gen="name" value="${esc(o.name)}" placeholder="Свойство" aria-label="Свойство" autocomplete="off">
-      <input class="input" data-gen="values" value="${esc(o.values)}" placeholder="Значения через запятую: Красный, Синий" aria-label="Значения" autocomplete="off">
+      <input class="input" data-gen="values" value="${esc(o.values)}" placeholder="Отметьте ниже или впишите через запятую" aria-label="Значения" autocomplete="off">
       <button type="button" class="icon-btn" data-gen-del="${i}" aria-label="Убрать свойство">×</button>
+      <div class="gen-chips" role="group" aria-label="Готовые значения">${genChipsHtml(o, i)}</div>
     </div>`).join('');
   $('#pf-gen-add').hidden = gen.options.length >= 4;
   renderGenPreview();
@@ -698,11 +752,34 @@ $('#product-form').addEventListener('input', (e) => {
   }
   const g = e.target.dataset.gen;
   if (g) {
-    gen.options[Number(e.target.closest('.gen-row').dataset.i)][g] = e.target.value;
+    const i = Number(e.target.closest('.gen-row').dataset.i);
+    gen.options[i][g] = e.target.value;
+    renderGenChips(i);
     renderGenPreview();
   }
 });
 $('#product-form').addEventListener('click', (e) => {
+  const chip = e.target.closest('[data-chip-v]');
+  const all = e.target.closest('[data-chip-all]');
+  if (chip || all) {
+    const i = Number((chip || all).dataset[chip ? 'chipI' : 'chipAll']);
+    const o = gen.options[i];
+    let vals = genValues(o.values);
+    const has = (v) => vals.some((x) => normVal(x) === normVal(v));
+    if (chip) {
+      const v = chip.dataset.chipV;
+      vals = has(v) ? vals.filter((x) => normVal(x) !== normVal(v)) : [...vals, v];
+    } else {
+      const known = knownValues(o.name);
+      vals = known.every(has) ? vals.filter((x) => !known.some((k) => normVal(k) === normVal(x))) : [...vals, ...known.filter((v) => !has(v))];
+    }
+    if (isSizeOption(o.name)) vals = sizeSort(vals);
+    o.values = vals.join(', ');
+    $(`#pf-gen-options .gen-row[data-i="${i}"] [data-gen="values"]`).value = o.values;
+    renderGenChips(i);
+    renderGenPreview();
+    return;
+  }
   const del = e.target.closest('[data-gen-del]');
   const edit = e.target.closest('[data-variant-edit]');
   const base = e.target.closest('[data-open-base]');
