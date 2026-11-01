@@ -20,8 +20,26 @@ const COLOR_WORDS = {
 const COLOR_KEYS = Object.keys(COLOR_WORDS).sort((a, b) => b.length - a.length);
 const normColor = (name) => String(name || '').toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
 
-// Свойство «Цвет» у товара: «Цвет», «Расцветка», «Color».
-const isColorOption = (name) => /цвет|расцв|colou?r/i.test(String(name || ''));
+// Название свойства похоже на цвет: «Цвет», «Расцветка», «Оттенок», «Окрас», «Тон», «Color».
+const isColorOption = (name) => /цвет|расцв|оттен|окрас|^тон$|colou?r/i.test(String(name || '').trim());
+
+// Свойство «цвет» у товара: по названию свойства, а если название другое — по значениям
+// (большинство значений — названия цветов: «Чёрный», «Хаки», «Тёмно-синий»…).
+// optionsList — свойства модификаций товара: [{ Цвет: 'Хаки', Размер: 'M' }, …].
+function detectColorOption(optionsList, map = {}) {
+  const names = [];
+  for (const o of optionsList) for (const k of Object.keys(o || {})) if (!names.includes(k)) names.push(k);
+  const byName = names.find(isColorOption);
+  if (byName) return byName;
+  let best = null;
+  for (const n of names) {
+    const vals = [...new Set(optionsList.map((o) => o?.[n]).filter(Boolean))];
+    if (!vals.length) continue;
+    const known = vals.filter((v) => colorHex(v, map)).length;
+    if (known / vals.length >= 0.5 && (!best || known / vals.length > best.share)) best = { name: n, share: known / vals.length };
+  }
+  return best?.name || null;
+}
 
 // '#rrggbb', 'multi' (разноцветный) или null, если цвет не узнали.
 function colorHex(name, map = {}) {

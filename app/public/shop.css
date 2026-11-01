@@ -552,7 +552,7 @@ body[data-look="minimal"] .size-chart summary { text-transform: uppercase; lette
 .opt-values .sw.big:hover { border-color: var(--ink-soft); }
 @media (hover: none) { .sw { width: 30px; height: 30px; } }
 @media (max-width: 640px) { .swatches { gap: 4px; } .grid.compact .sw, .sw { width: 24px; height: 24px; } }
-.grid.list .swatches { display: none; }
+.grid.list .swatches { margin-top: 2px; }
 
 /* Галерея в окне товара: лента фото (листается пальцем), миниатюры, стрелки, точки на телефоне */
 .pd-gal { display: block; min-height: min(680px, calc(100dvh - 24px)); }

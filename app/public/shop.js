@@ -217,7 +217,7 @@ function sortSizes(values) {
 
 /* ---------- Расцветки на карточке (как кружки цветов в больших магазинах одежды) ---------- */
 // Свойство «Цвет» товара и его значения в порядке модификаций; для каждого — фото первой модификации этого цвета.
-const colorOptOf = (p) => (p.hasVariants ? optionNames(p).find(isColorOption) || null : null);
+const colorOptOf = (p) => (p.hasVariants ? detectColorOption(variantsOf(p).map((v) => v.options || {}), state.settings?.colorMap || {}) : null);
 function colorsOf(p) {
   const opt = colorOptOf(p);
   if (!opt) return [];
@@ -240,7 +240,8 @@ const swatchStyle = (c) => {
 function swatchesHtml(p) {
   if (state.settings.showSwatches === false) return '';
   const colors = colorsOf(p);
-  if (colors.length < 2 && !(colors.length === 1 && colors[0].pic)) return '';
+  // Кружки видны всегда, когда у товара есть свойство «цвет» — даже если цвет один.
+  if (!colors.length) return '';
   const active = state.cardColor[p.id];
   const max = 7;
   return `<div class="swatches" role="group" aria-label="Расцветки">${colors.slice(0, max).map((c) => `<button type="button" class="sw ${c.stock > 0 ? '' : 'na'}" data-swatch="${p.id}" data-color="${esc(c.name)}" aria-pressed="${active === c.name}" title="${esc(c.name)}${c.stock > 0 ? '' : ' — нет в наличии'}" aria-label="${esc(c.name)}"><i style="${swatchStyle(c)}"></i></button>`).join('')}${colors.length > max ? `<span class="sw-more">+${colors.length - max}</span>` : ''}</div>`;
@@ -266,7 +267,7 @@ function cardHtml(p, i = 0) {
   const available = inStock(p);
   const old = p.hasVariants ? null : p.oldPrice;
   // Под названием — размеры (не цвета: цвета видны кружками).
-  const firstOpt = p.hasVariants ? optionNames(p).find((n) => !isColorOption(n)) || optionNames(p)[0] : null;
+  const firstOpt = p.hasVariants ? optionNames(p).find((n) => n !== colorOptOf(p)) || optionNames(p)[0] : null;
   const values = firstOpt ? sortSizes([...new Set(variantsOf(p).filter((v) => v.stock > 0).map((v) => v.options?.[firstOpt]).filter(Boolean))]) : [];
   const meta = p.hasVariants ? values.slice(0, 6).join(' · ') + (values.length > 6 ? ' …' : '')
     : s.showStock && p.stock > 0 ? `В наличии: ${qtyFmt.format(p.stock)} ${esc(p.unit)}` : p.unit !== 'шт' ? `за ${esc(p.unit)}` : '';
@@ -361,7 +362,7 @@ function openProduct(id) {
         const alt = matchVariant(p, { ...state.sel, [name]: val });
         const cls = alt && alt.stock > 0 ? '' : 'na';
         // Цвет — кружком, название цвета — над кружками.
-        if (isColorOption(name)) {
+        if (name === colorOptOf(p)) {
           const c = colorsOf(p).find((x) => x.name === val) || { name: val, pic: '' };
           return `<button type="button" data-opt="${esc(name)}" data-val="${esc(val)}" aria-pressed="${state.sel[name] === val}" class="sw big ${cls}" title="${esc(val)}" aria-label="${esc(val)}"><i style="${swatchStyle(c)}"></i></button>`;
         }
@@ -668,7 +669,7 @@ document.addEventListener('click', (e) => {
   const opt = e.target.closest('[data-opt]');
   if (opt) {
     state.sel[opt.dataset.opt] = opt.dataset.val;
-    if (isColorOption(opt.dataset.opt)) state.cardColor[state.open] = opt.dataset.val;
+    if (opt.dataset.opt === colorOptOf(byId(state.open))) state.cardColor[state.open] = opt.dataset.val;
     return openProduct(state.open);
   }
   const open = e.target.closest('[data-open]');

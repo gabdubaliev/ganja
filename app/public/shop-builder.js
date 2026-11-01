@@ -217,11 +217,17 @@ function readShopForm() {
 /* ---------- Цвета кружков расцветок ---------- */
 function productColors() {
   const set = new Set();
+  // Модификации по товарам: цвет определяется так же, как на витрине (по названию свойства или по значениям).
+  const groups = new Map();
   for (const p of builder.products) {
-    if (!p.options) continue;
+    if (!p.options || !p.parent_id) continue;
     let o = {};
     try { o = typeof p.options === 'string' ? JSON.parse(p.options) : p.options; } catch { continue; }
-    for (const [k, v] of Object.entries(o || {})) if (isColorOption(k) && v) set.add(String(v));
+    groups.set(p.parent_id, [...(groups.get(p.parent_id) || []), o || {}]);
+  }
+  for (const list of groups.values()) {
+    const opt = detectColorOption(list, builder.draft?.colorMap || {});
+    if (opt) for (const o of list) if (o[opt]) set.add(String(o[opt]));
   }
   return [...set].sort((a, b) => a.localeCompare(b, 'ru'));
 }
