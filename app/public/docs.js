@@ -153,6 +153,7 @@ async function showDoc() {
 const readOnly = () => doc.data.status === 'posted' || doc.data.direction === 'in';
 
 function renderDoc() {
+  $('#doc-new-product').hidden = !docCanCreate() || doc.data.status === 'posted';
   const d = doc.data, k = d.kind, ro = readOnly();
   $('#doc-title').textContent = d.id ? docTitle(d) : `Новый документ: ${DOC_KIND[k].name}`;
   $('#doc-about').textContent = DOC_KIND[k].about;
@@ -341,6 +342,27 @@ function docSearchList(q) {
   }
   return out.slice(0, 12);
 }
+// Создать товар прямо из документа (закупка, оприходование, инвентаризация): карточка товара с введённым
+// названием или штрихкодом; после сохранения товар сразу добавляется в документ.
+const docCanCreate = () => ['purchase', 'receipt', 'inventory'].includes(doc.data?.kind) && session.can('products');
+const docCreateRow = (q) => (docCanCreate() && q.trim() ? `<button type="button" class="suggest doc-create" data-doc-create><span>＋ Создать товар «${esc(q.trim())}»</span><span class="pick-meta">новая карточка, сразу в документ</span></button>` : '');
+function createProductFromDoc(q) {
+  const text = String(q || '').trim();
+  $('#doc-results').hidden = true;
+  openProductDialog(null, async (saved) => {
+    await catalog.load().catch(() => {});
+    const p = catalog.byId(saved.id) || saved;
+    if (catalog.isGroup(p)) { openDocVariants(p); return; }
+    addDocProduct(p);
+    toast(`Товар «${p.name}» создан и добавлен в документ`);
+  });
+  // Отсканировали неизвестный штрихкод — он идёт в штрихкод, иначе текст — в название.
+  if (/^\d{6,14}$/.test(text)) { $('#pf-barcode').value = text; renderBarcodePreview?.(); } else $('#pf-name').value = text;
+  // Остаток задаёт сам документ — поле «Сейчас на складе» здесь не нужно (иначе остаток удвоится).
+  $('#product-stock-field').hidden = true;
+  $('#pf-stock').value = '';
+  $('#product-dialog-title').textContent = `Новый товар для документа «${DOC_KIND[doc.data.kind].name}»`;
+}
 $('#doc-search').addEventListener('input', () => {
   const q = $('#doc-search').value;
   const list = docSearchList(q);
@@ -352,8 +374,8 @@ $('#doc-search').addEventListener('input', () => {
       return `<button type="button" class="suggest" data-id="${p.id}"><span>${esc(p.name)} <b class="dv-badge">${kids.length} ${plural(kids.length, ['модификация', 'модификации', 'модификаций'])} ›</b></span><span class="pick-meta num">${money2(p.price)}${st === null ? '' : ` · ${qty(st, p.unit)}`}</span></button>`;
     }
     return `<button type="button" class="suggest" data-id="${p.id}"><span>${esc(p.name)}</span><span class="pick-meta num">${money2(p.price)}${p.stock === null ? '' : ` · ${qty(p.stock, p.unit)}`}</span></button>`;
-  }).join('')
-    : '<p class="pick-meta" style="padding:8px 12px">Ничего не нашлось</p>';
+  }).join('') + docCreateRow(q)
+    : '<p class="pick-meta" style="padding:8px 12px">Ничего не нашлось</p>' + docCreateRow(q);
 });
 $('#doc-search').addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
@@ -364,9 +386,12 @@ $('#doc-search').addEventListener('keydown', (e) => {
   if (exact) return addDocProduct(exact, { scan: true });
   const found = catalog.search(code, 2).filter((p) => !catalog.isGroup(p));
   if (found.length === 1) addDocProduct(found[0]);
+  else if (!found.length && docCanCreate()) createProductFromDoc(code);
   else toast(found.length ? 'Найдено несколько — выберите из списка' : 'Товар не найден', 'error');
 });
+$('#doc-new-product').addEventListener('click', () => createProductFromDoc($('#doc-search').value));
 $('#doc-results').addEventListener('click', (e) => {
+  if (e.target.closest('[data-doc-create]')) return createProductFromDoc($('#doc-search').value);
   const b = e.target.closest('[data-id]');
   if (!b) return;
   const p = catalog.byId(b.dataset.id);
