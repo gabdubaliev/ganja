@@ -1240,6 +1240,14 @@ function receiptBytes({ mime, data } = {}) {
 }
 
 function createStore(file) {
+  // Недавно созданные товары по номеру запроса (защита от копий при повторной отправке). Живёт сутки, до 5000 записей.
+  const recentCreates = new Map();
+  function rememberCreate(key, value) {
+    if (!key) return;
+    recentCreates.set(key, value);
+    setTimeout(() => recentCreates.delete(key), 864e5).unref?.();
+    if (recentCreates.size > 5000) recentCreates.delete(recentCreates.keys().next().value);
+  }
   const db = open(file);
   let branchLink = null; // связь с другими магазинами (перемещения), задаёт сервер
   // Общие бонусы и сертификаты: у филиала bank — основной магазин, где они лежат; у основного bank = null.
@@ -1567,13 +1575,34 @@ function createStore(file) {
       return events.sort((a, b) => b.at - a.at).slice(0, 1000);
     },
 
-    createProduct(input) {
+    // Копий не создаём: 1) повтор того же запроса (requestId — номер открытия окна; связь оборвалась,
+    // запрос ушёл ещё раз) возвращает уже созданный товар; 2) товар с тем же названием в той же категории
+    // (без учёта регистра, пробелов и ё/е) — ошибка с подсказкой открыть существующий.
+    // Товар с тем же названием и категорией (основной, не удалённый) или null.
+    findTwinProduct(name, category) {
+      const norm = (s) => String(s || '').toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+      return db.prepare('SELECT id, code, archived, name, category FROM products WHERE parent_id IS NULL AND deleted = 0').all()
+        .find((p) => norm(p.name) === norm(name) && norm(p.category) === norm(category)) || null;
+    },
+    // Для прихода и перемещения: уже существующий такой же товар (без модификаций) вместо копии.
+    twinToReuse(name, category) {
+      const twin = this.findTwinProduct(name, category);
+      return twin && !childrenOf(twin.id).length ? getProduct(twin.id) : null;
+    },
+
+    createProduct(input, { allowTwin = false } = {}) {
       const f = productFields(input);
+      const reqId = String(input.requestId || '').slice(0, 64);
+      const prev = reqId && recentCreates.get('p:' + reqId);
+      if (prev) { const p = db.prepare('SELECT id FROM products WHERE id = ? AND deleted = 0').get(prev); if (p) return getProduct(p.id); }
+      const twin = allowTwin ? null : this.findTwinProduct(f.name, f.category);
+      if (twin) throw new UserError(`Товар «${twin.name}»${twin.category ? ` в категории «${twin.category}»` : ''} уже есть${twin.code ? ` (код ${twin.code})` : ''}${twin.archived ? ', он убран из продажи — найдите его в «Архиве»' : ''}. Копии не создаются: откройте существующий товар или измените название.`);
       const stock = number(input.stock ?? 0, 'Остаток');
       const { lastInsertRowid } = db.prepare(`
         INSERT INTO products (name, category, barcode, code, unit, price, cost, stock, description, created_at, purchase, article, supplier_id, discount)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(f.name, f.category, f.barcode, f.code || nextCode(db), f.unit, f.price, f.cost, stock, f.description, Date.now(),
         f.purchase, f.article, f.supplier_id, f.discount);
+      rememberCreate('p:' + reqId, lastInsertRowid);
       return getProduct(lastInsertRowid);
     },
 
@@ -1853,8 +1882,11 @@ function createStore(file) {
     // Создаёт модификации товара. variants — [{ options, price, cost, barcode, code, stock }].
     // barcodes: true — каждой модификации без штрихкода сгенерировать свой.
     // Остаток основного товара переходит в ноль: дальше остатки ведутся по модификациям.
-    createVariants(id, { variants, barcodes = false }) {
+    createVariants(id, { variants, barcodes = false, requestId = '' }) {
       const base = getProduct(id);
+      // Повтор того же запроса (после зависания) — возвращаем созданные тогда модификации, новых не делаем.
+      const reqKey = requestId ? `v:${id}:${String(requestId).slice(0, 64)}` : '';
+      if (reqKey && recentCreates.has(reqKey)) return recentCreates.get(reqKey).map((vid) => db.prepare('SELECT id FROM products WHERE id = ?').get(vid) && getProduct(vid)).filter(Boolean);
       if (base.parent_id) throw new UserError('У модификации не может быть своих модификаций');
       if (!Array.isArray(variants) || !variants.length) throw new UserError('Добавьте хотя бы одну модификацию');
       if (variants.length > 300) throw new UserError('Слишком много модификаций за раз: не больше 300');
@@ -1879,6 +1911,7 @@ function createStore(file) {
             price, cost, number(v.stock ?? 0, 'Остаток'), base.description, base.id, JSON.stringify(opts), base.archived, Date.now(), purchase, base.supplier_id, base.discount || 0);
           created.push(getProduct(lastInsertRowid));
         }
+        rememberCreate(reqKey, created.map((c) => c.id));
         return created;
       });
     },
@@ -3195,9 +3228,10 @@ function createStore(file) {
       return transaction(db, () => {
         const lines = items.map((i) => {
           let p = this.findSameProduct(i.product);
+          if (!p) p = this.twinToReuse(i.product.name, i.product.category);
           if (!p) {
             const made = this.createProduct({ name: i.product.name, price: i.product.price, cost: i.product.cost, purchase: i.product.purchase, article: i.product.article,
-              unit: i.product.unit, barcode: i.product.barcode, code: i.product.code, category: i.product.category, stock: 0 });
+              unit: i.product.unit, barcode: i.product.barcode, code: i.product.code, category: i.product.category, stock: 0 }, { allowTwin: true });
             p = getProduct(made.id);
           }
           return { p, qty: i.qty };
@@ -3765,8 +3799,10 @@ function createStore(file) {
         for (const x of prepared) {
           if (x.p) continue;
           const name = text(x.l.name, 'Название товара', { required: true });
+          const twin = this.twinToReuse(name, x.l.category || '');
+          if (twin) { x.p = twin; continue; }
           x.p = this.createProduct({ name, category: x.l.category || '', unit: x.l.unit || 'шт', barcode: String(x.l.barcode || '').replace(/\D/g, '').slice(0, 64),
-            article: x.l.article || '', purchase: x.purchase, cost: round2(x.purchase + x.extra), price: x.sale, supplier_id: supplierId, stock: 0 });
+            article: x.l.article || '', purchase: x.purchase, cost: round2(x.purchase + x.extra), price: x.sale, supplier_id: supplierId, stock: 0 }, { allowTwin: true });
           x.isNew = true;
           created++;
         }

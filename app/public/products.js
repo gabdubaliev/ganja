@@ -548,8 +548,14 @@ function fillUsdFromSom(skip = '') {
   }
 }
 
+// Номер открытия окна: повтор той же отправки (зависла связь) сервер узнаёт и копию не создаёт.
+const newRequestId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`);
+let productRequestId = '';
+
 function openProductDialog(product = null, onSaved = null) {
   editingProduct = product;
+  productRequestId = newRequestId();
+  delete $('#product-form').dataset.busy;
   productDialogDone = onSaved;
   const f = $('#product-form');
   f.reset();
@@ -810,6 +816,8 @@ $('#product-labels').addEventListener('click', () => openLabels([editingProduct]
 $('#product-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
+  // Пока идёт сохранение, повторное нажатие «Сохранить» (или Enter) ничего не делает.
+  if (f.dataset.busy) return;
   const variant = Boolean(editingProduct?.parent_id);
   const body = {
     barcode: f.elements.barcode.value,
@@ -835,18 +843,34 @@ $('#product-form').addEventListener('submit', async (e) => {
   if (variants.length && !catalog.children(editingProduct?.id).length && ownStock) {
     if (!confirm(`Остаток товара (${qtyFmt.format(ownStock)}) обнулится: дальше остатки ведутся по модификациям. Укажите остаток каждой модификации в таблице. Продолжить?`)) return;
   }
+  const submit = f.querySelector('button[type=submit]');
+  const label = submit.textContent;
+  f.dataset.busy = '1';
+  submit.disabled = true;
+  submit.textContent = 'Сохраняю…';
+  let saved = null;
   try {
-    const saved = await api(editingProduct ? `/api/products/${editingProduct.id}` : '/api/products', { method: editingProduct ? 'PUT' : 'POST', body });
+    saved = await api(editingProduct ? `/api/products/${editingProduct.id}` : '/api/products', { method: editingProduct ? 'PUT' : 'POST', body: { ...body, requestId: productRequestId } });
     let made = [];
-    if (variants.length) made = await api(`/api/products/${saved.id}/variants`, { method: 'POST', body: { variants, barcodes: $('#pf-gen-barcodes').checked } });
+    if (variants.length) made = await api(`/api/products/${saved.id}/variants`, { method: 'POST', body: { variants, barcodes: $('#pf-gen-barcodes').checked, requestId: productRequestId } });
     $('#product-dialog').close();
     toast((editingProduct ? 'Сохранено' : `Товар «${saved.name}» добавлен`) + (made.length ? `, модификаций: ${made.length}` : ''));
     await catalog.load();
     productDialogDone?.(saved);
   } catch (err) {
     showFormError('#product-error', err);
-    // Товар мог сохраниться, а модификации — нет: дальше правим уже его.
+    // Товар мог сохраниться, а модификации — нет: дальше правим уже его (повторное «Сохранить» не создаст копию).
     await catalog.load().catch(() => {});
+    if (saved && !editingProduct) {
+      editingProduct = catalog.byId(saved.id) || saved;
+      $('#product-dialog-title').textContent = 'Изменить товар';
+    }
+    renderVariantsList();
+    renderGenPreview();
+  } finally {
+    delete f.dataset.busy;
+    submit.disabled = false;
+    submit.textContent = label;
   }
 });
 $('#product-cancel').addEventListener('click', () => $('#product-dialog').close());
