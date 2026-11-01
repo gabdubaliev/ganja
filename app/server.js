@@ -29,7 +29,7 @@ const DB_FILE = path.resolve(__dirname, process.env.DB_FILE || 'data/shop.db');
 const PUBLIC = path.join(__dirname, 'public');
 const MAX_RANGE = 800 * 864e5;
 // Без входа можно открыть только страницу входа и её стили.
-const PUBLIC_PATHS = new Set(['/login.html', '/style.css', '/manifest.webmanifest', '/icon.svg', '/shop.css', '/shop.js']);
+const PUBLIC_PATHS = new Set(['/login.html', '/style.css', '/manifest.webmanifest', '/icon.svg', '/shop.css', '/shop.js', '/colors.js']);
 const ORDER_LIMIT = 5; // заказов с одного адреса за 10 минут — защита от спама
 const orderLog = new Map(); // ip -> [время заказа]
 
