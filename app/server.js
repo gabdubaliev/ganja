@@ -1130,7 +1130,24 @@ function serveStatic(res, pathname) {
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
     return res.end('Не найдено');
   }
-  res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+  const stat = fs.statSync(file);
+  const etag = `W/"${stat.size.toString(36)}-${Math.floor(stat.mtimeMs).toString(36)}"`;
+  const headers = { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache', ETag: etag, 'Last-Modified': stat.mtime.toUTCString() };
+  // Страницы: к своим скриптам и стилям дописываем ?v=<время изменения файла>, чтобы браузер
+  // (особенно на iPhone) не взял старую копию shop.js/colors.js после обновления программы.
+  if (path.extname(file) === '.html') {
+    headers['Cache-Control'] = 'no-store';
+    delete headers.ETag; delete headers['Last-Modified'];
+    const html = fs.readFileSync(file, 'utf8').replace(/(<script[^>]*\ssrc|<link[^>]*\shref)="(\/?[\w.\/-]+\.(?:js|css))"/g, (all, attr, url) => {
+      const asset = path.join(PUBLIC, url);
+      if (!asset.startsWith(PUBLIC + path.sep) || !fs.existsSync(asset)) return all;
+      return `${attr}="${url}?v=${Math.floor(fs.statSync(asset).mtimeMs).toString(36)}"`;
+    });
+    res.writeHead(200, headers);
+    return res.end(html);
+  }
+  if (res.req?.headers['if-none-match'] === etag) { res.writeHead(304, headers); return res.end(); }
+  res.writeHead(200, headers);
   fs.createReadStream(file).pipe(res);
 }
 

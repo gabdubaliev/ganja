@@ -217,7 +217,13 @@ function sortSizes(values) {
 
 /* ---------- Расцветки на карточке (как кружки цветов в больших магазинах одежды) ---------- */
 // Свойство «Цвет» товара и его значения в порядке модификаций; для каждого — фото первой модификации этого цвета.
-const colorOptOf = (p) => (p.hasVariants ? detectColorOption(variantsOf(p).map((v) => v.options || {}), state.settings?.colorMap || {}) : null);
+const colorOptOf = (p) => {
+  if (!p.hasVariants) return null;
+  const opts = variantsOf(p).map((v) => v.options || {});
+  // Старая копия colors.js в кэше браузера (без detectColorOption) — ищем свойство по названию.
+  if (typeof detectColorOption !== 'function') return Object.keys(opts[0] || {}).find((n) => /цвет|расцв|colou?r/i.test(n)) || null;
+  return detectColorOption(opts, state.settings?.colorMap || {});
+};
 function colorsOf(p) {
   const opt = colorOptOf(p);
   if (!opt) return [];
@@ -259,7 +265,19 @@ function showCardColor(id, color) {
   if (label) label.textContent = color || '';
 }
 
+// Карточка с защитой: если что-то в данных товара или старая копия файла в браузере вызвала ошибку —
+// показываем простую карточку (фото, название, цена), а не пустой каталог.
 function cardHtml(p, i = 0) {
+  try { return cardHtmlFull(p, i); } catch (e) {
+    console.error('Карточка товара', p?.id, e);
+    const pic = (() => { try { return photo(p) || ''; } catch { return ''; } })();
+    return `<article class="card" role="button" tabindex="0" data-open="${p.id}" style="--i:${Math.min(i, 12)}">
+      <div class="pic">${pic ? `<img src="${pic}" alt="${esc(p.name)}" loading="lazy">` : esc(String(p.name || '?').slice(0, 1))}</div>
+      <div class="info"><div class="name">${esc(p.name)}</div></div>
+    </article>`;
+  }
+}
+function cardHtmlFull(p, i = 0) {
   const inCart = p.hasVariants ? variantsOf(p).reduce((sum, v) => sum + (state.cart[v.id] || 0), 0) : state.cart[p.id] || 0;
   const chosen = state.cardColor[p.id] && colorsOf(p).find((c) => c.name === state.cardColor[p.id]);
   const pic = chosen?.pic || photo(p) || colorsOf(p).find((c) => c.pic)?.pic || '';
