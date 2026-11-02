@@ -353,12 +353,17 @@ function migVarDraw() {
     <div class="mig-var-row"><b>Размеры</b> <button type="button" class="link" data-mv-preset="M,L,XL,2XL,3XL">M–3XL</button> <button type="button" class="link" data-mv-preset="M,L,XL,2XL,3XL,4XL,5XL">M–5XL</button></div>
     <div class="gen-chips">${sizeChoices.map((s) => chip('size', s, v.sizes.includes(s))).join('')}
       <input class="input small mig-add" id="mv-size-add" placeholder="+ свой (44, 32…)"></div>
-    ${v.colors.length || v.sizes.length ? `<div class="table-wrap"><table class="mig-matrix">
-      <thead><tr><th></th>${sizes.map((s) => `<th>${esc(s ?? 'кол-во')}</th>`).join('')}</tr></thead>
-      <tbody>${colors.map((c) => `<tr><th>${esc(c ?? '—')}</th>${sizes.map((s) => `<td><input class="input num" data-mv-q="${esc(migKey(c, s))}" inputmode="decimal" value="${v.qty[migKey(c, s)] ? migFmt(v.qty[migKey(c, s)]) : ''}" placeholder="0"></td>`).join('')}</tr>`).join('')}</tbody>
-    </table></div>
-    <p class="mig-sum ${ok ? 'ok' : 'bad'}" id="mv-sum">Распределено <b>${migFmt(total)}</b> из ${migFmt(stock)} шт ${ok ? '✓' : ''}</p>
-    <label class="check" id="mv-ignore-row" ${ok ? 'hidden' : ''}><input type="checkbox" id="mv-ignore" ${migVar.ignore ? 'checked' : ''}> Остаток отличается от CloudShop — перенести так, как распределено (<span id="mv-ignore-n">${migFmt(total)}</span> шт)</label>` : '<p class="pick-meta">Отметьте цвета и/или размеры.</p>'}`;
+    ${v.colors.length || v.sizes.length ? `<div class="mig-var-row"><b>Количество</b> <small>(кнопки − и + или впишите число)</small></div>
+    <div class="mv-grid">${colors.map((c) => `<section class="mv-color">
+      ${c ? `<div class="mv-color-head">${typeof swatchBg === 'function' ? `<i style="background:${swatchBg(c)}"></i>` : ''}<b>${esc(c)}</b><small data-mv-ctotal="${esc(c)}">${migFmt(sizes.reduce((a, s) => a + (Number(v.qty[migKey(c, s)]) || 0), 0))} шт</small></div>` : ''}
+      <div class="mv-cells">${sizes.map((s) => { const k = migKey(c, s); return `<div class="mv-cell">
+        <span class="mv-size">${esc(s ?? 'Кол-во')}</span>
+        <button type="button" class="mv-step" data-mv-step="-1" data-k="${esc(k)}" aria-label="Меньше">−</button>
+        <input class="input num" data-mv-q="${esc(k)}" inputmode="numeric" value="${v.qty[k] ? migFmt(v.qty[k]) : ''}" placeholder="0" aria-label="${esc([c, s].filter(Boolean).join(', '))}">
+        <button type="button" class="mv-step" data-mv-step="1" data-k="${esc(k)}" aria-label="Больше">+</button>
+      </div>`; }).join('')}</div>
+    </section>`).join('')}</div>` : '<p class="pick-meta">Отметьте цвета и/или размеры.</p>'}`;
+  migVarSum();
 }
 $('#mig-var-on').addEventListener('change', (e) => {
   migVar.v.on = e.target.checked;
@@ -367,6 +372,16 @@ $('#mig-var-on').addEventListener('change', (e) => {
 });
 $('#mig-var-body').addEventListener('click', (e) => {
   const v = migVar.v;
+  const step = e.target.closest('[data-mv-step]');
+  if (step) {
+    const k = step.dataset.k;
+    const n = Math.max(0, (Number(v.qty[k]) || 0) + Number(step.dataset.mvStep));
+    if (n) v.qty[k] = n; else delete v.qty[k];
+    const input = step.parentElement.querySelector('[data-mv-q]');
+    input.value = n ? migFmt(n) : '';
+    migVarSum();
+    return;
+  }
   const toggle = (list, val) => (list.includes(val) ? list.filter((x) => x !== val) : [...list, val]);
   const c = e.target.closest('[data-mv-color]');
   const s = e.target.closest('[data-mv-size]');
@@ -377,19 +392,29 @@ $('#mig-var-body').addEventListener('click', (e) => {
   else return;
   migVarDraw();
 });
+// Итог внизу окна (закреплён рядом с «Сохранить») и итоги по цветам.
+function migVarSum() {
+  const v = migVar.v;
+  const foot = $('#mig-var-foot');
+  if (!v.on || !(v.colors.length || v.sizes.length)) { foot.innerHTML = ''; return; }
+  const { total } = migSplit({ variants: v });
+  const stock = Number(migItem(migVar.id).data.stock) || 0;
+  const ok = Math.abs(total - stock) < 1e-9;
+  foot.innerHTML = `<p class="mig-sum ${ok ? 'ok' : 'bad'}">Распределено <b>${migFmt(total)}</b> из ${migFmt(stock)} шт ${ok ? '✓' : ''}</p>
+    ${ok ? '' : `<label class="check mv-ignore"><input type="checkbox" id="mv-ignore" ${migVar.ignore ? 'checked' : ''}> Остаток отличается от CloudShop — перенести ${migFmt(total)} шт, как распределено</label>`}`;
+  for (const el of document.querySelectorAll('[data-mv-ctotal]')) {
+    const c = el.dataset.mvCtotal;
+    const sizes = v.sizes.length ? v.sizes : [null];
+    el.textContent = `${migFmt(sizes.reduce((a, s) => a + (Number(v.qty[migKey(c, s)]) || 0), 0))} шт`;
+  }
+}
+$('#mig-var-foot').addEventListener('change', (e) => { if (e.target.id === 'mv-ignore') migVar.ignore = e.target.checked; });
 $('#mig-var-body').addEventListener('input', (e) => {
   const k = e.target.dataset.mvQ;
   if (k === undefined) return;
   const n = migN(e.target.value);
   if (e.target.value.trim() === '') delete migVar.v.qty[k]; else if (Number.isFinite(n)) migVar.v.qty[k] = n;
-  const { total } = migSplit({ variants: migVar.v });
-  const stock = Number(migItem(migVar.id).data.stock) || 0;
-  const ok = Math.abs(total - stock) < 1e-9;
-  const el = $('#mv-sum');
-  el.className = `mig-sum ${ok ? 'ok' : 'bad'}`;
-  el.innerHTML = `Распределено <b>${migFmt(total)}</b> из ${migFmt(stock)} шт ${ok ? '✓' : ''}`;
-  $('#mv-ignore-row').hidden = ok;
-  $('#mv-ignore-n').textContent = migFmt(total);
+  migVarSum();
 });
 $('#mig-var-body').addEventListener('change', (e) => {
   if (e.target.id === 'mv-ignore') migVar.ignore = e.target.checked;
