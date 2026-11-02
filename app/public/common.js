@@ -222,7 +222,7 @@ function showFormError(id, err) {
 // Окно кассы — отдельная страница со своими разделами.
 const IS_KASSA = location.pathname.startsWith('/kassa');
 // Разделы основной программы, которые есть и в окне кассы.
-const KASSA_TOO = new Set(['orders', 'tasks']);
+const KASSA_TOO = new Set(['orders', 'tasks', 'crm']);
 
 /* ---------- Разделы ---------- */
 // Каждый раздел регистрируется как views.name = { show, right }: right — право из roles.js.
@@ -278,6 +278,10 @@ function route() {
   if (!ownWork.length) {
     // Кассиру в общей программе делать нечего — его место в окне кассы.
     if (session.can('pos') && !IS_KASSA) return location.replace('/kassa.html');
+    // Без кассы, но с доставкой, сделками или заданиями — работает в основной программе.
+    for (const name of allowed) if (name !== 'more') ownWork.push(name);
+  }
+  if (!ownWork.length) {
     document.querySelector('main')?.insertAdjacentHTML('beforebegin', '<p class="empty">У вашей роли нет доступа к разделам. Обратитесь к администратору.</p>');
     return;
   }
@@ -286,7 +290,8 @@ function route() {
   currentView = target;
   for (const el of document.querySelectorAll('[data-view]')) el.hidden = el.dataset.view !== target;
   // Разделы из «Ещё» подсвечивают пункт «Ещё».
-  const navTarget = document.querySelector(`.nav a[href="#${target}"]`) ? target : 'more';
+  // История продаж в окне кассы — часть «Продажи».
+  const navTarget = document.querySelector(`.nav a[href="#${target}"]`) ? target : IS_KASSA && target === 'sales' ? 'pos' : 'more';
   for (const a of document.querySelectorAll('.nav a[href^="#"]')) a.setAttribute('aria-current', a.getAttribute('href') === '#' + navTarget ? 'page' : 'false');
   views[target].show();
 }

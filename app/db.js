@@ -602,6 +602,16 @@ function open(file) {
   // Подтверждать оплату заказов с витрины — у кого были «Заказы с витрины».
   // ДДС и прибыль по месяцам — у кого были «Расходы и чистая прибыль» или «Счета».
   // Экспорт и создание товара в документе — у кого «Товары»; перенос из CloudShop — у кого «Импорт»; курс доллара — у кого «Настройки».
+  // Кассиры по умолчанию больше не меняют фото товаров: у кассиров с личным набором прав «Фото» снимается (владелец может вернуть).
+  if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v13'").get()) {
+    const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
+    for (const u of db.prepare("SELECT id, rights FROM users WHERE rights IS NOT NULL AND role = 'cashier'").all()) {
+      let list;
+      try { list = JSON.parse(u.rights); } catch { continue; }
+      if (Array.isArray(list) && list.includes('photos')) set.run(JSON.stringify(list.filter((r) => r !== 'photos')), u.id);
+    }
+    db.prepare("INSERT INTO settings (key, value) VALUES ('rights_v13', '1')").run();
+  }
   // Настройка воронки CRM — у кого были «Настройки».
   if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v12'").get()) {
     const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
@@ -2735,8 +2745,17 @@ function createStore(file) {
     },
     // Наличные не от продаж между моментами a и b: расходы из кассы и ручные внесения/изъятия.
     // Считаются, только когда касса одна — иначе непонятно, из какой кассы взяли.
+    // Один денежный ящик на все кассы магазина (настройка cash_one_drawer, по умолчанию включена):
+    // смены на разных кассах считают одни и те же деньги — второй сотрудник не пересчитывает, деньги не удваиваются.
+    oneDrawer() {
+      return this.setting('cash_one_drawer', '1') !== '0' || this.listRegisters().length <= 1;
+    },
+    // Кассы с тем же ящиком, что и эта: все кассы магазина или только она сама.
+    drawerRegs(registerId) {
+      return this.oneDrawer() ? db.prepare('SELECT id FROM registers').all().map((r) => r.id) : [Number(registerId)];
+    },
     cashMovesBetween(a, b) {
-      if (this.listRegisters().length !== 1) return 0;
+      if (!this.oneDrawer()) return 0;
       const ids = db.prepare("SELECT id FROM payment_methods WHERE kind = 'cash'").all().map((r) => r.id);
       if (!ids.length) return 0;
       const marks = ids.map(() => '?').join(',');
@@ -2746,18 +2765,22 @@ function createStore(file) {
     },
     // Другой сотрудник уже работает на этой кассе — ящик с деньгами общий, пересчитывать не нужно.
     drawerBusy(registerId, exceptUserId = null) {
-      return db.prepare('SELECT COUNT(*) AS n FROM shifts WHERE register_id = ? AND closed_at IS NULL AND user_id <> ?').get(Number(registerId), Number(exceptUserId) || 0).n > 0;
+      const ids = this.drawerRegs(registerId);
+      return db.prepare(`SELECT COUNT(*) AS n FROM shifts WHERE register_id IN (${ids.map(() => '?').join(',')}) AND closed_at IS NULL AND user_id <> ?`).get(...ids, Number(exceptUserId) || 0).n > 0;
     },
     // Сколько должно быть в кассе при открытии: что оставили при прошлом закрытии ± движения после него.
     expectedOpenCash(registerId) {
-      const prev = db.prepare('SELECT * FROM shifts WHERE register_id = ? AND left_cash IS NOT NULL AND closed_at IS NOT NULL ORDER BY closed_at DESC LIMIT 1').get(Number(registerId));
+      const ids = this.drawerRegs(registerId);
+      const prev = db.prepare(`SELECT * FROM shifts WHERE register_id IN (${ids.map(() => '?').join(',')}) AND left_cash IS NOT NULL AND closed_at IS NOT NULL ORDER BY closed_at DESC LIMIT 1`).get(...ids);
       return prev ? round2(prev.left_cash + this.cashMovesBetween(prev.closed_at, Date.now())) : null;
     },
     // Сколько должно быть в кассе сейчас: насчитали при открытии + наличные всех смен на этой кассе с того момента ± движения.
     expectedDrawerCash(sh) {
-      const start = db.prepare('SELECT * FROM shifts WHERE register_id = ? AND open_cash IS NOT NULL AND opened_at <= ? ORDER BY opened_at DESC LIMIT 1').get(sh.register_id, sh.opened_at);
+      const ids = this.drawerRegs(sh.register_id);
+      const inIds = `register_id IN (${ids.map(() => '?').join(',')})`;
+      const start = db.prepare(`SELECT * FROM shifts WHERE ${inIds} AND open_cash IS NOT NULL AND opened_at <= ? ORDER BY opened_at DESC LIMIT 1`).get(...ids, sh.opened_at);
       if (!start) return null;
-      const cash = db.prepare('SELECT id FROM shifts WHERE register_id = ? AND opened_at >= ?').all(sh.register_id, start.opened_at)
+      const cash = db.prepare(`SELECT id FROM shifts WHERE ${inIds} AND opened_at >= ?`).all(...ids, start.opened_at)
         .reduce((s, r) => s + this.getShift(r.id).cash, 0);
       return round2(start.open_cash + cash + this.cashMovesBetween(start.opened_at, Date.now()));
     },
@@ -2795,7 +2818,7 @@ function createStore(file) {
           .run(user.id, now, reg.id, counted, expected, diff, why).lastInsertRowid);
         if (diff) this.cashDiffOp(diff, `Смена №${id}, открытие: ${diff < 0 ? 'недостача' : 'излишек'} — ${why}`, who, now);
         // Первый пересчёт на этой кассе: счёт «Наличные» приравнивается к деньгам в ящике (касса одна).
-        if (expected === null && registers.length === 1) {
+        if (expected === null && this.oneDrawer()) {
           const acc = this.cashAccount();
           const bal = acc && this.accounts({ from: 0, to: 0 }).find((x) => x.id === acc.id)?.balance;
           const fix = acc ? round2(counted - (bal || 0)) : 0;
@@ -2861,6 +2884,7 @@ function createStore(file) {
         accounts, defaultDeposit: guess?.id ?? null,
         busyRegisters: this.listRegisters().filter((r) => this.drawerBusy(r.id, user?.id)).map((r) => r.id),
         sharedDrawer: Boolean(sh && sh.register_id && this.drawerBusy(sh.register_id, user.id)),
+        oneDrawer: this.oneDrawer(),
       };
     },
 

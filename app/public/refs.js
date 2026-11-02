@@ -96,6 +96,10 @@ async function renderRegisters() {
   try { list = await api('/api/registers?overview=1'); } catch (err) { return toast(err.message, 'error'); }
   const edit = session.can('settings');
   $('#reg-add').hidden = !edit;
+  api('/api/cash-drawer').then((d) => {
+    $('#reg-drawer-row').hidden = !edit;
+    $('#reg-drawer').checked = d.one;
+  }).catch(() => {});
   $('#reg-list').innerHTML = list.map((r) => `
     <article class="acc-card ${r.active ? '' : 'off'}" data-reg="${r.id}">
       <div class="acc-head">${edit ? `<input class="input" value="${esc(r.name)}" data-reg-name aria-label="Название кассы">` : `<b>${esc(r.name)}</b>`}
@@ -106,6 +110,12 @@ async function renderRegisters() {
     </article>`).join('');
 }
 
+$('#reg-drawer').addEventListener('change', async (e) => {
+  try {
+    await api('/api/cash-drawer', { method: 'PUT', body: { one: e.target.checked } });
+    toast(e.target.checked ? 'Один ящик на все кассы: второй сотрудник деньги не пересчитывает' : 'У каждой кассы свой ящик с деньгами');
+  } catch (err) { toast(err.message, 'error'); e.target.checked = !e.target.checked; }
+});
 $('#reg-add').addEventListener('click', async () => {
   const name = prompt('Название новой кассы, например «Касса 2»:');
   if (!name) return;

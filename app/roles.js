@@ -95,8 +95,8 @@ const ROLES = {
   },
   cashier: {
     name: 'Кассир',
-    about: 'Работает в окне кассы: открывает смену, продаёт, видит свои чеки, отправляет онлайн-заказы, меняет фото товаров.',
-    can: ['pos', 'customers.create', 'certificates.sell', 'certificates.accept', 'photos', 'orders', 'orders.payment', 'discount', 'stock.view', 'mytimesheet', 'undo.own'],
+    about: 'Работает в окне кассы: открывает смену, продаёт, видит свои чеки, отправляет заказы на доставку. Фото товаров и сделки CRM — если владелец поставит галочку.',
+    can: ['pos', 'customers.create', 'certificates.sell', 'certificates.accept', 'orders', 'orders.payment', 'discount', 'stock.view', 'mytimesheet', 'undo.own'],
   },
   storekeeper: {
     name: 'Кладовщик',

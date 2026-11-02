@@ -23,6 +23,7 @@ function applyFunnel(f) {
   CRM_STAGES = f.stages.map((x) => [x.key, x.name, x.color]);
   stageName = Object.fromEntries(CRM_STAGES);
 }
+const crmLocalInput = (t) => { const d = new Date(t - new Date(t).getTimezoneOffset() * 6e4); return d.toISOString().slice(0, 16); };
 const shortTime = (t) => new Date(t).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
 async function renderCrm() {
@@ -41,6 +42,7 @@ async function renderCrm() {
   }
   const open = crmView.list.filter((l) => !['won', 'lost'].includes(l.stage));
   const inWork = open.reduce((s, l) => s + l.amount, 0);
+  updateCrmBadge();
   $('#crm-sub').textContent = `${open.length} в работе на ${money(inWork)}${summary.conversion !== null ? ` · конверсия за 30 дней ${pct(summary.conversion)}` : ''}${summary.unread ? ` · новых сообщений: ${summary.unread}` : ''}`;
 
   // Задачи на сегодня и просроченные — сверху, чтобы ничего не забыть.
@@ -186,7 +188,7 @@ function renderLeadSide() {
     </label>`).join('') : '<p class="pcat">Задач нет</p>';
   const due = new Date(now + 864e5);
   due.setHours(11, 0, 0, 0);
-  $('#lead-task-form').elements.due.value = localInput(due.getTime());
+  $('#lead-task-form').elements.due.value = crmLocalInput(due.getTime());
   $('#lead-timeline').innerHTML = l.events.map((e) => `
     <div class="tl tl-${e.kind}">
       <div class="tl-meta">${{ in: '📩', out: '📤', call: '📞', note: '📝', stage: '➡️', system: '•' }[e.kind] || '•'} ${esc(e.user_name || '')} · ${shortTime(e.at)}</div>
@@ -325,8 +327,17 @@ $('#crm-source').addEventListener('change', (e) => { crmView.source = e.target.v
 $('#crm-mine').addEventListener('change', (e) => { crmView.mine = e.target.checked; renderCrm(); });
 $('#crm-add').addEventListener('click', () => openLead());
 
+// Значок непрочитанных сделок в меню окна кассы.
+function updateCrmBadge() {
+  const b = document.getElementById('crm-badge');
+  if (!b || !session.can('crm')) return;
+  api('/api/crm/summary').then((s) => { b.hidden = !s.unread; b.textContent = s.unread || ''; }).catch(() => {});
+}
+session.ready.then(updateCrmBadge);
+
 // Новое сообщение клиента: обновить доску и открытую карточку.
 salesFeed.leadListeners.push((lead) => {
+  updateCrmBadge();
   if (currentView === 'crm') renderCrm();
   if ($('#lead-dialog').open && crmView.lead?.id === lead.id) openLead(lead.id);
 });

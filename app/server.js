@@ -955,6 +955,9 @@ const routes = [
   ['GET', '/api/shift/info', (p, url, body, user) => store.shiftInfo(user), 'pos'],
   ['GET', '/api/registers', (p, url) => (url.searchParams.get('overview') === '1' ? store.registersOverview() : store.listRegisters()), 'any'],
   ['POST', '/api/registers', (p, url, body) => store.saveRegister(null, body), 'settings'],
+  // Один денежный ящик на все кассы: второй сотрудник на смене деньги не пересчитывает.
+  ['GET', '/api/cash-drawer', () => ({ one: store.setting('cash_one_drawer', '1') !== '0', registers: store.listRegisters().length }), ['settings', 'shifts', 'dashboard']],
+  ['PUT', '/api/cash-drawer', (p, url, body) => { store.setSetting('cash_one_drawer', body.one ? '1' : '0'); return { one: Boolean(body.one) }; }, 'settings'],
   ['PUT', '/api/registers/:id', (p, url, body) => store.saveRegister(p.id, body), 'settings'],
   ['GET', '/api/accounts', (p, url) => ({ accounts: store.accounts(range(url)), ops: store.accountOps(range(url)) }), 'accounts'],
   ['POST', '/api/accounts/ops', (p, url, body, user) => store.addAccountOp(body, user), 'accounts'],
@@ -1366,6 +1369,7 @@ const AUDIT_LABELS = {
   'POST /api/crm/leads': 'Создал сделку в CRM',
   'PUT /api/crm/leads/:id': 'Изменил сделку в CRM',
   'PUT /api/crm/funnel': 'Изменил воронку CRM',
+  'PUT /api/cash-drawer': 'Изменил настройку «Один денежный ящик на все кассы»',
   'POST /api/crm/assign-free': 'Раздал свободные сделки CRM',
   'DELETE /api/crm/leads/:id': 'Удалил сделку в CRM',
   'POST /api/crm/leads/:id/instagram': 'Ответил клиенту в Instagram',

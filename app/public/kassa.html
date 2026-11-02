@@ -18,11 +18,10 @@
     <span class="logo" data-initial="К">Касса</span>
     <div class="nav-main">
       <a href="#pos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h2l2.4 10.2a1 1 0 0 0 1 .8h8.9a1 1 0 0 0 1-.8L20 7H6.2"/><circle cx="9" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/></svg><span>Продажа</span></a>
-      <a href="#sales"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 7h6M9 11h6M9 15h4"/></svg><span>Мои чеки</span></a>
-      <a href="#orders" data-can="orders" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8h14l-1 13H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg><span>Заказы</span> <span class="badge" id="orders-badge" hidden></span></a>
-      <a href="#mytimesheet" data-can="mytimesheet" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4M8 14h2M14 14h2M8 18h2"/></svg><span>Мой табель</span></a>
+      <a href="#orders" data-can="orders" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h11v9H3z"/><path d="M14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/></svg><span>Доставка</span> <span class="badge" id="orders-badge" hidden></span></a>
+      <a href="#crm" data-can="crm" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13l2.5 2.5a1.8 1.8 0 0 0 2.5 0l4-4"/><path d="M2 11l4-4 3 1 3-2 3 2 3-1 4 4-4 5-2-1"/><path d="M6 16l3 3"/></svg><span>Сделки</span> <span class="badge" id="crm-badge" hidden></span></a>
       <a href="#tasks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l2 2 4-4"/><rect x="4" y="4" width="16" height="16" rx="3"/></svg><span>Задания</span> <span class="badge" data-task-badge hidden></span></a>
-      <a href="#photos" data-can="photos" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><span>Фото</span></a>
+      <a href="#more"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg><span>Ещё</span></a>
     </div>
     <span class="nav-user" id="nav-user" hidden>
       <button type="button" class="btn small switch-btn" id="switch-user" title="Сменить кассира"><span aria-hidden="true">⇄</span><span class="switch-label">Сменить кассира</span></button>
@@ -41,7 +40,7 @@
       <div id="pos-results" class="pick-list"></div>
     </section>
     <section class="panel pos-cart" aria-label="Чек">
-      <div class="panel-head"><h2>Чек</h2><div class="tools"><button type="button" class="btn small cert-btn" id="cert-sell-open" data-can="certificates.sell" hidden>🎁 Сертификат</button><button type="button" class="btn small" id="cart-print" hidden title="Напечатать чек покупателю по последней продаже">🖨️ Печать чека</button><button type="button" class="btn small ghost" id="cart-clear" hidden>Очистить</button></div></div>
+      <div class="panel-head"><h2>Чек</h2><div class="tools"><a class="btn small" href="#sales">🧾 История продаж</a><button type="button" class="btn small cert-btn" id="cert-sell-open" data-can="certificates.sell" hidden>🎁 Сертификат</button><button type="button" class="btn small" id="cart-print" hidden title="Напечатать чек покупателю по последней продаже">🖨️ Печать чека</button><button type="button" class="btn small ghost" id="cart-clear" hidden>Очистить</button></div></div>
       <div id="cart" class="cart"></div>
       <div class="customer-box" id="customer-box" hidden>
         <div class="customer-find" id="customer-find">
@@ -89,7 +88,7 @@
 
 <main class="page" data-view="orders" hidden>
   <header class="top">
-    <div class="title"><h1>Онлайн-заказы</h1><span class="source" id="orders-summary"></span></div>
+    <div class="title"><h1>Доставка</h1><span class="source" id="orders-summary"></span></div>
     <div class="periods" id="orders-filter" role="group" aria-label="Статус"></div>
   </header>
   <section class="panel"><div id="orders-list" class="orders"></div></section>
@@ -97,7 +96,7 @@
 
 <main class="page" data-view="sales" hidden>
   <header class="top">
-    <div class="title"><h1>Мои чеки</h1></div>
+    <div class="title"><a class="btn small ghost" href="#pos">← Продажа</a><h1>История продаж</h1></div>
     <div class="periods" id="sales-ranges" role="group" aria-label="Период"></div>
   </header>
   <section class="panel">
@@ -105,6 +104,94 @@
     <div id="sales-list" class="docs"></div>
   </section>
 </main>
+
+<main class="page" data-view="more" hidden>
+  <header class="top"><div class="title"><h1>Ещё</h1></div></header>
+  <div class="more-tiles" id="kassa-more"></div>
+</main>
+
+<main class="page" data-view="crm" hidden>
+  <header class="top">
+    <div class="title"><h1>CRM</h1><span class="source" id="crm-sub"></span></div>
+    <div class="tools">
+      <input id="crm-search" class="input search" type="search" placeholder="Имя, телефон, Instagram" aria-label="Поиск сделок">
+      <select id="crm-source" class="input" aria-label="Источник"></select>
+      <label class="check"><input type="checkbox" id="crm-mine"> Только мои</label>
+      <button type="button" class="btn" id="crm-funnel-btn" data-can="crm.settings">⚙ Воронка</button>
+      <button type="button" class="btn primary" id="crm-add">+ Сделка</button>
+    </div>
+  </header>
+  <section class="crm-tasks" id="crm-tasks" hidden></section>
+  <div class="kanban" id="crm-board"></div>
+</main>
+
+<dialog id="crm-funnel-dlg" aria-labelledby="crm-funnel-title">
+  <form method="dialog" id="crm-funnel-form">
+    <h2 id="crm-funnel-title">Воронка и раздача сделок</h2>
+    <p class="sub">Этапы идут слева направо. Первый — куда попадают новые обращения; «Купили» и «Отказ» — итоговые, они есть всегда.</p>
+    <div id="cf-stages" class="cf-stages"></div>
+    <div class="cf-row-actions">
+      <button type="button" class="btn small" id="cf-add">+ Этап</button>
+      <button type="button" class="btn small ghost" id="cf-default">Вернуть этапы магазина одежды</button>
+    </div>
+    <h3>Раздача сделок</h3>
+    <label class="check"><input type="checkbox" id="cf-auto"> Новые сделки из Instagram, WhatsApp и витрины — тем, кто на смене, поровну: тому, у кого меньше новых обращений</label>
+    <label class="check"><input type="checkbox" id="cf-free"> Когда сотрудник открывает смену — разделить необработанные новые обращения поровну между всеми на смене (начатые переписки остаются у своего сотрудника)</label>
+    <p class="sub" id="cf-shift"></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="cf-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="lead-dialog" class="lead-dialog" aria-labelledby="lead-title">
+  <div class="lead-grid">
+    <form id="lead-form" class="lead-info" novalidate>
+      <div class="lead-head"><h2 id="lead-title">Новая сделка</h2><button type="button" class="icon-btn" id="lead-close" aria-label="Закрыть">×</button></div>
+      <div class="field"><label for="ld-title">Что хочет клиент</label><input id="ld-title" name="title" class="input" autocomplete="off" placeholder="Например, кроссовки 39 размера"></div>
+      <div class="form-grid">
+        <div class="field"><label for="ld-name">Имя</label><input id="ld-name" name="name" class="input" autocomplete="off"></div>
+        <div class="field"><label for="ld-phone">Телефон</label><input id="ld-phone" name="phone" class="input" inputmode="tel" autocomplete="off" placeholder="+996"></div>
+        <div class="field"><label for="ld-ig">Instagram</label><input id="ld-ig" name="instagram" class="input" autocomplete="off" placeholder="@ник"></div>
+        <div class="field"><label for="ld-source">Откуда</label><select id="ld-source" name="source" class="input"></select></div>
+        <div class="field"><label for="ld-stage">Этап</label><select id="ld-stage" name="stage" class="input"></select></div>
+        <div class="field"><label for="ld-amount">Сумма сделки, сом</label><input id="ld-amount" name="amount" class="input num" inputmode="decimal" autocomplete="off"></div>
+        <div class="field wide"><label for="ld-user">Ответственный</label><select id="ld-user" name="user_id" class="input"></select></div>
+        <div class="field wide" id="ld-lost-field" hidden><label for="ld-lost">Причина отказа</label><input id="ld-lost" name="lost_reason" class="input" autocomplete="off" placeholder="Дорого, нет размера, купил в другом месте…"></div>
+      </div>
+      <div class="lead-links" id="lead-links"></div>
+      <p class="form-error" id="lead-error" role="alert" hidden></p>
+      <div class="form-actions">
+        <button type="button" class="btn ghost danger-text" id="lead-delete" hidden>Удалить</button>
+        <button type="submit" class="btn primary">Сохранить</button>
+      </div>
+    </form>
+    <section class="lead-side" id="lead-side" hidden>
+      <div class="lead-tasks">
+        <h3>Задачи</h3>
+        <div id="lead-task-list"></div>
+        <form id="lead-task-form" class="task-add" novalidate>
+          <input name="text" class="input" placeholder="Что сделать: перезвонить, отправить фото…" autocomplete="off" aria-label="Что сделать">
+          <input name="due" type="datetime-local" class="input" aria-label="Когда">
+          <button type="submit" class="btn">Добавить</button>
+        </form>
+      </div>
+      <h3>История и переписка</h3>
+      <div class="timeline" id="lead-timeline"></div>
+      <form id="lead-note-form" class="composer" novalidate>
+        <div class="seg compose-kind" id="compose-kind">
+          <button type="button" data-kind="instagram" aria-pressed="false" id="compose-ig" hidden>Ответ в Instagram</button>
+          <button type="button" data-kind="whatsapp" aria-pressed="false" id="compose-wa" hidden>Ответ в WhatsApp</button>
+          <button type="button" data-kind="note" aria-pressed="true">Заметка</button>
+          <button type="button" data-kind="call" aria-pressed="false">Звонок</button>
+        </div>
+        <textarea name="text" class="input" rows="2" placeholder="Что обсудили, о чём договорились" aria-label="Текст"></textarea>
+        <button type="submit" class="btn primary">Добавить</button>
+      </form>
+    </section>
+  </div>
+</dialog>
 
 <main class="page" data-view="photos" hidden>
   <header class="top">
@@ -185,7 +272,7 @@
       <div class="field wide" id="so-register-row" hidden><label for="so-register">Касса</label><select id="so-register" class="input"></select></div>
       <div class="field wide" id="so-cash-row"><label for="so-cash">Сколько наличных в кассе сейчас? Пересчитайте, сом</label>
         <input id="so-cash" name="cash" class="input big num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
-      <p class="sub wide" id="so-busy" hidden>На этой кассе уже работает другой сотрудник — деньги пересчитывать не нужно.</p>
+      <p class="sub wide" id="so-busy" hidden>Смену уже открыл другой сотрудник и посчитал деньги — пересчитывать не нужно, просто начинайте работу.</p>
       <div class="cash-mismatch wide" id="so-mismatch" hidden></div>
       <div class="field wide" id="so-note-row" hidden><label for="so-note">Причина расхождения (увидит владелец)</label>
         <textarea id="so-note" class="input" rows="2" placeholder="Например: владелец взял 1 000 сом на покупку пакетов"></textarea></div>
@@ -405,6 +492,8 @@
 <script src="tasks.js"></script>
 <script src="my-timesheet.js"></script>
 <script src="certificates-kassa.js"></script>
+<script src="crm.js"></script>
+<script src="kassa-more.js"></script>
 <script>session.ready.then(route);</script>
 </body>
 </html>
