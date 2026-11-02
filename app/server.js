@@ -737,14 +737,14 @@ const routes = [
   ['POST', '/api/products', (p, url, body) => store.createProduct(body), 'products'],
   ['PUT', '/api/products/:id', (p, url, body) => store.updateProduct(p.id, body), 'products'],
   // Перенос из CloudShop (раздел на время переноса; право «Импорт»).
-  ['GET', '/api/migrate', () => ({ items: store.migrateList() }), 'import'],
-  ['POST', '/api/migrate/upload', (p, url, body) => store.migrateUpload(body.rows), 'import'],
-  ['PUT', '/api/migrate/:id', (p, url, body) => store.migrateUpdate(p.id, body), 'import'],
-  ['POST', '/api/migrate/bulk', (p, url, body) => store.migrateBulk(body.ids, body.patch), 'import'],
-  ['POST', '/api/migrate/merge', (p, url, body) => store.migrateMerge(body.ids), 'import'],
-  ['POST', '/api/migrate/:id/split', (p) => store.migrateSplit(p.id), 'import'],
-  ['POST', '/api/migrate/import', (p, url, body) => store.migrateImport(body.ids), 'import'],
-  ['DELETE', '/api/migrate', () => store.migrateClear(), 'import'],
+  ['GET', '/api/migrate', () => ({ items: store.migrateList() }), 'migrate'],
+  ['POST', '/api/migrate/upload', (p, url, body) => store.migrateUpload(body.rows), 'migrate'],
+  ['PUT', '/api/migrate/:id', (p, url, body) => store.migrateUpdate(p.id, body), 'migrate'],
+  ['POST', '/api/migrate/bulk', (p, url, body) => store.migrateBulk(body.ids, body.patch), 'migrate'],
+  ['POST', '/api/migrate/merge', (p, url, body) => store.migrateMerge(body.ids), 'migrate'],
+  ['POST', '/api/migrate/:id/split', (p) => store.migrateSplit(p.id), 'migrate'],
+  ['POST', '/api/migrate/import', (p, url, body) => store.migrateImport(body.ids), 'migrate'],
+  ['DELETE', '/api/migrate', () => store.migrateClear(), 'migrate'],
   ['POST', '/api/products/import', (p, url, body) => store.importProducts(body.rows, { update: Boolean(body.update) }), 'import'],
   ['PUT', '/api/products/:id/stock', (p, url, body, user) => store.setStock(p.id, body.stock, user), 'stock'],
   // Групповое изменение: удаление требует отдельного права.
@@ -865,13 +865,13 @@ const routes = [
   ['GET', '/api/docs-writeoff-summary', (p, url) => store.writeoffSummary(range(url)), 'writeoff'],
   // Курс доллара (сом за 1 $): задаёт владелец в «Настройках»; им же пересчитываются цены из $ в карточке товара
   // и по нему по умолчанию считается приход по фото накладной в долларах.
-  ['GET', '/api/settings/currency', () => ({ usdRate: Number(store.setting('usd_rate', '0')) || null }), ['products', 'settings', 'arrivals', 'receive.photo']],
+  ['GET', '/api/settings/currency', () => ({ usdRate: Number(store.setting('usd_rate', '0')) || null }), ['products', 'settings', 'currency', 'arrivals', 'receive.photo']],
   ['PUT', '/api/settings/currency', (p, url, body) => {
     const rate = body.usdRate === '' || body.usdRate === null ? 0 : Number(String(body.usdRate).replace(',', '.').replace(/\s/g, ''));
     if (!Number.isFinite(rate) || rate < 0 || rate > 100000) throw new UserError('Курс доллара: укажите число, например 87,5');
     store.setSetting('usd_rate', rate ? String(Math.round(rate * 10000) / 10000) : '0');
     return { usdRate: rate || null };
-  }, 'settings'],
+  }, 'currency'],
   ['GET', '/api/suppliers', () => store.listSuppliers(), ['arrivals', 'transfer', 'stock', 'writeoff', 'products']],
   // Приход по фото накладной: распознать, подобрать товары, провести.
   ['GET', '/api/invoice/status', () => ({ configured: Boolean(invoice.apiKey(mainStore)), fromEnv: Boolean(process.env.ANTHROPIC_API_KEY), model: invoice.MODEL,

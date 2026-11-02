@@ -601,6 +601,22 @@ function open(file) {
   // Сертификаты: продавать и принимать — у кого была «Касса», список — у кого были «Покупатели».
   // Подтверждать оплату заказов с витрины — у кого были «Заказы с витрины».
   // ДДС и прибыль по месяцам — у кого были «Расходы и чистая прибыль» или «Счета».
+  // Экспорт и создание товара в документе — у кого «Товары»; перенос из CloudShop — у кого «Импорт»; курс доллара — у кого «Настройки».
+  if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v11'").get()) {
+    const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
+    for (const u of db.prepare('SELECT id, rights FROM users WHERE rights IS NOT NULL').all()) {
+      let list;
+      try { list = JSON.parse(u.rights); } catch { continue; }
+      if (!Array.isArray(list)) continue;
+      const add = [];
+      if (list.includes('products')) add.push('products.export', 'docs.newproduct');
+      if (list.includes('import')) add.push('migrate');
+      if (list.includes('settings')) add.push('currency');
+      const next = [...new Set([...list, ...add])];
+      if (next.length !== list.length) set.run(JSON.stringify(next), u.id);
+    }
+    db.prepare("INSERT INTO settings (key, value) VALUES ('rights_v11', '1')").run();
+  }
   // Категории — у кого были «Товары»; отменять свои изменения — всем.
   if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v10'").get()) {
     const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
@@ -2649,12 +2665,28 @@ function createStore(file) {
       else d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // с понедельника
       for (; d.getTime() < to; bucket === 'month' ? d.setMonth(d.getMonth() + 1) : d.setDate(d.getDate() + 7)) starts.push(d.getTime());
       const idx = (t) => { let i = starts.length - 1; while (i > 0 && starts[i] > t) i--; return i; };
+      // Считаем по основным товарам: продажи и остатки модификаций (цвет, размер) складываются в их товар.
       const products = new Map(db.prepare(`SELECT id, name, category, unit, stock, price, COALESCE(purchase, cost) AS purchase, created_at FROM products p
-        WHERE archived = 0 AND deleted = 0 AND NOT EXISTS (SELECT 1 FROM products c WHERE c.parent_id = p.id AND c.deleted = 0)`).all()
+        WHERE archived = 0 AND deleted = 0 AND parent_id IS NULL`).all()
         .map((p) => [p.id, { ...p, qty: 0, revenue: 0, profit: 0, receipts: new Set(), series: starts.map(() => 0) }]));
-      for (const l of db.prepare(`SELECT s.id AS sale, s.created_at AS t, si.product_id AS id, si.name, si.qty, si.qty * si.price - ${LINE_FEE} AS revenue,
+      const parentOf = new Map(db.prepare('SELECT id, parent_id FROM products WHERE parent_id IS NOT NULL').all().map((r) => [r.id, r.parent_id]));
+      // Остаток и цены основного товара — по его модификациям.
+      const kids = new Map();
+      for (const k of db.prepare(`SELECT parent_id, stock, price, COALESCE(purchase, cost) AS purchase FROM products WHERE parent_id IS NOT NULL AND deleted = 0 AND archived = 0`).all()) {
+        kids.set(k.parent_id, [...(kids.get(k.parent_id) || []), k]);
+      }
+      for (const [pid, list] of kids) {
+        const p = products.get(pid);
+        if (!p) continue;
+        p.stock = list.reduce((a, k) => a + k.stock, 0);
+        p.price = Math.max(...list.map((k) => k.price));
+        p.purchase = round2(list.reduce((a, k) => a + (k.purchase || 0), 0) / list.length);
+        p.variants = list.length;
+      }
+      for (const l0 of db.prepare(`SELECT s.id AS sale, s.created_at AS t, si.product_id AS id, si.name, si.qty, si.qty * si.price - ${LINE_FEE} AS revenue,
           si.qty * (si.price - COALESCE(si.purchase, si.cost)) - ${LINE_FEE} AS profit
         FROM sales s JOIN sale_items si ON si.sale_id = s.id WHERE s.refunded_at IS NULL AND s.created_at >= ? AND s.created_at < ?`).all(from, to)) {
+        const l = parentOf.has(l0.id) ? { ...l0, id: parentOf.get(l0.id), name: products.get(parentOf.get(l0.id))?.name || l0.name.split(' · ')[0] } : l0;
         let p = products.get(l.id);
         if (!p) { p = { id: l.id, name: l.name, category: '', unit: 'шт', stock: null, price: 0, purchase: 0, gone: true, qty: 0, revenue: 0, profit: 0, receipts: new Set(), series: starts.map(() => 0) }; products.set(l.id, p); }
         p.qty += l.qty; p.revenue += l.revenue; p.profit += l.profit; p.receipts.add(l.sale);

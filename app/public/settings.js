@@ -3,9 +3,10 @@
 // Настройки: уведомления о продажах в Telegram.
 
 async function renderSettings() {
-  if (session.can('settings')) {
+  if (session.can('currency')) {
     api('/api/settings/currency').then((c) => { $('#currency-form').elements.usdRate.value = c.usdRate ? String(c.usdRate).replace('.', ',') : ''; }).catch(() => {});
   }
+  if (!session.can('settings')) return;
   const f = $('#telegram-form');
   $('#telegram-error').hidden = true;
   try {
@@ -249,4 +250,5 @@ $('#pm-list').addEventListener('click', async (e) => {
   try { await api('/api/payment-methods-order', { method: 'PUT', body: { ids } }); renderPaymentMethods(); } catch (err) { toast(err.message, 'error'); }
 });
 
-views.settings = { show: () => { renderSettings(); renderPaymentMethods(); renderSms(); renderInstagram(); renderWhatsapp(); }, right: 'settings' };
+// Только «Курс доллара» (без права «Настройки») — на странице одна эта карточка.
+views.settings = { show: () => { renderSettings(); if (!session.can('settings')) return; renderPaymentMethods(); renderSms(); renderInstagram(); renderWhatsapp(); }, right: ['settings', 'currency'] };

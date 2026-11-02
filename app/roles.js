@@ -27,6 +27,8 @@ const RIGHTS = [
   { key: 'products.delete', group: 'Товары', label: 'Удалять товары' },
   { key: 'categories', group: 'Товары', label: 'Категории: создавать, переименовывать, удалять, менять порядок и картинки' },
   { key: 'import', group: 'Товары', label: 'Импорт товаров из Excel' },
+  { key: 'products.export', group: 'Товары', label: 'Экспорт товаров в Excel (все по фильтру и выбранные)' },
+  { key: 'migrate', group: 'Товары', label: 'Перенос из CloudShop: загрузить выгрузку, править карточки, переносить товары' },
   { key: 'stock.view', group: 'Товары', label: 'Видеть остатки товаров (на кассе, в товарах, на главной)' },
   { key: 'products.history', group: 'Товары', label: 'Карточка товара: история движения с датами (продажи, закупки, списания, перемещения)' },
   { key: 'photos', group: 'Товары', label: 'Добавлять, менять и удалять фото товаров' },
@@ -36,6 +38,7 @@ const RIGHTS = [
   { key: 'receive.photo', group: 'Документы', label: 'Приход по фото накладной: распознавание, новые товары, цены по курсу' },
   { key: 'transfer', group: 'Документы', label: 'Перемещение товара между магазинами' },
   { key: 'docs.unpost', group: 'Документы', label: 'Отменять проведение документов («Не проведён»)' },
+  { key: 'docs.newproduct', group: 'Документы', label: 'Создавать новый товар прямо в закупке, оприходовании и инвентаризации (нужно и право «Товары»)' },
   { key: 'stock', group: 'Документы', label: 'Инвентаризация: пересчитывать остатки по факту' },
   { key: 'writeoff', group: 'Документы', label: 'Списание: брак, просрочка, порча' },
   { key: 'crm', group: 'Покупатели', label: 'CRM: сделки, переписка с клиентами, задачи' },
@@ -62,6 +65,7 @@ const RIGHTS = [
   { key: 'accounts', group: 'Управление', label: 'Счета: остатки денег, внесение, изъятие, переводы между счетами' },
   { key: 'design', group: 'Управление', label: 'Оформление программы: цвета, шрифт, название' },
   { key: 'settings', group: 'Управление', label: 'Настройки и уведомления в Telegram' },
+  { key: 'currency', group: 'Управление', label: 'Курс доллара: менять (цены в $ в карточке товара считаются по нему)' },
   { key: 'notify', group: 'Управление', label: 'Уведомления о каждой продаже и заказе' },
   { key: 'audit', group: 'Управление', label: 'Журнал действий: входы, IP-адреса, попытки входа, все изменения; отмена действий любого сотрудника' },
   { key: 'undo.own', group: 'Управление', label: 'Свои действия: видеть их в журнале и отменять свои изменения (товары, категории, документы, расходы)' },
@@ -86,7 +90,7 @@ const ROLES = {
   manager: {
     name: 'Управляющий',
     about: 'Видит всё и ведёт магазин, выписывает штрафы, правит смены, ведёт табель, даёт и проверяет задания. По умолчанию не меняет сотрудников, бонусы, оформление, настройки и не видит журнал действий.',
-    can: ['dashboard', 'kpi', 'pos', 'customers.create', 'certificates.sell', 'certificates.accept', 'certificates', 'sales', 'refund', 'discount', 'products', 'categories', 'stock.view', 'products.delete', 'import', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'orders.payment', 'notify', 'shifts', 'fines', 'timesheet', 'timesheet.edit', 'tasks', 'writeoff', 'docs.sale', 'transfer', 'docs.unpost', 'expenses', 'finance', 'abc', 'reports.stock', 'reports.money', 'products.history', 'receive.photo', 'mytimesheet', 'undo.own'],
+    can: ['dashboard', 'kpi', 'pos', 'customers.create', 'certificates.sell', 'certificates.accept', 'certificates', 'sales', 'refund', 'discount', 'products', 'categories', 'stock.view', 'products.delete', 'import', 'products.export', 'migrate', 'docs.newproduct', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'orders.payment', 'notify', 'shifts', 'fines', 'timesheet', 'timesheet.edit', 'tasks', 'writeoff', 'docs.sale', 'transfer', 'docs.unpost', 'expenses', 'finance', 'abc', 'reports.stock', 'reports.money', 'products.history', 'receive.photo', 'mytimesheet', 'undo.own'],
   },
   cashier: {
     name: 'Кассир',
@@ -96,7 +100,7 @@ const ROLES = {
   storekeeper: {
     name: 'Кладовщик',
     about: 'Товары, фото, приход и остатки. Не видит продажи и деньги.',
-    can: ['products', 'categories', 'stock.view', 'stock', 'writeoff', 'photos', 'arrivals', 'transfer', 'receive.photo', 'products.history', 'mytimesheet', 'undo.own'],
+    can: ['products', 'categories', 'products.export', 'docs.newproduct', 'stock.view', 'stock', 'writeoff', 'photos', 'arrivals', 'transfer', 'receive.photo', 'products.history', 'mytimesheet', 'undo.own'],
   },
 };
 

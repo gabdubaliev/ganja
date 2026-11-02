@@ -344,7 +344,7 @@ function docSearchList(q) {
 }
 // Создать товар прямо из документа (закупка, оприходование, инвентаризация): карточка товара с введённым
 // названием или штрихкодом; после сохранения товар сразу добавляется в документ.
-const docCanCreate = () => ['purchase', 'receipt', 'inventory'].includes(doc.data?.kind) && session.can('products');
+const docCanCreate = () => ['purchase', 'receipt', 'inventory'].includes(doc.data?.kind) && session.can('products') && session.can('docs.newproduct');
 const docCreateRow = (q) => (docCanCreate() && q.trim() ? `<button type="button" class="suggest doc-create" data-doc-create><span>＋ Создать товар «${esc(q.trim())}»</span><span class="pick-meta">новая карточка, сразу в документ</span></button>` : '');
 function createProductFromDoc(q) {
   const text = String(q || '').trim();

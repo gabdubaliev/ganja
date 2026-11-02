@@ -140,7 +140,7 @@
     <div class="tools">
       <button type="button" class="btn" id="categories-open" data-can-any="products categories" hidden>Категории</button>
       <button type="button" class="btn" id="product-import" data-can="import" hidden>Импорт из Excel</button>
-      <button type="button" class="btn" id="product-export" title="Все товары по текущему поиску и категории; если отмечены галочками — только они">⬇ Экспорт в Excel</button>
+      <button type="button" class="btn" id="product-export" data-can="products.export" hidden title="Все товары по текущему поиску и категории; если отмечены галочками — только они">⬇ Экспорт в Excel</button>
       <button type="button" class="btn primary" id="product-add" data-can="products" hidden>Добавить товар</button>
     </div>
   </header>
@@ -162,7 +162,7 @@
       <button type="button" class="btn small" data-bulk="unit">Единица</button>
       <button type="button" class="btn small" data-bulk="barcodes">Штрихкоды</button>
       <button type="button" class="btn small" id="bulk-labels">Этикетки</button>
-      <button type="button" class="btn small" id="bulk-export">⬇ В Excel</button>
+      <button type="button" class="btn small" id="bulk-export" data-can="products.export" hidden>⬇ В Excel</button>
       <button type="button" class="btn small" id="bulk-inventory" data-can="stock" hidden>📋 Инвентаризация</button>
       <button type="button" class="btn small" id="bulk-writeoff" data-can="writeoff" hidden>🗑️ Списать</button>
       <button type="button" class="btn small" data-bulk="archive" id="bulk-archive">Убрать из продажи</button>
@@ -1308,7 +1308,7 @@
 
 <main class="page" data-view="settings" hidden>
   <header class="top"><div class="title"><h1>Настройки</h1></div></header>
-  <section class="panel" data-can="settings">
+  <section class="panel" data-can="currency">
     <form id="currency-form" class="settings-form" novalidate>
       <div>
         <h2>Курс доллара</h2>
@@ -1319,7 +1319,7 @@
       <div class="form-actions start"><button type="submit" class="btn primary">Сохранить</button></div>
     </form>
   </section>
-  <section class="panel">
+  <section class="panel" data-can="settings">
     <form id="telegram-form" class="settings-form" novalidate>
       <div>
         <h2>Уведомления о продажах в Telegram</h2>
@@ -1340,7 +1340,7 @@
       </div>
     </form>
   </section>
-  <section class="panel">
+  <section class="panel" data-can="settings">
     <form id="instagram-form" class="settings-form" novalidate>
       <div>
         <h2>Instagram Direct → CRM</h2>
@@ -1378,7 +1378,7 @@
       <div id="pm-list" class="pm-list"></div>
     </div>
   </section>
-  <section class="panel">
+  <section class="panel" data-can="settings">
     <form id="sms-form" class="settings-form" novalidate>
       <div>
         <h2>SMS с кодами подтверждения</h2>
@@ -1412,7 +1412,7 @@
       </div>
     </form>
   </section>
-  <section class="panel">
+  <section class="panel" data-can="settings">
     <form id="whatsapp-form" class="settings-form" novalidate>
       <div>
         <h2>WhatsApp → CRM</h2>

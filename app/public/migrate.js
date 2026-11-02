@@ -441,4 +441,4 @@ $('#mig-var-form').addEventListener('submit', async (e) => {
   migDraw();
 });
 
-views.migrate = { show: renderMigrate, right: 'import' };
+views.migrate = { show: renderMigrate, right: 'migrate' };
