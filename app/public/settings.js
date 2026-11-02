@@ -73,6 +73,59 @@ async function renderInstagram() {
   }
 }
 
+/* ---------- Instagram: автоответ ценой ---------- */
+const IG_STATUS = { sent: 'отправлено', not_found: 'артикул не найден', error: 'ошибка', repeat: 'повтор, не отвечали' };
+let igDefaultTemplate = '';
+async function renderIgAuto() {
+  const f = $('#igauto-form');
+  $('#igauto-error').hidden = true;
+  try {
+    const { auto } = await api('/api/settings/instagram');
+    igDefaultTemplate = auto.defaultTemplate;
+    f.elements.autoPrice.checked = auto.autoPrice;
+    f.elements.priceWords.value = auto.priceWords;
+    f.elements.priceTemplate.value = auto.priceTemplate;
+    f.elements.publicReply.value = auto.publicReply;
+    f.elements.notifyMissing.checked = auto.notifyMissing;
+    const { items, week } = await api('/api/instagram/auto-log?limit=20');
+    $('#ia-stats').textContent = `За 7 дней: отправлено ${week.sent || 0}, без артикула или не найдено ${week.not_found || 0}, ошибок ${week.error || 0}.`;
+    $('#ia-log').innerHTML = items.length ? `<div class="table-wrap"><table><thead><tr><th>Когда</th><th>Кто</th><th>Вопрос</th><th>Артикул</th><th>Итог</th></tr></thead><tbody>${items.map((x) => `
+      <tr title="${esc(x.reply || x.error || '')}"><td>${esc(dateTime(x.at))}</td><td>${x.username ? '@' + esc(x.username) : x.kind === 'direct' ? 'Direct' : ''}</td>
+      <td>${x.permalink ? `<a href="${esc(x.permalink)}" target="_blank" rel="noopener">${esc(x.question || 'рилс')}</a>` : esc(x.question || '')}</td>
+      <td>${esc(x.article || '—')}</td><td>${esc(IG_STATUS[x.status] || x.status)}${x.error ? ': ' + esc(x.error) : ''}</td></tr>`).join('')}</tbody></table></div>`
+      : '<p class="sub">Пока не было.</p>';
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+$('#igauto-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  $('#igauto-error').hidden = true;
+  try {
+    await api('/api/settings/instagram/auto', { method: 'PUT', body: {
+      autoPrice: f.elements.autoPrice.checked, priceWords: f.elements.priceWords.value, priceTemplate: f.elements.priceTemplate.value,
+      publicReply: f.elements.publicReply.value, notifyMissing: f.elements.notifyMissing.checked } });
+    toast('Автоответ ценой сохранён');
+    renderIgAuto();
+  } catch (err) {
+    showFormError('#igauto-error', err);
+  }
+});
+$('#ia-reset').addEventListener('click', () => { $('#igauto-form').elements.priceTemplate.value = igDefaultTemplate; });
+$('#ia-preview').addEventListener('click', async () => {
+  const out = $('#ia-preview-text');
+  $('#igauto-error').hidden = true;
+  try {
+    const r = await api('/api/settings/instagram/preview', { method: 'POST', body: { article: $('#ia-try').value, template: $('#igauto-form').elements.priceTemplate.value } });
+    out.textContent = r.text;
+    out.hidden = false;
+  } catch (err) {
+    out.hidden = true;
+    showFormError('#igauto-error', err);
+  }
+});
+
 $('#instagram-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
@@ -251,4 +304,4 @@ $('#pm-list').addEventListener('click', async (e) => {
 });
 
 // Только «Курс доллара» (без права «Настройки») — на странице одна эта карточка.
-views.settings = { show: () => { renderSettings(); if (!session.can('settings')) return; renderPaymentMethods(); renderSms(); renderInstagram(); renderWhatsapp(); }, right: ['settings', 'currency'] };
+views.settings = { show: () => { renderSettings(); if (!session.can('settings')) return; renderPaymentMethods(); renderSms(); renderInstagram(); renderIgAuto(); renderWhatsapp(); }, right: ['settings', 'currency'] };

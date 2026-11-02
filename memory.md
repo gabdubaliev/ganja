@@ -75,6 +75,14 @@
 - Остальные модули сервера:
   - `invoice.js` — распознавание накладной по фото через Claude API;
   - `crm.js` — CRM, Instagram и WhatsApp через вебхуки Meta с проверкой `X-Hub-Signature-256`;
+  - `ig-price.js` — автоответ ценой в Instagram (02.11): комментарий под рилсом с «цена» → подпись рилса
+    (`GET /{media-id}?fields=caption,permalink`) → артикул → `store.findByArticle` → приватный ответ
+    (`POST /me/messages`, `recipient.comment_id`) + публичный ответ (`POST /{comment-id}/replies`). Direct: артикул
+    в тексте или пересланный рилс (`attachments[].payload.reel_video_id`/`title`). Журнал `ig_price_log` (повторы,
+    раз в сутки одному человеку под одним рилсом), клиент → сделка CRM (`crm.logInstagramAuto`). Нет артикула —
+    Telegram менеджеру. Настройки — в `instagram` (`autoPrice`, `priceWords`, `priceTemplate`, `publicReply`,
+    `notifyMissing`), раздел «Instagram: автоответ ценой». `articleKeys` в db.js: русские буквы по виду и по звуку
+    («МС-123» = MS-123). Для тестов `INSTAGRAM_API_URL`. В вебхуках Meta нужны поля `messages` и `comments`.
   - `shop-auth.js` — аккаунты покупателей витрины, коды подтверждения;
   - `sms.js` — провайдеры SMS (nikita / smspro, sms.ru, twilio, custom);
   - `notify.js` — SSE `/api/events` и Telegram;

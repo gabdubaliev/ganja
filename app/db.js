@@ -809,6 +809,17 @@ function fillCodes(db) {
 
 // Цена продажи со скидкой товара (скидка в % из карточки).
 const salePrice = (p) => (p.discount > 0 ? Math.round(p.price * (1 - p.discount / 100) * 100) / 100 : p.price);
+// Артикул для сравнения: без регистра, пробелов и дефисов. Русские буквы — двумя способами, потому что
+// клиент может набрать «МС-123» и по виду (С = C), и по звуку (С = S): совпадение по любому — тот же артикул.
+const LOOKALIKE = { А: 'A', В: 'B', Е: 'E', К: 'K', М: 'M', Н: 'H', О: 'O', Р: 'P', С: 'C', Т: 'T', У: 'Y', Х: 'X' };
+const SOUND = { А: 'A', Б: 'B', В: 'V', Г: 'G', Д: 'D', Е: 'E', Ё: 'E', Ж: 'ZH', З: 'Z', И: 'I', Й: 'Y', К: 'K', Л: 'L', М: 'M', Н: 'N', О: 'O',
+  П: 'P', Р: 'R', С: 'S', Т: 'T', У: 'U', Ф: 'F', Х: 'H', Ц: 'TS', Ч: 'CH', Ш: 'SH', Щ: 'SCH', Ы: 'Y', Э: 'E', Ю: 'YU', Я: 'YA', Ь: '', Ъ: '' };
+const articleKeys = (v) => {
+  const s = String(v ?? '').toUpperCase().replace(/[^A-Z0-9А-ЯЁ]/g, '');
+  if (!s) return [];
+  return [...new Set([s, s.replace(/[А-ЯЁ]/g, (c) => LOOKALIKE[c] ?? c), s.replace(/[А-ЯЁ]/g, (c) => SOUND[c] ?? c)])];
+};
+const articleKey = (v) => articleKeys(v)[0] || '';
 
 // Вложенная транзакция (например, выдача заказа пробивает чек) становится точкой сохранения.
 const depth = new WeakMap();
@@ -5101,6 +5112,43 @@ function createStore(file) {
       }));
     },
 
+    // Товар по артикулу для автоответа в Instagram: название, цена со скидкой и размеры в наличии.
+    // Ищется по артикулу, а если не нашёлся — по коду товара. Регистр, пробелы, дефисы и русские
+    // буквы, похожие на латинские («МС-123» вместо «MS-123»), не важны. Модификация ведёт к своему товару.
+    findByArticle(value) {
+      const keys = articleKeys(value);
+      if (!keys.length) return null;
+      const same = (v) => articleKeys(v).some((k) => keys.includes(k));
+      const all = db.prepare(`SELECT id, name, article, code, price, discount, stock, parent_id, options FROM products
+        WHERE archived = 0 AND deleted = 0 AND (article <> '' OR code <> '')`).all();
+      // Сначала основной товар, потом модификация; по артикулу, а если нет — по коду.
+      all.sort((a, b) => (a.parent_id ? 1 : 0) - (b.parent_id ? 1 : 0));
+      const hit = all.find((p) => p.article && same(p.article)) || all.find((p) => p.code && same(p.code));
+      if (!hit) return null;
+      const base = hit.parent_id ? db.prepare('SELECT id, name, article, code, price, discount, stock FROM products WHERE id = ?').get(hit.parent_id) || hit : hit;
+      const kids = db.prepare('SELECT price, discount, stock, options FROM products WHERE parent_id = ? AND archived = 0 AND deleted = 0').all(base.id);
+      const selling = (kids.length ? kids : [base]).filter((p) => p.price > 0);
+      const inStock = selling.filter((p) => p.stock > 0);
+      const prices = (inStock.length ? inStock : selling).map(salePrice);
+      const fullPrices = (inStock.length ? inStock : selling).map((p) => p.price);
+      // Размеры — из модификаций в наличии, по порядку XS…XXXL, затем числа и всё остальное.
+      const sizes = [];
+      for (const k of kids.filter((p) => p.stock > 0)) {
+        const o = JSON.parse(k.options || '{}');
+        const size = o['Размер'] ?? o['размер'] ?? Object.values(o).at(-1);
+        if (size && !sizes.includes(String(size))) sizes.push(String(size));
+      }
+      const order = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', 'XXXL', '3XL', '4XL', '5XL'];
+      const rank = (s) => { const i = order.indexOf(s.toUpperCase()); return i >= 0 ? i : Number.isFinite(Number(s)) ? 100 + Number(s) : 1e6; };
+      sizes.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+      const min = prices.length ? Math.min(...prices) : 0;
+      const max = prices.length ? Math.max(...prices) : 0;
+      return {
+        id: base.id, name: base.name, article: base.article || hit.article || base.code, price: min, maxPrice: max,
+        oldPrice: Math.max(...fullPrices, 0) > max ? Math.max(...fullPrices) : null, sizes, inStock: inStock.length > 0,
+      };
+    },
+
     // Категории витрины с картинками — только те, где есть показанные товары, в порядке справочника.
     shopCategories(products) {
       const used = new Set(products.map((p) => p.category).filter(Boolean));
@@ -5267,4 +5315,4 @@ function createStore(file) {
   return store;
 }
 
-module.exports = { imageMime, salePrice, IMAGE_MAX_SIDE, useFontsFrom, createStore, UserError, text, number, phone, birthday, gender, personName, round2, transaction };
+module.exports = { imageMime, salePrice, articleKey, articleKeys, IMAGE_MAX_SIDE, useFontsFrom, createStore, UserError, text, number, phone, birthday, gender, personName, round2, transaction };

@@ -20,6 +20,7 @@ const { themeCss, shopCss } = require('./theme');
 const { createNotifier } = require('./notify');
 const { createCrm } = require('./crm');
 const { createShopAuth } = require('./shop-auth');
+const { createIgPrice } = require('./ig-price');
 const { sendSms, PROVIDERS: SMS_PROVIDERS } = require('./sms');
 const captcha = require('./captcha');
 
@@ -67,6 +68,7 @@ const store = scoped('store');
 const notifier = scoped('notifier');
 const crm = scoped('crm');
 const shopAuth = scoped('shopAuth');
+const igPrice = scoped('igPrice');
 
 function branchList() {
   const saved = JSON.parse(mainStore.setting('branches', '[]'));
@@ -82,6 +84,7 @@ function makeContext(id, st) {
   const ctx = { id, store: st };
   ctx.notifier = createNotifier(st);
   ctx.crm = createCrm(st);
+  ctx.igPrice = createIgPrice({ store: st, crm: ctx.crm, notifier: ctx.notifier });
   // Код подтверждения, который сотрудник передаёт покупателю сам: уведомление в программу и в Telegram.
   ctx.shopAuth = createShopAuth(st, {
     onCodeRequested(c) {
@@ -1014,8 +1017,16 @@ const routes = [
   // Секреты Instagram наружу не отдаём: только признак, что они заданы.
   ['GET', '/api/settings/instagram', (p, url) => {
     const s = crm.instagramSettings();
-    return { enabled: s.enabled, verifyToken: s.verifyToken, hasSecret: Boolean(s.appSecret), hasToken: Boolean(s.accessToken), webhookPath: '/webhooks/instagram' };
+    return { enabled: s.enabled, verifyToken: s.verifyToken, hasSecret: Boolean(s.appSecret), hasToken: Boolean(s.accessToken), webhookPath: '/webhooks/instagram', auto: igAutoPublic(s) };
   }, 'settings'],
+  // Автоответ ценой: настройки, проверка ответа по артикулу и журнал отправленных ответов.
+  ['PUT', '/api/settings/instagram/auto', (p, url, body) => igAutoPublic(crm.setInstagramAuto(body)), 'settings'],
+  ['POST', '/api/settings/instagram/preview', (p, url, body) => {
+    const r = igPrice.preview(body.article, body.template);
+    if (!r.found) throw new UserError(`Товара с артикулом «${String(body.article || '').trim()}» нет в базе (или он в архиве)`);
+    return r;
+  }, 'settings'],
+  ['GET', '/api/instagram/auto-log', (p, url) => ({ items: igPrice.log({ limit: url.searchParams.get('limit') }), week: igPrice.stats(7) }), 'settings'],
   ['PUT', '/api/settings/instagram', (p, url, body) => {
     const s = crm.setInstagram(body);
     return { enabled: s.enabled, verifyToken: s.verifyToken, hasSecret: Boolean(s.appSecret), hasToken: Boolean(s.accessToken), webhookPath: '/webhooks/instagram' };
@@ -1332,6 +1343,7 @@ const AUDIT_LABELS = {
   'PUT /api/orders/:id': 'Изменил статус заказа',
   'PUT /api/settings/telegram': 'Изменил уведомления в Telegram',
   'PUT /api/settings/instagram': 'Изменил подключение Instagram',
+  'PUT /api/settings/instagram/auto': 'Изменил автоответ ценой в Instagram',
   'POST /api/crm/leads': 'Создал сделку в CRM',
   'PUT /api/crm/leads/:id': 'Изменил сделку в CRM',
   'DELETE /api/crm/leads/:id': 'Удалил сделку в CRM',
@@ -1365,6 +1377,7 @@ const docTitle = (d) => `${store.docKinds[d.kind]?.name || d.kind} №${d.number
 function auditDetails(key, params, body, result) {
   const r = result && typeof result === 'object' ? result : {};
   switch (key) {
+    case 'PUT /api/settings/instagram/auto': return r.autoPrice ? 'включён' : 'выключен';
     case 'PUT /api/payment-methods/:id': return `${r.name}${r.active ? '' : ' (выключен)'}`;
     case 'POST /api/sales': return `Чек №${r.id} на ${r.total} сом, ${r.payments?.length > 1 ? r.payments.map((x) => `${x.name} ${x.amount}`).join(' + ') : r.method}${r.discount ? `, скидка ${r.discount} сом (${r.discountReason})` : ''}`;
     case 'POST /api/sales/:id/refund': return `Чек №${params.id}`;
@@ -1521,6 +1534,15 @@ const clientIp = (req) => String(req.headers['x-forwarded-for'] || '').split(','
 
 // Вебхуки Meta: Instagram Direct и WhatsApp. GET — проверка адреса при подключении: вернуть
 // hub.challenge, если токен совпал. POST — новые сообщения; подпись X-Hub-Signature-256 проверяется по App Secret.
+// Настройки автоответа для страницы настроек (без токенов).
+function igAutoPublic(s) {
+  const d = require('./ig-price').IG_PRICE_DEFAULTS;
+  return {
+    autoPrice: Boolean(s.autoPrice), priceWords: s.priceWords ?? d.priceWords, priceTemplate: s.priceTemplate || d.priceTemplate,
+    publicReply: s.publicReply ?? d.publicReply, notifyMissing: s.notifyMissing !== false, defaultTemplate: d.priceTemplate,
+  };
+}
+
 const META_CHANNELS = {
   instagram: { name: 'Instagram', settings: () => crm.instagramSettings(), receive: (p) => crm.receiveInstagram(p), profile: (id) => crm.fillInstagramProfile(id) },
   whatsapp: { name: 'WhatsApp', settings: () => crm.whatsappSettings(), receive: (p) => crm.receiveWhatsapp(p), profile: async () => {} },
@@ -1557,6 +1579,14 @@ async function metaWebhook(req, res, url, channel) {
     }
   } catch (err) {
     console.error(`${ch.name}: не получилось разобрать сообщение:`, err.message);
+  }
+  // Instagram: автоответ ценой на комментарии под рилсами и на артикул в Direct.
+  if (channel === 'instagram') {
+    try {
+      await igPrice.handle(JSON.parse(raw.toString('utf8')));
+    } catch (err) {
+      console.error('Instagram: автоответ ценой не сработал:', err.message);
+    }
   }
 }
 

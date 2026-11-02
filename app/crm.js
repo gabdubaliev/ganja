@@ -20,7 +20,7 @@ const STAGES = [
 const STAGE_KEYS = new Set(STAGES.map(([k]) => k));
 const CLOSED = new Set(['won', 'lost']);
 const SOURCES = ['Instagram', 'WhatsApp', 'Telegram', 'Звонок', 'Витрина', 'Магазин', 'Рекомендация', 'Другое'];
-const INSTAGRAM_API = 'https://graph.instagram.com/v21.0';
+const INSTAGRAM_API = process.env.INSTAGRAM_API_URL || 'https://graph.instagram.com/v21.0';
 const WHATSAPP_API = 'https://graph.facebook.com/v21.0';
 
 function createCrm(store) {
@@ -278,6 +278,35 @@ function createCrm(store) {
       if (next.enabled && (!next.appSecret || !next.accessToken)) throw new UserError('Чтобы включить Instagram, укажите App Secret и токен доступа');
       store.setSetting('instagram', JSON.stringify(next));
       return next;
+    },
+
+    // Автоответ ценой (ig-price.js): включение, слова-вопросы о цене, шаблон ответа, публичный ответ.
+    // Хранится вместе с остальными настройками Instagram; ключи и токен здесь не меняются.
+    setInstagramAuto(input) {
+      const cur = crm.instagramSettings();
+      const next = {
+        ...cur,
+        autoPrice: Boolean(input.autoPrice),
+        priceWords: text(input.priceWords ?? cur.priceWords ?? '', 'Слова-вопросы о цене', { max: 500 }),
+        priceTemplate: text(input.priceTemplate ?? cur.priceTemplate ?? '', 'Шаблон ответа', { max: 1000 }),
+        publicReply: text(input.publicReply ?? cur.publicReply ?? '', 'Публичный ответ', { max: 300 }),
+        notifyMissing: input.notifyMissing === undefined ? cur.notifyMissing !== false : Boolean(input.notifyMissing),
+      };
+      if (next.autoPrice && !next.priceTemplate.includes('{price}')) throw new UserError('В шаблоне ответа должна быть цена — {price}');
+      store.setSetting('instagram', JSON.stringify(next));
+      return next;
+    },
+
+    // Автоответ в CRM: клиент — в открытую сделку (или новую), вопрос и ответ — в ленту событий.
+    logInstagramAuto({ igUserId, username = '', inText = '', outText, amount = 0, title = '' }) {
+      let lead = db.prepare('SELECT * FROM leads WHERE ig_user_id = ? AND closed_at IS NULL ORDER BY updated_at DESC LIMIT 1').get(String(igUserId));
+      if (!lead) {
+        lead = crm.create({ title: title ? `Спросил цену: ${title}`.slice(0, 200) : 'Вопрос о цене в Instagram', source: 'Instagram', ig_user_id: String(igUserId),
+          name: username ? `@${username}` : 'Клиент из Instagram', instagram: username || '', amount: amount || 0, unread: false }, null, { quiet: true });
+      }
+      if (inText) event(lead.id, 'in', inText, username ? `@${username}` : 'Instagram');
+      event(lead.id, 'out', outText, 'Автоответ');
+      return lead.id;
     },
 
     // Проверка подписи Meta (Instagram и WhatsApp): HMAC-SHA256 тела запроса ключом App Secret.

@@ -1351,8 +1351,8 @@
         <li>Зайдите на <b>developers.facebook.com</b> → «Мои приложения» → «Создать приложение» → тип «Бизнес» → добавьте продукт <b>Instagram</b> (API с входом через Instagram).</li>
         <li>В разделе Instagram → «Настройка API» добавьте свой аккаунт Instagram и нажмите «Создать токен» — вставьте его ниже в «Токен доступа».</li>
         <li>В «Настройки приложения» → «Основное» скопируйте <b>Секрет приложения</b> (App Secret) — вставьте ниже.</li>
-        <li>В «Настроить вебхуки» укажите адрес обратного вызова и токен подтверждения (ниже), нажмите «Подтвердить и сохранить», подпишитесь на поле <b>messages</b>.</li>
-        <li>Пока приложение в режиме разработки, сообщения приходят только от аккаунтов, добавленных в роли приложения. Чтобы писали все клиенты, отправьте приложение на проверку Meta (разрешение instagram_business_manage_messages).</li>
+        <li>В «Настроить вебхуки» укажите адрес обратного вызова и токен подтверждения (ниже), нажмите «Подтвердить и сохранить», подпишитесь на поля <b>messages</b> и <b>comments</b> (комментарии нужны для автоответа ценой).</li>
+        <li>Пока приложение в режиме разработки, сообщения приходят только от аккаунтов, добавленных в роли приложения. Чтобы писали все клиенты, отправьте приложение на проверку Meta (разрешения instagram_business_manage_messages и instagram_business_manage_comments).</li>
       </ol>
       <div class="field"><label>Адрес обратного вызова (Callback URL)</label><div class="input-row"><input id="ig-webhook" class="input" readonly><button type="button" class="btn" data-copy="#ig-webhook">Копировать</button></div></div>
       <div class="field"><label>Токен подтверждения (Verify token)</label><div class="input-row"><input id="ig-verify" class="input" readonly><button type="button" class="btn" data-copy="#ig-verify">Копировать</button></div></div>
@@ -1361,6 +1361,36 @@
       <label class="check"><input type="checkbox" name="enabled"> Принимать сообщения из Instagram</label>
       <p class="form-error" id="instagram-error" role="alert" hidden></p>
       <div class="form-actions start"><button type="submit" class="btn primary">Сохранить</button></div>
+    </form>
+  </section>
+  <section class="panel" data-can="settings">
+    <form id="igauto-form" class="settings-form" novalidate>
+      <div>
+        <h2>Instagram: автоответ ценой</h2>
+        <p class="sub">Клиент пишет «цена» под рилсом — программа берёт артикул из подписи рилса (например, «Кардиган MS-123»), находит товар в базе и отправляет клиенту цену и размеры в Direct. Под комментарием появляется только короткий ответ, цена публично не видна. В Direct то же: если клиент прислал артикул, цена приходит сразу. Если артикула нет или он не найден — придёт уведомление в Telegram, ответите сами.</p>
+      </div>
+      <ol class="steps">
+        <li>У товара в карточке заполните <b>Артикул</b> (MS-123). Если артикула нет, подойдёт код товара.</li>
+        <li>В подписи каждого рилса пишите артикул: «Кардиган MS-123». Лучше — и на самом видео.</li>
+        <li>В конце подписи призыв: «Напишите ЦЕНА — отправим в Direct».</li>
+        <li>Instagram выше должен быть подключён, а в вебхуках включено поле <b>comments</b>.</li>
+        <li>Если Instagram подключён ещё и к другому сервису (Chatplace и т.п.), выключите там автоответы на комментарии — иначе клиент получит два ответа.</li>
+      </ol>
+      <label class="check"><input type="checkbox" name="autoPrice"> Отвечать ценой автоматически</label>
+      <div class="field"><label for="ia-words">На какие слова в комментарии отвечать (через запятую)</label><input id="ia-words" name="priceWords" class="input" autocomplete="off"><p class="sub">Оставьте пустым, чтобы отвечать на любой комментарий.</p></div>
+      <div class="field"><label for="ia-tpl">Текст ответа в Direct</label><textarea id="ia-tpl" name="priceTemplate" class="input" rows="7"></textarea>
+        <p class="sub">Подставляется: <b>{name}</b> — название, <b>{article}</b> — артикул, <b>{price}</b> — цена со скидкой, <b>{oldPrice}</b> — цена без скидки, <b>{sizes}</b> — размеры в наличии. Строка с {oldPrice} показывается только при скидке; если товара нет в наличии, вместо строки с {sizes} клиент увидит, что его нет. <button type="button" class="btn small" id="ia-reset">Вернуть текст по умолчанию</button></p></div>
+      <div class="field"><label for="ia-public">Публичный ответ под комментарием</label><input id="ia-public" name="publicReply" class="input" autocomplete="off"><p class="sub">Пусто — под комментарием ничего не пишется.</p></div>
+      <label class="check"><input type="checkbox" name="notifyMissing"> Сообщать в Telegram, если артикул не нашёлся</label>
+      <div class="field"><label for="ia-try">Проверить: какой ответ получит клиент</label><div class="input-row"><input id="ia-try" class="input" placeholder="Артикул, например MS-123" autocomplete="off"><button type="button" class="btn" id="ia-preview">Показать</button></div>
+        <pre id="ia-preview-text" class="sub" style="white-space:pre-wrap;font:inherit" hidden></pre></div>
+      <p class="form-error" id="igauto-error" role="alert" hidden></p>
+      <div class="form-actions start"><button type="submit" class="btn primary">Сохранить</button></div>
+      <div>
+        <h3>Последние автоответы</h3>
+        <p class="sub" id="ia-stats"></p>
+        <div id="ia-log"></div>
+      </div>
     </form>
   </section>
   <section class="panel" data-can="settings">
