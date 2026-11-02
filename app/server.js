@@ -1040,6 +1040,7 @@ const routes = [
     return igSettingsOut(body.accessToken ? crm.instagramSettings() : s);
   }, 'settings'],
   ['POST', '/api/settings/instagram/check', () => crm.checkInstagram(), 'settings'],
+  ['POST', '/api/settings/instagram/diagnose', () => crm.diagnoseInstagram(), 'settings'],
   // Отмена действия сотрудника из журнала: dryRun — показать, что изменится и что мешает.
   // С правом «Журнал» — отмена любых действий; с правом «Свои действия» — только своих.
   ['POST', '/api/audit/:id/undo', (p, url, body, user) => store.undoActions(p.id, { scope: body.scope === 'after' ? 'after' : 'one', dryRun: Boolean(body.dryRun), onlyUser: can(user, 'audit') ? null : user }, user, reqMeta), ['audit', 'undo.own']],

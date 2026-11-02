@@ -26,11 +26,13 @@ const INSTAGRAM_OAUTH = process.env.INSTAGRAM_OAUTH_URL || 'https://api.instagra
 const INSTAGRAM_GRAPH = process.env.INSTAGRAM_GRAPH_URL || 'https://graph.instagram.com';
 // Единый вход Meta и связка «Facebook-страница + Instagram»: маркеры EAA работают только с graph.facebook.com.
 // Единый вход Meta появился в новых версиях API — работаем на v26.0 (как окно входа Meta).
-const FACEBOOK_API = process.env.FACEBOOK_API_URL || 'https://graph.facebook.com/v26.0';
+const FACEBOOK_API_DEFAULT = process.env.FACEBOOK_API_URL || 'https://graph.facebook.com/v26.0';
 const FACEBOOK_DIALOG = process.env.FACEBOOK_DIALOG_URL || 'https://www.facebook.com/v26.0';
 const WHATSAPP_API = 'https://graph.facebook.com/v21.0';
 
 function createCrm(store) {
+  // Адрес API Meta: по умолчанию v26.0; «Диагностика» может переключить на сработавший вариант (настройка fbBase).
+  const fbBase = () => { try { return JSON.parse(store.setting('instagram', '{}')).fbBase || FACEBOOK_API_DEFAULT; } catch { return FACEBOOK_API_DEFAULT; } };
   const db = store.db;
   db.exec(`
     CREATE TABLE IF NOT EXISTS leads (
@@ -392,7 +394,7 @@ function createCrm(store) {
         // «/me/messages» — от имени страницы (или аккаунта Instagram); «/me?fields» — сведения об аккаунте Instagram.
         path = path.replace(/^\/me\/messages/, `/${self}/messages`).replace(/^\/me(?=\?|$)/, `/${s.igId}`);
       }
-      const base = mode === 'instagram' ? INSTAGRAM_API : FACEBOOK_API;
+      const base = mode === 'instagram' ? INSTAGRAM_API : fbBase();
       let res, data;
       try {
         res = await fetch(`${base}${path}`, {
@@ -459,7 +461,7 @@ function createCrm(store) {
       const s = crm.instagramSettings();
       const clean = String(code || '').replace(/#_$/, '');
       if (s.configId) {
-        const r = await fetch(`${FACEBOOK_API}/oauth/access_token?${new URLSearchParams({ client_id: s.appId, client_secret: s.appSecret, redirect_uri: redirectUri, code: clean })}`, { signal: AbortSignal.timeout(15_000) });
+        const r = await fetch(`${fbBase()}/oauth/access_token?${new URLSearchParams({ client_id: s.appId, client_secret: s.appSecret, redirect_uri: redirectUri, code: clean })}`, { signal: AbortSignal.timeout(15_000) });
         const d = await r.json().catch(() => ({}));
         if (!r.ok || !d.access_token) throw new UserError(`Meta не выдала маркер: ${d.error?.message || `ошибка ${r.status}`}`);
         store.setSetting('instagram', JSON.stringify({ ...crm.instagramSettings(), accessToken: d.access_token, tokenExpires: d.expires_in ? Date.now() + d.expires_in * 1000 : null, pageId: '', pageToken: '', enabled: true }));
@@ -482,7 +484,7 @@ function createCrm(store) {
       let s = crm.instagramSettings();
       if (!/^EAA/.test(s.accessToken || '')) return null;
       const get = async (path, token) => {
-        const r = await fetch(`${FACEBOOK_API}${path}${path.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(token)}`, { signal: AbortSignal.timeout(15_000) });
+        const r = await fetch(`${fbBase()}${path}${path.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(token)}`, { signal: AbortSignal.timeout(15_000) });
         return r.json().catch(() => ({}));
       };
       if (s.appId && s.appSecret && !s.tokenLong) {
@@ -497,7 +499,7 @@ function createCrm(store) {
       if (page) {
         s = { ...s, pageId: page.id, pageName: page.name, pageToken: page.access_token, igId: page.instagram_business_account.id, igUsername: page.instagram_business_account.username || '' };
         // Подписка страницы на сообщения (иначе вебхуки Direct от неё не приходят). Без права — только предупреждение.
-        const sub = await fetch(`${FACEBOOK_API}/${page.id}/subscribed_apps?subscribed_fields=messages,messaging_postbacks,message_reactions&access_token=${encodeURIComponent(page.access_token)}`, { method: 'POST', signal: AbortSignal.timeout(15_000) })
+        const sub = await fetch(`${fbBase()}/${page.id}/subscribed_apps?subscribed_fields=messages,messaging_postbacks,message_reactions&access_token=${encodeURIComponent(page.access_token)}`, { method: 'POST', signal: AbortSignal.timeout(15_000) })
           .then((r) => r.json()).catch((e) => ({ error: { message: e.message } }));
         if (sub.error) note = `страница не подписана на сообщения: ${sub.error.message}`;
       } else {
@@ -520,13 +522,55 @@ function createCrm(store) {
       const s = crm.instagramSettings();
       if (!/^EAA/.test(s.accessToken || '')) return null;
       if (!s.appId || !s.appSecret) throw new UserError('Для проверки маркера укажите ID и секрет приложения');
-      const r = await fetch(`${FACEBOOK_API}/debug_token?${new URLSearchParams({ input_token: s.accessToken, access_token: `${s.appId}|${s.appSecret}` })}`, { signal: AbortSignal.timeout(15_000) });
+      const r = await fetch(`${fbBase()}/debug_token?${new URLSearchParams({ input_token: s.accessToken, access_token: `${s.appId}|${s.appSecret}` })}`, { signal: AbortSignal.timeout(15_000) });
       const d = (await r.json().catch(() => ({}))).data || {};
       if (d.error) throw new UserError(`Meta: ${d.error.message}`);
       const ig = new Set();
       for (const g of d.granular_scopes || []) if (/^instagram_/.test(g.scope)) for (const t of g.target_ids || []) ig.add(String(t));
       return { valid: d.is_valid !== false, type: d.type || '', app: d.application || '', expires: d.expires_at ? d.expires_at * 1000 : 0,
         scopes: d.scopes || [], igIds: [...ig] };
+    },
+    // «Диагностика»: все проверочные запросы к Meta с текущим маркером — ответы по пунктам. Если аккаунт Instagram
+    // открывается по какому-то адресу (версия API или graph.instagram.com) — программа переключается на него.
+    async diagnoseInstagram() {
+      const s = crm.instagramSettings();
+      if (!s.accessToken) throw new UserError('Маркер не сохранён — нажмите «Подключить Instagram»');
+      const out = [];
+      const call = async (title, url, token = s.accessToken, method = 'GET') => {
+        try {
+          const r = await fetch(`${url}${url.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(token)}`, { method, signal: AbortSignal.timeout(15_000) });
+          const d = await r.json().catch(() => ({}));
+          const ok = r.ok && !d.error;
+          out.push({ title, ok, detail: ok ? JSON.stringify(d).slice(0, 400) : `${d.error?.code || r.status}/${d.error?.error_subcode || ''} ${d.error?.message || ''}`.slice(0, 300) });
+          return ok ? d : null;
+        } catch (err) {
+          out.push({ title, ok: false, detail: `нет связи: ${err.message}` });
+          return null;
+        }
+      };
+      const root = 'https://graph.facebook.com';
+      const fbRoot = (process.env.FACEBOOK_API_URL || '').replace(/\/v\d+\.\d+$/, '') || root;
+      const igRoot = (process.env.INSTAGRAM_API_URL || '').replace(/\/v\d+\.\d+$/, '') || 'https://graph.instagram.com';
+      out.push({ title: 'Маркер', ok: true, detail: `${s.accessToken.slice(0, 6)}… (${s.accessToken.length} символов), режим: ${crm.instagramMode(s)}, ID аккаунта: ${s.igId || '—'}` });
+      if (s.appId && s.appSecret) await call('Сведения о маркере (debug_token)', `${fbRoot}/v26.0/debug_token?input_token=${encodeURIComponent(s.accessToken)}`, `${s.appId}|${s.appSecret}`);
+      await call('Кто владелец маркера (/me)', `${fbRoot}/v26.0/me?fields=id,name`);
+      await call('Страницы (/me/accounts)', `${fbRoot}/v26.0/me/accounts?fields=id,name,instagram_business_account{id,username}`);
+      await call('Аккаунты Instagram системного пользователя', `${fbRoot}/v26.0/me/assigned_instagram_accounts?fields=id,username`);
+      let found = null;
+      if (s.igId) {
+        for (const v of ['v26.0', 'v25.0', 'v24.0', 'v23.0', 'v22.0']) {
+          const d = await call(`Аккаунт ${s.igId} через graph.facebook.com/${v}`, `${fbRoot}/${v}/${s.igId}?fields=id,username`);
+          if (d && !found) found = `${fbRoot}/${v}`;
+        }
+        await call(`Переписки аккаунта (${s.igId}/conversations)`, `${fbRoot}/v26.0/${s.igId}/conversations?platform=instagram&limit=1`);
+        const gi = await call(`Аккаунт через graph.instagram.com (маркер EAA)`, `${igRoot}/v26.0/me?fields=user_id,username`);
+        if (gi) out.push({ title: 'Подсказка', ok: true, detail: 'маркер работает с graph.instagram.com — сообщите об этом, переключу программу' });
+      }
+      if (found && found !== fbBase()) {
+        store.setSetting('instagram', JSON.stringify({ ...crm.instagramSettings(), fbBase: found }));
+        out.push({ title: 'Переключено', ok: true, detail: `программа теперь работает через ${found}` });
+      }
+      return { items: out, works: Boolean(found) };
     },
     // Продление долгого маркера IGAA (раз в 6 часов; продлевается, если до конца < 20 дней).
     async refreshInstagramToken() {
@@ -551,13 +595,13 @@ function createCrm(store) {
         cand.push(...(d?.igIds || []));
         cand.push(...JSON.parse(store.setting('instagram_hook_ids', '[]')));
         for (const path of ['/me/assigned_instagram_accounts?fields=id,username', '/me/instagram_accounts?fields=id,username']) {
-          const r = await fetch(`${FACEBOOK_API}${path}&access_token=${encodeURIComponent(s.accessToken)}`, { signal: AbortSignal.timeout(15_000) }).then((x) => x.json()).catch(() => ({}));
+          const r = await fetch(`${fbBase()}${path}&access_token=${encodeURIComponent(s.accessToken)}`, { signal: AbortSignal.timeout(15_000) }).then((x) => x.json()).catch(() => ({}));
           cand.push(...(r.data || []).map((a) => String(a.id)));
         }
         if (s.igId) cand.push(s.igId);
         const tried = [];
         for (const id of [...new Set(cand)]) {
-          const r = await fetch(`${FACEBOOK_API}/${id}?fields=id,username&access_token=${encodeURIComponent(s.accessToken)}`, { signal: AbortSignal.timeout(15_000) }).then((x) => x.json()).catch(() => ({}));
+          const r = await fetch(`${fbBase()}/${id}?fields=id,username&access_token=${encodeURIComponent(s.accessToken)}`, { signal: AbortSignal.timeout(15_000) }).then((x) => x.json()).catch(() => ({}));
           tried.push(id);
           if (r.id && !r.error) {
             if (id !== s.igId) store.setSetting('instagram', JSON.stringify({ ...crm.instagramSettings(), igId: id, igUsername: r.username || '' }));

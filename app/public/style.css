@@ -1928,3 +1928,4 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .ig-auto { display: grid; gap: 8px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--series) 6%, transparent); }
 .ig-status p { margin: 2px 0; }
 .ig-connect { display: grid; gap: 8px; padding: 10px 12px; border-radius: 12px; border: 1px dashed var(--border); font-size: 13px; } .ig-connect code { word-break: break-all; }
+.ig-diag { padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); font-size: 13px; } .ig-diag ol { padding-left: 18px; display: grid; gap: 6px; margin: 6px 0 0; } .ig-diag code { word-break: break-all; font-size: 12px; color: var(--ink-2); } .ig-diag li.bad b { color: #b91c1c; } .ig-diag li.ok b { color: #15803d; }

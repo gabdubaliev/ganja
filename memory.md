@@ -756,6 +756,10 @@
     mont_kyrgyzstan_ (ID 17841464829611662, тот же), разрешены сообщения и комментарии — доступ есть. Поэтому
     graph.facebook.com переведён на v26.0 (единый вход появился в новых версиях; окно Meta открывалось на v26.0),
     в запросе аккаунта — только fields=id,username.
+    Не помогло (03.11, та же ошибка 100/33). Добавлена «🩺 Диагностика» (`crm.diagnoseInstagram`, POST
+    /api/settings/instagram/diagnose): debug_token, /me, /me/accounts, assigned_instagram_accounts, GET /{igId} на v26–v22,
+    /{igId}/conversations, graph.instagram.com с EAA; если аккаунт открылся на какой-то версии — сохраняет `fbBase`
+    (адрес API в настройке instagram; `fbBase()` в crm.js). Ждём от владельца скриншот диагностики.
     Ошибки скриптов витрины: `window.shopError` в shop.html → POST `/shop/client-error` (≤20/мин) → журнал
     (`journalctl -u shop | grep 'Витрина: ошибка'`); с `?debug=1` в адресе — красная панель с текстом ошибки на странице.
 

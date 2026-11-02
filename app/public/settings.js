@@ -176,6 +176,20 @@ $('#ig-clear-token').addEventListener('click', async () => {
   }
 });
 
+$('#ig-diag').addEventListener('click', async () => {
+  const box = $('#ig-diag-out');
+  box.hidden = false;
+  box.innerHTML = '<p class="pick-meta">Проверяю… (до 30 секунд)</p>';
+  try {
+    const r = await api('/api/settings/instagram/diagnose', { method: 'POST' });
+    box.innerHTML = `<p><b>Диагностика Instagram</b> — ${r.works ? '✅ нашёлся рабочий вариант, программа переключилась на него' : '❌ рабочего варианта нет'}. Пришлите скриншот этого блока.</p>`
+      + `<ol>${r.items.map((x) => `<li class="${x.ok ? 'ok' : 'bad'}"><b>${x.ok ? '✅' : '❌'} ${esc(x.title)}</b><br><code>${esc(x.detail)}</code></li>`).join('')}</ol>`;
+    renderInstagram();
+  } catch (err) {
+    box.innerHTML = `<p class="form-error">${esc(err.message)}</p>`;
+  }
+});
+
 $('#ig-check').addEventListener('click', async () => {
   $('#instagram-error').hidden = true;
   try {
