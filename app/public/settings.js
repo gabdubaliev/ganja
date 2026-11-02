@@ -69,6 +69,8 @@ async function renderInstagram() {
     f.elements.accessToken.placeholder = s.hasToken ? 'Сохранён. Введите новый, чтобы заменить' : 'IGAA…';
     f.elements.enabled.checked = s.enabled;
     f.elements.appId.value = s.appId || '';
+    f.elements.configId.value = s.configId || '';
+    f.elements.igId.value = s.igId || '';
     $('#ig-redirect').textContent = `${location.origin}/api/instagram/callback`;
     f.elements.autoReply.checked = s.autoReply;
     f.elements.autoText.value = s.autoText || '';
@@ -76,7 +78,9 @@ async function renderInstagram() {
     // Доходят ли сообщения: когда Instagram последний раз присылал событие, были ли отказы и ошибки автоответа.
     const when = (t) => new Date(t).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
     $('#ig-status').innerHTML = [
-      s.tokenKind === 'facebook' ? '⚠️ Сохранён маркер Facebook (EAA…) — он не подходит. Нажмите «Подключить Instagram».' : '',
+      s.mode === 'page' ? `🔗 Подключено через Facebook-страницу «${esc(s.pageName)}»${s.igUsername ? ` → @${esc(s.igUsername)}` : ''}` : '',
+      s.mode === 'unified' ? `🔗 Единый вход Meta${s.igUsername ? ` → @${esc(s.igUsername)}` : ''}${s.igId ? '' : ' — ⚠️ впишите «ID аккаунта Instagram»'}` : '',
+      s.resolveNote ? `⚠️ ${esc(s.resolveNote)}` : '',
       s.tokenKind === 'instagram' && s.tokenExpires ? `🔑 Маркер Instagram действует до <b>${when(s.tokenExpires)}</b>, программа продлевает его сама` : '',
       s.lastHook ? `✅ Последнее событие от Instagram: <b>${when(s.lastHook)}</b>` : '⏳ От Instagram ещё не приходило ни одного сообщения на этот адрес',
       s.lastDenied ? `⚠️ ${when(s.lastDenied.at)} Instagram прислал сообщение, но программа его отклонила: ${esc(s.lastDenied.details)} (проверьте App Secret и галочку «Принимать сообщения»)` : '',
@@ -144,7 +148,7 @@ $('#ig-connect').addEventListener('click', async () => {
   const f = $('#instagram-form');
   $('#instagram-error').hidden = true;
   try {
-    await api('/api/settings/instagram', { method: 'PUT', body: { appId: f.elements.appId.value, appSecret: f.elements.appSecret.value, enabled: f.elements.enabled.checked,
+    await api('/api/settings/instagram', { method: 'PUT', body: { appId: f.elements.appId.value, configId: f.elements.configId.value, igId: f.elements.igId.value, appSecret: f.elements.appSecret.value, enabled: f.elements.enabled.checked,
       autoReply: f.elements.autoReply.checked, autoText: f.elements.autoText.value, autoHours: f.elements.autoHours.value } });
     location.href = '/api/instagram/connect';
   } catch (err) {
@@ -174,7 +178,7 @@ $('#instagram-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
   try {
-    await api('/api/settings/instagram', { method: 'PUT', body: { appId: f.elements.appId.value, appSecret: f.elements.appSecret.value, accessToken: f.elements.accessToken.value, enabled: f.elements.enabled.checked,
+    await api('/api/settings/instagram', { method: 'PUT', body: { appId: f.elements.appId.value, configId: f.elements.configId.value, igId: f.elements.igId.value, appSecret: f.elements.appSecret.value, accessToken: f.elements.accessToken.value, enabled: f.elements.enabled.checked,
       autoReply: f.elements.autoReply.checked, autoText: f.elements.autoText.value, autoHours: f.elements.autoHours.value } });
     toast('Настройки Instagram сохранены');
     renderInstagram();

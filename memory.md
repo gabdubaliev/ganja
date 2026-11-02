@@ -732,6 +732,16 @@
     добавить URL переадресации https://baza.montshop.kg/api/instagram/callback. Продление `refreshInstagramToken` каждые 6 ч,
     если до конца < 20 дней. Маркер Facebook (EAA…) не принимается — понятная ошибка. Для тестов: INSTAGRAM_OAUTH_URL,
     INSTAGRAM_GRAPH_URL, INSTAGRAM_API_URL.
+    **Единый вход Meta (новые приложения, у MONT CRM именно он):** «Настройка API со входом в Instagram недоступна для новых
+    приложений» — вход через окно Facebook с `config_id` (у MONT CRM выбрана конфигурация 1119756411022012), маркеры EAA,
+    работают только с graph.facebook.com. App ID = 1572299708264451, секрет — «Настройки приложения → Основное».
+    Аккаунт mont_kyrgyzstan_ = ID 17841464829611662. Общий слой `crm.igCall(method, path, body)` (через него и ig-price.js):
+    режим по маркеру — `instagram` (IGAA, graph.instagram.com, /me), `page` (EAA + страница со связанным Instagram:
+    /{pageId}/messages с маркером страницы), `unified` (EAA без страницы: /{igId}/messages, «/me» → /{igId}).
+    `resolveFacebookToken` (после входа кнопкой или ручной вставки EAA): короткий → долгий (fb_exchange_token), поиск
+    страницы через /me/accounts (instagram_business_account), подписка страницы /{page}/subscribed_apps; без страницы —
+    /me/assigned_instagram_accounts или вписанный «ID аккаунта Instagram». Для тестов: FACEBOOK_API_URL, FACEBOOK_DIALOG_URL.
+    Не проверено на настоящем Meta: схема единого входа новая (по обсуждениям разработчиков, 2026).
     Ошибки скриптов витрины: `window.shopError` в shop.html → POST `/shop/client-error` (≤20/мин) → журнал
     (`journalctl -u shop | grep 'Витрина: ошибка'`); с `?debug=1` в адресе — красная панель с текстом ошибки на странице.
 

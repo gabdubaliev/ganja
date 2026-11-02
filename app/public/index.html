@@ -1357,11 +1357,13 @@
       <div class="field"><label>Адрес обратного вызова (Callback URL)</label><div class="input-row"><input id="ig-webhook" class="input" readonly><button type="button" class="btn" data-copy="#ig-webhook">Копировать</button></div></div>
       <div class="field"><label>Токен подтверждения (Verify token)</label><div class="input-row"><input id="ig-verify" class="input" readonly><button type="button" class="btn" data-copy="#ig-verify">Копировать</button></div></div>
       <div class="ig-connect">
-        <b>Проще всего — кнопкой:</b> впишите ID и секрет приложения Instagram (панель Meta → Сценарии → Instagram API → «Настройка API с входом через Instagram», вверху раздела), в «URL переадресации» там же добавьте <code id="ig-redirect"></code>, нажмите «Подключить Instagram» и войдите как ваш магазин. Маркер сохранится и будет продлеваться сам.
-        <div class="field"><label for="ig-appid">ID приложения Instagram</label><input id="ig-appid" name="appId" class="input num" inputmode="numeric" autocomplete="off" placeholder="Например, 1234567890123456"></div>
+        <b>Проще всего — кнопкой «Подключить Instagram».</b> В панели Meta (MONT CRM → Сценарии → Instagram API) в «URL переадресации» добавьте <code id="ig-redirect"></code>. Ниже впишите ID приложения (число из адреса панели, например 1572299708264451), секрет приложения (Настройки приложения → Основное → Секрет приложения) и ID конфигурации из пункта «1. Настройте приложение» (та, что «Выбрано»). Нажмите «Подключить Instagram» и выберите аккаунт магазина — маркер сохранится сам.
+        <div class="field"><label for="ig-appid">ID приложения (App ID)</label><input id="ig-appid" name="appId" class="input num" inputmode="numeric" autocomplete="off" placeholder="1572299708264451"></div>
+        <div class="field"><label for="ig-config">ID конфигурации (единый вход)</label><input id="ig-config" name="configId" class="input num" inputmode="numeric" autocomplete="off" placeholder="Например, 1119756411022012"></div>
+        <div class="field"><label for="ig-igid">ID аккаунта Instagram</label><input id="ig-igid" name="igId" class="input num" inputmode="numeric" autocomplete="off" placeholder="Например, 17841464829611662 (из пункта «2. Сгенерируйте маркеры доступа»)"></div>
       </div>
-      <div class="field"><label for="ig-secret">Секрет приложения Instagram (App Secret)</label><input id="ig-secret" name="appSecret" class="input" autocomplete="off"></div>
-      <div class="field"><label for="ig-token">Токен доступа Instagram (IGAA…) — если вставляете вручную</label><input id="ig-token" name="accessToken" class="input" autocomplete="off"></div>
+      <div class="field"><label for="ig-secret">Секрет приложения (App Secret)</label><input id="ig-secret" name="appSecret" class="input" autocomplete="off"></div>
+      <div class="field"><label for="ig-token">Маркер доступа (IGAA… или EAA…) — если вставляете вручную</label><input id="ig-token" name="accessToken" class="input" autocomplete="off"></div>
       <label class="check"><input type="checkbox" name="enabled"> Принимать сообщения из Instagram</label>
       <div class="ig-auto">
         <label class="check"><input type="checkbox" name="autoReply"> <b>Автоответ</b> — на сообщение в Direct клиенту сразу уходит текст ниже</label>

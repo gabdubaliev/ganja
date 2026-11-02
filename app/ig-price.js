@@ -99,16 +99,10 @@ function createIgPrice({ store, crm, notifier }) {
     return { ...DEFAULTS, ...Object.fromEntries(Object.keys(DEFAULTS).filter((k) => s[k] !== undefined).map((k) => [k, s[k]])), accessToken: s.accessToken, enabled: s.enabled };
   }
 
+  // Запрос к Instagram — через общий слой CRM: он сам выбирает способ подключения (маркер IGAA, страница Facebook
+  // или единый вход Meta) и подставляет нужный адрес и маркер. token оставлен для совместимости вызовов.
   async function call(method, pathname, token, body) {
-    const res = await fetch(`${INSTAGRAM_API}${pathname}`, {
-      method,
-      headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
-      body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(15_000),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || data.error) throw new Error(data.error?.message || `ошибка ${res.status}`);
-    return data;
+    return crm.igCall(method, pathname, body);
   }
 
   // Подпись рилса — у Instagram, с запасом на 10 минут: под популярным роликом спрашивают часто.

@@ -1033,7 +1033,12 @@ const routes = [
     return r;
   }, 'settings'],
   ['GET', '/api/instagram/auto-log', (p, url) => ({ items: igPrice.log({ limit: url.searchParams.get('limit') }), week: igPrice.stats(7) }), 'settings'],
-  ['PUT', '/api/settings/instagram', (p, url, body) => igSettingsOut(crm.setInstagram(body)), 'settings'],
+  ['PUT', '/api/settings/instagram', async (p, url, body) => {
+    const s = crm.setInstagram(body);
+    // Маркер Meta (EAA…): продлить и найти страницу со связанным Instagram.
+    if (body.accessToken && /^EAA/.test(String(body.accessToken).trim())) await crm.resolveFacebookToken().catch((e) => console.error('Instagram:', e.message));
+    return igSettingsOut(body.accessToken ? crm.instagramSettings() : s);
+  }, 'settings'],
   ['POST', '/api/settings/instagram/check', () => crm.checkInstagram(), 'settings'],
   // Отмена действия сотрудника из журнала: dryRun — показать, что изменится и что мешает.
   // С правом «Журнал» — отмена любых действий; с правом «Свои действия» — только своих.
@@ -1569,7 +1574,7 @@ function igSettingsOut(s) {
   const denied = store.listAudit({ from: Date.now() - 7 * 864e5, to: Date.now() + 1, kind: 'denied', q: 'Вебхук Instagram', limit: 1 })[0];
   const failed = store.listAudit({ from: Date.now() - 7 * 864e5, to: Date.now() + 1, kind: 'change', q: 'Автоответ в Instagram не отправлен', limit: 1 })[0];
   return { enabled: s.enabled, verifyToken: s.verifyToken, hasSecret: Boolean(s.appSecret), hasToken: Boolean(s.accessToken), webhookPath: '/webhooks/instagram',
-    autoReply: s.autoReply, autoText: s.autoText, autoHours: s.autoHours, lastHook, appId: s.appId || '', tokenExpires: s.tokenExpires || null, tokenKind: s.accessToken ? (/^IG/.test(s.accessToken) ? 'instagram' : /^EAA/.test(s.accessToken) ? 'facebook' : 'other') : null,
+    autoReply: s.autoReply, autoText: s.autoText, autoHours: s.autoHours, lastHook, appId: s.appId || '', configId: s.configId || '', igId: s.igId || '', igUsername: s.igUsername || '', pageName: s.pageName || '', resolveNote: s.resolveNote || '', mode: crm.instagramMode(s), tokenExpires: s.tokenExpires || null, tokenKind: s.accessToken ? (/^IG/.test(s.accessToken) ? 'instagram' : /^EAA/.test(s.accessToken) ? 'facebook' : 'other') : null,
     lastDenied: denied ? { at: denied.at, details: denied.details } : null, lastAutoError: failed ? { at: failed.at, details: failed.details } : null, auto: igAutoPublic(s) };
 }
 const META_CHANNELS = {

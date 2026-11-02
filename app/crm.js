@@ -24,6 +24,9 @@ const INSTAGRAM_API = process.env.INSTAGRAM_API_URL || 'https://graph.instagram.
 // Вход через Instagram: окно авторизации, обмен кода и продление маркера.
 const INSTAGRAM_OAUTH = process.env.INSTAGRAM_OAUTH_URL || 'https://api.instagram.com';
 const INSTAGRAM_GRAPH = process.env.INSTAGRAM_GRAPH_URL || 'https://graph.instagram.com';
+// Единый вход Meta и связка «Facebook-страница + Instagram»: маркеры EAA работают только с graph.facebook.com.
+const FACEBOOK_API = process.env.FACEBOOK_API_URL || 'https://graph.facebook.com/v21.0';
+const FACEBOOK_DIALOG = process.env.FACEBOOK_DIALOG_URL || 'https://www.facebook.com/v21.0';
 const WHATSAPP_API = 'https://graph.facebook.com/v21.0';
 
 function createCrm(store) {
@@ -267,7 +270,7 @@ function createCrm(store) {
         saved.verifyToken = crypto.randomBytes(12).toString('hex');
         store.setSetting('instagram', JSON.stringify(saved));
       }
-      return { enabled: false, appSecret: '', accessToken: '', appId: '', tokenExpires: null, autoReply: false, autoText: '', autoHours: 12, ...saved };
+      return { enabled: false, appSecret: '', accessToken: '', appId: '', configId: '', igId: '', pageId: '', pageName: '', pageToken: '', tokenExpires: null, autoReply: false, autoText: '', autoHours: 12, ...saved };
     },
 
     setInstagram(input) {
@@ -279,11 +282,10 @@ function createCrm(store) {
         accessToken: input.accessToken ? text(input.accessToken, 'Токен доступа', { max: 1000 }) : cur.accessToken,
         appId: input.appId !== undefined ? String(input.appId).replace(/\D/g, '').slice(0, 30) : cur.appId,
       };
-      // Маркер Facebook (EAA…) из Graph API Explorer программе не подходит — нужен маркер Instagram (IGAA…).
-      if (input.accessToken && /^EAA/.test(String(input.accessToken).trim())) {
-        throw new UserError('Это маркер Facebook (начинается с EAA) — он не подходит. Нужен маркер Instagram, он начинается с IGAA: нажмите «Подключить Instagram» или «Сгенерировать маркер» в разделе «Настройка API с входом через Instagram».');
-      }
-      if (input.accessToken) next.tokenExpires = null;
+      if (input.configId !== undefined) next.configId = String(input.configId).replace(/\D/g, '').slice(0, 30);
+      if (input.igId !== undefined) next.igId = String(input.igId).replace(/\D/g, '').slice(0, 30);
+      // Новый маркер вручную: срок и привязка к странице определяются заново.
+      if (input.accessToken) Object.assign(next, { tokenExpires: null, tokenLong: false, pageId: '', pageName: '', pageToken: '' });
       // Автоответ: на сообщение в Direct клиенту уходит этот текст — не чаще раза в autoHours часов одному человеку.
       if ('autoReply' in input) {
         next.autoReply = Boolean(input.autoReply);
@@ -292,7 +294,7 @@ function createCrm(store) {
         next.autoHours = Number.isFinite(h) && h >= 1 && h <= 168 ? Math.round(h) : 12;
         if (next.autoReply && !next.autoText) throw new UserError('Напишите текст автоответа');
       }
-      if (next.enabled && (!next.appSecret || !next.accessToken)) throw new UserError('Чтобы включить Instagram, укажите App Secret и токен доступа');
+      if (next.enabled && !next.appSecret) throw new UserError('Чтобы включить Instagram, укажите секрет приложения (по нему программа проверяет, что сообщения пришли от Meta)');
       store.setSetting('instagram', JSON.stringify(next));
       return next;
     },
@@ -360,16 +362,49 @@ function createCrm(store) {
       return received;
     },
 
+    /* ---------- Запросы к Instagram: три способа подключения ---------- */
+    // instagram — маркер IGAA (вход через Instagram, graph.instagram.com, «/me»);
+    // page — маркер EAA и Facebook-страница, связанная с Instagram (graph.facebook.com, от имени страницы);
+    // unified — маркер EAA «единого входа» без страницы (graph.facebook.com, по ID аккаунта Instagram).
+    instagramMode(s = crm.instagramSettings()) {
+      if (!s.accessToken) return null;
+      if (!/^EAA/.test(s.accessToken)) return 'instagram';
+      return s.pageId && s.pageToken ? 'page' : 'unified';
+    },
+    async igCall(method, pathname, body = null) {
+      const s = crm.instagramSettings();
+      const mode = crm.instagramMode(s);
+      if (!mode) throw new UserError('Instagram не подключён: нет маркера доступа');
+      let path = pathname;
+      let token = s.accessToken;
+      if (mode !== 'instagram') {
+        const self = mode === 'page' ? s.pageId : s.igId;
+        if (!s.igId && mode === 'unified') throw new UserError('Укажите «ID аккаунта Instagram» (например, 17841464829611662) — без него маркер единого входа не знает, от чьего имени писать');
+        if (mode === 'page') token = s.pageToken;
+        // «/me/messages» — от имени страницы (или аккаунта Instagram); «/me?fields» — сведения об аккаунте Instagram.
+        path = path.replace(/^\/me\/messages/, `/${self}/messages`).replace(/^\/me(?=\?|$)/, `/${s.igId}`);
+      }
+      const base = mode === 'instagram' ? INSTAGRAM_API : FACEBOOK_API;
+      let res, data;
+      try {
+        res = await fetch(`${base}${path}`, {
+          method, headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+          body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(15_000),
+        });
+        data = await res.json().catch(() => ({}));
+      } catch (err) {
+        throw new UserError(`Нет связи с Instagram: ${err.message}`);
+      }
+      if (!res.ok || data.error) throw new UserError(data.error?.message || `ошибка ${res.status}`);
+      return data;
+    },
+
     // Имя и ник отправителя — отдельным запросом к Instagram, если токен позволяет.
     async fillInstagramProfile(leadId) {
       const l = getLead(leadId);
-      const { accessToken } = crm.instagramSettings();
-      if (!l.ig_user_id || !accessToken || l.instagram) return;
+      if (!l.ig_user_id || !crm.instagramSettings().accessToken || l.instagram) return;
       try {
-        const res = await fetch(`${INSTAGRAM_API}/${encodeURIComponent(l.ig_user_id)}?fields=name,username`, {
-          headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(10_000),
-        });
-        const p = await res.json();
+        const p = await crm.igCall('GET', `/${encodeURIComponent(l.ig_user_id)}?fields=name,username`);
         if (p.username || p.name) {
           db.prepare('UPDATE leads SET instagram = ?, name = CASE WHEN name = ? THEN ? ELSE name END WHERE id = ?')
             .run(p.username || '', 'Клиент из Instagram', p.name || p.username || 'Клиент из Instagram', l.id);
@@ -393,13 +428,18 @@ function createCrm(store) {
       return s.autoText;
     },
 
-    // Вход через Instagram (кнопка «Подключить Instagram»): ссылка на окно Instagram и обмен кода на долгий маркер (60 дней).
+    // «Подключить Instagram». С «ID конфигурации» — единый вход Meta (окно Facebook, маркер EAA),
+    // без него — вход через Instagram (окно Instagram, маркер IGAA).
     instagramAuthUrl(redirectUri) {
       const s = crm.instagramSettings();
-      if (!s.appId) throw new UserError('Укажите «ID приложения Instagram» (раздел «Настройка API с входом через Instagram» в панели приложения Meta) и сохраните');
-      if (!s.appSecret) throw new UserError('Укажите «Секрет приложения Instagram» и сохраните');
+      if (!s.appId) throw new UserError('Укажите «ID приложения» (номер приложения MONT CRM, например 1572299708264451) и сохраните');
+      if (!s.appSecret) throw new UserError('Укажите «Секрет приложения» и сохраните');
       const state = crypto.randomBytes(16).toString('hex');
       store.setSetting('instagram_oauth_state', JSON.stringify({ state, at: Date.now() }));
+      if (s.configId) {
+        const q = new URLSearchParams({ client_id: s.appId, redirect_uri: redirectUri, config_id: s.configId, response_type: 'code', state });
+        return `${FACEBOOK_DIALOG}/dialog/oauth?${q}`;
+      }
       const q = new URLSearchParams({ client_id: s.appId, redirect_uri: redirectUri, response_type: 'code', state,
         scope: 'instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments' });
       return `https://www.instagram.com/oauth/authorize?${q}`;
@@ -409,18 +449,60 @@ function createCrm(store) {
       store.setSetting('instagram_oauth_state', '{}');
       if (!state || state !== saved.state || Date.now() - saved.at > 30 * 60e3) throw new UserError('Ссылка входа устарела — нажмите «Подключить Instagram» ещё раз');
       const s = crm.instagramSettings();
-      const form = new URLSearchParams({ client_id: s.appId, client_secret: s.appSecret, grant_type: 'authorization_code', redirect_uri: redirectUri, code: String(code || '').replace(/#_$/, '') });
+      const clean = String(code || '').replace(/#_$/, '');
+      if (s.configId) {
+        const r = await fetch(`${FACEBOOK_API}/oauth/access_token?${new URLSearchParams({ client_id: s.appId, client_secret: s.appSecret, redirect_uri: redirectUri, code: clean })}`, { signal: AbortSignal.timeout(15_000) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.access_token) throw new UserError(`Meta не выдала маркер: ${d.error?.message || `ошибка ${r.status}`}`);
+        store.setSetting('instagram', JSON.stringify({ ...crm.instagramSettings(), accessToken: d.access_token, tokenExpires: d.expires_in ? Date.now() + d.expires_in * 1000 : null, pageId: '', pageToken: '', enabled: true }));
+        await crm.resolveFacebookToken();
+        return crm.checkInstagram();
+      }
+      const form = new URLSearchParams({ client_id: s.appId, client_secret: s.appSecret, grant_type: 'authorization_code', redirect_uri: redirectUri, code: clean });
       const r1 = await fetch(`${INSTAGRAM_OAUTH}/oauth/access_token`, { method: 'POST', body: form, signal: AbortSignal.timeout(15_000) });
       const d1 = await r1.json().catch(() => ({}));
       if (!r1.ok || !d1.access_token) throw new UserError(`Instagram не выдал маркер: ${d1.error_message || d1.error?.message || `ошибка ${r1.status}`}`);
       const r2 = await fetch(`${INSTAGRAM_GRAPH}/access_token?${new URLSearchParams({ grant_type: 'ig_exchange_token', client_secret: s.appSecret, access_token: d1.access_token })}`, { signal: AbortSignal.timeout(15_000) });
       const d2 = await r2.json().catch(() => ({}));
       const token = d2.access_token || d1.access_token;
-      const next = { ...crm.instagramSettings(), accessToken: token, tokenExpires: d2.expires_in ? Date.now() + d2.expires_in * 1000 : Date.now() + 3600e3, enabled: true };
-      store.setSetting('instagram', JSON.stringify(next));
+      store.setSetting('instagram', JSON.stringify({ ...crm.instagramSettings(), accessToken: token, tokenExpires: d2.expires_in ? Date.now() + d2.expires_in * 1000 : Date.now() + 3600e3, enabled: true }));
       return crm.checkInstagram();
     },
-    // Продление долгого маркера (раз в сутки; Instagram продлевает, если маркеру больше суток и он ещё жив).
+    // Маркер EAA: короткий (из Graph API Explorer) — продлеваем до долгого; ищем Facebook-страницу со связанным Instagram
+    // (тогда пишем от имени страницы и подписываем страницу на сообщения). Без страницы — единый вход по ID аккаунта Instagram.
+    async resolveFacebookToken() {
+      let s = crm.instagramSettings();
+      if (!/^EAA/.test(s.accessToken || '')) return null;
+      const get = async (path, token) => {
+        const r = await fetch(`${FACEBOOK_API}${path}${path.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(token)}`, { signal: AbortSignal.timeout(15_000) });
+        return r.json().catch(() => ({}));
+      };
+      if (s.appId && s.appSecret && !s.tokenLong) {
+        const d = await get(`/oauth/access_token?${new URLSearchParams({ grant_type: 'fb_exchange_token', client_id: s.appId, client_secret: s.appSecret, fb_exchange_token: s.accessToken })}`, s.accessToken).catch(() => ({}));
+        if (d.access_token) s = { ...s, accessToken: d.access_token, tokenExpires: d.expires_in ? Date.now() + d.expires_in * 1000 : null };
+        s.tokenLong = true;
+      }
+      const pages = await get('/me/accounts?fields=id,name,access_token,instagram_business_account{id,username}&limit=100', s.accessToken).catch(() => ({}));
+      const withIg = (pages.data || []).filter((p) => p.instagram_business_account);
+      const page = withIg.find((p) => p.instagram_business_account.id === s.igId) || withIg[0];
+      let note = '';
+      if (page) {
+        s = { ...s, pageId: page.id, pageName: page.name, pageToken: page.access_token, igId: page.instagram_business_account.id, igUsername: page.instagram_business_account.username || '' };
+        // Подписка страницы на сообщения (иначе вебхуки Direct от неё не приходят). Без права — только предупреждение.
+        const sub = await fetch(`${FACEBOOK_API}/${page.id}/subscribed_apps?subscribed_fields=messages,messaging_postbacks,message_reactions&access_token=${encodeURIComponent(page.access_token)}`, { method: 'POST', signal: AbortSignal.timeout(15_000) })
+          .then((r) => r.json()).catch((e) => ({ error: { message: e.message } }));
+        if (sub.error) note = `страница не подписана на сообщения: ${sub.error.message}`;
+      } else {
+        s = { ...s, pageId: '', pageName: '', pageToken: '' };
+        if (!s.igId) {
+          const a = await get('/me/assigned_instagram_accounts?fields=id,username', s.accessToken).catch(() => ({}));
+          if (a.data?.[0]) s = { ...s, igId: a.data[0].id, igUsername: a.data[0].username || '' };
+        }
+      }
+      store.setSetting('instagram', JSON.stringify({ ...s, resolveNote: note }));
+      return { mode: crm.instagramMode(s), page: page ? page.name : null, note };
+    },
+    // Продление долгого маркера IGAA (раз в 6 часов; продлевается, если до конца < 20 дней).
     async refreshInstagramToken() {
       const s = crm.instagramSettings();
       if (!s.accessToken || !/^IG/.test(s.accessToken)) return null;
@@ -432,19 +514,17 @@ function createCrm(store) {
       return true;
     },
 
-    // Проверка токена: какой аккаунт Instagram за ним стоит.
+    // Проверка: какой аккаунт Instagram стоит за подключением.
     async checkInstagram() {
-      const { accessToken } = crm.instagramSettings();
-      if (!accessToken) throw new UserError('Токен доступа не указан');
-      let res, data;
+      const s = crm.instagramSettings();
+      if (!s.accessToken) throw new UserError('Маркер доступа не указан — нажмите «Подключить Instagram» или вставьте маркер');
+      let data;
       try {
-        res = await fetch(`${INSTAGRAM_API}/me?fields=user_id,username,name`, { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(10_000) });
-        data = await res.json().catch(() => ({}));
+        data = await crm.igCall('GET', crm.instagramMode(s) === 'instagram' ? '/me?fields=user_id,username,name' : '/me?fields=id,username,name');
       } catch (err) {
-        throw new UserError(`Нет связи с Instagram: ${err.message}`);
+        throw new UserError(`Instagram не принял маркер: ${err.message}`);
       }
-      if (!res.ok || data.error) throw new UserError(`Instagram не принял токен: ${data.error?.message || `ошибка ${res.status}`}`);
-      return { username: data.username || '', name: data.name || '', id: data.user_id || data.id || '' };
+      return { username: data.username || '', name: data.name || '', id: data.user_id || data.id || '', mode: crm.instagramMode(s), page: s.pageName || '' };
     },
 
     // Ответ клиенту в Direct. Instagram разрешает писать в течение 24 часов после его последнего сообщения.
@@ -454,20 +534,10 @@ function createCrm(store) {
       const { enabled, accessToken } = crm.instagramSettings();
       if (!enabled || !accessToken) throw new UserError('Instagram не подключён: «Ещё» → «Настройки» → Instagram');
       if (!l.ig_user_id) throw new UserError('Этот клиент не писал в Instagram Direct — ответить можно только тому, кто написал первым');
-      let res, data;
       try {
-        res = await fetch(`${INSTAGRAM_API}/me/messages`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-          body: JSON.stringify({ recipient: { id: l.ig_user_id }, message: { text: t } }),
-          signal: AbortSignal.timeout(15_000),
-        });
-        data = await res.json().catch(() => ({}));
+        await crm.igCall('POST', '/me/messages', { recipient: { id: l.ig_user_id }, message: { text: t } });
       } catch (err) {
-        throw new UserError(`Нет связи с Instagram: ${err.message}`);
-      }
-      if (!res.ok || data.error) {
-        const msg = data.error?.message || `ошибка ${res.status}`;
+        const msg = err.message;
         throw new UserError(/24|window|outside/i.test(msg) ? 'Прошло больше 24 часов с последнего сообщения клиента — Instagram не даёт написать первым. Ответьте, когда клиент напишет снова.' : `Instagram не принял сообщение: ${msg}`);
       }
       event(l.id, 'out', t, author || who(user));
