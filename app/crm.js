@@ -264,7 +264,7 @@ function createCrm(store) {
         saved.verifyToken = crypto.randomBytes(12).toString('hex');
         store.setSetting('instagram', JSON.stringify(saved));
       }
-      return { enabled: false, appSecret: '', accessToken: '', ...saved };
+      return { enabled: false, appSecret: '', accessToken: '', autoReply: false, autoText: '', autoHours: 12, ...saved };
     },
 
     setInstagram(input) {
@@ -275,6 +275,14 @@ function createCrm(store) {
         appSecret: input.appSecret ? text(input.appSecret, 'App Secret', { max: 100 }) : cur.appSecret,
         accessToken: input.accessToken ? text(input.accessToken, 'Токен доступа', { max: 1000 }) : cur.accessToken,
       };
+      // Автоответ: на сообщение в Direct клиенту уходит этот текст — не чаще раза в autoHours часов одному человеку.
+      if ('autoReply' in input) {
+        next.autoReply = Boolean(input.autoReply);
+        next.autoText = text(input.autoText, 'Текст автоответа', { max: 1000 });
+        const h = Number(input.autoHours);
+        next.autoHours = Number.isFinite(h) && h >= 1 && h <= 168 ? Math.round(h) : 12;
+        if (next.autoReply && !next.autoText) throw new UserError('Напишите текст автоответа');
+      }
       if (next.enabled && (!next.appSecret || !next.accessToken)) throw new UserError('Чтобы включить Instagram, укажите App Secret и токен доступа');
       store.setSetting('instagram', JSON.stringify(next));
       return next;
@@ -362,8 +370,37 @@ function createCrm(store) {
       }
     },
 
+    // Автоответ на входящее сообщение: если включён и этому человеку автоответ не уходил последние autoHours часов.
+    // Возвращает отправленный текст, null (не нужно) или бросает ошибку (Instagram не принял).
+    async instagramAutoReply(leadId) {
+      const s = crm.instagramSettings();
+      if (!s.enabled || !s.autoReply || !s.autoText || !s.accessToken) return null;
+      const l = getLead(leadId);
+      if (!l.ig_user_id) return null;
+      const last = db.prepare(`SELECT MAX(e.at) AS at FROM lead_events e JOIN leads l ON l.id = e.lead_id
+        WHERE l.ig_user_id = ? AND e.kind = 'out' AND e.user_name = 'Автоответ'`).get(l.ig_user_id).at;
+      if (last && Date.now() - last < s.autoHours * 3600e3) return null;
+      await crm.replyInstagram(l.id, s.autoText, null, 'Автоответ');
+      return s.autoText;
+    },
+
+    // Проверка токена: какой аккаунт Instagram за ним стоит.
+    async checkInstagram() {
+      const { accessToken } = crm.instagramSettings();
+      if (!accessToken) throw new UserError('Токен доступа не указан');
+      let res, data;
+      try {
+        res = await fetch(`${INSTAGRAM_API}/me?fields=user_id,username,name`, { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(10_000) });
+        data = await res.json().catch(() => ({}));
+      } catch (err) {
+        throw new UserError(`Нет связи с Instagram: ${err.message}`);
+      }
+      if (!res.ok || data.error) throw new UserError(`Instagram не принял токен: ${data.error?.message || `ошибка ${res.status}`}`);
+      return { username: data.username || '', name: data.name || '', id: data.user_id || data.id || '' };
+    },
+
     // Ответ клиенту в Direct. Instagram разрешает писать в течение 24 часов после его последнего сообщения.
-    async replyInstagram(id, body, user) {
+    async replyInstagram(id, body, user, author = null) {
       const l = getLead(id);
       const t = text(body, 'Сообщение', { required: true, max: 1000 });
       const { enabled, accessToken } = crm.instagramSettings();
@@ -385,7 +422,7 @@ function createCrm(store) {
         const msg = data.error?.message || `ошибка ${res.status}`;
         throw new UserError(/24|window|outside/i.test(msg) ? 'Прошло больше 24 часов с последнего сообщения клиента — Instagram не даёт написать первым. Ответьте, когда клиент напишет снова.' : `Instagram не принял сообщение: ${msg}`);
       }
-      event(l.id, 'out', t, who(user));
+      event(l.id, 'out', t, author || who(user));
       return crm.get(l.id);
     },
 

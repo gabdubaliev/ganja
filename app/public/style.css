@@ -1925,3 +1925,5 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .mig-var-footer .mig-sum { margin: 0 0 6px; }
 .mv-ignore { font-size: 13px; }
 @media (max-width: 520px) { .mv-cells { grid-template-columns: 1fr; } .mv-cell { grid-template-columns: 56px 52px 1fr 52px; } .mv-step { width: 52px; height: 48px; } .mv-cell .input { height: 48px; } }
+.ig-auto { display: grid; gap: 8px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--series) 6%, transparent); }
+.ig-status p { margin: 2px 0; }

@@ -1359,8 +1359,14 @@
       <div class="field"><label for="ig-secret">Секрет приложения (App Secret)</label><input id="ig-secret" name="appSecret" class="input" autocomplete="off"></div>
       <div class="field"><label for="ig-token">Токен доступа Instagram</label><input id="ig-token" name="accessToken" class="input" autocomplete="off"></div>
       <label class="check"><input type="checkbox" name="enabled"> Принимать сообщения из Instagram</label>
+      <div class="ig-auto">
+        <label class="check"><input type="checkbox" name="autoReply"> <b>Автоответ</b> — на сообщение в Direct клиенту сразу уходит текст ниже</label>
+        <div class="field"><label for="ig-auto-text">Текст автоответа</label><textarea id="ig-auto-text" name="autoText" class="input" rows="3" maxlength="1000" placeholder="Здравствуйте! Спасибо за сообщение 🙌 Ответим в течение 15 минут. Каталог и цены: montshop.kg"></textarea></div>
+        <div class="field"><label for="ig-auto-hours">Не чаще одного раза одному клиенту, часов</label><input id="ig-auto-hours" name="autoHours" class="input num" inputmode="numeric" value="12"></div>
+      </div>
+      <div class="ig-status" id="ig-status"></div>
       <p class="form-error" id="instagram-error" role="alert" hidden></p>
-      <div class="form-actions start"><button type="submit" class="btn primary">Сохранить</button></div>
+      <div class="form-actions start"><button type="submit" class="btn primary">Сохранить</button><button type="button" class="btn" id="ig-check">Проверить подключение</button></div>
     </form>
   </section>
   <section class="panel" data-can="settings">

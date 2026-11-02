@@ -716,6 +716,14 @@
     `parent`/`parentName` и `parents` (для проданных удалённых модификаций); dashboard.js `compute` строит `top` (сумма по
     основному товару), `renderTop` берёт `state.view.top`; таблица «Товары и остатки» — по-прежнему по модификациям.
     `reportProducts` группирует по COALESCE(parent_id, product_id), поле `variants` — сколько модификаций продано.
+67. **Instagram: автоответ и диагностика** (crm.js, server.js `metaWebhook`, «Настройки → Instagram»). Подключение —
+    через приложение Meta «MONT CRM» владельца: вебхук https://baza.montshop.kg/webhooks/instagram (поля messages, comments),
+    аккаунты abdubaliev_ и mont_kyrgyzstan_ (тестировщики), приложение в режиме разработки (проверка приложения не пройдена →
+    сообщения приходят только от аккаунтов с ролью в приложении). Комментарии программа пока не разбирает (только Direct).
+    Автоответ: настройки autoReply/autoText/autoHours (1–168, по умолчанию 12); после входящего сообщения
+    `crm.instagramAutoReply` шлёт текст, если этому ig_user_id автоответ не уходил autoHours часов (событие CRM «out»,
+    автор «Автоответ»); ошибка → журнал «Автоответ в Instagram не отправлен». Настройки показывают время последнего
+    вебхука (`instagram_last_hook`), последний отказ подписи и ошибку автоответа; «Проверить подключение» — `GET /me` по токену.
     Ошибки скриптов витрины: `window.shopError` в shop.html → POST `/shop/client-error` (≤20/мин) → журнал
     (`journalctl -u shop | grep 'Витрина: ошибка'`); с `?debug=1` в адресе — красная панель с текстом ошибки на странице.
 

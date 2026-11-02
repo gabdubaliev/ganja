@@ -1015,10 +1015,7 @@ const routes = [
   ['GET', '/api/settings/whatsapp', () => whatsappPublic(crm.whatsappSettings()), 'settings'],
   ['PUT', '/api/settings/whatsapp', (p, url, body) => whatsappPublic(crm.setWhatsapp(body)), 'settings'],
   // Секреты Instagram наружу не отдаём: только признак, что они заданы.
-  ['GET', '/api/settings/instagram', (p, url) => {
-    const s = crm.instagramSettings();
-    return { enabled: s.enabled, verifyToken: s.verifyToken, hasSecret: Boolean(s.appSecret), hasToken: Boolean(s.accessToken), webhookPath: '/webhooks/instagram', auto: igAutoPublic(s) };
-  }, 'settings'],
+  ['GET', '/api/settings/instagram', () => igSettingsOut(crm.instagramSettings()), 'settings'],
   // Автоответ ценой: настройки, проверка ответа по артикулу и журнал отправленных ответов.
   ['PUT', '/api/settings/instagram/auto', (p, url, body) => igAutoPublic(crm.setInstagramAuto(body)), 'settings'],
   ['POST', '/api/settings/instagram/preview', (p, url, body) => {
@@ -1027,10 +1024,8 @@ const routes = [
     return r;
   }, 'settings'],
   ['GET', '/api/instagram/auto-log', (p, url) => ({ items: igPrice.log({ limit: url.searchParams.get('limit') }), week: igPrice.stats(7) }), 'settings'],
-  ['PUT', '/api/settings/instagram', (p, url, body) => {
-    const s = crm.setInstagram(body);
-    return { enabled: s.enabled, verifyToken: s.verifyToken, hasSecret: Boolean(s.appSecret), hasToken: Boolean(s.accessToken), webhookPath: '/webhooks/instagram' };
-  }, 'settings'],
+  ['PUT', '/api/settings/instagram', (p, url, body) => igSettingsOut(crm.setInstagram(body)), 'settings'],
+  ['POST', '/api/settings/instagram/check', () => crm.checkInstagram(), 'settings'],
   // Отмена действия сотрудника из журнала: dryRun — показать, что изменится и что мешает.
   // С правом «Журнал» — отмена любых действий; с правом «Свои действия» — только своих.
   ['POST', '/api/audit/:id/undo', (p, url, body, user) => store.undoActions(p.id, { scope: body.scope === 'after' ? 'after' : 'one', dryRun: Boolean(body.dryRun), onlyUser: can(user, 'audit') ? null : user }, user, reqMeta), ['audit', 'undo.own']],
@@ -1543,6 +1538,15 @@ function igAutoPublic(s) {
   };
 }
 
+// Настройки Instagram для экрана: без секретов; когда последний раз приходил вебхук и был ли отказ.
+function igSettingsOut(s) {
+  const lastHook = Number(store.setting('instagram_last_hook', '0')) || null;
+  const denied = store.listAudit({ from: Date.now() - 7 * 864e5, to: Date.now() + 1, kind: 'denied', q: 'Вебхук Instagram', limit: 1 })[0];
+  const failed = store.listAudit({ from: Date.now() - 7 * 864e5, to: Date.now() + 1, kind: 'change', q: 'Автоответ в Instagram не отправлен', limit: 1 })[0];
+  return { enabled: s.enabled, verifyToken: s.verifyToken, hasSecret: Boolean(s.appSecret), hasToken: Boolean(s.accessToken), webhookPath: '/webhooks/instagram',
+    autoReply: s.autoReply, autoText: s.autoText, autoHours: s.autoHours, lastHook,
+    lastDenied: denied ? { at: denied.at, details: denied.details } : null, lastAutoError: failed ? { at: failed.at, details: failed.details } : null, auto: igAutoPublic(s) };
+}
 const META_CHANNELS = {
   instagram: { name: 'Instagram', settings: () => crm.instagramSettings(), receive: (p) => crm.receiveInstagram(p), profile: (id) => crm.fillInstagramProfile(id) },
   whatsapp: { name: 'WhatsApp', settings: () => crm.whatsappSettings(), receive: (p) => crm.receiveWhatsapp(p), profile: async () => {} },
@@ -1571,11 +1575,15 @@ async function metaWebhook(req, res, url, channel) {
   }
   // Meta ждёт ответ быстро: отвечаем сразу, сообщения разбираем после.
   sendJson(res, 200, { ok: true });
+  // Когда Meta последний раз прислала событие — видно в настройках (доходят ли сообщения вообще).
+  try { store.setSetting(`${channel}_last_hook`, String(Date.now())); } catch { /* не важно */ }
+  const greet = [];
   try {
     for (const { lead, isNew } of ch.receive(JSON.parse(raw.toString('utf8')))) {
       if (isNew) await ch.profile(lead.id);
       const fresh = crm.get(lead.id);
       notifier.broadcast('lead', { id: fresh.id, name: fresh.name, source: ch.name, text: fresh.events.at(-1)?.text || '' }, 'crm');
+      if (channel === 'instagram' && !greet.some((x) => x.id === fresh.id)) greet.push(fresh);
     }
   } catch (err) {
     console.error(`${ch.name}: не получилось разобрать сообщение:`, err.message);
@@ -1586,6 +1594,12 @@ async function metaWebhook(req, res, url, channel) {
       await igPrice.handle(JSON.parse(raw.toString('utf8')));
     } catch (err) {
       console.error('Instagram: автоответ ценой не сработал:', err.message);
+    }
+    // Затем приветственный автоответ — один на человека; если ответ ценой уже ушёл (событие «Автоответ»), не дублируется.
+    for (const lead of greet) {
+      try { await crm.instagramAutoReply(lead.id); } catch (err) {
+        store.audit({ kind: 'change', userName: 'Instagram', action: 'Автоответ в Instagram не отправлен', details: `${lead.name}: ${err.message}`.slice(0, 500) });
+      }
     }
   }
 }

@@ -68,6 +68,16 @@ async function renderInstagram() {
     f.elements.appSecret.placeholder = s.hasSecret ? 'Сохранён. Введите новый, чтобы заменить' : '';
     f.elements.accessToken.placeholder = s.hasToken ? 'Сохранён. Введите новый, чтобы заменить' : 'IGAA…';
     f.elements.enabled.checked = s.enabled;
+    f.elements.autoReply.checked = s.autoReply;
+    f.elements.autoText.value = s.autoText || '';
+    f.elements.autoHours.value = s.autoHours || 12;
+    // Доходят ли сообщения: когда Instagram последний раз присылал событие, были ли отказы и ошибки автоответа.
+    const when = (t) => new Date(t).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    $('#ig-status').innerHTML = [
+      s.lastHook ? `✅ Последнее событие от Instagram: <b>${when(s.lastHook)}</b>` : '⏳ От Instagram ещё не приходило ни одного сообщения на этот адрес',
+      s.lastDenied ? `⚠️ ${when(s.lastDenied.at)} Instagram прислал сообщение, но программа его отклонила: ${esc(s.lastDenied.details)} (проверьте App Secret и галочку «Принимать сообщения»)` : '',
+      s.lastAutoError ? `⚠️ ${when(s.lastAutoError.at)} автоответ не отправлен: ${esc(s.lastAutoError.details)}` : '',
+    ].filter(Boolean).map((x) => `<p class="pick-meta">${x}</p>`).join('');
   } catch (err) {
     toast(err.message, 'error');
   }
@@ -125,12 +135,22 @@ $('#ia-preview').addEventListener('click', async () => {
     showFormError('#igauto-error', err);
   }
 });
+$('#ig-check').addEventListener('click', async () => {
+  $('#instagram-error').hidden = true;
+  try {
+    const r = await api('/api/settings/instagram/check', { method: 'POST' });
+    toast(`Токен работает: аккаунт @${r.username || r.name || r.id}`);
+  } catch (err) {
+    showFormError('#instagram-error', err);
+  }
+});
 
 $('#instagram-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
   try {
-    await api('/api/settings/instagram', { method: 'PUT', body: { appSecret: f.elements.appSecret.value, accessToken: f.elements.accessToken.value, enabled: f.elements.enabled.checked } });
+    await api('/api/settings/instagram', { method: 'PUT', body: { appSecret: f.elements.appSecret.value, accessToken: f.elements.accessToken.value, enabled: f.elements.enabled.checked,
+      autoReply: f.elements.autoReply.checked, autoText: f.elements.autoText.value, autoHours: f.elements.autoHours.value } });
     toast('Настройки Instagram сохранены');
     renderInstagram();
   } catch (err) {
