@@ -89,12 +89,26 @@ function compute(data, key, now) {
     return { ...p, profit, prevProfit: p.prevRevenue - p.prevCost, margin: p.revenue > 0 ? profit / p.revenue : null, daysLeft, status };
   });
 
+  // «Топ товаров» — по основным товарам: модификации (цвет, размер) складываются в свой товар.
+  const info = new Map(data.products.map((p) => [p.id, p]));
+  const tops = new Map();
+  for (const p of products) {
+    const meta = info.get(p.id);
+    const par = meta?.parent ? { id: meta.parent, name: meta.parentName } : data.parents?.[p.id];
+    const key = par ? par.id : p.id;
+    let t = tops.get(key);
+    if (!t) { t = { id: key, name: par ? par.name || p.name.split(' · ')[0] : p.name, qty: 0, revenue: 0, cost: 0, profit: 0, prevQty: 0, prevRevenue: 0, prevCost: 0, prevProfit: 0, variants: 0 }; tops.set(key, t); }
+    for (const k of ['qty', 'revenue', 'cost', 'profit', 'prevQty', 'prevRevenue', 'prevCost', 'prevProfit']) t[k] += p[k] || 0;
+    if (par) t.variants++;
+  }
+  const top = [...tops.values()].map((t) => ({ ...t, margin: t.revenue > 0 ? t.profit / t.revenue : null }));
+
   const staff = [...staffById.values()].map((s) => ({
     ...s, profit: s.revenue - s.cost, prevProfit: s.prevRevenue - s.prevCost,
     checks: s.receipts.size, prevChecks: s.prevReceipts.size,
     avg: s.receipts.size ? s.revenue / s.receipts.size : 0, prevAvg: s.prevReceipts.size ? s.prevRevenue / s.prevReceipts.size : 0,
   }));
-  return { range, buckets, cur, prev, products, staff };
+  return { range, buckets, cur, prev, products, top, staff };
 }
 
 /* ---------- Отрисовка ---------- */
@@ -271,7 +285,7 @@ function renderTops() {
   chips('#top-staff-sort', TOP_STAFF, state.topStaff, 'data-top-staff');
   const [, pk, pf, pu, ps] = TOP_PRODUCTS[state.topProducts];
   $('#top-products-sub').textContent = ps;
-  renderTop($('#top-products'), state.view.products, state.topProducts, pk, pf, pu);
+  renderTop($('#top-products'), state.view.top, state.topProducts, pk, pf, pu);
   const [, sk, sf, su, ss] = TOP_STAFF[state.topStaff];
   $('#top-staff-sub').textContent = `${ss} · ${PERIODS[state.period].label.toLowerCase()}`;
   // Рейтинг — только сотрудники; чеки, пробитые без входа, показываем отдельной строкой.

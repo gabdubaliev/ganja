@@ -160,7 +160,7 @@ function renderHits() {
   const rows = sorted.map((r, i) => ({ ...r, place: i + 1 })).filter((r) => !q || r.name.toLowerCase().includes(q));
   $('#hits-body').innerHTML = rows.length ? rows.slice(0, 300).map((r) => `<tr>
       <td><b>${r.place}</b></td>
-      <td><div class="pname">${esc(r.name)}</div>${r.category ? `<div class="pcat">${esc(r.category)}</div>` : ''}</td>
+      <td><div class="pname">${esc(r.name)}</div>${r.category || r.variants ? `<div class="pcat">${esc([r.category, r.variants ? `продано ${r.variants} ${plural(r.variants, ['модификация', 'модификации', 'модификаций'])}` : ''].filter(Boolean).join(' · '))}</div>` : ''}</td>
       <td>${qty(r.qty, r.unit || 'шт')}</td>
       <td>${int(r.receipts)}</td>
       <td>${money(r.revenue)}</td>

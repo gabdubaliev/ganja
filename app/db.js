@@ -2643,14 +2643,15 @@ function createStore(file) {
       };
     },
 
-    // Хиты товаров за период: сколько продано, выручка и прибыль по каждому товару.
+    // Хиты товаров за период: сколько продано, выручка и прибыль по каждому товару (модификации — в своём основном товаре).
     reportProducts({ from, to }) {
       return db.prepare(`
-        SELECT si.product_id AS id, MAX(si.name) AS name, p.category, p.unit, p.parent_id,
+        SELECT COALESCE(p.parent_id, si.product_id) AS id, COALESCE(b.name, MAX(si.name)) AS name, COALESCE(b.category, p.category) AS category, COALESCE(b.unit, p.unit) AS unit,
+          COUNT(DISTINCT CASE WHEN p.parent_id IS NOT NULL THEN si.product_id END) AS variants,
           SUM(si.qty) AS qty, SUM(si.qty * si.price - ${LINE_FEE}) AS revenue, SUM(si.qty * (si.price - COALESCE(si.purchase, si.cost)) - ${LINE_FEE}) AS profit, COUNT(DISTINCT s.id) AS receipts
-        FROM sales s JOIN sale_items si ON si.sale_id = s.id LEFT JOIN products p ON p.id = si.product_id
+        FROM sales s JOIN sale_items si ON si.sale_id = s.id LEFT JOIN products p ON p.id = si.product_id LEFT JOIN products b ON b.id = p.parent_id
         WHERE s.refunded_at IS NULL AND s.created_at >= ? AND s.created_at < ?
-        GROUP BY si.product_id ORDER BY revenue DESC`).all(from, to)
+        GROUP BY COALESCE(p.parent_id, si.product_id) ORDER BY revenue DESC`).all(from, to)
         .map((r) => ({ ...r, revenue: round2(r.revenue), profit: round2(r.profit) }));
     },
 
@@ -4359,9 +4360,13 @@ function createStore(file) {
 
     // Данные для дашборда: товары и строки продаж (без возвратов) за период.
     analytics({ from, to }) {
-      const products = db.prepare(`SELECT id, name, category, code, unit, stock, price, cost, COALESCE(purchase, cost) AS purchase FROM products p WHERE archived = 0
+      // parent / parentName — основной товар модификации: «Топ товаров» складывает модификации в него.
+      const products = db.prepare(`SELECT p.id, p.name, p.category, p.code, p.unit, p.stock, p.price, p.cost, COALESCE(p.purchase, p.cost) AS purchase,
+          p.parent_id AS parent, b.name AS parentName, b.category AS parentCategory FROM products p LEFT JOIN products b ON b.id = p.parent_id WHERE p.archived = 0
         AND NOT EXISTS (SELECT 1 FROM products c WHERE c.parent_id = p.id AND c.deleted = 0)`).all()
-        .map((p) => ({ ...p, id: String(p.id) }));
+        .map((p) => ({ ...p, id: String(p.id), parent: p.parent ? String(p.parent) : null }));
+      // Проданные модификации, которых уже нет в списке (удалены, убраны из продажи), — тоже к своему товару.
+      const parents = Object.fromEntries(db.prepare(`SELECT p.id, p.parent_id, b.name FROM products p JOIN products b ON b.id = p.parent_id`).all().map((r) => [String(r.id), { id: String(r.parent_id), name: r.name }]));
       const sales = db.prepare(`
         SELECT s.created_at AS t, s.id AS r, s.user_id AS u, si.product_id AS p, si.name AS n, si.qty AS q,
           si.qty * si.price - ${LINE_FEE} AS s, si.qty * COALESCE(si.purchase, si.cost) AS c, ${LINE_FEE} AS f
@@ -4371,7 +4376,7 @@ function createStore(file) {
         .map((l) => ({ ...l, p: String(l.p), r: String(l.r) }));
       // Имена сотрудников для «Топ сотрудников»; чеки без входа идут под ключом null.
       const staff = Object.fromEntries(db.prepare("SELECT id, COALESCE(NULLIF(name, ''), email) AS name, role FROM users").all().map((u) => [u.id, { name: u.name, role: u.role }]));
-      return { products, sales, staff, updatedAt: Date.now() };
+      return { products, sales, staff, parents, updatedAt: Date.now() };
     },
 
     /* ---------- Сотрудники ---------- */

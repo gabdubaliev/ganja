@@ -704,6 +704,10 @@
     `currency`; с одним `currency` страница «Настройки» показывает только карточку курса — остальные панели data-can="settings").
     Роли по умолчанию: управляющий — export, migrate, newproduct; кладовщик — export, newproduct; администратор — всё.
     Уже были: `categories`, `undo.own`, `audit` (отмена любых), `studio`, `photos`, `shop` (значок вкладки).
+66. **«Топ товаров» (главная) и «Хиты товаров» (Отчёты) — по основным товарам.** `analytics` отдаёт у товара
+    `parent`/`parentName` и `parents` (для проданных удалённых модификаций); dashboard.js `compute` строит `top` (сумма по
+    основному товару), `renderTop` берёт `state.view.top`; таблица «Товары и остатки» — по-прежнему по модификациям.
+    `reportProducts` группирует по COALESCE(parent_id, product_id), поле `variants` — сколько модификаций продано.
     Ошибки скриптов витрины: `window.shopError` в shop.html → POST `/shop/client-error` (≤20/мин) → журнал
     (`journalctl -u shop | grep 'Витрина: ошибка'`); с `?debug=1` в адресе — красная панель с текстом ошибки на странице.
 
