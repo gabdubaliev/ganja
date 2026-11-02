@@ -742,6 +742,11 @@
     страницы через /me/accounts (instagram_business_account), подписка страницы /{page}/subscribed_apps; без страницы —
     /me/assigned_instagram_accounts или вписанный «ID аккаунта Instagram». Для тестов: FACEBOOK_API_URL, FACEBOOK_DIALOG_URL.
     Не проверено на настоящем Meta: схема единого входа новая (по обсуждениям разработчиков, 2026).
+    Конфигурация 1119756411022012: маркер системного пользователя (SUAT), «никогда» не истекает, объекты — аккаунт Instagram
+    (страница не нужна), разрешения instagram_basic/manage_messages/manage_comments/… Ошибка «Object with ID … cannot be
+    loaded» → `crm.debugFacebookToken` (GET /debug_token, ключ «appId|appSecret»): тип, разрешения и ID аккаунтов Instagram
+    из granular_scopes.target_ids; при сохранении EAA и при «Проверить подключение» ID аккаунта подставляется сам, а в
+    ошибке — расшифровка (тип маркера, разрешения, доступные ID).
     Ошибки скриптов витрины: `window.shopError` в shop.html → POST `/shop/client-error` (≤20/мин) → журнал
     (`journalctl -u shop | grep 'Витрина: ошибка'`); с `?debug=1` в адресе — красная панель с текстом ошибки на странице.
 

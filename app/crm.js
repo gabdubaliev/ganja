@@ -494,6 +494,10 @@ function createCrm(store) {
         if (sub.error) note = `страница не подписана на сообщения: ${sub.error.message}`;
       } else {
         s = { ...s, pageId: '', pageName: '', pageToken: '' };
+        // ID аккаунта Instagram, к которому маркер реально даёт доступ, — по ответу Meta о маркере.
+        store.setSetting('instagram', JSON.stringify(s));
+        const dbg = await crm.debugFacebookToken().catch(() => null);
+        if (dbg?.igIds?.length && !dbg.igIds.includes(s.igId)) s = { ...s, igId: dbg.igIds[0] };
         if (!s.igId) {
           const a = await get('/me/assigned_instagram_accounts?fields=id,username', s.accessToken).catch(() => ({}));
           if (a.data?.[0]) s = { ...s, igId: a.data[0].id, igUsername: a.data[0].username || '' };
@@ -501,6 +505,20 @@ function createCrm(store) {
       }
       store.setSetting('instagram', JSON.stringify({ ...s, resolveNote: note }));
       return { mode: crm.instagramMode(s), page: page ? page.name : null, note };
+    },
+    // Что за маркер EAA: спрашиваем у Meta (debug_token, ключ приложения «ID|секрет»). Возвращает тип, разрешения и
+    // ID аккаунтов Instagram, к которым маркер даёт доступ (granular_scopes → target_ids).
+    async debugFacebookToken() {
+      const s = crm.instagramSettings();
+      if (!/^EAA/.test(s.accessToken || '')) return null;
+      if (!s.appId || !s.appSecret) throw new UserError('Для проверки маркера укажите ID и секрет приложения');
+      const r = await fetch(`${FACEBOOK_API}/debug_token?${new URLSearchParams({ input_token: s.accessToken, access_token: `${s.appId}|${s.appSecret}` })}`, { signal: AbortSignal.timeout(15_000) });
+      const d = (await r.json().catch(() => ({}))).data || {};
+      if (d.error) throw new UserError(`Meta: ${d.error.message}`);
+      const ig = new Set();
+      for (const g of d.granular_scopes || []) if (/^instagram_/.test(g.scope)) for (const t of g.target_ids || []) ig.add(String(t));
+      return { valid: d.is_valid !== false, type: d.type || '', app: d.application || '', expires: d.expires_at ? d.expires_at * 1000 : 0,
+        scopes: d.scopes || [], igIds: [...ig] };
     },
     // Продление долгого маркера IGAA (раз в 6 часов; продлевается, если до конца < 20 дней).
     async refreshInstagramToken() {
@@ -516,13 +534,32 @@ function createCrm(store) {
 
     // Проверка: какой аккаунт Instagram стоит за подключением.
     async checkInstagram() {
-      const s = crm.instagramSettings();
+      let s = crm.instagramSettings();
+      // Единый вход: если Meta говорит, что маркер даёт доступ к другому ID аккаунта Instagram, — берём его.
+      if (crm.instagramMode(s) === 'unified' && s.appId && s.appSecret) {
+        const d = await crm.debugFacebookToken().catch(() => null);
+        if (d?.igIds?.length && !d.igIds.includes(s.igId)) {
+          store.setSetting('instagram', JSON.stringify({ ...s, igId: d.igIds[0] }));
+          s = crm.instagramSettings();
+        }
+      }
       if (!s.accessToken) throw new UserError('Маркер доступа не указан — нажмите «Подключить Instagram» или вставьте маркер');
       let data;
       try {
         data = await crm.igCall('GET', crm.instagramMode(s) === 'instagram' ? '/me?fields=user_id,username,name' : '/me?fields=id,username,name');
       } catch (err) {
-        throw new UserError(`Instagram не принял маркер: ${err.message}`);
+        // Расшифровка для владельца: что за маркер и к каким аккаунтам у него есть доступ.
+        let why = '';
+        if (crm.instagramMode(s) !== 'instagram') {
+          const d = await crm.debugFacebookToken().catch((e) => ({ error: e.message }));
+          if (d?.error) why = ` Проверка маркера: ${d.error}`;
+          else if (d) {
+            const kind = d.type === 'SYSTEM_USER' ? 'системный (из кнопки «Подключить Instagram»)' : d.type === 'USER' ? 'пользовательский (например, из Graph API Explorer)' : d.type || 'неизвестный';
+            why = ` Маркер: ${kind}${d.valid ? '' : ', НЕДЕЙСТВИТЕЛЕН'}; разрешения: ${d.scopes.join(', ') || 'нет'}; доступ к аккаунтам Instagram: ${d.igIds.join(', ') || 'нет'}.`
+              + (d.igIds.length ? (d.igIds.includes(s.igId) ? '' : ` Впишите в «ID аккаунта Instagram» ${d.igIds[0]}.`) : ' Подключите заново кнопкой «Подключить Instagram» и в окне Meta отметьте аккаунт Instagram магазина.');
+          }
+        }
+        throw new UserError(`Instagram не принял маркер: ${err.message}${why}`);
       }
       return { username: data.username || '', name: data.name || '', id: data.user_id || data.id || '', mode: crm.instagramMode(s), page: s.pageName || '' };
     },
