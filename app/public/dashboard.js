@@ -713,6 +713,7 @@ async function openShiftReport(id = null) {
         ${srRow('На начало смены', c.open === null ? '—' : money(c.open))}
         ${c.openDiff ? srRow('Расхождение при открытии', money(c.openDiff), 'sub') : ''}
         ${srRow('+ продажи наличными', money(c.sales))}
+        ${c.changeKept ? srRow('+ сдача, оставленная в кассе', money(c.changeKept)) + r.kept.map((k) => srRow(`${esc(k.note)}${k.user_name ? ` · ${esc(k.user_name)}` : ''}`, money(k.amount), 'sub')).join('') : ''}
         ${c.expenses ? srRow('− расходы из кассы', money(c.expenses)) : ''}
         ${r.cashExpenses.map((e) => srRow(`${esc(e.category)}: ${esc(e.note)}${e.user_name ? ` · ${esc(e.user_name)}` : ''} · ${hm(e.at)}`, money(e.amount), 'sub')).join('')}
         ${c.ops ? srRow('± внесения и изъятия', money(c.ops)) : ''}
@@ -737,6 +738,7 @@ async function openShiftReport(id = null) {
         ${f.other ? srRow('− расходы', money(f.other)) + f.expenses.map((e) => srRow(esc(e.category), money(e.amount), 'sub')).join('') : ''}
         ${f.fixed ? srRow('− постоянные расходы (доля за день)', money(f.fixed)) + f.recurring.map((e) => srRow(esc(e.name), money(e.amount), 'sub')).join('') : ''}
         ${f.writeoffs ? srRow('− списания', money(f.writeoffs)) : ''}
+        ${c.changeKept ? srRow('+ сдача, оставленная покупателями', money(c.changeKept)) : ''}
         ${srRow('= Чистая прибыль', money(r.net), 'total')}
       </section>
       <section class="shr-sec"><h3>🏦 Куда разложить деньги дня</h3>
@@ -747,9 +749,11 @@ async function openShiftReport(id = null) {
         ${sp.fixed ? srRow('Отложить на постоянные расходы', money(sp.fixed)) : ''}
         ${sp.commission ? srRow('Комиссия банков (удержал банк)', money(sp.commission)) : ''}
         ${srRow('На счёт прибыли', money(sp.profit), 'total')}
-        ${srRow('Итого = выручка', money(sp.turnover + sp.salary + sp.expenses + sp.fixed + sp.commission + sp.profit + (f.writeoffs || 0)), 'sub')}
+        ${srRow('Итого = выручка' + (sp.changeKept ? ' + оставленная сдача' : ''), money(sp.turnover + sp.salary + sp.expenses + sp.fixed + sp.commission + sp.profit + (f.writeoffs || 0)), 'sub')}
       </section>
     </div>`;
+  // Отчёт в Telegram уходит сам при закрытии смены; вручную отправить может только владелец.
+  $('#shr-tg').hidden = !session.isOwner;
   if (!$('#shr-dlg').open) $('#shr-dlg').showModal();
 }
 $('#desk-report-btn').addEventListener('click', () => openShiftReport());

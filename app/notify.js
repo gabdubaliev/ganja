@@ -75,6 +75,7 @@ function createNotifier(store) {
       ...sale.items.slice(0, 10).map((i) => `• ${i.name} × ${i.qty} = ${rub(i.qty * i.price)}`),
       sale.items.length > 10 ? `…и ещё ${sale.items.length - 10}` : '',
       sale.bonusSpent ? `Оплачено бонусами: ${rub(sale.bonusSpent)}` : '',
+      sale.changeKept ? `Сдачу ${rub(sale.changeKept)} не выдали — оставили в кассе` : '',
       sale.customer ? `Покупатель: ${sale.customer.name || '+' + sale.customer.phone}, начислено ${sale.bonusEarned} бонусов` : '',
     ].filter(Boolean);
     sendTelegram(lines.join('\n'), tg).catch((err) => console.error('Уведомление в Telegram не отправлено:', err.message));

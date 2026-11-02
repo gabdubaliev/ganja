@@ -7,7 +7,7 @@ const path = require('node:path');
 loadEnv(path.join(__dirname, '.env'));
 // Дни, смены и выплатные периоды считаются по времени Бишкека, даже если сервер живёт в UTC.
 process.env.TZ ||= 'Asia/Bishkek';
-const { createStore, useFontsFrom, UserError, phone: normalizePhone } = require('./db');
+const { createStore, useFontsFrom, UserError, phone: normalizePhone, round2 } = require('./db');
 const { seedDemo } = require('./demo');
 const invoice = require('./invoice');
 const { createStudio } = require('./studio');
@@ -257,6 +257,7 @@ function shiftReportText(r, title = '📊 Отчёт по смене') {
   L.push('', '💵 Деньги в кассе (наличные)');
   L.push(`На начало смены: ${r.cash.open === null ? '—' : tgMoney(r.cash.open)}${r.cash.openDiff ? ` (расхождение ${tgMoney(r.cash.openDiff)})` : ''}`);
   L.push(`+ продажи наличными: ${tgMoney(r.cash.sales)}`);
+  if (r.cash.changeKept) L.push(`+ сдача, оставленная в кассе: ${tgMoney(r.cash.changeKept)} (${r.kept.length} раз)`);
   if (r.cash.expenses) L.push(`− расходы из кассы: ${tgMoney(r.cash.expenses)}`);
   for (const e of r.cashExpenses) L.push(`   · ${e.category}: ${tgMoney(e.amount)}${e.note ? ` — ${e.note}` : ''}${e.user_name ? ` (${e.user_name})` : ''}`);
   if (r.cash.ops) L.push(`± внесения/изъятия: ${tgMoney(r.cash.ops)}`);
@@ -287,6 +288,7 @@ function shiftReportText(r, title = '📊 Отчёт по смене') {
   if (f.other) { L.push(`− расходы: ${tgMoney(f.other)}`); for (const e of f.expenses) L.push(`   · ${e.category}: ${tgMoney(e.amount)}`); }
   if (f.fixed) L.push(`− постоянные расходы (доля за день): ${tgMoney(f.fixed)}`);
   if (f.writeoffs) L.push(`− списания: ${tgMoney(f.writeoffs)}`);
+  if (r.cash.changeKept) L.push(`+ сдача, оставленная покупателями: ${tgMoney(r.cash.changeKept)}`);
   L.push(`= ЧИСТАЯ ПРИБЫЛЬ: ${tgMoney(r.net)}`);
   const sp = r.split;
   L.push('', '🏦 Куда разложить деньги дня');
@@ -325,6 +327,67 @@ function shiftTelegram(sh, kind, user) {
     return;
   }
   if (text) notifier.sendTelegram(text.slice(0, 4000), tg).catch((err) => console.error('Уведомление о смене в Telegram не отправлено:', err.message));
+}
+// Каждое движение денег и товара — владельцу в Telegram: документы (закупка, оприходование, списание,
+// инвентаризация, перемещение, возврат, продажа через админку), возврат чека, расходы, внесения/изъятия,
+// переводы между счетами, приход по фото накладной, сертификаты. Продажи на кассе шлёт notifier.sale.
+const DOC_ICON = { purchase: '📦', receipt: '➕', writeoff: '🗑️', inventory: '📋', transfer: '🚚', return: '↩️', sale: '🧾' };
+function docTelegramText(d, what, who) {
+  const kind = store.docKinds[d.kind]?.name || d.kind;
+  const L = [`${DOC_ICON[d.kind] || '📄'} ${kind} №${d.number} — ${what}`, `Кто: ${who}`];
+  if (d.supplier) L.push(`Поставщик: ${d.supplier}`);
+  if (d.customer) L.push(`Покупатель: ${d.customer}`);
+  if (d.method) L.push(`Счёт: ${d.method}`);
+  if (d.kind === 'transfer') L.push(d.direction === 'in' ? 'Входящее перемещение' : 'Исходящее перемещение');
+  const items = d.items || [];
+  const lineSum = (i) => (['purchase', 'receipt', 'writeoff', 'transfer'].includes(d.kind) ? i.cost : i.price);
+  for (const i of items.slice(0, 20)) {
+    if (d.kind === 'inventory') {
+      const diff = i.actual === null || i.actual === undefined ? null : round2(i.actual - (i.expected || 0));
+      L.push(`• ${i.name}: было ${i.expected ?? '—'}, факт ${i.actual ?? '—'}${diff ? ` (${diff > 0 ? '+' : ''}${diff})` : ''}`);
+    } else {
+      L.push(`• ${i.name} × ${i.qty} = ${tgMoney(i.qty * lineSum(i))}${i.reason ? ` — ${i.reason}` : ''}`);
+    }
+  }
+  if (items.length > 20) L.push(`…и ещё ${items.length - 20} строк`);
+  if (d.kind !== 'inventory') {
+    const qty = items.reduce((a, i) => a + Number(i.qty || 0), 0);
+    L.push(`Итого: ${Math.round(qty * 1000) / 1000} шт. на ${tgMoney(d.total || items.reduce((a, i) => a + i.qty * lineSum(i), 0))}${d.total_cost && ['sale', 'return'].includes(d.kind) ? ` (себестоимость ${tgMoney(d.total_cost)})` : ''}`);
+  }
+  if (d.note) L.push(`Комментарий: ${d.note}`);
+  return L.join('\n');
+}
+const ACC_KIND = { deposit: '➕ Внесение', withdraw: '➖ Изъятие', transfer: '🔁 Перевод' };
+function moveTelegram(key, params, body, result, user) {
+  const tg = notifier.telegramSettings();
+  if (!tg.enabled || !result || store.setting('moves_tg', '1') === '0') return;
+  const who = user ? user.name || user.email : 'без входа';
+  let text = '';
+  try {
+    if ((key === 'POST /api/docs' || key === 'PUT /api/docs/:id') && body.post) text = docTelegramText(result, 'проведено', who);
+    else if (key === 'POST /api/docs/:id/post') text = docTelegramText(result, 'проведено', who);
+    else if (key === 'POST /api/docs/:id/unpost') text = `⚠️ ${docTelegramText(result, 'ОТМЕНЕНО проведение (товар и деньги вернулись как было)', who)}`;
+    else if (key === 'POST /api/sales/:id/refund') {
+      const sale = store.getSale(result.id);
+      const items = store.db.prepare('SELECT name, qty, price FROM sale_items WHERE sale_id = ?').all(result.id);
+      const pays = store.db.prepare('SELECT method_name, amount FROM sale_payments WHERE sale_id = ?').all(result.id);
+      text = `↩️ Возврат чека №${result.id}${sale ? ` на ${tgMoney(sale.total)}` : ''}\nКто: ${who}`
+        + (pays.length ? `\nВернули: ${pays.map((x) => `${x.method_name} ${tgMoney(x.amount)}`).join(' + ')}` : '')
+        + (items.length ? '\n' + items.slice(0, 15).map((i) => `• ${i.name} × ${i.qty} = ${tgMoney(i.qty * i.price)}`).join('\n') : '');
+    } else if (key === 'POST /api/expenses' || key === 'POST /api/kassa/expense') {
+      const acc = result.method_id ? store.listPaymentMethods({ all: true }).find((m) => m.id === result.method_id)?.name : '';
+      text = `💸 Расход ${tgMoney(result.amount)} — ${result.category}${acc ? `\nСо счёта: ${acc}` : ''}\nКто: ${who}${result.note ? `\nПричина: ${result.note}` : ''}`;
+    } else if (key === 'DELETE /api/expenses/:id') text = `⚠️ Удалён расход ${tgMoney(result.amount)} — ${result.category}${result.note ? ` (${result.note})` : ''}\nКто удалил: ${who}`;
+    else if (key === 'POST /api/accounts/ops') text = `${ACC_KIND[result.kind] || result.kind} ${tgMoney(result.amount)}: ${result.account}${result.to ? ` → ${result.to}` : ''}\nКто: ${who}${body.note ? `\nКомментарий: ${body.note}` : ''}`;
+    else if (key === 'DELETE /api/accounts/ops/:id') text = `⚠️ Удалена операция по счёту: ${tgMoney(result.amount)} (${result.note || result.kind})\nКто удалил: ${who}`;
+    else if (key === 'POST /api/invoice/receive' && result.doc) text = docTelegramText(result.doc, `${result.posted ? 'проведено' : 'черновик'} по фото накладной (новых товаров: ${result.created || 0})`, who);
+    else if ((key === 'POST /api/certificates' || key === 'POST /api/certificates/issue') && result.number) text = `🎁 Сертификат №${result.number} на ${tgMoney(result.amount)}${body.free ? ' — выдан бесплатно' : ' — продан'}\nКто: ${who}`;
+    else if (key === 'DELETE /api/certificates/:id') text = `⚠️ Удалён сертификат${result.number ? ` №${result.number}` : ''}\nКто: ${who}`;
+  } catch (err) {
+    console.error('Уведомление о движении для Telegram не собрано:', err.message);
+    return;
+  }
+  if (text) notifier.sendTelegram(text.slice(0, 4000), tg).catch((err) => console.error('Уведомление в Telegram не отправлено:', err.message));
 }
 /* ---------- Автоматика: отчёты и уценка по расписанию, без участия владельца ---------- */
 const csvCell = (v) => { const s = String(v ?? ''); return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
@@ -930,6 +993,10 @@ const routes = [
   ['GET', '/api/sales', (p, url, body, user) => store.listSales({ ...range(url), userId: can(user, 'sales') ? null : user.id }), 'pos'],
   ['POST', '/api/sales', (p, url, body, user) => {
     const sale = store.createSale(body, user);
+    // Сдачу не выдали — записываем в кассу (если запись не удалась, чек всё равно пробит).
+    if (Number(body.changeKept) > 0) {
+      try { sale.changeKept = store.keepChange(sale.id, body.changeKept, user); } catch (err) { sale.changeError = err.message; }
+    }
     notifier.sale(sale, user);
     return sale;
   }, 'pos'],
@@ -1053,7 +1120,8 @@ const routes = [
   }, 'pos'],
   // Табло смены на главной: подробный отчёт по текущему (или выбранному) дню.
   ['GET', '/api/shift-session', (p, url) => store.shiftSession(url.searchParams.get('id') || null), ['dashboard', 'shifts']],
-  ['POST', '/api/shift-session/telegram', (p, url, body) => {
+  ['POST', '/api/shift-session/telegram', (p, url, body, user) => {
+    if (auth.enabled && !isOwner(user)) throw new UserError('Отчёт смены уходит в Telegram сам при закрытии смены; вручную отправляет только владелец');
     const r = store.shiftSession(body.id || null);
     if (!r) throw new UserError('Смен ещё не было');
     const tg = notifier.telegramSettings();
@@ -2107,6 +2175,7 @@ async function handleRequest(req, res, url, user, owner) {
         if (undoToken) store.undoDiscard(undoToken);
       }
     } else if (undoToken) store.undoDiscard(undoToken);
+    if (!body.dryRun) moveTelegram(key, route.params, body, result, user);
     if (result?.__file) return sendBytes(res, result.__file.mime, Buffer.from(result.__file.data), 'private, max-age=3600');
     sendJson(res, 200, result);
   } catch (err) {

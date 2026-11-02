@@ -114,6 +114,24 @@ function renderCart() {
   $('#change').textContent = cashPart !== null && given > 0
     ? (given >= cashPart ? `Сдача: ${money2(given - cashPart)}` : `Не хватает ${money2(cashPart - given)}`)
     : '';
+  // Сдача есть — кассир отмечает: выдал её или она осталась в кассе (тогда деньги записываются в кассу).
+  const change = cashPart !== null && given > cashPart ? r2(given - cashPart) : 0;
+  $('#change-choice').hidden = !change;
+  if (!change) pos.changeKept = false;
+  $('#change-q').textContent = `Сдача ${money2(change)}:`;
+  for (const b of document.querySelectorAll('#change-choice [data-change]')) b.setAttribute('aria-pressed', String((b.dataset.change === 'kept') === Boolean(pos.changeKept)));
+}
+$('#change-choice').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-change]');
+  if (!b) return;
+  pos.changeKept = b.dataset.change === 'kept';
+  renderCart();
+});
+// Сколько сдачи осталось в кассе (0 — выдали).
+function changeKeptAmount(paid) {
+  const cash = cashAmount(paid);
+  const given = parseNum($('#cash-given').value);
+  return pos.changeKept && cash !== null && given > cash ? r2(given - cash) : 0;
 }
 
 /* ---------- Скидки кассира ---------- */
@@ -664,6 +682,7 @@ function resetCheck() {
   pos.cert = null;
   pos.checkDiscount = null;
   pos.split = null;
+  pos.changeKept = false;
   $('#cash-given').value = '';
   clearCustomer();
 }
@@ -690,10 +709,11 @@ $('#checkout').addEventListener('click', async () => {
         checkDiscount: pos.checkDiscount || undefined,
         customerId: pos.customer?.id, bonusSpend: bonusSpend(), birthday: birthdayRate() > 0,
         certificate: pos.cert ? { number: pos.cert.number, amount: certUse() } : undefined,
+        changeKept: changeKeptAmount(paid) || undefined,
       },
     });
     const how = sale.payments.length > 1 ? sale.payments.map((x) => `${x.name} ${money2(x.amount)}`).join(' + ') : sale.method;
-    toast(`Чек №${sale.id} на ${money2(sale.total)} (${how}) пробит${sale.discount ? `, скидка ${money2(sale.discount)}` : ''}${sale.bonusEarned ? `, начислено ${sale.bonusEarned} бонусов` : ''}${sale.certificate ? `. На сертификате осталось ${money2(sale.certificate.balance)}` : ''}`);
+    toast(`Чек №${sale.id} на ${money2(sale.total)} (${how}) пробит${sale.changeKept ? `, сдача ${money2(sale.changeKept)} записана в кассу` : ''}${sale.discount ? `, скидка ${money2(sale.discount)}` : ''}${sale.bonusEarned ? `, начислено ${sale.bonusEarned} бонусов` : ''}${sale.certificate ? `. На сертификате осталось ${money2(sale.certificate.balance)}` : ''}`);
     loadShift();
     resetCheck();
     afterSalePrint(sale.id);

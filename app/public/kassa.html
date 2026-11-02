@@ -79,6 +79,14 @@
         <label for="cash-given" id="cash-label">Получено от покупателя</label>
         <input id="cash-given" class="input num" inputmode="decimal" placeholder="0" autocomplete="off">
         <span id="change" class="change num"></span>
+        <div class="change-choice" id="change-choice" hidden>
+          <span id="change-q">Сдача</span>
+          <div class="seg" role="group" aria-label="Сдача">
+            <button type="button" data-change="given" aria-pressed="true">Выдали сдачу</button>
+            <button type="button" data-change="kept" aria-pressed="false">Оставили в кассе</button>
+          </div>
+          <small class="pick-meta">Нет мелочи или покупатель сказал «сдачи не надо» — нажмите «Оставили в кассе»: деньги запишутся в кассу, и при закрытии смены их будут ждать.</small>
+        </div>
       </div>
       <button type="button" class="btn primary big" id="checkout" disabled>Пробить чек</button>
       <p class="pick-meta">Чек сохраняется в программе и списывает товар со склада. Фискальный чек для налоговой по-прежнему печатает ваша онлайн-касса.</p>

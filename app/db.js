@@ -491,6 +491,8 @@ function open(file) {
   db.exec('UPDATE products SET purchase = cost WHERE purchase IS NULL');
   // Цена закупки в строке чека — для прибыли на главной; prev_purchase — чтобы отменить закупку.
   addColumns('sale_items', [['purchase', 'REAL']]);
+  // Сдача, которую не выдали покупателю (нет мелочи, «сдачи не надо»): записывается в кассу, чтобы её ждали при пересчёте.
+  addColumns('sales', [['change_kept', 'REAL NOT NULL DEFAULT 0']]);
   db.exec('UPDATE sale_items SET purchase = cost WHERE purchase IS NULL');
   addColumns('doc_items', [['prev_purchase', 'REAL']]);
   // Зашифрованные копии пароля и PIN, заданных владельцем или администратором (для просмотра владельцем).
@@ -3134,6 +3136,8 @@ function createStore(file) {
       const cashIn = cashIds.length ? cashIds.join(',') : '0';
       const cashExpenses = db.prepare(`SELECT id, at, category, amount, note, user_name FROM expenses WHERE method_id IN (${cashIn}) AND at >= ? AND at < ? ORDER BY at`).all(from, to);
       const ops = db.prepare(`SELECT kind, amount, note, user_name, at FROM account_ops WHERE method_id IN (${cashIn}) AND at >= ? AND at < ? AND kind IN ('deposit', 'withdraw') ORDER BY at`).all(from, to);
+      const kept = db.prepare(`SELECT amount, note, user_name, at FROM account_ops WHERE method_id IN (${cashIn}) AND at >= ? AND at < ? AND kind = 'change_kept' ORDER BY at`).all(from, to);
+      const keptSum = round2(kept.reduce((a, o) => a + o.amount, 0));
       const cashSales = round2(byMethod.filter((m) => m.kind === 'cash').reduce((a, m) => a + m.sum, 0));
       const spentCash = round2(cashExpenses.reduce((a, e) => a + e.amount, 0));
       const opsSum = round2(ops.reduce((a, o) => a + o.amount, 0));
@@ -3141,7 +3145,7 @@ function createStore(file) {
       const fin = this.finance({ from, to });
       const revenue = round2(sale.gross - sale.fee);
       const gross = round2(revenue - sale.cost);
-      const net = round2(gross - fin.total);
+      const net = round2(gross - fin.total + keptSum);
       return {
         id: start.id, prevId: prev?.id ?? null, nextId: next?.id ?? null, open, from, to,
         staff: list.map((x) => ({ id: x.id, user: x.user_name, register: x.register_name || '', opened: x.opened_at, closed: x.closed_at, receipts: x.receipts, revenue: x.revenue,
@@ -3149,19 +3153,19 @@ function createStore(file) {
         people: new Set(list.map((x) => x.user_id)).size,
         cash: {
           open: start.open_cash ?? null, openExpected: start.open_expected ?? null, openDiff: start.open_diff ?? null,
-          sales: cashSales, expenses: spentCash, ops: opsSum,
-          expected: round2((start.open_cash || 0) + cashSales - spentCash + opsSum),
+          sales: cashSales, expenses: spentCash, ops: opsSum, changeKept: keptSum,
+          expected: round2((start.open_cash || 0) + cashSales + keptSum - spentCash + opsSum),
           counted: open ? null : last?.close_counted ?? null, closeDiff: open ? null : last?.close_diff ?? null,
           deposited: open ? null : last?.deposited ?? null, left: open ? null : last?.left_cash ?? null,
         },
-        byMethod, cashExpenses, ops,
+        byMethod, cashExpenses, ops, kept,
         sales: { receipts: sale.receipts, items: Math.round(sale.items * 1000) / 1000, gross: round2(sale.gross), commission: round2(sale.fee), revenue, cost: round2(sale.cost), grossProfit: gross,
           avg: sale.receipts ? round2(sale.gross / sale.receipts) : 0, discount: round2(extra.discount), bonus: round2(extra.bonus), loyal: extra.loyal,
           refunds: refunds.n, refunded: round2(refunds.sum), certificates: round2(list.reduce((a, x) => a + (x.certificatesSold || 0), 0)) },
         finance: { salary: fin.salary, staff: fin.staff, expenses: fin.expenses, other: fin.other, recurring: fin.recurring.map((r) => ({ name: r.name, amount: r.amount })), fixed: fin.fixed, writeoffs: fin.writeoffs, total: fin.total },
         net,
         // Куда разложить деньги дня: оборот (вернуть в товар), зарплата, расходы, постоянные расходы, чистая прибыль.
-        split: { turnover: round2(sale.cost), salary: fin.salary, expenses: fin.other, fixed: fin.fixed, profit: net, commission: round2(sale.fee) },
+        split: { turnover: round2(sale.cost), salary: fin.salary, expenses: fin.other, fixed: fin.fixed, profit: net, commission: round2(sale.fee), changeKept: keptSum },
       };
     },
 
@@ -4150,6 +4154,25 @@ function createStore(file) {
       return db.prepare('SELECT * FROM expenses WHERE id = ?').get(lastInsertRowid);
     },
 
+    // Сдачу не выдали — деньги остались в кассе: записываются на счёт «Наличные» и в чек.
+    keepChange(saleId, amount, user = null) {
+      const sum = round2(number(amount, 'Сдача', { positive: true }));
+      if (sum > 1000) throw new UserError('Оставить в кассе можно не больше 1000 сом сдачи');
+      const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(Number(saleId));
+      if (!sale) throw new UserError('Чек не найден');
+      const hasCash = db.prepare("SELECT 1 FROM sale_payments WHERE sale_id = ? AND kind = 'cash'").get(sale.id);
+      if (!hasCash) throw new UserError('Сдача бывает только при оплате наличными');
+      const acc = this.cashAccount();
+      if (!acc) return 0;
+      const who = user ? user.name || user.email : '';
+      transaction(db, () => {
+        db.prepare('UPDATE sales SET change_kept = ? WHERE id = ?').run(sum, sale.id);
+        db.prepare("INSERT INTO account_ops (method_id, at, amount, kind, note, user_name) VALUES (?, ?, ?, 'change_kept', ?, ?)")
+          .run(acc.id, Date.now(), sum, `Чек №${sale.id}: сдачу ${sum} сом не выдали — оставили в кассе`, who);
+      });
+      return sum;
+    },
+
     // Расход из кассы кассиром: только наличные, только на открытой смене, сумма и причина обязательны,
     // больше, чем есть в кассе, взять нельзя. Попадает в расходы (чистая прибыль) и уменьшает деньги в кассе.
     addCashExpense(input, user) {
@@ -4266,7 +4289,8 @@ function createStore(file) {
           else if (r.kind === 'transfer') {
             // Перевод между счетами: по всем счетам — ноль, по одному счёту — приход или уход.
             if (methodId) { add('in', 'transfer', 'Переводы с других счетов', r.plus); add('out', 'transfer', 'Переводы на другие счета', r.minus); }
-          } else if (r.kind === 'shift_diff') { add('in', 'surplus', 'Излишки в кассе', r.plus); add('out', 'shortage', 'Недостачи в кассе', r.minus); }
+          } else if (r.kind === 'change_kept') add('in', 'change', 'Сдача, оставленная покупателями в кассе', r.plus);
+          else if (r.kind === 'shift_diff') { add('in', 'surplus', 'Излишки в кассе', r.plus); add('out', 'shortage', 'Недостачи в кассе', r.minus); }
           else { add('in', 'adjust', 'Выравнивание остатка (пересчёт кассы)', r.plus); add('out', 'adjust', 'Выравнивание остатка (пересчёт кассы)', r.minus); }
         }
         // Одинаковые статьи (комиссия с чеков и сертификатов) — одной строкой.
