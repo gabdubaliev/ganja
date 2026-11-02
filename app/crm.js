@@ -25,8 +25,9 @@ const INSTAGRAM_API = process.env.INSTAGRAM_API_URL || 'https://graph.instagram.
 const INSTAGRAM_OAUTH = process.env.INSTAGRAM_OAUTH_URL || 'https://api.instagram.com';
 const INSTAGRAM_GRAPH = process.env.INSTAGRAM_GRAPH_URL || 'https://graph.instagram.com';
 // Единый вход Meta и связка «Facebook-страница + Instagram»: маркеры EAA работают только с graph.facebook.com.
-const FACEBOOK_API = process.env.FACEBOOK_API_URL || 'https://graph.facebook.com/v21.0';
-const FACEBOOK_DIALOG = process.env.FACEBOOK_DIALOG_URL || 'https://www.facebook.com/v21.0';
+// Единый вход Meta появился в новых версиях API — работаем на v26.0 (как окно входа Meta).
+const FACEBOOK_API = process.env.FACEBOOK_API_URL || 'https://graph.facebook.com/v26.0';
+const FACEBOOK_DIALOG = process.env.FACEBOOK_DIALOG_URL || 'https://www.facebook.com/v26.0';
 const WHATSAPP_API = 'https://graph.facebook.com/v21.0';
 
 function createCrm(store) {
@@ -556,7 +557,7 @@ function createCrm(store) {
         if (s.igId) cand.push(s.igId);
         const tried = [];
         for (const id of [...new Set(cand)]) {
-          const r = await fetch(`${FACEBOOK_API}/${id}?fields=id,username,name&access_token=${encodeURIComponent(s.accessToken)}`, { signal: AbortSignal.timeout(15_000) }).then((x) => x.json()).catch(() => ({}));
+          const r = await fetch(`${FACEBOOK_API}/${id}?fields=id,username&access_token=${encodeURIComponent(s.accessToken)}`, { signal: AbortSignal.timeout(15_000) }).then((x) => x.json()).catch(() => ({}));
           tried.push(id);
           if (r.id && !r.error) {
             if (id !== s.igId) store.setSetting('instagram', JSON.stringify({ ...crm.instagramSettings(), igId: id, igUsername: r.username || '' }));
@@ -569,7 +570,7 @@ function createCrm(store) {
       if (!s.accessToken) throw new UserError('Маркер доступа не указан — нажмите «Подключить Instagram» или вставьте маркер');
       let data;
       try {
-        data = await crm.igCall('GET', crm.instagramMode(s) === 'instagram' ? '/me?fields=user_id,username,name' : '/me?fields=id,username,name');
+        data = await crm.igCall('GET', crm.instagramMode(s) === 'instagram' ? '/me?fields=user_id,username,name' : '/me?fields=id,username');
       } catch (err) {
         // Расшифровка для владельца: что за маркер и к каким аккаунтам у него есть доступ.
         let why = '';

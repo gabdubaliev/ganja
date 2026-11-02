@@ -752,6 +752,10 @@
     target_ids из debug_token, `instagram_hook_ids` (entry.id из пришедших вебхуков — запоминает `receiveInstagram`),
     /me/assigned_instagram_accounts, /me/instagram_accounts, вписанный igId — и сохраняет первый, что открывается
     (`GET /{id}`); проверенные — в `instagram_tried_ids`, показываются в ошибке.
+    В Business Suite (портфолио Husler, Интеграции → Подключённые приложения) MONT CRM подключено, ему выдан
+    mont_kyrgyzstan_ (ID 17841464829611662, тот же), разрешены сообщения и комментарии — доступ есть. Поэтому
+    graph.facebook.com переведён на v26.0 (единый вход появился в новых версиях; окно Meta открывалось на v26.0),
+    в запросе аккаунта — только fields=id,username.
     Ошибки скриптов витрины: `window.shopError` в shop.html → POST `/shop/client-error` (≤20/мин) → журнал
     (`journalctl -u shop | grep 'Витрина: ошибка'`); с `?debug=1` в адресе — красная панель с текстом ошибки на странице.
 
