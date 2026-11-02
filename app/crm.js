@@ -119,15 +119,22 @@ function createCrm(store) {
       WHERE s.closed_at IS NULL AND s.opened_at > ? AND COALESCE(u.disabled, 0) = 0 AND u.moved_to IS NULL ORDER BY u.id`).all(Date.now() - 864e5);
     return rows.filter((u) => can(u, 'crm'));
   }
-  // Следующий по очереди: после того, кому досталась прошлая сделка.
+  // Нагрузка сотрудника — сколько у него открытых сделок на первом этапе («Новое обращение»).
+  const loadOf = (id) => db.prepare("SELECT COUNT(*) AS n FROM leads WHERE user_id = ? AND closed_at IS NULL AND stage = 'new'").get(id).n;
+  // Кому отдать новую сделку: тому из смены, у кого меньше новых обращений; при равенстве — по очереди.
   function nextAssignee() {
     const list = onShift();
     if (!list.length) return null;
     const last = Number(store.setting('crm_rr_last', '0')) || 0;
-    const u = list.find((x) => x.id > last) || list[0];
+    const order = [...list.filter((x) => x.id > last), ...list.filter((x) => x.id <= last)];
+    const loads = new Map(order.map((u) => [u.id, loadOf(u.id)]));
+    const u = order.reduce((best, x) => (loads.get(x.id) < loads.get(best.id) ? x : best), order[0]);
     store.setSetting('crm_rr_last', String(u.id));
     return u;
   }
+  // Сотрудник ещё не работал со сделкой: нет его сообщений, звонков и заметок (автоответ не в счёт).
+  const untouched = (leadId) => !db.prepare(`SELECT 1 FROM lead_events WHERE lead_id = ? AND kind IN ('out', 'call', 'note')
+    AND user_name NOT IN ('', 'Автоответ') LIMIT 1`).get(leadId);
 
   function fields(input, cur = {}) {
     const pick = (k, f) => (input[k] === undefined ? cur[k] : f(input[k]));
@@ -194,17 +201,35 @@ function createCrm(store) {
     },
 
     // Сделки без ответственного — раздать по очереди тем, кто на смене (при открытии смены и по кнопке).
+    // Поровну между теми, кто на смене: свободные сделки раздаются, а необработанные новые обращения
+    // (первый этап, сотрудник ещё не писал, не звонил, не оставлял заметок) перекладываются так,
+    // чтобы у всех на смене их было одинаково. Начатые сделки остаются у своего сотрудника.
     assignFree(user = null) {
-      if (!onShift().length) return { assigned: 0 };
-      let assigned = 0;
-      for (const l of db.prepare('SELECT id FROM leads WHERE user_id IS NULL AND closed_at IS NULL ORDER BY created_at').all()) {
-        const u = nextAssignee();
-        if (!u) break;
-        db.prepare('UPDATE leads SET user_id = ?, updated_at = ? WHERE id = ?').run(u.id, Date.now(), l.id);
-        event(l.id, 'system', `Ответственный по очереди (на смене): ${u.name || u.email}`, who(user));
-        assigned++;
+      const list = onShift();
+      if (!list.length) return { assigned: 0, moved: 0 };
+      const ids = new Set(list.map((u) => u.id));
+      const nameOf = (id) => { const u = list.find((x) => x.id === id); return u ? u.name || u.email : userName(id) || 'никто'; };
+      const fresh = db.prepare("SELECT id, user_id, stage FROM leads WHERE closed_at IS NULL AND (user_id IS NULL OR stage = 'new') ORDER BY created_at, id").all();
+      const pool = fresh.filter((l) => l.user_id === null || untouched(l.id));
+      const poolIds = new Set(pool.map((l) => l.id));
+      // Нагрузка без тех, кого перераспределяем: только начатые новые обращения.
+      const load = new Map(list.map((u) => [u.id, 0]));
+      for (const l of fresh) if (!poolIds.has(l.id) && l.stage === 'new' && load.has(l.user_id)) load.set(l.user_id, load.get(l.user_id) + 1);
+      let assigned = 0, moved = 0;
+      for (const l of pool) {
+        // Меньше всего новых обращений; при равенстве — прежний ответственный (чтобы зря не перекладывать), затем по порядку.
+        let best = null;
+        for (const u of list) {
+          const n = load.get(u.id), bn = best === null ? Infinity : load.get(best);
+          if (n < bn || (n === bn && u.id === l.user_id)) best = u.id;
+        }
+        if (l.stage === 'new') load.set(best, load.get(best) + 1);
+        if (best === l.user_id) continue;
+        db.prepare('UPDATE leads SET user_id = ?, updated_at = ? WHERE id = ?').run(best, Date.now(), l.id);
+        event(l.id, 'system', l.user_id ? `Передана поровну между сменой: ${nameOf(l.user_id)} → ${nameOf(best)}` : `Ответственный по очереди (на смене): ${nameOf(best)}`, who(user));
+        if (l.user_id) moved++; else assigned++;
       }
-      return { assigned };
+      return { assigned, moved };
     },
     autoAssignFree() {
       return funnel().assignFree ? crm.assignFree() : { assigned: 0 };

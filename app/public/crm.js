@@ -356,7 +356,8 @@ async function openFunnel() {
   $('#cf-free').checked = f.assignFree;
   $('#cf-shift').innerHTML = (f.onShift.length ? `Сейчас на смене и получают сделки: <b>${f.onShift.map((u) => esc(u.name)).join(', ')}</b>.` : 'Сейчас на смене никого нет — новые сделки останутся свободными, пока кто-нибудь не откроет смену.')
     + ' Получают сделки только сотрудники с правом «CRM».'
-    + (f.free ? ` Без ответственного: ${f.free}. ${f.onShift.length ? '<button type="button" class="btn small" id="cf-assign">Раздать сейчас</button>' : ''}` : '');
+    + (f.free ? ` Без ответственного: ${f.free}.` : '')
+    + (f.onShift.length ? ` <button type="button" class="btn small" id="cf-assign">Распределить поровну сейчас</button>` : '');
   cfRender();
   $('#crm-funnel-dlg').showModal();
 }
@@ -399,7 +400,7 @@ $('#cf-shift').addEventListener('click', async (e) => {
   if (e.target.id !== 'cf-assign') return;
   try {
     const r = await api('/api/crm/assign-free', { method: 'POST' });
-    toast(`Раздано сделок: ${r.assigned}`);
+    toast(`Раздано свободных: ${r.assigned}, передано для равновесия: ${r.moved}`);
     $('#crm-funnel-dlg').close();
     renderCrm();
   } catch (err) { toast(err.message, 'error'); }
