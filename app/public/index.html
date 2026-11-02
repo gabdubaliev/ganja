@@ -1363,7 +1363,8 @@
         <div class="field"><label for="ig-igid">ID аккаунта Instagram</label><input id="ig-igid" name="igId" class="input num" inputmode="numeric" autocomplete="off" placeholder="Например, 17841464829611662 (из пункта «2. Сгенерируйте маркеры доступа»)"></div>
       </div>
       <div class="field"><label for="ig-secret">Секрет приложения (App Secret)</label><input id="ig-secret" name="appSecret" class="input" autocomplete="off"></div>
-      <div class="field"><label for="ig-token">Маркер доступа (IGAA… или EAA…) — если вставляете вручную</label><input id="ig-token" name="accessToken" class="input" autocomplete="off"></div>
+      <div class="field"><label for="ig-token">Маркер доступа (IGAA… или EAA…) — если вставляете вручную</label><input id="ig-token" name="accessToken" class="input" autocomplete="off">
+        <small class="pick-meta">Сохранённый маркер здесь не показывается — поле всегда пустое. Пустое поле при сохранении маркер не удаляет. <button type="button" class="link" id="ig-clear-token" hidden>Удалить сохранённый маркер</button></small></div>
       <label class="check"><input type="checkbox" name="enabled"> Принимать сообщения из Instagram</label>
       <div class="ig-auto">
         <label class="check"><input type="checkbox" name="autoReply"> <b>Автоответ</b> — на сообщение в Direct клиенту сразу уходит текст ниже</label>

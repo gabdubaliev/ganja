@@ -284,6 +284,8 @@ function createCrm(store) {
       };
       if (input.configId !== undefined) next.configId = String(input.configId).replace(/\D/g, '').slice(0, 30);
       if (input.igId !== undefined) next.igId = String(input.igId).replace(/\D/g, '').slice(0, 30);
+      // «Удалить сохранённый маркер»: Instagram остаётся настроенным, но без маркера (подключить заново — кнопкой).
+      if (input.clearToken) Object.assign(next, { accessToken: '', tokenExpires: null, tokenLong: false, pageId: '', pageName: '', pageToken: '' });
       // Новый маркер вручную: срок и привязка к странице определяются заново.
       if (input.accessToken) Object.assign(next, { tokenExpires: null, tokenLong: false, pageId: '', pageName: '', pageToken: '' });
       // Автоответ: на сообщение в Direct клиенту уходит этот текст — не чаще раза в autoHours часов одному человеку.

@@ -68,6 +68,7 @@ async function renderInstagram() {
     f.elements.appSecret.placeholder = s.hasSecret ? 'Сохранён. Введите новый, чтобы заменить' : '';
     f.elements.accessToken.placeholder = s.hasToken ? 'Сохранён. Введите новый, чтобы заменить' : 'IGAA…';
     f.elements.enabled.checked = s.enabled;
+    $('#ig-clear-token').hidden = !s.hasToken;
     f.elements.appId.value = s.appId || '';
     f.elements.configId.value = s.configId || '';
     f.elements.igId.value = s.igId || '';
@@ -163,6 +164,17 @@ $('#ig-connect').addEventListener('click', async () => {
     history.replaceState(null, '', location.pathname + location.hash);
   }
 }
+
+$('#ig-clear-token').addEventListener('click', async () => {
+  if (!confirm('Удалить сохранённый маркер Instagram? Автоответы перестанут уходить, пока не подключите Instagram заново кнопкой «Подключить Instagram».')) return;
+  try {
+    await api('/api/settings/instagram', { method: 'PUT', body: { clearToken: true, enabled: $('#instagram-form').elements.enabled.checked } });
+    toast('Маркер удалён');
+    renderInstagram();
+  } catch (err) {
+    showFormError('#instagram-error', err);
+  }
+});
 
 $('#ig-check').addEventListener('click', async () => {
   $('#instagram-error').hidden = true;
