@@ -1356,8 +1356,12 @@
       </ol>
       <div class="field"><label>Адрес обратного вызова (Callback URL)</label><div class="input-row"><input id="ig-webhook" class="input" readonly><button type="button" class="btn" data-copy="#ig-webhook">Копировать</button></div></div>
       <div class="field"><label>Токен подтверждения (Verify token)</label><div class="input-row"><input id="ig-verify" class="input" readonly><button type="button" class="btn" data-copy="#ig-verify">Копировать</button></div></div>
-      <div class="field"><label for="ig-secret">Секрет приложения (App Secret)</label><input id="ig-secret" name="appSecret" class="input" autocomplete="off"></div>
-      <div class="field"><label for="ig-token">Токен доступа Instagram</label><input id="ig-token" name="accessToken" class="input" autocomplete="off"></div>
+      <div class="ig-connect">
+        <b>Проще всего — кнопкой:</b> впишите ID и секрет приложения Instagram (панель Meta → Сценарии → Instagram API → «Настройка API с входом через Instagram», вверху раздела), в «URL переадресации» там же добавьте <code id="ig-redirect"></code>, нажмите «Подключить Instagram» и войдите как ваш магазин. Маркер сохранится и будет продлеваться сам.
+        <div class="field"><label for="ig-appid">ID приложения Instagram</label><input id="ig-appid" name="appId" class="input num" inputmode="numeric" autocomplete="off" placeholder="Например, 1234567890123456"></div>
+      </div>
+      <div class="field"><label for="ig-secret">Секрет приложения Instagram (App Secret)</label><input id="ig-secret" name="appSecret" class="input" autocomplete="off"></div>
+      <div class="field"><label for="ig-token">Токен доступа Instagram (IGAA…) — если вставляете вручную</label><input id="ig-token" name="accessToken" class="input" autocomplete="off"></div>
       <label class="check"><input type="checkbox" name="enabled"> Принимать сообщения из Instagram</label>
       <div class="ig-auto">
         <label class="check"><input type="checkbox" name="autoReply"> <b>Автоответ</b> — на сообщение в Direct клиенту сразу уходит текст ниже</label>
@@ -1366,7 +1370,7 @@
       </div>
       <div class="ig-status" id="ig-status"></div>
       <p class="form-error" id="instagram-error" role="alert" hidden></p>
-      <div class="form-actions start"><button type="submit" class="btn primary">Сохранить</button><button type="button" class="btn" id="ig-check">Проверить подключение</button></div>
+      <div class="form-actions start"><button type="submit" class="btn primary">Сохранить</button><button type="button" class="btn" id="ig-connect">📸 Подключить Instagram</button><button type="button" class="btn" id="ig-check">Проверить подключение</button></div>
     </form>
   </section>
   <section class="panel" data-can="settings">

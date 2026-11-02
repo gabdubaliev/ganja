@@ -21,6 +21,9 @@ const STAGE_KEYS = new Set(STAGES.map(([k]) => k));
 const CLOSED = new Set(['won', 'lost']);
 const SOURCES = ['Instagram', 'WhatsApp', 'Telegram', 'Звонок', 'Витрина', 'Магазин', 'Рекомендация', 'Другое'];
 const INSTAGRAM_API = process.env.INSTAGRAM_API_URL || 'https://graph.instagram.com/v21.0';
+// Вход через Instagram: окно авторизации, обмен кода и продление маркера.
+const INSTAGRAM_OAUTH = process.env.INSTAGRAM_OAUTH_URL || 'https://api.instagram.com';
+const INSTAGRAM_GRAPH = process.env.INSTAGRAM_GRAPH_URL || 'https://graph.instagram.com';
 const WHATSAPP_API = 'https://graph.facebook.com/v21.0';
 
 function createCrm(store) {
@@ -264,7 +267,7 @@ function createCrm(store) {
         saved.verifyToken = crypto.randomBytes(12).toString('hex');
         store.setSetting('instagram', JSON.stringify(saved));
       }
-      return { enabled: false, appSecret: '', accessToken: '', autoReply: false, autoText: '', autoHours: 12, ...saved };
+      return { enabled: false, appSecret: '', accessToken: '', appId: '', tokenExpires: null, autoReply: false, autoText: '', autoHours: 12, ...saved };
     },
 
     setInstagram(input) {
@@ -274,7 +277,13 @@ function createCrm(store) {
         enabled: Boolean(input.enabled),
         appSecret: input.appSecret ? text(input.appSecret, 'App Secret', { max: 100 }) : cur.appSecret,
         accessToken: input.accessToken ? text(input.accessToken, 'Токен доступа', { max: 1000 }) : cur.accessToken,
+        appId: input.appId !== undefined ? String(input.appId).replace(/\D/g, '').slice(0, 30) : cur.appId,
       };
+      // Маркер Facebook (EAA…) из Graph API Explorer программе не подходит — нужен маркер Instagram (IGAA…).
+      if (input.accessToken && /^EAA/.test(String(input.accessToken).trim())) {
+        throw new UserError('Это маркер Facebook (начинается с EAA) — он не подходит. Нужен маркер Instagram, он начинается с IGAA: нажмите «Подключить Instagram» или «Сгенерировать маркер» в разделе «Настройка API с входом через Instagram».');
+      }
+      if (input.accessToken) next.tokenExpires = null;
       // Автоответ: на сообщение в Direct клиенту уходит этот текст — не чаще раза в autoHours часов одному человеку.
       if ('autoReply' in input) {
         next.autoReply = Boolean(input.autoReply);
@@ -382,6 +391,45 @@ function createCrm(store) {
       if (last && Date.now() - last < s.autoHours * 3600e3) return null;
       await crm.replyInstagram(l.id, s.autoText, null, 'Автоответ');
       return s.autoText;
+    },
+
+    // Вход через Instagram (кнопка «Подключить Instagram»): ссылка на окно Instagram и обмен кода на долгий маркер (60 дней).
+    instagramAuthUrl(redirectUri) {
+      const s = crm.instagramSettings();
+      if (!s.appId) throw new UserError('Укажите «ID приложения Instagram» (раздел «Настройка API с входом через Instagram» в панели приложения Meta) и сохраните');
+      if (!s.appSecret) throw new UserError('Укажите «Секрет приложения Instagram» и сохраните');
+      const state = crypto.randomBytes(16).toString('hex');
+      store.setSetting('instagram_oauth_state', JSON.stringify({ state, at: Date.now() }));
+      const q = new URLSearchParams({ client_id: s.appId, redirect_uri: redirectUri, response_type: 'code', state,
+        scope: 'instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments' });
+      return `https://www.instagram.com/oauth/authorize?${q}`;
+    },
+    async instagramConnect(code, state, redirectUri) {
+      const saved = JSON.parse(store.setting('instagram_oauth_state', '{}'));
+      store.setSetting('instagram_oauth_state', '{}');
+      if (!state || state !== saved.state || Date.now() - saved.at > 30 * 60e3) throw new UserError('Ссылка входа устарела — нажмите «Подключить Instagram» ещё раз');
+      const s = crm.instagramSettings();
+      const form = new URLSearchParams({ client_id: s.appId, client_secret: s.appSecret, grant_type: 'authorization_code', redirect_uri: redirectUri, code: String(code || '').replace(/#_$/, '') });
+      const r1 = await fetch(`${INSTAGRAM_OAUTH}/oauth/access_token`, { method: 'POST', body: form, signal: AbortSignal.timeout(15_000) });
+      const d1 = await r1.json().catch(() => ({}));
+      if (!r1.ok || !d1.access_token) throw new UserError(`Instagram не выдал маркер: ${d1.error_message || d1.error?.message || `ошибка ${r1.status}`}`);
+      const r2 = await fetch(`${INSTAGRAM_GRAPH}/access_token?${new URLSearchParams({ grant_type: 'ig_exchange_token', client_secret: s.appSecret, access_token: d1.access_token })}`, { signal: AbortSignal.timeout(15_000) });
+      const d2 = await r2.json().catch(() => ({}));
+      const token = d2.access_token || d1.access_token;
+      const next = { ...crm.instagramSettings(), accessToken: token, tokenExpires: d2.expires_in ? Date.now() + d2.expires_in * 1000 : Date.now() + 3600e3, enabled: true };
+      store.setSetting('instagram', JSON.stringify(next));
+      return crm.checkInstagram();
+    },
+    // Продление долгого маркера (раз в сутки; Instagram продлевает, если маркеру больше суток и он ещё жив).
+    async refreshInstagramToken() {
+      const s = crm.instagramSettings();
+      if (!s.accessToken || !/^IG/.test(s.accessToken)) return null;
+      if (s.tokenExpires && s.tokenExpires - Date.now() > 20 * 864e5) return null;
+      const r = await fetch(`${INSTAGRAM_GRAPH}/refresh_access_token?${new URLSearchParams({ grant_type: 'ig_refresh_token', access_token: s.accessToken })}`, { signal: AbortSignal.timeout(15_000) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.access_token) throw new UserError(d.error?.message || `ошибка ${r.status}`);
+      store.setSetting('instagram', JSON.stringify({ ...crm.instagramSettings(), accessToken: d.access_token, tokenExpires: Date.now() + (d.expires_in || 5184000) * 1000 }));
+      return true;
     },
 
     // Проверка токена: какой аккаунт Instagram за ним стоит.

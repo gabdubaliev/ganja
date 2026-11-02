@@ -357,6 +357,15 @@ async function automationTick() {
 }
 setTimeout(() => automationTick().catch((e) => console.error('Автоматика:', e.message)), 30_000).unref?.();
 setInterval(() => automationTick().catch((e) => console.error('Автоматика:', e.message)), 5 * 60_000).unref?.();
+// Маркер Instagram живёт 60 дней — продлеваем заранее (проверка раз в 6 часов).
+const igRefresh = () => {
+  for (const b of branchList()) {
+    const ctx = contextOf(b.id);
+    ctx?.crm.refreshInstagramToken().catch((e) => ctx.store.audit({ kind: 'change', userName: 'Instagram', action: 'Маркер Instagram не продлён', details: String(e.message).slice(0, 300) }));
+  }
+};
+setInterval(igRefresh, 6 * 3600e3).unref?.();
+setTimeout(igRefresh, 60_000).unref?.();
 
 const storeName = (id) => branchList().find((b) => b.id === (id || 1))?.name || '';
 
@@ -1503,6 +1512,22 @@ async function handleAuth(req, res, url) {
     mainStore.audit({ kind: 'change', user: me, ip: clientIp(req), device: device(req), action: 'Вошёл от имени сотрудника', details: `${target.name || target.email}${ctx.id !== 1 ? `, ${branchList().find((x) => x.id === ctx.id)?.name || ''}` : ''}` });
     return sendJson(res, 200, { ok: true, kassa: !can(target, 'dashboard') && can(target, 'pos') });
   }
+  // «Подключить Instagram»: переход в окно Instagram и возврат с кодом (маркер сохраняется сам). Только с правом «Настройки».
+  if ((url.pathname === '/api/instagram/connect' || url.pathname === '/api/instagram/callback') && req.method === 'GET') {
+    const me = auth.currentUser(req);
+    const back = (msg, ok) => { res.writeHead(302, { Location: `/?ig=${ok ? 'ok' : 'error'}&igmsg=${encodeURIComponent(msg)}#settings` }); res.end(); };
+    if (auth.enabled && (!me || !can(me, 'settings'))) return back('Войдите в программу как владелец или администратор и нажмите «Подключить Instagram» ещё раз', false);
+    const redirect = `https://${hostOf(req)}/api/instagram/callback`;
+    try {
+      if (url.pathname === '/api/instagram/connect') { res.writeHead(302, { Location: crm.instagramAuthUrl(redirect) }); return res.end(); }
+      if (url.searchParams.get('error')) return back(`Instagram: ${url.searchParams.get('error_description') || url.searchParams.get('error')}`, false);
+      const r = await crm.instagramConnect(url.searchParams.get('code'), url.searchParams.get('state'), redirect);
+      store.audit({ kind: 'change', user: me, ip: clientIp(req), device: device(req), action: 'Подключил Instagram', details: `@${r.username || r.id}` });
+      return back(`Instagram подключён: @${r.username || r.name || r.id}`, true);
+    } catch (err) {
+      return back(err.message, false);
+    }
+  }
   if (url.pathname === '/api/act-as/stop' && req.method === 'POST') {
     const owner = auth.ownerOf(req);
     if (!owner) return sendJson(res, 400, { error: 'Вы и так работаете под своим именем' });
@@ -1544,7 +1569,7 @@ function igSettingsOut(s) {
   const denied = store.listAudit({ from: Date.now() - 7 * 864e5, to: Date.now() + 1, kind: 'denied', q: 'Вебхук Instagram', limit: 1 })[0];
   const failed = store.listAudit({ from: Date.now() - 7 * 864e5, to: Date.now() + 1, kind: 'change', q: 'Автоответ в Instagram не отправлен', limit: 1 })[0];
   return { enabled: s.enabled, verifyToken: s.verifyToken, hasSecret: Boolean(s.appSecret), hasToken: Boolean(s.accessToken), webhookPath: '/webhooks/instagram',
-    autoReply: s.autoReply, autoText: s.autoText, autoHours: s.autoHours, lastHook,
+    autoReply: s.autoReply, autoText: s.autoText, autoHours: s.autoHours, lastHook, appId: s.appId || '', tokenExpires: s.tokenExpires || null, tokenKind: s.accessToken ? (/^IG/.test(s.accessToken) ? 'instagram' : /^EAA/.test(s.accessToken) ? 'facebook' : 'other') : null,
     lastDenied: denied ? { at: denied.at, details: denied.details } : null, lastAutoError: failed ? { at: failed.at, details: failed.details } : null, auto: igAutoPublic(s) };
 }
 const META_CHANNELS = {

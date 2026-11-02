@@ -68,12 +68,16 @@ async function renderInstagram() {
     f.elements.appSecret.placeholder = s.hasSecret ? 'Сохранён. Введите новый, чтобы заменить' : '';
     f.elements.accessToken.placeholder = s.hasToken ? 'Сохранён. Введите новый, чтобы заменить' : 'IGAA…';
     f.elements.enabled.checked = s.enabled;
+    f.elements.appId.value = s.appId || '';
+    $('#ig-redirect').textContent = `${location.origin}/api/instagram/callback`;
     f.elements.autoReply.checked = s.autoReply;
     f.elements.autoText.value = s.autoText || '';
     f.elements.autoHours.value = s.autoHours || 12;
     // Доходят ли сообщения: когда Instagram последний раз присылал событие, были ли отказы и ошибки автоответа.
     const when = (t) => new Date(t).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
     $('#ig-status').innerHTML = [
+      s.tokenKind === 'facebook' ? '⚠️ Сохранён маркер Facebook (EAA…) — он не подходит. Нажмите «Подключить Instagram».' : '',
+      s.tokenKind === 'instagram' && s.tokenExpires ? `🔑 Маркер Instagram действует до <b>${when(s.tokenExpires)}</b>, программа продлевает его сама` : '',
       s.lastHook ? `✅ Последнее событие от Instagram: <b>${when(s.lastHook)}</b>` : '⏳ От Instagram ещё не приходило ни одного сообщения на этот адрес',
       s.lastDenied ? `⚠️ ${when(s.lastDenied.at)} Instagram прислал сообщение, но программа его отклонила: ${esc(s.lastDenied.details)} (проверьте App Secret и галочку «Принимать сообщения»)` : '',
       s.lastAutoError ? `⚠️ ${when(s.lastAutoError.at)} автоответ не отправлен: ${esc(s.lastAutoError.details)}` : '',
@@ -135,6 +139,27 @@ $('#ia-preview').addEventListener('click', async () => {
     showFormError('#igauto-error', err);
   }
 });
+// «Подключить Instagram»: сначала сохраняем ID и секрет, потом — в окно Instagram (вернёт обратно в «Настройки»).
+$('#ig-connect').addEventListener('click', async () => {
+  const f = $('#instagram-form');
+  $('#instagram-error').hidden = true;
+  try {
+    await api('/api/settings/instagram', { method: 'PUT', body: { appId: f.elements.appId.value, appSecret: f.elements.appSecret.value, enabled: f.elements.enabled.checked,
+      autoReply: f.elements.autoReply.checked, autoText: f.elements.autoText.value, autoHours: f.elements.autoHours.value } });
+    location.href = '/api/instagram/connect';
+  } catch (err) {
+    showFormError('#instagram-error', err);
+  }
+});
+// Вернулись из Instagram: показать итог и убрать его из адреса.
+{
+  const q = new URLSearchParams(location.search);
+  if (q.get('ig')) {
+    setTimeout(() => toast(q.get('igmsg') || (q.get('ig') === 'ok' ? 'Instagram подключён' : 'Не получилось подключить Instagram'), q.get('ig') === 'ok' ? undefined : 'error'), 600);
+    history.replaceState(null, '', location.pathname + location.hash);
+  }
+}
+
 $('#ig-check').addEventListener('click', async () => {
   $('#instagram-error').hidden = true;
   try {
@@ -149,7 +174,7 @@ $('#instagram-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
   try {
-    await api('/api/settings/instagram', { method: 'PUT', body: { appSecret: f.elements.appSecret.value, accessToken: f.elements.accessToken.value, enabled: f.elements.enabled.checked,
+    await api('/api/settings/instagram', { method: 'PUT', body: { appId: f.elements.appId.value, appSecret: f.elements.appSecret.value, accessToken: f.elements.accessToken.value, enabled: f.elements.enabled.checked,
       autoReply: f.elements.autoReply.checked, autoText: f.elements.autoText.value, autoHours: f.elements.autoHours.value } });
     toast('Настройки Instagram сохранены');
     renderInstagram();

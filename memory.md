@@ -724,6 +724,14 @@
     `crm.instagramAutoReply` шлёт текст, если этому ig_user_id автоответ не уходил autoHours часов (событие CRM «out»,
     автор «Автоответ»); ошибка → журнал «Автоответ в Instagram не отправлен». Настройки показывают время последнего
     вебхука (`instagram_last_hook`), последний отказ подписи и ошибку автоответа; «Проверить подключение» — `GET /me` по токену.
+    **«Подключить Instagram»** (вход через Instagram без всплывающих окон — на планшете окно Meta «Сгенерировать маркер»
+    зависало на developers.facebook.com/tools/explorer/callback): настройки `appId` (ID приложения Instagram) + `appSecret`;
+    `GET /api/instagram/connect` → instagram.com/oauth/authorize (scope business_basic, manage_messages, manage_comments,
+    state в настройке `instagram_oauth_state`, 30 мин) → `GET /api/instagram/callback` (нужно право `settings`; обмен
+    code → короткий → долгий маркер IGAA, `tokenExpires`), возврат на `/?ig=ok|error&igmsg=…#settings`. В Meta нужно
+    добавить URL переадресации https://baza.montshop.kg/api/instagram/callback. Продление `refreshInstagramToken` каждые 6 ч,
+    если до конца < 20 дней. Маркер Facebook (EAA…) не принимается — понятная ошибка. Для тестов: INSTAGRAM_OAUTH_URL,
+    INSTAGRAM_GRAPH_URL, INSTAGRAM_API_URL.
     Ошибки скриптов витрины: `window.shopError` в shop.html → POST `/shop/client-error` (≤20/мин) → журнал
     (`journalctl -u shop | grep 'Витрина: ошибка'`); с `?debug=1` в адресе — красная панель с текстом ошибки на странице.
 
