@@ -686,7 +686,8 @@
     (по умолчанию) / сразу в остаток / не загружать. Сервер: `importVariantGroups` (db.js), `POST /api/products/import-variants`
     (право `import`, отменяемый из журнала). Существующие товар (по коду, затем название+категория) и модификации не меняются.
     ВНИМАНИЕ: глобальные имена скриптов общие для страницы — `num` уже был в print-designer.js (из-за повтора import.js не
-    загружался); в import.js — `impNum`. (`renderBonuses` объявлен и в kpi.js, и в staff-time.js — было до этого.)
+    загружался); в import.js — `impNum`. `renderBonuses` был и в kpi.js, и в staff-time.js (второй подменял первый —
+    панель бонусов в «Отчётах» не рисовалась): в kpi.js переименован в `renderKpiBonuses`.
     Ошибки скриптов витрины: `window.shopError` в shop.html → POST `/shop/client-error` (≤20/мин) → журнал
     (`journalctl -u shop | grep 'Витрина: ошибка'`); с `?debug=1` в адресе — красная панель с текстом ошибки на странице.
 

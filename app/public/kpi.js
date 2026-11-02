@@ -77,7 +77,7 @@ function renderPay() {
     </tr>`).join('') : '<tr><td colspan="9" class="empty">Сотрудников пока нет</td></tr>';
   $('#pay-foot').innerHTML = staff.length > 1 ? `<tr><td>Итого</td><td>${int(sum('shifts'))}</td><td>${money(sum('salary'))}</td><td>${money(sum('revenue'))}</td>
     <td>${money(sum('bonus'))}</td><td>${sum('planBonus') + sum('extra') ? '+' + money(sum('planBonus') + sum('extra')) : '—'}</td><td>${sum('fines') ? '−' + money(sum('fines')) : '—'}</td><td><b>${money(sum('pay'))}</b></td>${edit ? '<td></td>' : ''}</tr>` : '';
-  renderBonuses();
+  renderKpiBonuses();
 }
 
 function renderSellers() {
@@ -277,7 +277,7 @@ $('#fix-form').addEventListener('submit', (e) => {
 });
 $('#fix-reset').addEventListener('click', () => saveFix(null));
 $('#fix-cancel').addEventListener('click', () => $('#fix-dialog').close());
-function renderBonuses() {
+function renderKpiBonuses() {
   const list = kpiView.bonuses || [];
   $('#bonus-panel').hidden = !session.can('salary') || !list.length;
   $('#bonus-body').innerHTML = list.map((b) => `<tr>
