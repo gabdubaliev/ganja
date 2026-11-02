@@ -99,30 +99,7 @@ function columnIndex(ref) {
   return n - 1;
 }
 
-// Все листы книги: [{ name, rows }] (для импорта: нужные данные бывают не на первом листе).
-async function readXlsxSheets(bytes) {
-  const zip = await unzip(bytes);
-  const workbook = await zip.text('xl/workbook.xml');
-  const rels = await zip.text('xl/_rels/workbook.xml.rels');
-  if (!workbook || !rels) return [{ name: 'Лист1', rows: await readXlsx(bytes) }];
-  const out = [];
-  for (const sh of tags(xml(workbook), 'sheet')) {
-    const rid = [...sh.attributes].find((a) => a.localName === 'id')?.value;
-    const rel = tags(xml(rels), 'Relationship').find((r) => r.getAttribute('Id') === rid);
-    if (!rel) continue;
-    const target = rel.getAttribute('Target').replace(/^\//, '');
-    out.push({ name: sh.getAttribute('name') || `Лист${out.length + 1}`, rows: await readXlsx(bytes, target.startsWith('xl/') ? target : 'xl/' + target) });
-  }
-  return out.length ? out : [{ name: 'Лист1', rows: await readXlsx(bytes) }];
-}
-async function readTableSheets(file) {
-  const name = file.name.toLowerCase();
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  if (bytes[0] === 0x50 && bytes[1] === 0x4b && !name.endsWith('.csv')) return readXlsxSheets(bytes);
-  return [{ name: file.name, rows: await readTableFile(file) }];
-}
-
-async function readXlsx(bytes, onlySheet = null) {
+async function readXlsx(bytes) {
   const zip = await unzip(bytes);
   const shared = [];
   const sst = await zip.text('xl/sharedStrings.xml');
@@ -130,11 +107,11 @@ async function readXlsx(bytes, onlySheet = null) {
     for (const si of tags(xml(sst), 'si')) shared.push(tags(si, 't').map((t) => t.textContent).join(''));
   }
 
-  // Первый лист книги (или заданный).
-  let sheetPath = onlySheet || 'xl/worksheets/sheet1.xml';
+  // Первый лист книги.
+  let sheetPath = 'xl/worksheets/sheet1.xml';
   const workbook = await zip.text('xl/workbook.xml');
   const rels = await zip.text('xl/_rels/workbook.xml.rels');
-  if (workbook && rels && !onlySheet) {
+  if (workbook && rels) {
     const first = tags(xml(workbook), 'sheet')[0];
     const rid = first && [...first.attributes].find((a) => a.localName === 'id')?.value;
     const rel = tags(xml(rels), 'Relationship').find((r) => r.getAttribute('Id') === rid);

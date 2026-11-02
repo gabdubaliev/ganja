@@ -737,7 +737,6 @@ const routes = [
   ['POST', '/api/products', (p, url, body) => store.createProduct(body), 'products'],
   ['PUT', '/api/products/:id', (p, url, body) => store.updateProduct(p.id, body), 'products'],
   ['POST', '/api/products/import', (p, url, body) => store.importProducts(body.rows, { update: Boolean(body.update) }), 'import'],
-  ['POST', '/api/products/import-variants', (p, url, body, user) => store.importVariantGroups(body, user), 'import'],
   ['PUT', '/api/products/:id/stock', (p, url, body, user) => store.setStock(p.id, body.stock, user), 'stock'],
   // Групповое изменение: удаление требует отдельного права.
   ['POST', '/api/products/bulk', (p, url, body, user) => {
@@ -1230,7 +1229,6 @@ const AUDIT_LABELS = {
   'PUT /api/products/:id': 'Изменил товар',
   'DELETE /api/products/:id': 'Удалил товар',
   'POST /api/products/import': 'Загрузил товары из Excel',
-  'POST /api/products/import-variants': 'Загрузил товары с модификациями из Excel',
   'PUT /api/products/:id/stock': 'Пересчитал остаток',
   'PUT /api/products/:id/photo': 'Поменял фото товара',
   'DELETE /api/products/:id/photo': 'Удалил фото товара',
@@ -1336,7 +1334,7 @@ const AUDIT_LABELS = {
 // Действия, которые можно отменить из журнала (меняют только товары, категории, поставщиков, документы склада и расходы).
 // Продажи, возвраты, сертификаты, деньги на счетах, сотрудники и настройки не отменяются.
 const UNDO_KEYS = new Set([
-  'POST /api/products', 'PUT /api/products/:id', 'DELETE /api/products/:id', 'POST /api/products/import', 'POST /api/products/import-variants', 'PUT /api/products/:id/stock',
+  'POST /api/products', 'PUT /api/products/:id', 'DELETE /api/products/:id', 'POST /api/products/import', 'PUT /api/products/:id/stock',
   'POST /api/products/bulk', 'POST /api/products/:id/variants', 'POST /api/expenses', 'DELETE /api/expenses/:id', 'POST /api/invoice/receive',
   'POST /api/recurring-expenses', 'PUT /api/recurring-expenses/:id', 'DELETE /api/recurring-expenses/:id',
   'POST /api/categories', 'PUT /api/categories/:id', 'DELETE /api/categories/:id', 'PUT /api/categories-order',
@@ -1367,7 +1365,6 @@ function auditDetails(key, params, body, result) {
     }
     case 'POST /api/products/bulk': return `${{ delete: 'удаление', archive: 'убрать из продажи', restore: 'вернуть в продажу', price: 'цена', cost: 'себестоимость', category: 'категория', unit: 'единица', barcodes: 'штрихкоды' }[body.action] || body.action}${body.value !== undefined ? ` (${body.mode ? body.mode + ' ' : ''}${body.value})` : ''}, товаров: ${r.count ?? body.ids?.length}`;
     case 'POST /api/products/import': return `создано ${r.created}, обновлено ${r.updated}, пропущено ${r.skipped?.length ?? 0}`;
-    case 'POST /api/products/import-variants': return `товаров новых ${r.products}, уже было ${r.productsFound}; модификаций новых ${r.variants}, уже было ${r.variantsFound}; ${r.qty} шт${r.docNumber ? ` — черновик закупки №${r.docNumber}` : ''}`;
     case 'PUT /api/products/:id/stock': return `${r.name}: остаток ${r.stock}`;
     case 'PUT /api/products/:id': return `${r.name}: цена ${r.price}, себестоимость ${r.cost}`;
     case 'DELETE /api/categories/:id': return `товаров перенесено: ${r.moved}${r.to ? ` в «${r.to}»` : ', остались без категории'}`;

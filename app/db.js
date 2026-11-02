@@ -1974,66 +1974,6 @@ function createStore(file) {
     // Импорт из таблицы. Существующий товар ищется по коду, а без кода — по паре
     // «название + штрихкод»: у разных товаров (цветов одной модели) штрихкод бывает общим.
     // Строки с ошибками пропускаются, остальные загружаются.
-    // Импорт товаров с модификациями (строка файла = цвет + размер): groups — товары, у каждого variants с options.
-    // Товар ищется по коду (основной товар), затем по названию и категории; новые модификации добавляются,
-    // существующие не трогаются. stockMode: 'doc' — количества в черновик закупки (проверить и провести),
-    // 'stock' — сразу в остаток, 'none' — без остатков.
-    importVariantGroups({ groups, barcodes = true, stockMode = 'doc', note = '' }, user = null) {
-      if (!Array.isArray(groups) || !groups.length) throw new UserError('В файле нет товаров');
-      if (groups.length > 2000) throw new UserError('Слишком много товаров за раз: не больше 2000');
-      const mode = ['doc', 'stock', 'none'].includes(stockMode) ? stockMode : 'doc';
-      return withMove('import', '', null, () => transaction(db, () => {
-        const res = { products: 0, productsFound: 0, variants: 0, variantsFound: 0, qty: 0, docId: null, docNumber: null, skipped: [] };
-        const docItems = [];
-        for (const g of groups) {
-          const name = text(g.name, 'Название', { required: true });
-          const code = text(g.code, 'Код товара', { max: 64 });
-          const category = canonicalCategory(text(g.category, 'Категория'));
-          if (category && !findCategory(category)) this.createCategory({ name: category });
-          const variants = (Array.isArray(g.variants) ? g.variants : []).filter((v) => v && v.options && Object.keys(v.options).length);
-          if (!variants.length) { res.skipped.push({ name, reason: 'нет цвета и размера' }); continue; }
-          let base = code ? db.prepare('SELECT * FROM products WHERE code = ? AND parent_id IS NULL AND deleted = 0').get(code) : null;
-          if (!base) { const twin = this.findTwinProduct(name, category); base = twin ? getProduct(twin.id) : null; }
-          const top = variants.reduce((m, v) => Math.max(m, Number(v.price) || 0), 0);
-          if (base) {
-            if (base.parent_id) { res.skipped.push({ name, reason: `код ${code} у модификации другого товара` }); continue; }
-            res.productsFound++;
-          } else {
-            const first = variants[0];
-            base = this.createProduct({ name, category, code, price: top, purchase: Number(first.purchase) || 0, cost: Number(first.purchase) || 0, description: g.description || '', stock: 0 }, { allowTwin: true });
-            res.products++;
-          }
-          const have = new Map(childrenOf(base.id).map((k) => [optionsKey(JSON.parse(k.options || '{}')), k]));
-          const fresh = [];
-          for (const v of variants) {
-            const opts = optionsOf(v.options);
-            const k = have.get(optionsKey(opts));
-            const qty = Math.max(0, Number(v.qty) || 0);
-            if (k) { res.variantsFound++; if (qty) docItems.push({ id: k.id, qty, cost: Number(v.purchase) || k.purchase || k.cost }); continue; }
-            fresh.push({ v, opts, qty });
-          }
-          if (fresh.length) {
-            const made = this.createVariants(base.id, { barcodes, variants: fresh.map(({ v, opts, qty }) => ({
-              options: opts, price: Number(v.price) || top, purchase: Number(v.purchase) || 0, cost: Number(v.purchase) || 0,
-              stock: mode === 'stock' ? qty : 0, barcode: v.barcode || '', code: v.code || '' })) });
-            res.variants += made.length;
-            made.forEach((m, i) => { if (fresh[i].qty && mode === 'doc') docItems.push({ id: m.id, qty: fresh[i].qty, cost: Number(fresh[i].v.purchase) || 0 }); });
-          }
-          if (mode === 'stock') {
-            // Уже существующим модификациям количество прибавляется.
-            for (const it of docItems.splice(0)) db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?').run(it.qty, it.id);
-          }
-          res.qty += variants.reduce((s, v) => s + (Math.max(0, Number(v.qty) || 0)), 0);
-        }
-        if (mode === 'doc' && docItems.length) {
-          const d = this.saveDoc(null, { kind: 'purchase', note: text(note, 'Комментарий', { max: 500 }) || 'Импорт из Excel: проверьте количество по размерам и проведите', items: docItems.map((i) => ({ productId: i.id, qty: i.qty, cost: i.cost })) }, user);
-          res.docId = d.id;
-          res.docNumber = d.number;
-        }
-        return res;
-      }));
-    },
-
     importProducts(rows, { update = false } = {}) {
       if (!Array.isArray(rows) || !rows.length) throw new UserError('В файле нет товаров');
       return withMove('import', '', null, () => transaction(db, () => {
