@@ -244,6 +244,88 @@ function cashAlert(sh, when) {
   }
   return sh;
 }
+// Смена в Telegram: при открытии — кто, когда и сколько денег в кассе; при закрытии последним — подробный отчёт дня.
+const tgMoney = (n) => `${Number(n || 0).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} сом`;
+const tgTime = (t) => new Date(t).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+const tgHm = (t) => new Date(t).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+function shiftReportText(r, title = '📊 Отчёт по смене') {
+  const L = [];
+  const shop = store.design?.()?.name || '';
+  L.push(`${title}${shop ? ` · ${shop}` : ''}`, `${tgTime(r.from)} — ${r.open ? 'смена ещё идёт' : tgTime(r.to)}`, '');
+  L.push(`👥 Сотрудников на смене: ${r.people}`);
+  for (const x of r.staff) L.push(`• ${x.user}${x.register ? ` (${x.register})` : ''}: открыл ${tgHm(x.opened)}, ${x.closed ? `закрыл ${tgHm(x.closed)}` : 'ещё на смене'} · ${x.receipts} чек. на ${tgMoney(x.revenue)}`);
+  L.push('', '💵 Деньги в кассе (наличные)');
+  L.push(`На начало смены: ${r.cash.open === null ? '—' : tgMoney(r.cash.open)}${r.cash.openDiff ? ` (расхождение ${tgMoney(r.cash.openDiff)})` : ''}`);
+  L.push(`+ продажи наличными: ${tgMoney(r.cash.sales)}`);
+  if (r.cash.expenses) L.push(`− расходы из кассы: ${tgMoney(r.cash.expenses)}`);
+  for (const e of r.cashExpenses) L.push(`   · ${e.category}: ${tgMoney(e.amount)}${e.note ? ` — ${e.note}` : ''}${e.user_name ? ` (${e.user_name})` : ''}`);
+  if (r.cash.ops) L.push(`± внесения/изъятия: ${tgMoney(r.cash.ops)}`);
+  L.push(`= должно быть в кассе: ${tgMoney(r.cash.expected)}`);
+  if (r.cash.counted !== null) {
+    L.push(`Насчитано при закрытии: ${tgMoney(r.cash.counted)}${r.cash.closeDiff ? ` (${r.cash.closeDiff < 0 ? 'недостача' : 'излишек'} ${tgMoney(Math.abs(r.cash.closeDiff))})` : ' — сходится'}`);
+    if (r.cash.deposited) L.push(`Сдано на счёт: ${tgMoney(r.cash.deposited)}`);
+    L.push(`Оставлено в кассе: ${tgMoney(r.cash.left)}`);
+  }
+  L.push('', '💳 Оплаты по способам');
+  for (const m of r.byMethod) L.push(`• ${m.name}: ${tgMoney(m.sum)} (${m.receipts} чек.)${m.commission ? `, комиссия −${tgMoney(m.commission)}` : ''}`);
+  if (!r.byMethod.length) L.push('• оплат не было');
+  const s = r.sales;
+  L.push('', '🧾 Продажи');
+  L.push(`Чеков: ${s.receipts} · товаров продано: ${s.items} шт.`, `Средний чек: ${tgMoney(s.avg)}`);
+  if (s.discount) L.push(`Скидки: ${tgMoney(s.discount)}`);
+  if (s.bonus) L.push(`Оплачено бонусами: ${tgMoney(s.bonus)}`);
+  if (s.refunds) L.push(`Возвраты: ${s.refunds} на ${tgMoney(s.refunded)}`);
+  if (s.certificates) L.push(`Продано сертификатов: ${tgMoney(s.certificates)}`);
+  L.push('', '📈 Выручка и прибыль');
+  L.push(`Выручка: ${tgMoney(s.gross)}`);
+  if (s.commission) L.push(`− комиссия банков: ${tgMoney(s.commission)}`);
+  L.push(`− себестоимость проданного: ${tgMoney(s.cost)}`, `= валовая прибыль: ${tgMoney(s.grossProfit)}`);
+  const f = r.finance;
+  L.push(`− зарплата: ${tgMoney(f.salary)}`);
+  for (const w of f.staff) L.push(`   · ${w.name}: ${tgMoney(w.pay)}${w.shifts ? ` (${w.shifts} вых.` : ' ('}${w.bonus ? `, % и бонусы ${tgMoney(w.bonus)}` : ''}${w.fines ? `, штрафы −${tgMoney(w.fines)}` : ''})`);
+  if (f.staff.length > 1) L.push(`   Итого зарплата: ${tgMoney(f.salary)}`);
+  if (f.other) { L.push(`− расходы: ${tgMoney(f.other)}`); for (const e of f.expenses) L.push(`   · ${e.category}: ${tgMoney(e.amount)}`); }
+  if (f.fixed) L.push(`− постоянные расходы (доля за день): ${tgMoney(f.fixed)}`);
+  if (f.writeoffs) L.push(`− списания: ${tgMoney(f.writeoffs)}`);
+  L.push(`= ЧИСТАЯ ПРИБЫЛЬ: ${tgMoney(r.net)}`);
+  const sp = r.split;
+  L.push('', '🏦 Куда разложить деньги дня');
+  L.push(`• Оборот (вернуть в товар): ${tgMoney(sp.turnover)}`, `• Зарплата: ${tgMoney(sp.salary)}`);
+  if (sp.expenses) L.push(`• Расходы (уже потрачено): ${tgMoney(sp.expenses)}`);
+  if (sp.fixed) L.push(`• Отложить на постоянные расходы: ${tgMoney(sp.fixed)}`);
+  L.push(`• На счёт прибыли: ${tgMoney(sp.profit)}`);
+  return L.join('\n');
+}
+function shiftTelegram(sh, kind, user) {
+  const tg = notifier.telegramSettings();
+  if (!tg.enabled || store.setting('shift_tg', '1') === '0') return;
+  let text;
+  try {
+    if (kind === 'open') {
+      const r = store.shiftSession();
+      const first = r && r.staff[0]?.id === sh.id;
+      text = `🟢 Смена открыта: ${sh.user_name}${sh.register_name ? ` (${sh.register_name})` : ''} в ${tgHm(sh.opened_at)}\n`
+        + (sh.open_cash !== null && sh.open_cash !== undefined
+          ? `Деньги в кассе на начало: ${tgMoney(sh.open_cash)}${sh.open_expected !== null && sh.open_expected !== undefined ? ` (должно было быть ${tgMoney(sh.open_expected)}${sh.open_diff ? `, ${sh.open_diff < 0 ? 'недостача' : 'излишек'} ${tgMoney(Math.abs(sh.open_diff))}: ${sh.open_note}` : ' — сходится'})` : ''}`
+          : `Присоединился к смене${r && !first ? ` (кассу открыл${r.staff[0] ? ` ${r.staff[0].user}` : ''} в ${tgHm(r.from)}, на начало ${tgMoney(r.cash.open)})` : ''} — деньги не пересчитывал.`)
+        + (r ? `\nСейчас на смене: ${r.staff.filter((x) => !x.closed).map((x) => x.user).join(', ')}` : '');
+    } else {
+      const r = store.shiftSession();
+      const still = r ? r.staff.filter((x) => !x.closed) : [];
+      if (r && still.length) {
+        text = `🔴 ${sh.user_name} закрыл(а) смену в ${tgHm(sh.closed_at)} · ${sh.receipts} чек. на ${tgMoney(sh.revenue)}`
+          + `${sh.byMethod.length ? '\n' + sh.byMethod.map((m) => `${m.name}: ${tgMoney(m.sum)}`).join(' · ') : ''}`
+          + `\nНа смене остаётся: ${still.map((x) => x.user).join(', ')}. Подробный отчёт придёт, когда закроет последний.`;
+      } else if (r) {
+        text = shiftReportText(r, '🔴 Смена закрыта — отчёт дня');
+      }
+    }
+  } catch (err) {
+    console.error('Отчёт смены для Telegram не собран:', err.message);
+    return;
+  }
+  if (text) notifier.sendTelegram(text.slice(0, 4000), tg).catch((err) => console.error('Уведомление о смене в Telegram не отправлено:', err.message));
+}
 /* ---------- Автоматика: отчёты и уценка по расписанию, без участия владельца ---------- */
 const csvCell = (v) => { const s = String(v ?? ''); return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 const csvOf = (head, rows) => '\ufeff' + [head, ...rows].map((r) => r.map(csvCell).join(';')).join('\r\n');
@@ -933,6 +1015,7 @@ const routes = [
   }, 'pos'],
   ['POST', '/api/shift/open', (p, url, body, user) => {
     const sh = cashAlert(store.openShift(user, body.register_id, { cash: body.cash, note: body.note }), 'открытии');
+    shiftTelegram(sh, 'open', user);
     // Сотрудник вышел на смену — сделки без ответственного раздаются по очереди (если так настроено в воронке).
     try { crm.autoAssignFree(); } catch (err) { console.error('CRM: раздача сделок не удалась:', err.message); }
     return sh;
@@ -963,7 +1046,22 @@ const routes = [
   ['POST', '/api/accounts/ops', (p, url, body, user) => store.addAccountOp(body, user), 'accounts'],
   ['DELETE', '/api/accounts/ops/:id', (p) => store.deleteAccountOp(p.id), 'accounts'],
   ['PUT', '/api/accounts/:id/opening', (p, url, body) => store.setOpeningBalance(p.id, body.opening), 'accounts'],
-  ['POST', '/api/shift/close', (p, url, body, user) => cashAlert(store.closeShift(user, body), 'закрытии'), 'pos'],
+  ['POST', '/api/shift/close', (p, url, body, user) => {
+    const sh = cashAlert(store.closeShift(user, body), 'закрытии');
+    shiftTelegram(sh, 'close', user);
+    return sh;
+  }, 'pos'],
+  // Табло смены на главной: подробный отчёт по текущему (или выбранному) дню.
+  ['GET', '/api/shift-session', (p, url) => store.shiftSession(url.searchParams.get('id') || null), ['dashboard', 'shifts']],
+  ['POST', '/api/shift-session/telegram', (p, url, body) => {
+    const r = store.shiftSession(body.id || null);
+    if (!r) throw new UserError('Смен ещё не было');
+    const tg = notifier.telegramSettings();
+    if (!tg.enabled) throw new UserError('Telegram не подключён: Настройки → Уведомления в Telegram');
+    return notifier.sendTelegram(shiftReportText(r).slice(0, 4000), tg).then(() => ({ ok: true }));
+  }, ['dashboard', 'shifts']],
+  // Расход из кассы (только наличные) — кассир: сумма и причина обязательны.
+  ['POST', '/api/kassa/expense', (p, url, body, user) => store.addCashExpense(body, user), 'expenses.cash'],
   ['GET', '/api/shifts', (p, url) => store.listShifts(range(url)), ['shifts', 'kpi']],
   ['POST', '/api/shifts', (p, url, body, user) => store.saveShift(null, body, user), 'shifts'],
   ['PUT', '/api/shifts/:id', (p, url, body, user) => store.saveShift(p.id, body, user), 'shifts'],
@@ -1369,6 +1467,7 @@ const AUDIT_LABELS = {
   'POST /api/crm/leads': 'Создал сделку в CRM',
   'PUT /api/crm/leads/:id': 'Изменил сделку в CRM',
   'PUT /api/crm/funnel': 'Изменил воронку CRM',
+  'POST /api/kassa/expense': 'Расход из кассы',
   'PUT /api/cash-drawer': 'Изменил настройку «Один денежный ящик на все кассы»',
   'POST /api/crm/assign-free': 'Раздал свободные сделки CRM',
   'DELETE /api/crm/leads/:id': 'Удалил сделку в CRM',

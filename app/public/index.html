@@ -47,9 +47,9 @@
   <section class="panel cash-desk" id="cash-desk" aria-label="Касса сейчас">
     <div class="panel-head">
       <div><h2>Касса сейчас</h2><p class="sub" id="desk-sub">Открытые смены и деньги в кассе</p></div>
-      <a class="btn small ghost" href="#shifts">Все смены</a>
+      <div class="tools"><button type="button" class="btn small primary" id="desk-report-btn">📊 Подробно о смене</button><a class="btn small ghost" href="#shifts">Все смены</a></div>
     </div>
-    <div class="desk-tiles" id="desk-tiles"></div>
+    <div class="desk-tiles desk-click" id="desk-tiles" role="button" tabindex="0" title="Нажмите — подробный отчёт по смене"></div>
     <div id="desk-shifts" class="desk-shifts"></div>
     <p class="pick-meta" id="desk-today"></p>
   </section>
@@ -921,6 +921,20 @@
   <section class="crm-tasks" id="crm-tasks" hidden></section>
   <div class="kanban" id="crm-board"></div>
 </main>
+
+<dialog id="shr-dlg" class="wide" aria-labelledby="shr-title">
+  <div class="shr-head">
+    <button type="button" class="icon-btn" id="shr-prev" aria-label="Предыдущая смена">‹</button>
+    <div><h2 id="shr-title">Смена</h2><p class="sub" id="shr-sub"></p></div>
+    <button type="button" class="icon-btn" id="shr-next" aria-label="Следующая смена">›</button>
+    <button type="button" class="icon-btn" id="shr-close" aria-label="Закрыть">×</button>
+  </div>
+  <div id="shr-body" class="shr-body"></div>
+  <div class="form-actions">
+    <button type="button" class="btn" id="shr-tg">✈️ Отправить отчёт в Telegram</button>
+    <button type="button" class="btn primary" id="shr-ok">Готово</button>
+  </div>
+</dialog>
 
 <dialog id="crm-funnel-dlg" aria-labelledby="crm-funnel-title">
   <form method="dialog" id="crm-funnel-form">

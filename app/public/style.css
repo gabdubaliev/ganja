@@ -1940,3 +1940,25 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .ig-diag { padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); font-size: 13px; } .ig-diag ol { padding-left: 18px; display: grid; gap: 6px; margin: 6px 0 0; } .ig-diag code { word-break: break-all; font-size: 12px; color: var(--ink-2); } .ig-diag li.bad b { color: #b91c1c; } .ig-diag li.ok b { color: #15803d; }
 
 .reg-drawer { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 14px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+
+/* Табло смены: подробный отчёт */
+.desk-click { cursor: pointer; }
+.desk-click:hover .desk-tile { border-color: color-mix(in srgb, var(--series) 45%, var(--border)); }
+#shr-dlg { width: min(860px, calc(100vw - 24px)); }
+.shr-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 8px; align-items: center; margin-bottom: 10px; }
+.shr-head h2 { margin: 0; }
+.shr-body { display: grid; gap: 14px; }
+.shr-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.shr-card { padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); display: grid; gap: 2px; }
+.shr-card span { font-size: 12px; color: var(--ink-2); font-weight: 600; }
+.shr-card b { font-size: 20px; }
+.shr-card.good b { color: #15803d; } .shr-card.bad b { color: var(--critical); }
+.shr-sec { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+.shr-sec h3 { margin: 0 0 8px; font-size: 15px; }
+.shr-row { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px dashed var(--border); }
+.shr-row:last-child { border-bottom: 0; }
+.shr-row.total { font-weight: 700; border-top: 2px solid var(--border); border-bottom: 0; margin-top: 4px; padding-top: 8px; }
+.shr-row.sub { padding-left: 16px; color: var(--ink-2); font-size: 13px; }
+.shr-row .num { white-space: nowrap; }
+.shr-grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 760px) { .shr-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } .shr-grid2 { grid-template-columns: 1fr; } }

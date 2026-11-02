@@ -16,6 +16,7 @@ const RIGHTS = [
   { key: 'reports.money', group: 'Отчёты', label: 'ДДС (движение денег) и прибыль по месяцам' },
   { key: 'reports.stock', group: 'Отчёты', label: 'Товарный отчёт, остатки на дату и неликвиды' },
   { key: 'pos', group: 'Касса', label: 'Продавать на кассе и находить покупателя по телефону' },
+  { key: 'expenses.cash', group: 'Касса', label: 'Расход из кассы: взять наличные на нужды магазина (сумма и причина обязательны)' },
   { key: 'customers.create', group: 'Касса', label: 'Заводить и искать покупателей на кассе: ФИО, телефон, номер карты, дата рождения, пол' },
   { key: 'certificates.sell', group: 'Касса', label: 'Продавать подарочные сертификаты (кнопка «🎁 Сертификат» на кассе)' },
   { key: 'certificates.accept', group: 'Касса', label: 'Принимать подарочные сертификаты в оплату' },
@@ -91,12 +92,12 @@ const ROLES = {
   manager: {
     name: 'Управляющий',
     about: 'Видит всё и ведёт магазин, выписывает штрафы, правит смены, ведёт табель, даёт и проверяет задания. По умолчанию не меняет сотрудников, бонусы, оформление, настройки и не видит журнал действий.',
-    can: ['dashboard', 'kpi', 'pos', 'customers.create', 'certificates.sell', 'certificates.accept', 'certificates', 'sales', 'refund', 'discount', 'products', 'categories', 'stock.view', 'products.delete', 'import', 'products.export', 'migrate', 'docs.newproduct', 'stock', 'photos', 'arrivals', 'crm', 'crm.settings', 'customers', 'customers.accounts', 'orders', 'orders.payment', 'notify', 'shifts', 'fines', 'timesheet', 'timesheet.edit', 'tasks', 'writeoff', 'docs.sale', 'transfer', 'docs.unpost', 'expenses', 'finance', 'abc', 'reports.stock', 'reports.money', 'products.history', 'receive.photo', 'mytimesheet', 'undo.own'],
+    can: ['dashboard', 'kpi', 'pos', 'customers.create', 'certificates.sell', 'certificates.accept', 'certificates', 'sales', 'refund', 'discount', 'products', 'categories', 'stock.view', 'products.delete', 'import', 'products.export', 'migrate', 'docs.newproduct', 'stock', 'photos', 'arrivals', 'crm', 'crm.settings', 'customers', 'customers.accounts', 'orders', 'orders.payment', 'notify', 'shifts', 'fines', 'timesheet', 'timesheet.edit', 'tasks', 'writeoff', 'docs.sale', 'transfer', 'docs.unpost', 'expenses', 'expenses.cash', 'finance', 'abc', 'reports.stock', 'reports.money', 'products.history', 'receive.photo', 'mytimesheet', 'undo.own'],
   },
   cashier: {
     name: 'Кассир',
     about: 'Работает в окне кассы: открывает смену, продаёт, видит свои чеки, отправляет заказы на доставку. Фото товаров и сделки CRM — если владелец поставит галочку.',
-    can: ['pos', 'customers.create', 'certificates.sell', 'certificates.accept', 'orders', 'orders.payment', 'discount', 'stock.view', 'mytimesheet', 'undo.own'],
+    can: ['pos', 'expenses.cash', 'customers.create', 'certificates.sell', 'certificates.accept', 'orders', 'orders.payment', 'discount', 'stock.view', 'mytimesheet', 'undo.own'],
   },
   storekeeper: {
     name: 'Кладовщик',

@@ -110,6 +110,21 @@
   <div class="more-tiles" id="kassa-more"></div>
 </main>
 
+<dialog id="kx-dlg" aria-labelledby="kx-title">
+  <form id="kx-form" novalidate>
+    <h2 id="kx-title">💸 Расход из кассы</h2>
+    <p class="sub">Только наличные из кассы. Сумма и причина обязательны — без них расход не сохранится. Владелец увидит расход в отчёте смены.</p>
+    <div class="field"><label for="kx-amount">Сколько взяли, сом</label><input id="kx-amount" name="amount" class="input big num" inputmode="decimal" autocomplete="off" placeholder="Например, 500" required></div>
+    <div class="field"><label for="kx-note">Причина: на что взяли</label><textarea id="kx-note" name="note" class="input" rows="2" maxlength="300" placeholder="Например, вода и пакеты для покупателей" required></textarea></div>
+    <div class="field"><label for="kx-cat">Статья</label><select id="kx-cat" name="category" class="input"></select></div>
+    <p class="form-error" id="kx-error" hidden></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="kx-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить расход</button>
+    </div>
+  </form>
+</dialog>
+
 <main class="page" data-view="crm" hidden>
   <header class="top">
     <div class="title"><h1>CRM</h1><span class="source" id="crm-sub"></span></div>

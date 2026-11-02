@@ -681,6 +681,89 @@ async function loadCashDesk() {
   $('#desk-today').innerHTML = `За сегодня всего (все смены и чеки): ${int(t.receipts)} ${plural(t.receipts, ['чек', 'чека', 'чеков'])} · наличными <b>${money(t.cash)}</b> · безнал <b>${money(t.cashless)}</b>${methodsText(t.methods) ? ` (${methodsText(t.methods)})` : ''}${t.commission ? ` · комиссия −${money(t.commission)}` : ''}`;
 }
 
+/* ---------- Подробно о смене: деньги, продажи, прибыль, зарплата, куда разложить деньги ---------- */
+const srView = { id: null, data: null };
+const hm = (t) => new Date(t).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+const dm = (t) => new Date(t).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+const srRow = (label, value, cls = '') => `<div class="shr-row ${cls}"><span>${label}</span><b class="num">${value}</b></div>`;
+async function openShiftReport(id = null) {
+  let r;
+  try { r = await api(`/api/shift-session${id ? `?id=${id}` : ''}`); } catch (err) { return toast(err.message, 'error'); }
+  if (!r) return toast('Смен ещё не было');
+  srView.id = r.id;
+  srView.data = r;
+  $('#shr-title').textContent = r.open ? '🟢 Смена идёт' : '🔴 Смена закрыта';
+  $('#shr-sub').textContent = `${dm(r.from)} — ${r.open ? 'сейчас' : dm(r.to)} · сотрудников: ${r.people}`;
+  $('#shr-prev').disabled = !r.prevId;
+  $('#shr-next').disabled = !r.nextId;
+  const c = r.cash, s = r.sales, f = r.finance, sp = r.split;
+  const cashless = r.byMethod.filter((m) => m.kind !== 'cash');
+  $('#shr-body').innerHTML = `
+    <div class="shr-cards">
+      <div class="shr-card"><span>💵 В кассе ${r.open ? 'сейчас' : 'по программе'}</span><b class="num">${money(c.expected)}</b><small class="pcat">на начало ${c.open === null ? '—' : money(c.open)}</small></div>
+      <div class="shr-card"><span>Выручка</span><b class="num">${money(s.gross)}</b><small class="pcat">${int(s.receipts)} ${plural(s.receipts, ['чек', 'чека', 'чеков'])} · ${s.items} шт.</small></div>
+      <div class="shr-card"><span>Безнал</span><b class="num">${money(cashless.reduce((a, m) => a + m.sum, 0))}</b><small class="pcat">${cashless.map((m) => esc(m.name)).join(', ') || 'нет'}</small></div>
+      <div class="shr-card ${r.net >= 0 ? 'good' : 'bad'}"><span>Чистая прибыль</span><b class="num">${money(r.net)}</b><small class="pcat">после зарплаты и расходов</small></div>
+    </div>
+    <div class="shr-grid2">
+      <section class="shr-sec"><h3>👥 Кто на смене</h3>
+        ${r.staff.map((x) => srRow(`<b>${esc(x.user)}</b>${x.register ? ` · ${esc(x.register)}` : ''}<div class="pcat">открыл ${hm(x.opened)} · ${x.closed ? `закрыл ${hm(x.closed)}` : '<span class="live-dot"></span> на смене'} · ${int(x.receipts)} чек.</div>`, money(x.revenue))).join('')}
+      </section>
+      <section class="shr-sec"><h3>💵 Наличные в кассе</h3>
+        ${srRow('На начало смены', c.open === null ? '—' : money(c.open))}
+        ${c.openDiff ? srRow('Расхождение при открытии', money(c.openDiff), 'sub') : ''}
+        ${srRow('+ продажи наличными', money(c.sales))}
+        ${c.expenses ? srRow('− расходы из кассы', money(c.expenses)) : ''}
+        ${r.cashExpenses.map((e) => srRow(`${esc(e.category)}: ${esc(e.note)}${e.user_name ? ` · ${esc(e.user_name)}` : ''} · ${hm(e.at)}`, money(e.amount), 'sub')).join('')}
+        ${c.ops ? srRow('± внесения и изъятия', money(c.ops)) : ''}
+        ${srRow(r.open ? '= должно быть в кассе сейчас' : '= должно было быть', money(c.expected), 'total')}
+        ${c.counted !== null ? srRow('Насчитано при закрытии', money(c.counted) + (c.closeDiff ? ` (${c.closeDiff < 0 ? 'недостача' : 'излишек'} ${money(Math.abs(c.closeDiff))})` : ' ✓')) + (c.deposited ? srRow('Сдано на счёт', money(c.deposited)) : '') + srRow('Оставлено в кассе', money(c.left)) : ''}
+      </section>
+      <section class="shr-sec"><h3>💳 Оплаты по способам</h3>
+        ${r.byMethod.map((m) => srRow(`${esc(m.name)} <span class="pcat">· ${int(m.receipts)} чек.${m.commission ? ` · комиссия −${money(m.commission)}` : ''}</span>`, money(m.sum))).join('') || '<p class="pcat">Оплат не было</p>'}
+        ${srRow('Всего', money(r.byMethod.reduce((a, m) => a + m.sum, 0)), 'total')}
+      </section>
+      <section class="shr-sec"><h3>🧾 Продажи</h3>
+        ${srRow('Чеков', int(s.receipts))}${srRow('Товаров продано', `${s.items} шт.`)}${srRow('Средний чек', money(s.avg))}
+        ${s.discount ? srRow('Скидки', money(s.discount)) : ''}${s.bonus ? srRow('Оплачено бонусами', money(s.bonus)) : ''}
+        ${s.loyal ? srRow('Чеков с картой покупателя', int(s.loyal)) : ''}
+        ${s.refunds ? srRow('Возвраты', `${s.refunds} на ${money(s.refunded)}`) : ''}${s.certificates ? srRow('Продано сертификатов', money(s.certificates)) : ''}
+      </section>
+      <section class="shr-sec"><h3>📈 Прибыль</h3>
+        ${srRow('Выручка', money(s.gross))}${s.commission ? srRow('− комиссия банков', money(s.commission)) : ''}
+        ${srRow('− себестоимость проданного', money(s.cost))}${srRow('= валовая прибыль', money(s.grossProfit), 'total')}
+        ${srRow('− зарплата', money(f.salary))}
+        ${f.staff.map((w) => srRow(`${esc(w.name)}${w.shifts ? ` · ${w.shifts} вых.` : ''}${w.bonus ? ` · % и бонусы ${money(w.bonus)}` : ''}${w.fines ? ` · штрафы −${money(w.fines)}` : ''}`, money(w.pay), 'sub')).join('')}
+        ${f.other ? srRow('− расходы', money(f.other)) + f.expenses.map((e) => srRow(esc(e.category), money(e.amount), 'sub')).join('') : ''}
+        ${f.fixed ? srRow('− постоянные расходы (доля за день)', money(f.fixed)) + f.recurring.map((e) => srRow(esc(e.name), money(e.amount), 'sub')).join('') : ''}
+        ${f.writeoffs ? srRow('− списания', money(f.writeoffs)) : ''}
+        ${srRow('= Чистая прибыль', money(r.net), 'total')}
+      </section>
+      <section class="shr-sec"><h3>🏦 Куда разложить деньги дня</h3>
+        ${srRow('Оборот — вернуть в товар (себестоимость)', money(sp.turnover))}
+        ${srRow('Зарплата сотрудникам', money(sp.salary))}
+        ${f.staff.length > 1 ? f.staff.map((w) => srRow(esc(w.name), money(w.pay), 'sub')).join('') : ''}
+        ${sp.expenses ? srRow('Расходы (уже потрачены)', money(sp.expenses)) : ''}
+        ${sp.fixed ? srRow('Отложить на постоянные расходы', money(sp.fixed)) : ''}
+        ${sp.commission ? srRow('Комиссия банков (удержал банк)', money(sp.commission)) : ''}
+        ${srRow('На счёт прибыли', money(sp.profit), 'total')}
+        ${srRow('Итого = выручка', money(sp.turnover + sp.salary + sp.expenses + sp.fixed + sp.commission + sp.profit + (f.writeoffs || 0)), 'sub')}
+      </section>
+    </div>`;
+  if (!$('#shr-dlg').open) $('#shr-dlg').showModal();
+}
+$('#desk-report-btn').addEventListener('click', () => openShiftReport());
+$('#desk-tiles').addEventListener('click', () => openShiftReport());
+$('#desk-tiles').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openShiftReport(); } });
+$('#desk-shifts').addEventListener('click', () => openShiftReport());
+$('#shr-prev').addEventListener('click', () => srView.data?.prevId && openShiftReport(srView.data.prevId));
+$('#shr-next').addEventListener('click', () => srView.data?.nextId && openShiftReport(srView.data.nextId));
+$('#shr-close').addEventListener('click', () => $('#shr-dlg').close());
+$('#shr-ok').addEventListener('click', () => $('#shr-dlg').close());
+$('#shr-tg').addEventListener('click', async () => {
+  try { await api('/api/shift-session/telegram', { method: 'POST', body: { id: srView.id } }); toast('Отчёт отправлен в Telegram'); } catch (err) { toast(err.message, 'error'); }
+});
+
 // Касса обновляется сама: после каждой продажи и раз в минуту.
 salesFeed.listeners.push(() => { if (currentView === 'home') loadCashDesk(); });
 setInterval(() => { if (currentView === 'home' && !document.hidden) loadCashDesk(); }, 60000);

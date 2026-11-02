@@ -602,6 +602,16 @@ function open(file) {
   // Подтверждать оплату заказов с витрины — у кого были «Заказы с витрины».
   // ДДС и прибыль по месяцам — у кого были «Расходы и чистая прибыль» или «Счета».
   // Экспорт и создание товара в документе — у кого «Товары»; перенос из CloudShop — у кого «Импорт»; курс доллара — у кого «Настройки».
+  // Расход из кассы — кассирам (и всем, у кого есть «Касса») с личным набором прав.
+  if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v14'").get()) {
+    const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
+    for (const u of db.prepare('SELECT id, rights FROM users WHERE rights IS NOT NULL').all()) {
+      let list;
+      try { list = JSON.parse(u.rights); } catch { continue; }
+      if (Array.isArray(list) && list.includes('pos') && !list.includes('expenses.cash')) set.run(JSON.stringify([...list, 'expenses.cash']), u.id);
+    }
+    db.prepare("INSERT INTO settings (key, value) VALUES ('rights_v14', '1')").run();
+  }
   // Кассиры по умолчанию больше не меняют фото товаров: у кассиров с личным набором прав «Фото» снимается (владелец может вернуть).
   if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v13'").get()) {
     const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
@@ -3085,6 +3095,76 @@ function createStore(file) {
       };
     },
 
+    // Отчёт по кассовой смене (день): с открытия первым сотрудником (пересчёт денег) до закрытия последним.
+    // startId — смена, с которой день начался; без него — текущий или последний день. Деньги, выручка, прибыль,
+    // зарплата каждого, чеки и товары, и сколько денег куда отложить (оборот, зарплата, расходы, прибыль).
+    shiftSession(startId = null) {
+      const regs = db.prepare('SELECT id FROM registers').all().map((r) => r.id);
+      const anyReg = `(register_id IS NULL OR register_id IN (${regs.length ? regs.join(',') : '0'}))`;
+      const start = startId
+        ? db.prepare('SELECT * FROM shifts WHERE id = ?').get(Number(startId))
+        : db.prepare(`SELECT * FROM shifts WHERE open_cash IS NOT NULL AND ${anyReg} ORDER BY opened_at DESC LIMIT 1`).get()
+          || db.prepare('SELECT * FROM shifts ORDER BY opened_at DESC LIMIT 1').get();
+      if (!start) return null;
+      const next = db.prepare(`SELECT * FROM shifts WHERE open_cash IS NOT NULL AND opened_at > ? AND ${anyReg} ORDER BY opened_at LIMIT 1`).get(start.opened_at);
+      const prev = db.prepare(`SELECT id FROM shifts WHERE open_cash IS NOT NULL AND opened_at < ? AND ${anyReg} ORDER BY opened_at DESC LIMIT 1`).get(start.opened_at);
+      const list = db.prepare(`SELECT id FROM shifts WHERE opened_at >= ? AND opened_at < ? ORDER BY opened_at`).all(start.opened_at, next ? next.opened_at : 9e15)
+        .map((r) => this.getShift(r.id));
+      const open = list.some((x) => !x.closed_at);
+      const from = start.opened_at;
+      const to = open ? Date.now() : Math.max(...list.map((x) => x.closed_at));
+      const ids = list.map((x) => x.id);
+      const IN = ids.join(',');
+      const inSession = `s.refunded_at IS NULL AND (s.shift_id IN (${IN}) OR (s.shift_id IS NULL AND s.created_at >= ? AND s.created_at < ?))`;
+      const sale = db.prepare(`SELECT COUNT(DISTINCT s.id) AS receipts, COALESCE(SUM(si.qty), 0) AS items, COALESCE(SUM(si.qty * si.price), 0) AS gross,
+          COALESCE(SUM(si.qty * COALESCE(si.purchase, si.cost)), 0) AS cost, COALESCE(SUM(${LINE_FEE}), 0) AS fee
+        FROM sale_items si JOIN sales s ON s.id = si.sale_id WHERE ${inSession}`).get(from, to);
+      const extra = db.prepare(`SELECT COALESCE(SUM(discount), 0) AS discount, COALESCE(SUM(bonus_spent), 0) AS bonus, COUNT(customer_id) AS loyal
+        FROM sales s WHERE ${inSession}`).get(from, to);
+      const refunds = db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(total), 0) AS sum FROM sales WHERE refunded_at >= ? AND refunded_at < ?').get(from, to);
+      // Деньги по способам оплаты — все смены дня вместе.
+      const methods = new Map();
+      for (const sh of list) for (const m of sh.byMethod) {
+        const x = methods.get(m.name) || { name: m.name, kind: m.kind, receipts: 0, sum: 0, commission: 0 };
+        x.receipts += m.receipts; x.sum = round2(x.sum + m.sum); x.commission = round2(x.commission + m.commission);
+        methods.set(m.name, x);
+      }
+      const byMethod = [...methods.values()].sort((a, b) => b.sum - a.sum);
+      const cashIds = db.prepare("SELECT id FROM payment_methods WHERE kind = 'cash'").all().map((r) => r.id);
+      const cashIn = cashIds.length ? cashIds.join(',') : '0';
+      const cashExpenses = db.prepare(`SELECT id, at, category, amount, note, user_name FROM expenses WHERE method_id IN (${cashIn}) AND at >= ? AND at < ? ORDER BY at`).all(from, to);
+      const ops = db.prepare(`SELECT kind, amount, note, user_name, at FROM account_ops WHERE method_id IN (${cashIn}) AND at >= ? AND at < ? AND kind IN ('deposit', 'withdraw') ORDER BY at`).all(from, to);
+      const cashSales = round2(byMethod.filter((m) => m.kind === 'cash').reduce((a, m) => a + m.sum, 0));
+      const spentCash = round2(cashExpenses.reduce((a, e) => a + e.amount, 0));
+      const opsSum = round2(ops.reduce((a, o) => a + o.amount, 0));
+      const last = list.filter((x) => x.close_counted !== null && x.close_counted !== undefined).at(-1);
+      const fin = this.finance({ from, to });
+      const revenue = round2(sale.gross - sale.fee);
+      const gross = round2(revenue - sale.cost);
+      const net = round2(gross - fin.total);
+      return {
+        id: start.id, prevId: prev?.id ?? null, nextId: next?.id ?? null, open, from, to,
+        staff: list.map((x) => ({ id: x.id, user: x.user_name, register: x.register_name || '', opened: x.opened_at, closed: x.closed_at, receipts: x.receipts, revenue: x.revenue,
+          cash: x.cash, card: x.card, byMethod: x.byMethod })),
+        people: new Set(list.map((x) => x.user_id)).size,
+        cash: {
+          open: start.open_cash ?? null, openExpected: start.open_expected ?? null, openDiff: start.open_diff ?? null,
+          sales: cashSales, expenses: spentCash, ops: opsSum,
+          expected: round2((start.open_cash || 0) + cashSales - spentCash + opsSum),
+          counted: open ? null : last?.close_counted ?? null, closeDiff: open ? null : last?.close_diff ?? null,
+          deposited: open ? null : last?.deposited ?? null, left: open ? null : last?.left_cash ?? null,
+        },
+        byMethod, cashExpenses, ops,
+        sales: { receipts: sale.receipts, items: Math.round(sale.items * 1000) / 1000, gross: round2(sale.gross), commission: round2(sale.fee), revenue, cost: round2(sale.cost), grossProfit: gross,
+          avg: sale.receipts ? round2(sale.gross / sale.receipts) : 0, discount: round2(extra.discount), bonus: round2(extra.bonus), loyal: extra.loyal,
+          refunds: refunds.n, refunded: round2(refunds.sum), certificates: round2(list.reduce((a, x) => a + (x.certificatesSold || 0), 0)) },
+        finance: { salary: fin.salary, staff: fin.staff, expenses: fin.expenses, other: fin.other, recurring: fin.recurring.map((r) => ({ name: r.name, amount: r.amount })), fixed: fin.fixed, writeoffs: fin.writeoffs, total: fin.total },
+        net,
+        // Куда разложить деньги дня: оборот (вернуть в товар), зарплата, расходы, постоянные расходы, чистая прибыль.
+        split: { turnover: round2(sale.cost), salary: fin.salary, expenses: fin.other, fixed: fin.fixed, profit: net, commission: round2(sale.fee) },
+      };
+    },
+
     listShifts({ from, to }) {
       return db.prepare('SELECT id FROM shifts WHERE opened_at >= ? AND opened_at < ? ORDER BY opened_at DESC LIMIT 1000').all(from, to).map((r) => this.getShift(r.id));
     },
@@ -4068,6 +4148,25 @@ function createStore(file) {
       const { lastInsertRowid } = db.prepare('INSERT INTO expenses (at, category, amount, note, method_id, user_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run(at, category, amount, text(input.note, 'Комментарий', { max: 300 }), methodId, user ? user.name || user.email : '', Date.now());
       return db.prepare('SELECT * FROM expenses WHERE id = ?').get(lastInsertRowid);
+    },
+
+    // Расход из кассы кассиром: только наличные, только на открытой смене, сумма и причина обязательны,
+    // больше, чем есть в кассе, взять нельзя. Попадает в расходы (чистая прибыль) и уменьшает деньги в кассе.
+    addCashExpense(input, user) {
+      if (!user) throw new UserError('Сначала войдите');
+      const sh = this.currentShift(user.id);
+      if (!sh) throw new UserError('Расход из кассы можно оформить только на открытой смене');
+      const raw = String(input.amount ?? '').trim();
+      if (!raw) throw new UserError('Укажите, сколько денег взяли из кассы');
+      const amount = round2(number(raw, 'Сумма', { positive: true }));
+      const note = text(input.note, 'Причина', { max: 300 });
+      if (note.replace(/[^A-Za-zА-Яа-яЁё0-9]/g, '').length < 3) throw new UserError('Напишите причину: на что взяли деньги (например, «вода и пакеты»)');
+      const acc = this.cashAccount();
+      if (!acc) throw new UserError('В способах оплаты нет «Наличных» — расход из кассы оформить нельзя');
+      const expected = sh.register_id ? this.expectedDrawerCash(this.getShift(sh.id)) : null;
+      if (expected !== null && amount > expected + 0.009) throw new UserError(`В кассе по программе только ${expected} сом — больше взять нельзя`);
+      const category = EXPENSE_CATEGORIES.includes(input.category) ? input.category : 'Хозяйственные расходы';
+      return this.addExpense({ category, amount, note: `Из кассы: ${note}`, method_id: acc.id }, user);
     },
 
     deleteExpense(id) {
