@@ -119,6 +119,7 @@ $('#crm-tasks').addEventListener('click', (e) => {
 
 /* ---------- Карточка сделки ---------- */
 async function openLead(id = null, stage = null) {
+  const prevId = $('#lead-dialog').open ? crmView.lead?.id : null;
   try {
     crmView.staff = await api('/api/staff-list');
     crmView.lead = id ? await api(`/api/crm/leads/${id}`) : null;
@@ -126,6 +127,8 @@ async function openLead(id = null, stage = null) {
     return toast(err.message, 'error');
   }
   const l = crmView.lead;
+  // Открыли другую сделку — по умолчанию ответ туда, откуда писал клиент; заметку и звонок кассир выберет сам.
+  if (l && l.id !== prevId) crmView.kind = defaultKind(l);
   const f = $('#lead-form');
   f.reset();
   $('#lead-error').hidden = true;
@@ -195,6 +198,12 @@ function renderLeadSide() {
   $('#compose-wa').hidden = !l.wa_id;
   if ((!l.ig_user_id && crmView.kind === 'instagram') || (!l.wa_id && crmView.kind === 'whatsapp')) crmView.kind = 'note';
   renderComposeKind();
+}
+
+function defaultKind(l) {
+  if (l.wa_id && (l.source === 'WhatsApp' || !l.ig_user_id)) return 'whatsapp';
+  if (l.ig_user_id) return 'instagram';
+  return 'note';
 }
 
 function renderComposeKind() {
