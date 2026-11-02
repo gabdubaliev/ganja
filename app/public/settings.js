@@ -18,7 +18,29 @@ async function renderSettings() {
   } catch (err) {
     toast(err.message, 'error');
   }
+  renderTgEvents();
 }
+
+// Переключатели: какие уведомления присылать в Telegram.
+async function renderTgEvents() {
+  let d;
+  try { d = await api('/api/settings/telegram/events'); } catch { return; }
+  $('#tg-events-list').innerHTML = d.groups.map(([group, list]) => `<div class="tg-ev-group"><h4>${esc(group)}</h4>${list.map(([key, label]) => `
+    <label class="tg-ev ${d.on[key] ? '' : 'off'}"><span>${esc(label)}</span><span class="tg-switch"><input type="checkbox" data-tg-ev="${key}" ${d.on[key] ? 'checked' : ''} aria-label="${esc(label)}"><i></i></span></label>`).join('')}</div>`).join('');
+}
+$('#tg-events-list').addEventListener('change', async (e) => {
+  const box = e.target.closest('[data-tg-ev]');
+  if (!box) return;
+  const on = Object.fromEntries([...document.querySelectorAll('[data-tg-ev]')].map((x) => [x.dataset.tgEv, x.checked]));
+  box.closest('.tg-ev').classList.toggle('off', !box.checked);
+  try {
+    await api('/api/settings/telegram/events', { method: 'PUT', body: { on } });
+    toast(`${box.checked ? 'Включено' : 'Выключено'}: ${box.closest('.tg-ev').querySelector('span').textContent}`);
+  } catch (err) {
+    box.checked = !box.checked;
+    toast(err.message, 'error');
+  }
+});
 
 $('#currency-form').addEventListener('submit', async (e) => {
   e.preventDefault();

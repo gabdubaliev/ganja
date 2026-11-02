@@ -187,8 +187,8 @@ function createIgPrice({ store, crm, notifier }) {
 
   async function tellManager(text) {
     try {
-      const tg = notifier.telegramSettings();
-      if (tg.enabled) await notifier.sendTelegram(text, tg);
+      const tg = notifier.tgFor ? notifier.tgFor('ig_missing') : notifier.telegramSettings();
+      if (tg?.enabled) await notifier.sendTelegram(text, tg);
     } catch (err) {
       console.error('Автоответ: уведомление в Telegram не отправлено:', err.message);
     }

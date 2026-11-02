@@ -17,7 +17,7 @@ const { AsyncLocalStorage } = require('node:async_hooks');
 const { createAuth, hashPassword, checkPassword } = require('./auth');
 const { RIGHTS, ROLES, rightsOf, can } = require('./roles');
 const { themeCss, shopCss } = require('./theme');
-const { createNotifier } = require('./notify');
+const { createNotifier, TG_EVENTS } = require('./notify');
 const { createCrm } = require('./crm');
 const { createShopAuth } = require('./shop-auth');
 const { createIgPrice } = require('./ig-price');
@@ -90,8 +90,8 @@ function makeContext(id, st) {
     onCodeRequested(c) {
       const what = c.purpose === 'reset' ? 'восстановление пароля' : 'регистрация';
       ctx.notifier.broadcast('code', { phone: c.phone, name: c.name, purpose: c.purpose }, 'customers.accounts');
-      const tg = ctx.notifier.telegramSettings();
-      if (tg.enabled) {
+      const tg = ctx.notifier.tgFor('codes');
+      if (tg) {
         ctx.notifier.sendTelegram(`🔑 Код для покупателя ${c.name ? c.name + ', ' : ''}+${c.phone} (${what}): ${c.code}\nПозвоните или напишите покупателю и назовите код. Действует 15 минут.`, tg)
           .catch((err) => console.error('Код в Telegram не отправлен:', err.message));
       }
@@ -240,7 +240,7 @@ function cashAlert(sh, when) {
       + `Кассир: ${sh.user_name}\n${diff < 0 ? 'Недостача' : 'Излишек'}: ${Math.abs(diff)} сом`
       + `\nДолжно быть: ${when === 'открытии' ? sh.open_expected : sh.close_expected} сом, насчитано: ${when === 'открытии' ? sh.open_cash : sh.close_counted} сом`
       + `\nПричина: ${(when === 'открытии' ? sh.open_note : sh.close_note) || '—'}`;
-    if (tg.enabled) notifier.sendTelegram(text, tg).catch((err) => console.error('Уведомление в Telegram не отправлено:', err.message));
+    if (tg.enabled && notifier.eventOn('cash_diff')) notifier.sendTelegram(text, tg).catch((err) => console.error('Уведомление в Telegram не отправлено:', err.message));
   }
   return sh;
 }
@@ -258,6 +258,7 @@ function shiftReportText(r, title = '📊 Отчёт по смене') {
   L.push(`На начало смены: ${r.cash.open === null ? '—' : tgMoney(r.cash.open)}${r.cash.openDiff ? ` (расхождение ${tgMoney(r.cash.openDiff)})` : ''}`);
   L.push(`+ продажи наличными: ${tgMoney(r.cash.sales)}`);
   if (r.cash.changeKept) L.push(`+ сдача, оставленная в кассе: ${tgMoney(r.cash.changeKept)} (${r.kept.length} раз)`);
+  if (r.cash.chef) L.push(`+ сдача от шефа (ваши деньги в кассе): ${tgMoney(r.cash.chef)} (${r.chef.length} раз)`);
   if (r.cash.expenses) L.push(`− расходы из кассы: ${tgMoney(r.cash.expenses)}`);
   for (const e of r.cashExpenses) L.push(`   · ${e.category}: ${tgMoney(e.amount)}${e.note ? ` — ${e.note}` : ''}${e.user_name ? ` (${e.user_name})` : ''}`);
   if (r.cash.ops) L.push(`± внесения/изъятия: ${tgMoney(r.cash.ops)}`);
@@ -300,7 +301,7 @@ function shiftReportText(r, title = '📊 Отчёт по смене') {
 }
 function shiftTelegram(sh, kind, user) {
   const tg = notifier.telegramSettings();
-  if (!tg.enabled || store.setting('shift_tg', '1') === '0') return;
+  if (!tg.enabled || !notifier.eventOn(kind === 'open' ? 'shift_open' : 'shift_close')) return;
   let text;
   try {
     if (kind === 'open') {
@@ -360,9 +361,10 @@ function docTelegramText(d, what, who) {
 const ACC_KIND = { deposit: '➕ Внесение', withdraw: '➖ Изъятие', transfer: '🔁 Перевод' };
 function moveTelegram(key, params, body, result, user) {
   const tg = notifier.telegramSettings();
-  if (!tg.enabled || !result || store.setting('moves_tg', '1') === '0') return;
+  if (!tg.enabled || !result) return;
   const who = user ? user.name || user.email : 'без входа';
   let text = '';
+  let ev = '';
   try {
     if ((key === 'POST /api/docs' || key === 'PUT /api/docs/:id') && body.post) text = docTelegramText(result, 'проведено', who);
     else if (key === 'POST /api/docs/:id/post') text = docTelegramText(result, 'проведено', who);
@@ -387,7 +389,19 @@ function moveTelegram(key, params, body, result, user) {
     console.error('Уведомление о движении для Telegram не собрано:', err.message);
     return;
   }
-  if (text) notifier.sendTelegram(text.slice(0, 4000), tg).catch((err) => console.error('Уведомление в Telegram не отправлено:', err.message));
+  // Вид уведомления — по тому, что произошло; выключенный вид не отправляется.
+  if (!ev) {
+    if (key === 'POST /api/docs/:id/unpost') ev = 'doc_unpost';
+    else if (/\/api\/docs/.test(key)) ev = `doc_${result.kind}`;
+    else if (key === 'POST /api/sales/:id/refund') ev = 'refund';
+    else if (key === 'POST /api/kassa/expense') ev = 'expense_cash';
+    else if (key === 'POST /api/expenses') ev = 'expense';
+    else if (key.startsWith('DELETE /api/expenses') || key.startsWith('DELETE /api/accounts')) ev = 'deleted';
+    else if (key === 'POST /api/accounts/ops') ev = 'account';
+    else if (key === 'POST /api/invoice/receive') ev = 'invoice';
+    else if (key.includes('/api/certificates')) ev = 'certificate';
+  }
+  if (text && (!ev || notifier.eventOn(ev))) notifier.sendTelegram(text.slice(0, 4000), tg).catch((err) => console.error('Уведомление в Telegram не отправлено:', err.message));
 }
 /* ---------- Автоматика: отчёты и уценка по расписанию, без участия владельца ---------- */
 const csvCell = (v) => { const s = String(v ?? ''); return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
@@ -997,6 +1011,23 @@ const routes = [
     if (Number(body.changeKept) > 0) {
       try { sale.changeKept = store.keepChange(sale.id, body.changeKept, user); } catch (err) { sale.changeError = err.message; }
     }
+    // «Сдача от шефа»: записать в кассу и сразу написать шефу, сколько и куда перевести.
+    if (body.chefChange && Number(body.chefChange.amount) > 0) {
+      try {
+        if (auth.enabled && !can(user, 'pos.chefchange')) throw new UserError('Нет права «Сдача от шефа»');
+        sale.chefChange = store.chefChange(sale.id, body.chefChange, user);
+        const tg = notifier.tgFor('chef_change');
+        if (tg) {
+          const given = Number(body.chefChange.given) || 0;
+          notifier.sendTelegram(`🤝 Сдача от шефа: переведите клиенту ${tgMoney(sale.chefChange)}`
+            + `\nЧек №${sale.id} на ${tgMoney(sale.total)}${given ? `, клиент дал ${tgMoney(given)} наличными` : ''}`
+            + `${body.chefChange.to ? `\nКуда перевести: ${String(body.chefChange.to).slice(0, 120)}` : ''}`
+            + `\nКассир: ${user ? user.name || user.email : '—'}`
+            + `\nЭти ${tgMoney(sale.chefChange)} наличными остались в кассе — это ваши деньги, их ждут при пересчёте.`, tg)
+            .catch((err) => console.error('Уведомление в Telegram не отправлено:', err.message));
+        }
+      } catch (err) { sale.changeError = err.message; }
+    }
     notifier.sale(sale, user);
     return sale;
   }, 'pos'],
@@ -1368,6 +1399,9 @@ const routes = [
     store.setSetting('telegram', JSON.stringify(next));
     return { enabled: next.enabled, chatId: next.chatId, hasToken: Boolean(next.token) };
   }, 'settings'],
+  // Какие уведомления присылать: каждое включается и выключается отдельно.
+  ['GET', '/api/settings/telegram/events', () => ({ groups: TG_EVENTS, on: notifier.events() }), 'settings'],
+  ['PUT', '/api/settings/telegram/events', (p, url, body) => ({ groups: TG_EVENTS, on: notifier.setEvents(body.on || {}) }), 'settings'],
   ['POST', '/api/settings/telegram/test', async () => {
     try {
       await notifier.sendTelegram('✅ Уведомления о продажах подключены');
@@ -1547,6 +1581,7 @@ const AUDIT_LABELS = {
   'POST /api/customers/codes/:id/sent': 'Передал покупателю код подтверждения',
   'POST /api/customers/:id/password': 'Выдал покупателю временный пароль',
   'PUT /api/customers/:id/login': 'Изменил доступ покупателя к витрине',
+  'PUT /api/settings/telegram/events': 'Изменил, какие уведомления приходят в Telegram',
   'POST /api/settings/telegram/test': 'Отправил пробное уведомление',
 };
 // Действия, которые можно отменить из журнала (меняют только товары, категории, поставщиков, документы склада и расходы).

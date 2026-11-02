@@ -493,6 +493,8 @@ function open(file) {
   addColumns('sale_items', [['purchase', 'REAL']]);
   // Сдача, которую не выдали покупателю (нет мелочи, «сдачи не надо»): записывается в кассу, чтобы её ждали при пересчёте.
   addColumns('sales', [['change_kept', 'REAL NOT NULL DEFAULT 0']]);
+  // «Сдача от шефа»: сдачи в кассе нет — владелец переводит её клиенту сам, а наличные остаются в кассе.
+  addColumns('sales', [['chef_change', 'REAL NOT NULL DEFAULT 0'], ['chef_change_to', "TEXT NOT NULL DEFAULT ''"]]);
   db.exec('UPDATE sale_items SET purchase = cost WHERE purchase IS NULL');
   addColumns('doc_items', [['prev_purchase', 'REAL']]);
   // Зашифрованные копии пароля и PIN, заданных владельцем или администратором (для просмотра владельцем).
@@ -604,6 +606,16 @@ function open(file) {
   // Подтверждать оплату заказов с витрины — у кого были «Заказы с витрины».
   // ДДС и прибыль по месяцам — у кого были «Расходы и чистая прибыль» или «Счета».
   // Экспорт и создание товара в документе — у кого «Товары»; перенос из CloudShop — у кого «Импорт»; курс доллара — у кого «Настройки».
+  // «Сдача от шефа» — всем, у кого есть «Касса» (владелец может убрать).
+  if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v15'").get()) {
+    const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
+    for (const u of db.prepare('SELECT id, rights FROM users WHERE rights IS NOT NULL').all()) {
+      let list;
+      try { list = JSON.parse(u.rights); } catch { continue; }
+      if (Array.isArray(list) && list.includes('pos') && !list.includes('pos.chefchange')) set.run(JSON.stringify([...list, 'pos.chefchange']), u.id);
+    }
+    db.prepare("INSERT INTO settings (key, value) VALUES ('rights_v15', '1')").run();
+  }
   // Расход из кассы — кассирам (и всем, у кого есть «Касса») с личным набором прав.
   if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v14'").get()) {
     const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
@@ -3137,6 +3149,8 @@ function createStore(file) {
       const cashExpenses = db.prepare(`SELECT id, at, category, amount, note, user_name FROM expenses WHERE method_id IN (${cashIn}) AND at >= ? AND at < ? ORDER BY at`).all(from, to);
       const ops = db.prepare(`SELECT kind, amount, note, user_name, at FROM account_ops WHERE method_id IN (${cashIn}) AND at >= ? AND at < ? AND kind IN ('deposit', 'withdraw') ORDER BY at`).all(from, to);
       const kept = db.prepare(`SELECT amount, note, user_name, at FROM account_ops WHERE method_id IN (${cashIn}) AND at >= ? AND at < ? AND kind = 'change_kept' ORDER BY at`).all(from, to);
+      const chef = db.prepare(`SELECT amount, note, user_name, at FROM account_ops WHERE method_id IN (${cashIn}) AND at >= ? AND at < ? AND kind = 'chef_change' ORDER BY at`).all(from, to);
+      const chefSum = round2(chef.reduce((a, o) => a + o.amount, 0));
       const keptSum = round2(kept.reduce((a, o) => a + o.amount, 0));
       const cashSales = round2(byMethod.filter((m) => m.kind === 'cash').reduce((a, m) => a + m.sum, 0));
       const spentCash = round2(cashExpenses.reduce((a, e) => a + e.amount, 0));
@@ -3153,12 +3167,12 @@ function createStore(file) {
         people: new Set(list.map((x) => x.user_id)).size,
         cash: {
           open: start.open_cash ?? null, openExpected: start.open_expected ?? null, openDiff: start.open_diff ?? null,
-          sales: cashSales, expenses: spentCash, ops: opsSum, changeKept: keptSum,
-          expected: round2((start.open_cash || 0) + cashSales + keptSum - spentCash + opsSum),
+          sales: cashSales, expenses: spentCash, ops: opsSum, changeKept: keptSum, chef: chefSum,
+          expected: round2((start.open_cash || 0) + cashSales + keptSum + chefSum - spentCash + opsSum),
           counted: open ? null : last?.close_counted ?? null, closeDiff: open ? null : last?.close_diff ?? null,
           deposited: open ? null : last?.deposited ?? null, left: open ? null : last?.left_cash ?? null,
         },
-        byMethod, cashExpenses, ops, kept,
+        byMethod, cashExpenses, ops, kept, chef,
         sales: { receipts: sale.receipts, items: Math.round(sale.items * 1000) / 1000, gross: round2(sale.gross), commission: round2(sale.fee), revenue, cost: round2(sale.cost), grossProfit: gross,
           avg: sale.receipts ? round2(sale.gross / sale.receipts) : 0, discount: round2(extra.discount), bonus: round2(extra.bonus), loyal: extra.loyal,
           refunds: refunds.n, refunded: round2(refunds.sum), certificates: round2(list.reduce((a, x) => a + (x.certificatesSold || 0), 0)) },
@@ -4173,6 +4187,26 @@ function createStore(file) {
       return sum;
     },
 
+    // «Сдача от шефа»: покупатель дал наличные, сдачи в кассе нет — шеф переводит её клиенту.
+    // Эти наличные остаются в кассе (это деньги шефа): кассу ждут с ними при пересчёте, в прибыль они не идут.
+    chefChange(saleId, { amount, to = '' } = {}, user = null) {
+      const sum = round2(number(amount, 'Сдача от шефа', { positive: true }));
+      if (sum > 50000) throw new UserError('Слишком большая сдача');
+      const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(Number(saleId));
+      if (!sale) throw new UserError('Чек не найден');
+      if (!db.prepare("SELECT 1 FROM sale_payments WHERE sale_id = ? AND kind = 'cash'").get(sale.id)) throw new UserError('Сдача бывает только при оплате наличными');
+      const acc = this.cashAccount();
+      if (!acc) throw new UserError('В способах оплаты нет «Наличных»');
+      const where = text(to, 'Куда перевести', { max: 120 });
+      const who = user ? user.name || user.email : '';
+      transaction(db, () => {
+        db.prepare('UPDATE sales SET chef_change = ?, chef_change_to = ? WHERE id = ?').run(sum, where, sale.id);
+        db.prepare("INSERT INTO account_ops (method_id, at, amount, kind, note, user_name) VALUES (?, ?, ?, 'chef_change', ?, ?)")
+          .run(acc.id, Date.now(), sum, `Чек №${sale.id}: сдачу ${sum} сом переводит шеф${where ? ` (${where})` : ''} — наличные остались в кассе`, who);
+      });
+      return sum;
+    },
+
     // Расход из кассы кассиром: только наличные, только на открытой смене, сумма и причина обязательны,
     // больше, чем есть в кассе, взять нельзя. Попадает в расходы (чистая прибыль) и уменьшает деньги в кассе.
     addCashExpense(input, user) {
@@ -4290,6 +4324,7 @@ function createStore(file) {
             // Перевод между счетами: по всем счетам — ноль, по одному счёту — приход или уход.
             if (methodId) { add('in', 'transfer', 'Переводы с других счетов', r.plus); add('out', 'transfer', 'Переводы на другие счета', r.minus); }
           } else if (r.kind === 'change_kept') add('in', 'change', 'Сдача, оставленная покупателями в кассе', r.plus);
+          else if (r.kind === 'chef_change') add('in', 'chef', 'Сдача от шефа: наличные шефа в кассе (сдачу он перевёл клиенту)', r.plus);
           else if (r.kind === 'shift_diff') { add('in', 'surplus', 'Излишки в кассе', r.plus); add('out', 'shortage', 'Недостачи в кассе', r.minus); }
           else { add('in', 'adjust', 'Выравнивание остатка (пересчёт кассы)', r.plus); add('out', 'adjust', 'Выравнивание остатка (пересчёт кассы)', r.minus); }
         }

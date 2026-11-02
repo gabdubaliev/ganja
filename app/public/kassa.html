@@ -84,6 +84,12 @@
           <div class="seg" role="group" aria-label="Сдача">
             <button type="button" data-change="given" aria-pressed="true">Выдали сдачу</button>
             <button type="button" data-change="kept" aria-pressed="false">Оставили в кассе</button>
+            <button type="button" data-change="chef" aria-pressed="false" data-can="pos.chefchange" hidden>🤝 Сдача от шефа</button>
+          </div>
+          <div class="chef-box" id="chef-box" hidden>
+            <label class="field"><span>Сколько переведёт шеф, сом</span><input id="chef-amount" class="input num" inputmode="decimal" autocomplete="off"></label>
+            <label class="field"><span>Куда перевести клиенту (телефон, банк) — необязательно</span><input id="chef-to" class="input" autocomplete="off" placeholder="Например, +996 555 123 456 МБанк"></label>
+            <small class="pick-meta">В кассе нет сдачи — шеф переведёт её клиенту сам. Остаток сдачи (если есть) выдайте наличными. Шефу сразу придёт уведомление.</small>
           </div>
           <small class="pick-meta">Нет мелочи или покупатель сказал «сдачи не надо» — нажмите «Оставили в кассе»: деньги запишутся в кассу, и при закрытии смены их будут ждать.</small>
         </div>

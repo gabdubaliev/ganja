@@ -1368,13 +1368,18 @@
       </ol>
       <div class="field"><label for="tg-token">Токен бота</label><input id="tg-token" name="token" class="input" autocomplete="off" placeholder="123456789:AAE…"></div>
       <div class="field"><label for="tg-chat">ID чата</label><input id="tg-chat" name="chatId" class="input num" autocomplete="off" placeholder="Например, 123456789 или -1001234567890"></div>
-      <label class="check"><input type="checkbox" name="enabled"> Присылать уведомление о каждой продаже</label>
+      <label class="check"><input type="checkbox" name="enabled"> Уведомления в Telegram включены</label>
       <p class="form-error" id="telegram-error" role="alert" hidden></p>
       <div class="form-actions start">
         <button type="submit" class="btn primary">Сохранить</button>
         <button type="button" class="btn" id="telegram-test">Отправить пробное</button>
       </div>
     </form>
+    <div class="tg-events" id="tg-events">
+      <h3>Какие уведомления присылать</h3>
+      <p class="sub">Каждое уведомление включается и выключается отдельно — сохраняется сразу.</p>
+      <div id="tg-events-list"></div>
+    </div>
   </section>
   <section class="panel" data-can="settings">
     <form id="instagram-form" class="settings-form" novalidate>

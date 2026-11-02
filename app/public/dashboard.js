@@ -716,6 +716,7 @@ async function openShiftReport(id = null) {
         ${c.changeKept ? srRow('+ сдача, оставленная в кассе', money(c.changeKept)) + r.kept.map((k) => srRow(`${esc(k.note)}${k.user_name ? ` · ${esc(k.user_name)}` : ''}`, money(k.amount), 'sub')).join('') : ''}
         ${c.expenses ? srRow('− расходы из кассы', money(c.expenses)) : ''}
         ${r.cashExpenses.map((e) => srRow(`${esc(e.category)}: ${esc(e.note)}${e.user_name ? ` · ${esc(e.user_name)}` : ''} · ${hm(e.at)}`, money(e.amount), 'sub')).join('')}
+        ${c.chef ? srRow('+ сдача от шефа (ваши деньги в кассе)', money(c.chef)) + r.chef.map((k) => srRow(`${esc(k.note)}${k.user_name ? ` · ${esc(k.user_name)}` : ''}`, money(k.amount), 'sub')).join('') : ''}
         ${c.ops ? srRow('± внесения и изъятия', money(c.ops)) : ''}
         ${srRow(r.open ? '= должно быть в кассе сейчас' : '= должно было быть', money(c.expected), 'total')}
         ${c.counted !== null ? srRow('Насчитано при закрытии', money(c.counted) + (c.closeDiff ? ` (${c.closeDiff < 0 ? 'недостача' : 'излишек'} ${money(Math.abs(c.closeDiff))})` : ' ✓')) + (c.deposited ? srRow('Сдано на счёт', money(c.deposited)) : '') + srRow('Оставлено в кассе', money(c.left)) : ''}

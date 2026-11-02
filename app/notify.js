@@ -5,7 +5,62 @@
 
 const { can } = require('./roles');
 
+// Виды уведомлений в Telegram — каждое владелец включает и выключает в «Настройках» (по умолчанию все включены).
+const TG_EVENTS = [
+  ['Продажи и касса', [
+    ['sale', '🧾 Каждая продажа на кассе (чек, товары, бонусы)'],
+    ['refund', '↩️ Возврат чека'],
+    ['shift_open', '🟢 Открытие смены: кто, когда, деньги на начало'],
+    ['shift_close', '🔴 Закрытие смены и подробный отчёт дня'],
+    ['cash_diff', '⚠️ Деньги в кассе не сошлись (недостача или излишек)'],
+    ['chef_change', '🤝 «Сдача от шефа»: перевести сдачу клиенту'],
+    ['expense_cash', '💸 Расход из кассы кассиром'],
+  ]],
+  ['Деньги', [
+    ['expense', '💸 Расходы (аренда, доставка и т.д.)'],
+    ['account', '🏦 Внесения, изъятия и переводы между счетами'],
+    ['deleted', '⚠️ Удаление расходов и операций по счетам'],
+    ['certificate', '🎁 Сертификаты: продажа, выдача, удаление'],
+  ]],
+  ['Товар и документы', [
+    ['doc_purchase', '📦 Закупка'],
+    ['doc_receipt', '➕ Оприходование'],
+    ['doc_writeoff', '🗑️ Списание'],
+    ['doc_inventory', '📋 Инвентаризация'],
+    ['doc_transfer', '🚚 Перемещение между магазинами'],
+    ['doc_return', '↩️ Возврат продажи (документ)'],
+    ['doc_sale', '🧾 Продажа через админ-панель (документ)'],
+    ['invoice', '📸 Приход по фото накладной'],
+    ['doc_unpost', '⚠️ Отмена проведения документа'],
+  ]],
+  ['Интернет-витрина и Instagram', [
+    ['order', '🛒 Новый заказ с витрины'],
+    ['order_paid', '💳 Покупатель оплатил заказ или прикрепил чек'],
+    ['codes', '🔑 Коды подтверждения для покупателей витрины'],
+    ['ig_missing', '💬 Instagram: спросили цену, а артикула нет в базе'],
+  ]],
+];
+const TG_KEYS = TG_EVENTS.flatMap(([, list]) => list.map(([k]) => k));
+
 function createNotifier(store) {
+  // Включено ли уведомление этого вида (и Telegram вообще). Без настройки — включено.
+  function eventOn(key) {
+    let map = {};
+    try { map = JSON.parse(store.setting('tg_events', '{}')) || {}; } catch { map = {}; }
+    return map[key] !== false;
+  }
+  function tgFor(key) {
+    const tg = telegramSettings();
+    return tg.enabled && eventOn(key) ? tg : null;
+  }
+  function setEvents(input) {
+    const next = Object.fromEntries(TG_KEYS.map((k) => [k, input?.[k] !== false]));
+    store.setSetting('tg_events', JSON.stringify(next));
+    return next;
+  }
+  function events() {
+    return Object.fromEntries(TG_KEYS.map((k) => [k, eventOn(k)]));
+  }
   const clients = new Set(); // { res, user }
 
   // Окно программы подписывается на события: соединение держится открытым.
@@ -67,8 +122,8 @@ function createNotifier(store) {
     const who = user ? user.name || user.email : 'Без входа';
     const data = { id: sale.id, total: sale.total, paid: sale.paid, user: who, userId: user?.id ?? null, items: sale.items.length, at: Date.now() };
     broadcast('sale', data, 'notify');
-    const tg = telegramSettings();
-    if (!tg.enabled) return;
+    const tg = tgFor('sale');
+    if (!tg) return;
     const lines = [
       `🧾 Чек №${sale.id} — ${rub(sale.total)}`,
       `Кассир: ${who}`,
@@ -76,6 +131,7 @@ function createNotifier(store) {
       sale.items.length > 10 ? `…и ещё ${sale.items.length - 10}` : '',
       sale.bonusSpent ? `Оплачено бонусами: ${rub(sale.bonusSpent)}` : '',
       sale.changeKept ? `Сдачу ${rub(sale.changeKept)} не выдали — оставили в кассе` : '',
+      sale.chefChange ? `Сдачу ${rub(sale.chefChange)} переводит шеф` : '',
       sale.customer ? `Покупатель: ${sale.customer.name || '+' + sale.customer.phone}, начислено ${sale.bonusEarned} бонусов` : '',
     ].filter(Boolean);
     sendTelegram(lines.join('\n'), tg).catch((err) => console.error('Уведомление в Telegram не отправлено:', err.message));
@@ -84,8 +140,8 @@ function createNotifier(store) {
   // Новый заказ с интернет-витрины.
   function order(o) {
     broadcast('order', { id: o.id, total: o.total, name: o.name, items: o.items.length, at: Date.now() }, 'orders');
-    const tg = telegramSettings();
-    if (!tg.enabled) return;
+    const tg = tgFor('order');
+    if (!tg) return;
     const lines = [
       `🛒 Новый заказ №${o.id} с витрины — ${rub(o.total)}`,
       `${o.name}, +${o.phone}`,
@@ -101,8 +157,8 @@ function createNotifier(store) {
   // Покупатель нажал «Я оплатил» — сверить поступление денег.
   function orderPaid(o) {
     broadcast('order', { id: o.id, total: o.total, name: o.name, items: o.items.length, at: Date.now() }, 'orders');
-    const tg = telegramSettings();
-    if (!tg.enabled) return;
+    const tg = tgFor('order_paid');
+    if (!tg) return;
     sendTelegram(`💳 Заказ №${o.id}: покупатель отметил оплату ${rub(o.total)} (${o.pay_name}). Проверьте поступление и подтвердите в «Заказах».\n${o.name}, +${o.phone}`, tg)
       .catch((err) => console.error('Уведомление в Telegram не отправлено:', err.message));
   }
@@ -110,13 +166,13 @@ function createNotifier(store) {
   // Покупатель прикрепил чек об оплате.
   function orderReceipt(o) {
     broadcast('order', { id: o.id, total: o.total, name: o.name, items: o.items.length, at: Date.now() }, 'orders');
-    const tg = telegramSettings();
-    if (!tg.enabled) return;
+    const tg = tgFor('order_paid');
+    if (!tg) return;
     sendTelegram(`📎 Заказ №${o.id}: покупатель прикрепил чек об оплате ${rub(o.total)}. Проверьте в «Заказах».\n${o.name}, +${o.phone}`, tg)
       .catch((err) => console.error('Уведомление в Telegram не отправлено:', err.message));
   }
 
-  return { subscribe, broadcast, sale, order, orderPaid, orderReceipt, sendTelegram, sendTelegramFile, telegramSettings };
+  return { subscribe, broadcast, sale, order, orderPaid, orderReceipt, sendTelegram, sendTelegramFile, telegramSettings, eventOn, tgFor, setEvents, events };
 }
 
-module.exports = { createNotifier };
+module.exports = { createNotifier, TG_EVENTS };

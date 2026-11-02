@@ -114,24 +114,38 @@ function renderCart() {
   $('#change').textContent = cashPart !== null && given > 0
     ? (given >= cashPart ? `Сдача: ${money2(given - cashPart)}` : `Не хватает ${money2(cashPart - given)}`)
     : '';
-  // Сдача есть — кассир отмечает: выдал её или она осталась в кассе (тогда деньги записываются в кассу).
+  // Сдача есть — кассир отмечает: выдал её, она осталась в кассе (записывается в кассу) или её переведёт шеф.
   const change = cashPart !== null && given > cashPart ? r2(given - cashPart) : 0;
   $('#change-choice').hidden = !change;
-  if (!change) pos.changeKept = false;
+  if (!change) pos.changeMode = 'given';
+  if (pos.changeMode === 'chef' && !session.can('pos.chefchange')) pos.changeMode = 'given';
   $('#change-q').textContent = `Сдача ${money2(change)}:`;
-  for (const b of document.querySelectorAll('#change-choice [data-change]')) b.setAttribute('aria-pressed', String((b.dataset.change === 'kept') === Boolean(pos.changeKept)));
+  for (const b of document.querySelectorAll('#change-choice [data-change]')) b.setAttribute('aria-pressed', String(b.dataset.change === (pos.changeMode || 'given')));
+  $('#chef-box').hidden = pos.changeMode !== 'chef';
+  if (pos.changeMode === 'chef' && (!$('#chef-amount').value || parseNum($('#chef-amount').value) > change)) $('#chef-amount').value = String(change);
 }
 $('#change-choice').addEventListener('click', (e) => {
   const b = e.target.closest('[data-change]');
   if (!b) return;
-  pos.changeKept = b.dataset.change === 'kept';
+  pos.changeMode = b.dataset.change;
+  if (pos.changeMode !== 'chef') $('#chef-amount').value = '';
   renderCart();
+  if (pos.changeMode === 'chef') $('#chef-amount').select();
 });
-// Сколько сдачи осталось в кассе (0 — выдали).
-function changeKeptAmount(paid) {
+// Сдача, оставленная в кассе (0 — выдали или переводит шеф).
+function changeLeft(paid) {
   const cash = cashAmount(paid);
   const given = parseNum($('#cash-given').value);
-  return pos.changeKept && cash !== null && given > cash ? r2(given - cash) : 0;
+  return cash !== null && given > cash ? r2(given - cash) : 0;
+}
+function changeKeptAmount(paid) {
+  return pos.changeMode === 'kept' ? changeLeft(paid) : 0;
+}
+// «Сдача от шефа»: сколько и куда переведёт владелец.
+function chefChange(paid) {
+  if (pos.changeMode !== 'chef') return undefined;
+  const amount = parseNum($('#chef-amount').value);
+  return { amount, to: $('#chef-to').value.trim(), given: parseNum($('#cash-given').value), max: changeLeft(paid) };
 }
 
 /* ---------- Скидки кассира ---------- */
@@ -682,8 +696,10 @@ function resetCheck() {
   pos.cert = null;
   pos.checkDiscount = null;
   pos.split = null;
-  pos.changeKept = false;
+  pos.changeMode = 'given';
   $('#cash-given').value = '';
+  $('#chef-amount').value = '';
+  $('#chef-to').value = '';
   clearCustomer();
 }
 
@@ -696,6 +712,9 @@ $('#checkout').addEventListener('click', async () => {
   if (cash !== null && $('#cash-given').value && parseNum($('#cash-given').value) < cash) {
     return toast('Получено меньше, чем нужно наличными', 'error');
   }
+  const chef = chefChange(paid);
+  if (chef && !(chef.amount > 0)) return toast('Укажите, сколько сдачи переведёт шеф', 'error');
+  if (chef && chef.amount > chef.max + 0.009) return toast(`Сдача всего ${money2(chef.max)} — шеф не может перевести больше`, 'error');
   pos.busy = true;
   renderCart();
   try {
@@ -710,10 +729,11 @@ $('#checkout').addEventListener('click', async () => {
         customerId: pos.customer?.id, bonusSpend: bonusSpend(), birthday: birthdayRate() > 0,
         certificate: pos.cert ? { number: pos.cert.number, amount: certUse() } : undefined,
         changeKept: changeKeptAmount(paid) || undefined,
+        chefChange: chef ? { amount: chef.amount, to: chef.to, given: chef.given } : undefined,
       },
     });
     const how = sale.payments.length > 1 ? sale.payments.map((x) => `${x.name} ${money2(x.amount)}`).join(' + ') : sale.method;
-    toast(`Чек №${sale.id} на ${money2(sale.total)} (${how}) пробит${sale.changeKept ? `, сдача ${money2(sale.changeKept)} записана в кассу` : ''}${sale.discount ? `, скидка ${money2(sale.discount)}` : ''}${sale.bonusEarned ? `, начислено ${sale.bonusEarned} бонусов` : ''}${sale.certificate ? `. На сертификате осталось ${money2(sale.certificate.balance)}` : ''}`);
+    toast(`Чек №${sale.id} на ${money2(sale.total)} (${how}) пробит${sale.changeKept ? `, сдача ${money2(sale.changeKept)} записана в кассу` : ''}${sale.chefChange ? `. Шефу отправлено: перевести клиенту ${money2(sale.chefChange)}` : ''}${sale.changeError ? `. ⚠️ ${sale.changeError}` : ''}${sale.discount ? `, скидка ${money2(sale.discount)}` : ''}${sale.bonusEarned ? `, начислено ${sale.bonusEarned} бонусов` : ''}${sale.certificate ? `. На сертификате осталось ${money2(sale.certificate.balance)}` : ''}`);
     loadShift();
     resetCheck();
     afterSalePrint(sale.id);
