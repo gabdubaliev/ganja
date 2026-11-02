@@ -931,7 +931,12 @@ const routes = [
     const sh = user && store.currentShift(user.id);
     return sh ? store.getShift(sh.id) : null;
   }, 'pos'],
-  ['POST', '/api/shift/open', (p, url, body, user) => cashAlert(store.openShift(user, body.register_id, { cash: body.cash, note: body.note }), 'открытии'), 'pos'],
+  ['POST', '/api/shift/open', (p, url, body, user) => {
+    const sh = cashAlert(store.openShift(user, body.register_id, { cash: body.cash, note: body.note }), 'открытии');
+    // Сотрудник вышел на смену — сделки без ответственного раздаются по очереди (если так настроено в воронке).
+    try { crm.autoAssignFree(); } catch (err) { console.error('CRM: раздача сделок не удалась:', err.message); }
+    return sh;
+  }, 'pos'],
   // Конструктор чеков и этикеток: настройки нужны всем, кто печатает; менять — право «Конструктор чеков и этикеток».
   // Товарный отчёт, неликвиды, автоматика.
   ['GET', '/api/reports/stock', (p, url) => store.stockReport({ ...range(url), category: url.searchParams.get('category') || '', q: url.searchParams.get('q') || '' }), 'reports.stock'],
@@ -996,6 +1001,10 @@ const routes = [
   ['GET', '/api/crm/leads', (p, url, body, user) => crm.list({ q: url.searchParams.get('q') || '', source: url.searchParams.get('source') || '',
     userId: url.searchParams.get('mine') === '1' && user ? user.id : null }), 'crm'],
   ['GET', '/api/crm/summary', () => crm.summary(), 'crm'],
+  // Воронка: этапы и раздача новых сделок по очереди тем, кто на смене.
+  ['GET', '/api/crm/funnel', () => crm.funnel(), 'crm'],
+  ['PUT', '/api/crm/funnel', (p, url, body, user) => crm.setFunnel(body, user), 'crm.settings'],
+  ['POST', '/api/crm/assign-free', (p, url, body, user) => crm.assignFree(user), 'crm.settings'],
   ['GET', '/api/crm/tasks', (p, url, body, user) => crm.tasks({ userId: url.searchParams.get('mine') === '1' && user ? user.id : null }), 'crm'],
   ['POST', '/api/crm/leads', (p, url, body, user) => crm.create(body, user), 'crm'],
   ['GET', '/api/crm/leads/:id', (p) => crm.get(p.id), 'crm'],
@@ -1356,6 +1365,8 @@ const AUDIT_LABELS = {
   'PUT /api/settings/instagram/auto': 'Изменил автоответ ценой в Instagram',
   'POST /api/crm/leads': 'Создал сделку в CRM',
   'PUT /api/crm/leads/:id': 'Изменил сделку в CRM',
+  'PUT /api/crm/funnel': 'Изменил воронку CRM',
+  'POST /api/crm/assign-free': 'Раздал свободные сделки CRM',
   'DELETE /api/crm/leads/:id': 'Удалил сделку в CRM',
   'POST /api/crm/leads/:id/instagram': 'Ответил клиенту в Instagram',
   'POST /api/crm/leads/:id/whatsapp': 'Ответил клиенту в WhatsApp',

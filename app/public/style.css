@@ -638,6 +638,15 @@ input[type="range"] { width: 100%; accent-color: var(--series); }
 #sale-delete-form .form-actions { margin-top: 6px; }
 
 /* CRM: доска сделок */
+#crm-funnel-dlg { width: min(560px, calc(100vw - 24px)); }
+.cf-stages { display: grid; gap: 6px; margin: 10px 0; }
+.cf-stage { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto auto auto; gap: 6px; align-items: center; }
+.cf-stage input[type=color] { width: 36px; height: 36px; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.cf-stage .pcat { white-space: nowrap; }
+.cf-stage .cf-tag { grid-column: span 2; text-align: center; padding-right: 4px; }
+.cf-stage.fixed .input { font-weight: 600; }
+.cf-row-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+#crm-funnel-form .check { display: flex; gap: 8px; align-items: flex-start; margin: 6px 0; }
 [data-view="crm"] .tools .search { width: 240px; }
 #crm-source { width: auto; }
 .kanban { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(250px, 1fr); gap: 12px; overflow-x: auto; padding-bottom: 8px; align-items: start; }

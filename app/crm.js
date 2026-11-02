@@ -9,16 +9,20 @@
 const crypto = require('node:crypto');
 const { UserError, text, number, phone, round2, transaction } = require('./db');
 
+// Воронка по умолчанию — для магазина одежды. Владелец меняет её в CRM → «⚙ Воронка»:
+// добавляет, переименовывает, переставляет и красит этапы. «Купили» и «Отказ» — итоговые, есть всегда.
 const STAGES = [
-  ['new', 'Новые'],
-  ['contact', 'Связались'],
-  ['offer', 'Предложение'],
-  ['waiting', 'Ждём оплату'],
-  ['won', 'Купили'],
-  ['lost', 'Отказ'],
+  ['new', 'Новое обращение', '#0ea5e9'],
+  ['contact', 'Ответили', '#6366f1'],
+  ['offer', 'Подобрали размер', '#a855f7'],
+  ['waiting', 'Отложили / бронь', '#f59e0b'],
+  ['visit', 'Придёт в магазин / доставка', '#14b8a6'],
+  ['won', 'Купили', '#16a34a'],
+  ['lost', 'Отказ', '#94a3b8'],
 ];
-const STAGE_KEYS = new Set(STAGES.map(([k]) => k));
 const CLOSED = new Set(['won', 'lost']);
+const COLOR_RE = /^#[0-9a-f]{6}$/i;
+const { can } = require('./roles');
 const SOURCES = ['Instagram', 'WhatsApp', 'Telegram', 'Звонок', 'Витрина', 'Магазин', 'Рекомендация', 'Другое'];
 const INSTAGRAM_API = process.env.INSTAGRAM_API_URL || 'https://graph.instagram.com/v21.0';
 // Вход через Instagram: окно авторизации, обмен кода и продление маркера.
@@ -98,6 +102,33 @@ function createCrm(store) {
 
   const userName = (id) => (id ? db.prepare("SELECT COALESCE(NULLIF(name, ''), email) AS n FROM users WHERE id = ?").get(id)?.n || '' : '');
 
+  // Воронка и раздача сделок (настройка crm_funnel).
+  const DEFAULT_FUNNEL = { stages: STAGES.map(([key, name, color]) => ({ key, name, color })), autoAssign: true, assignFree: true };
+  function funnel() {
+    let s;
+    try { s = JSON.parse(store.setting('crm_funnel', '') || 'null'); } catch { s = null; }
+    if (!s || !Array.isArray(s.stages) || !s.stages.length) return { ...DEFAULT_FUNNEL, stages: DEFAULT_FUNNEL.stages.map((x) => ({ ...x })) };
+    return { stages: s.stages, autoAssign: s.autoAssign !== false, assignFree: s.assignFree !== false };
+  }
+  const stageKeys = () => new Set(funnel().stages.map((x) => x.key));
+  const stageNames = () => Object.fromEntries(funnel().stages.map((x) => [x.key, x.name]));
+
+  // Кто сейчас на смене и может вести сделки: открытая смена (не старше суток), сотрудник не отключён, есть право «CRM».
+  function onShift() {
+    const rows = db.prepare(`SELECT DISTINCT u.* FROM shifts s JOIN users u ON u.id = s.user_id
+      WHERE s.closed_at IS NULL AND s.opened_at > ? AND COALESCE(u.disabled, 0) = 0 AND u.moved_to IS NULL ORDER BY u.id`).all(Date.now() - 864e5);
+    return rows.filter((u) => can(u, 'crm'));
+  }
+  // Следующий по очереди: после того, кому досталась прошлая сделка.
+  function nextAssignee() {
+    const list = onShift();
+    if (!list.length) return null;
+    const last = Number(store.setting('crm_rr_last', '0')) || 0;
+    const u = list.find((x) => x.id > last) || list[0];
+    store.setSetting('crm_rr_last', String(u.id));
+    return u;
+  }
+
   function fields(input, cur = {}) {
     const pick = (k, f) => (input[k] === undefined ? cur[k] : f(input[k]));
     const out = {
@@ -117,6 +148,67 @@ function createCrm(store) {
   const crm = {
     STAGES,
     SOURCES,
+
+    // Воронка для экрана: этапы, правила раздачи и кто сейчас получает сделки.
+    funnel() {
+      const f = funnel();
+      const counts = Object.fromEntries(db.prepare('SELECT stage, COUNT(*) AS n FROM leads WHERE closed_at IS NULL OR closed_at > ? GROUP BY stage').all(Date.now() - 30 * 864e5).map((r) => [r.stage, r.n]));
+      return { ...f, counts, onShift: onShift().map((u) => ({ id: u.id, name: u.name || u.email })),
+        free: db.prepare('SELECT COUNT(*) AS n FROM leads WHERE user_id IS NULL AND closed_at IS NULL').get().n };
+    },
+
+    setFunnel(input, user) {
+      const cur = funnel();
+      const list = Array.isArray(input.stages) ? input.stages : cur.stages;
+      const seen = new Set();
+      const open = [];
+      const fixed = {};
+      for (const x of list) {
+        const name = text(x?.name, 'Название этапа', { required: true, max: 40 });
+        let key = String(x?.key || '').trim();
+        if (!/^[a-z0-9_-]{1,24}$/i.test(key) || seen.has(key)) key = `s${crypto.randomBytes(3).toString('hex')}`;
+        seen.add(key);
+        const st = { key, name, color: COLOR_RE.test(x?.color || '') ? x.color.toLowerCase() : '#64748b' };
+        if (CLOSED.has(key)) fixed[key] = st; else open.push(st);
+      }
+      if (!open.length) throw new UserError('Нужен хотя бы один рабочий этап');
+      // Первый этап — куда попадают новые сделки (ключ new): он всегда первый.
+      const first = open.findIndex((x) => x.key === 'new');
+      if (first > 0) open.unshift(...open.splice(first, 1));
+      if (first < 0) open.unshift({ key: 'new', name: 'Новое обращение', color: '#0ea5e9' });
+      if (open.length > 15) throw new UserError('Не больше 15 рабочих этапов');
+      const stages = [...open, fixed.won || { key: 'won', name: 'Купили', color: '#16a34a' }, fixed.lost || { key: 'lost', name: 'Отказ', color: '#94a3b8' }];
+      const next = { stages, autoAssign: input.autoAssign === undefined ? cur.autoAssign : Boolean(input.autoAssign),
+        assignFree: input.assignFree === undefined ? cur.assignFree : Boolean(input.assignFree) };
+      const keys = new Set(stages.map((x) => x.key));
+      transaction(db, () => {
+        // Этап убрали — его сделки переходят на первый этап.
+        for (const l of db.prepare('SELECT id, stage FROM leads').all()) {
+          if (keys.has(l.stage)) continue;
+          db.prepare('UPDATE leads SET stage = ? WHERE id = ?').run('new', l.id);
+          event(l.id, 'stage', `Этап «${cur.stages.find((x) => x.key === l.stage)?.name || l.stage}» убран из воронки → ${stages[0].name}`, who(user));
+        }
+        store.setSetting('crm_funnel', JSON.stringify(next));
+      });
+      return crm.funnel();
+    },
+
+    // Сделки без ответственного — раздать по очереди тем, кто на смене (при открытии смены и по кнопке).
+    assignFree(user = null) {
+      if (!onShift().length) return { assigned: 0 };
+      let assigned = 0;
+      for (const l of db.prepare('SELECT id FROM leads WHERE user_id IS NULL AND closed_at IS NULL ORDER BY created_at').all()) {
+        const u = nextAssignee();
+        if (!u) break;
+        db.prepare('UPDATE leads SET user_id = ?, updated_at = ? WHERE id = ?').run(u.id, Date.now(), l.id);
+        event(l.id, 'system', `Ответственный по очереди (на смене): ${u.name || u.email}`, who(user));
+        assigned++;
+      }
+      return { assigned };
+    },
+    autoAssignFree() {
+      return funnel().assignFree ? crm.assignFree() : { assigned: 0 };
+    },
 
     // Все открытые сделки и закрытые за последние 30 дней — для доски.
     list({ q = '', source = '', userId = null } = {}) {
@@ -151,8 +243,14 @@ function createCrm(store) {
     create(input, user, { quiet = false } = {}) {
       const f = fields(input);
       if (!f.name && !f.phone && !f.instagram && !f.title) throw new UserError('Укажите хотя бы имя, телефон или Instagram клиента');
-      const stage = STAGE_KEYS.has(input.stage) ? input.stage : 'new';
+      const stage = stageKeys().has(input.stage) ? input.stage : 'new';
       const now = Date.now();
+      // Сделка пришла сама (Instagram, WhatsApp, витрина) — отдаём по очереди тому, кто на смене.
+      let auto = null;
+      if (!user && !f.user_id && !CLOSED.has(stage) && funnel().autoAssign) {
+        auto = nextAssignee();
+        if (auto) f.user_id = auto.id;
+      }
       // Клиент с таким телефоном уже есть в программе лояльности — связываем.
       const customer = f.phone ? db.prepare('SELECT id FROM customers WHERE phone = ?').get(f.phone) : null;
       const { lastInsertRowid } = db.prepare(`
@@ -161,21 +259,22 @@ function createCrm(store) {
         .run(f.title, f.name, f.phone, f.instagram, input.ig_user_id || null, f.source, stage, f.amount, f.user_id ?? user?.id ?? null,
           customer?.id ?? null, input.order_id || null, input.unread ? 1 : 0, now, now, CLOSED.has(stage) ? now : null);
       if (!quiet) event(lastInsertRowid, 'system', `Сделка создана${user ? '' : ` (${f.source})`}`, who(user));
+      if (auto) event(lastInsertRowid, 'system', `Ответственный по очереди (на смене): ${auto.name || auto.email}`);
       return crm.get(lastInsertRowid);
     },
 
     update(id, input, user) {
       const cur = getLead(id);
       const f = fields(input, cur);
-      const stage = input.stage !== undefined ? (STAGE_KEYS.has(input.stage) ? input.stage : cur.stage) : cur.stage;
+      const stage = input.stage !== undefined ? (stageKeys().has(input.stage) ? input.stage : cur.stage) : cur.stage;
       if (stage === 'lost' && cur.stage !== 'lost' && !f.lost_reason) throw new UserError('Укажите причину отказа — так видно, почему теряем клиентов');
       return transaction(db, () => {
         db.prepare(`UPDATE leads SET title = ?, name = ?, phone = ?, instagram = ?, source = ?, amount = ?, user_id = ?, lost_reason = ?, stage = ?,
           closed_at = ?, updated_at = ? WHERE id = ?`)
           .run(f.title, f.name, f.phone, f.instagram, f.source, f.amount, f.user_id, f.lost_reason, stage,
             CLOSED.has(stage) ? cur.closed_at || Date.now() : null, Date.now(), cur.id);
-        const name = Object.fromEntries(STAGES);
-        if (stage !== cur.stage) event(cur.id, 'stage', `${name[cur.stage]} → ${name[stage]}${stage === 'lost' && f.lost_reason ? `: ${f.lost_reason}` : ''}`, who(user));
+        const name = stageNames();
+        if (stage !== cur.stage) event(cur.id, 'stage', `${name[cur.stage] || cur.stage} → ${name[stage]}${stage === 'lost' && f.lost_reason ? `: ${f.lost_reason}` : ''}`, who(user));
         if (f.user_id !== cur.user_id) event(cur.id, 'system', `Ответственный: ${userName(f.user_id) || 'никто'}`, who(user));
         return crm.get(cur.id);
       });

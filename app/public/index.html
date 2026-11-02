@@ -913,12 +913,33 @@
       <input id="crm-search" class="input search" type="search" placeholder="Имя, телефон, Instagram" aria-label="Поиск сделок">
       <select id="crm-source" class="input" aria-label="Источник"></select>
       <label class="check"><input type="checkbox" id="crm-mine"> Только мои</label>
+      <button type="button" class="btn" id="crm-funnel-btn" data-can="crm.settings">⚙ Воронка</button>
       <button type="button" class="btn primary" id="crm-add">+ Сделка</button>
     </div>
   </header>
   <section class="crm-tasks" id="crm-tasks" hidden></section>
   <div class="kanban" id="crm-board"></div>
 </main>
+
+<dialog id="crm-funnel-dlg" aria-labelledby="crm-funnel-title">
+  <form method="dialog" id="crm-funnel-form">
+    <h2 id="crm-funnel-title">Воронка и раздача сделок</h2>
+    <p class="sub">Этапы идут слева направо. Первый — куда попадают новые обращения; «Купили» и «Отказ» — итоговые, они есть всегда.</p>
+    <div id="cf-stages" class="cf-stages"></div>
+    <div class="cf-row-actions">
+      <button type="button" class="btn small" id="cf-add">+ Этап</button>
+      <button type="button" class="btn small ghost" id="cf-default">Вернуть этапы магазина одежды</button>
+    </div>
+    <h3>Раздача сделок</h3>
+    <label class="check"><input type="checkbox" id="cf-auto"> Новые сделки из Instagram, WhatsApp и витрины — по очереди тем, кто на смене</label>
+    <label class="check"><input type="checkbox" id="cf-free"> Когда сотрудник открывает смену — раздать сделки без ответственного</label>
+    <p class="sub" id="cf-shift"></p>
+    <div class="form-actions">
+      <button type="button" class="btn ghost" id="cf-cancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="lead-dialog" class="lead-dialog" aria-labelledby="lead-title">
   <div class="lead-grid">

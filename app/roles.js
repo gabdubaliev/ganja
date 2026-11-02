@@ -41,7 +41,8 @@ const RIGHTS = [
   { key: 'docs.newproduct', group: 'Документы', label: 'Создавать новый товар прямо в закупке, оприходовании и инвентаризации (нужно и право «Товары»)' },
   { key: 'stock', group: 'Документы', label: 'Инвентаризация: пересчитывать остатки по факту' },
   { key: 'writeoff', group: 'Документы', label: 'Списание: брак, просрочка, порча' },
-  { key: 'crm', group: 'Покупатели', label: 'CRM: сделки, переписка с клиентами, задачи' },
+  { key: 'crm', group: 'Покупатели', label: 'CRM: сделки, переписка с клиентами, задачи (на смене получает новые сделки по очереди)' },
+  { key: 'crm.settings', group: 'Покупатели', label: 'CRM: настройка воронки (этапы) и раздачи сделок сотрудникам' },
   { key: 'customers', group: 'Покупатели', label: 'Список покупателей, рейтинг и история бонусов' },
   { key: 'certificates', group: 'Покупатели', label: 'Сертификаты: список, остатки, история, блокировка, срок действия' },
   { key: 'certificates.manage', group: 'Покупатели', label: 'Сертификаты: создавать (в том числе бесплатно), менять сумму и срок, удалять' },
@@ -90,7 +91,7 @@ const ROLES = {
   manager: {
     name: 'Управляющий',
     about: 'Видит всё и ведёт магазин, выписывает штрафы, правит смены, ведёт табель, даёт и проверяет задания. По умолчанию не меняет сотрудников, бонусы, оформление, настройки и не видит журнал действий.',
-    can: ['dashboard', 'kpi', 'pos', 'customers.create', 'certificates.sell', 'certificates.accept', 'certificates', 'sales', 'refund', 'discount', 'products', 'categories', 'stock.view', 'products.delete', 'import', 'products.export', 'migrate', 'docs.newproduct', 'stock', 'photos', 'arrivals', 'crm', 'customers', 'customers.accounts', 'orders', 'orders.payment', 'notify', 'shifts', 'fines', 'timesheet', 'timesheet.edit', 'tasks', 'writeoff', 'docs.sale', 'transfer', 'docs.unpost', 'expenses', 'finance', 'abc', 'reports.stock', 'reports.money', 'products.history', 'receive.photo', 'mytimesheet', 'undo.own'],
+    can: ['dashboard', 'kpi', 'pos', 'customers.create', 'certificates.sell', 'certificates.accept', 'certificates', 'sales', 'refund', 'discount', 'products', 'categories', 'stock.view', 'products.delete', 'import', 'products.export', 'migrate', 'docs.newproduct', 'stock', 'photos', 'arrivals', 'crm', 'crm.settings', 'customers', 'customers.accounts', 'orders', 'orders.payment', 'notify', 'shifts', 'fines', 'timesheet', 'timesheet.edit', 'tasks', 'writeoff', 'docs.sale', 'transfer', 'docs.unpost', 'expenses', 'finance', 'abc', 'reports.stock', 'reports.money', 'products.history', 'receive.photo', 'mytimesheet', 'undo.own'],
   },
   cashier: {
     name: 'Кассир',

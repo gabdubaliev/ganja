@@ -602,6 +602,16 @@ function open(file) {
   // Подтверждать оплату заказов с витрины — у кого были «Заказы с витрины».
   // ДДС и прибыль по месяцам — у кого были «Расходы и чистая прибыль» или «Счета».
   // Экспорт и создание товара в документе — у кого «Товары»; перенос из CloudShop — у кого «Импорт»; курс доллара — у кого «Настройки».
+  // Настройка воронки CRM — у кого были «Настройки».
+  if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v12'").get()) {
+    const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
+    for (const u of db.prepare('SELECT id, rights FROM users WHERE rights IS NOT NULL').all()) {
+      let list;
+      try { list = JSON.parse(u.rights); } catch { continue; }
+      if (Array.isArray(list) && list.includes('settings') && !list.includes('crm.settings')) set.run(JSON.stringify([...list, 'crm.settings']), u.id);
+    }
+    db.prepare("INSERT INTO settings (key, value) VALUES ('rights_v12', '1')").run();
+  }
   if (!db.prepare("SELECT 1 FROM settings WHERE key = 'rights_v11'").get()) {
     const set = db.prepare('UPDATE users SET rights = ? WHERE id = ?');
     for (const u of db.prepare('SELECT id, rights FROM users WHERE rights IS NOT NULL').all()) {

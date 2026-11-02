@@ -2,30 +2,40 @@
 
 // CRM: доска сделок по этапам, карточка клиента с историей, задачами и ответом в Instagram.
 
-const CRM_STAGES = [
-  ['new', 'Новые'],
-  ['contact', 'Связались'],
-  ['offer', 'Предложение'],
-  ['waiting', 'Ждём оплату'],
-  ['won', 'Купили'],
-  ['lost', 'Отказ'],
+// Этапы приходят с сервера (CRM → «⚙ Воронка»); до загрузки — воронка магазина одежды.
+const CRM_DEFAULT_STAGES = [
+  ['new', 'Новое обращение', '#0ea5e9'],
+  ['contact', 'Ответили', '#6366f1'],
+  ['offer', 'Подобрали размер', '#a855f7'],
+  ['waiting', 'Отложили / бронь', '#f59e0b'],
+  ['visit', 'Придёт в магазин / доставка', '#14b8a6'],
+  ['won', 'Купили', '#16a34a'],
+  ['lost', 'Отказ', '#94a3b8'],
 ];
+let CRM_STAGES = CRM_DEFAULT_STAGES.map((x) => [...x]);
 const CRM_SOURCES = ['Instagram', 'WhatsApp', 'Telegram', 'Звонок', 'Витрина', 'Магазин', 'Рекомендация', 'Другое'];
 const SOURCE_ICON = { Instagram: '📸', WhatsApp: '💬', Telegram: '✈️', Звонок: '📞', Витрина: '🛒', Магазин: '🏬', Рекомендация: '🤝', Другое: '•' };
 const crmView = { q: '', source: '', mine: false, list: [], lead: null, kind: 'note', staff: [] };
 
-const stageName = Object.fromEntries(CRM_STAGES);
+let stageName = Object.fromEntries(CRM_STAGES);
+function applyFunnel(f) {
+  if (!f?.stages?.length) return;
+  CRM_STAGES = f.stages.map((x) => [x.key, x.name, x.color]);
+  stageName = Object.fromEntries(CRM_STAGES);
+}
 const shortTime = (t) => new Date(t).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
 async function renderCrm() {
   $('#crm-source').innerHTML = '<option value="">Все источники</option>' + CRM_SOURCES.map((s) => `<option ${s === crmView.source ? 'selected' : ''}>${s}</option>`).join('');
-  let summary, tasks;
+  let summary, tasks, funnel;
   try {
-    [crmView.list, summary, tasks] = await Promise.all([
+    [crmView.list, summary, tasks, funnel] = await Promise.all([
       api(`/api/crm/leads?q=${encodeURIComponent(crmView.q)}&source=${encodeURIComponent(crmView.source)}&mine=${crmView.mine ? 1 : 0}`),
       api('/api/crm/summary'),
       api(`/api/crm/tasks?mine=${crmView.mine ? 1 : 0}`),
+      api('/api/crm/funnel'),
     ]);
+    applyFunnel(funnel);
   } catch (err) {
     return toast(err.message, 'error');
   }
@@ -42,11 +52,12 @@ async function renderCrm() {
       <span>${esc(t.text)}</span><span class="pcat">${esc(t.lead_name || t.lead_title)}${t.user_name ? ' · ' + esc(t.user_name) : ''}</span>
     </button>`).join('')}</div>` : '';
 
-  $('#crm-board').innerHTML = CRM_STAGES.map(([key, label]) => {
-    const cards = crmView.list.filter((l) => l.stage === key);
+  const known = new Set(CRM_STAGES.map(([k]) => k));
+  $('#crm-board').innerHTML = CRM_STAGES.map(([key, label, color]) => {
+    const cards = crmView.list.filter((l) => l.stage === key || (key === 'new' && !known.has(l.stage)));
     const sum = cards.reduce((s, l) => s + l.amount, 0);
-    return `<section class="kanban-col stage-${key}" data-stage="${key}">
-      <header><b>${label}</b><span class="count">${cards.length}</span>${sum ? `<span class="pcat">${money(sum)}</span>` : ''}</header>
+    return `<section class="kanban-col stage-${esc(key)}" data-stage="${esc(key)}">
+      <header style="border-color:${esc(color || '#64748b')}"><b>${esc(label)}</b><span class="count">${cards.length}</span>${sum ? `<span class="pcat">${money(sum)}</span>` : ''}</header>
       <div class="kanban-cards">${cards.map((l) => `
         <article class="lead-card ${l.unread ? 'unread' : ''}" draggable="true" data-lead="${l.id}">
           <div class="lead-card-top"><span title="${esc(l.source)}">${SOURCE_ICON[l.source] || '•'}</span><b>${esc(l.name || (l.instagram ? '@' + l.instagram : '') || phoneFmt(l.phone) || 'Без имени')}</b>${l.unread ? '<span class="dot-new" title="Новое сообщение"></span>' : ''}</div>
@@ -54,7 +65,7 @@ async function renderCrm() {
           ${l.last_event ? `<div class="pcat lead-card-last">${esc(l.last_event.slice(0, 90))}</div>` : ''}
           <div class="lead-card-foot">
             ${l.amount ? `<b>${money(l.amount)}</b>` : '<span></span>'}
-            <span class="pcat">${l.next_task_at ? `⏰ ${shortTime(l.next_task_at)}` : esc(l.user_name || '')}</span>
+            <span class="pcat">${l.next_task_at ? `⏰ ${shortTime(l.next_task_at)}` : l.user_name ? '👤 ' + esc(l.user_name) : (['won', 'lost'].includes(l.stage) ? '' : '🆓 свободна')}</span>
           </div>
         </article>`).join('') || '<p class="kanban-empty">Перетащите сделку сюда</p>'}</div>
     </section>`;
@@ -120,7 +131,7 @@ async function openLead(id = null, stage = null) {
   $('#lead-error').hidden = true;
   $('#lead-title').textContent = l ? l.name || 'Сделка' : 'Новая сделка';
   f.elements.source.innerHTML = CRM_SOURCES.map((s) => `<option>${s}</option>`).join('');
-  f.elements.stage.innerHTML = CRM_STAGES.map(([k, n]) => `<option value="${k}">${n}</option>`).join('');
+  f.elements.stage.innerHTML = CRM_STAGES.map(([k, n]) => `<option value="${esc(k)}">${esc(n)}</option>`).join('');
   f.elements.user_id.innerHTML = '<option value="">Никто</option>' + crmView.staff.filter((u) => !u.disabled || u.id === l?.user_id)
     .map((u) => `<option value="${u.id}">${esc(u.name)}</option>`).join('');
   if (l) {
@@ -309,6 +320,99 @@ $('#crm-add').addEventListener('click', () => openLead());
 salesFeed.leadListeners.push((lead) => {
   if (currentView === 'crm') renderCrm();
   if ($('#lead-dialog').open && crmView.lead?.id === lead.id) openLead(lead.id);
+});
+
+/* ---------- Настройка воронки и раздачи ---------- */
+const cfView = { stages: [], counts: {} };
+function cfRender() {
+  const open = cfView.stages.filter((x) => !['won', 'lost'].includes(x.key));
+  const row = (x, i, fixed) => `<div class="cf-stage ${fixed ? 'fixed' : ''}" data-i="${i}">
+      <input type="color" value="${esc(x.color || '#64748b')}" data-cf="color" aria-label="Цвет этапа">
+      <input class="input" value="${esc(x.name)}" data-cf="name" maxlength="40" aria-label="Название этапа">
+      <span class="pcat">${cfView.counts[x.key] ? `${cfView.counts[x.key]} сд.` : ''}</span>
+      ${fixed || i === 0 ? '<span class="pcat cf-tag">' + (i === 0 && !fixed ? 'первый' : 'итог') + '</span>' : `
+      <button type="button" class="icon-btn" data-cf-up="${i}" aria-label="Выше" ${i <= 1 ? 'disabled' : ''}>↑</button>
+      <button type="button" class="icon-btn" data-cf-del="${i}" aria-label="Удалить этап">×</button>`}
+    </div>`;
+  $('#cf-stages').innerHTML = open.map((x, i) => row(x, i, false)).join('')
+    + cfView.stages.filter((x) => ['won', 'lost'].includes(x.key)).map((x) => row(x, cfView.stages.indexOf(x), true)).join('');
+}
+// Перед перерисовкой — забрать введённые названия и цвета.
+function cfCollect() {
+  for (const el of $('#cf-stages').querySelectorAll('[data-i]')) {
+    const x = cfView.stages[Number(el.dataset.i)];
+    if (!x) continue;
+    x.name = el.querySelector('[data-cf=name]').value;
+    x.color = el.querySelector('[data-cf=color]').value;
+  }
+}
+async function openFunnel() {
+  let f;
+  try { f = await api('/api/crm/funnel'); } catch (err) { return toast(err.message, 'error'); }
+  // Рабочие этапы — сначала, итоговые — в конце; индексы в cfView.stages совпадают с порядком на экране.
+  cfView.stages = [...f.stages.filter((x) => !['won', 'lost'].includes(x.key)), ...f.stages.filter((x) => ['won', 'lost'].includes(x.key))].map((x) => ({ ...x }));
+  cfView.counts = f.counts || {};
+  $('#cf-auto').checked = f.autoAssign;
+  $('#cf-free').checked = f.assignFree;
+  $('#cf-shift').innerHTML = (f.onShift.length ? `Сейчас на смене и получают сделки: <b>${f.onShift.map((u) => esc(u.name)).join(', ')}</b>.` : 'Сейчас на смене никого нет — новые сделки останутся свободными, пока кто-нибудь не откроет смену.')
+    + ' Получают сделки только сотрудники с правом «CRM».'
+    + (f.free ? ` Без ответственного: ${f.free}. ${f.onShift.length ? '<button type="button" class="btn small" id="cf-assign">Раздать сейчас</button>' : ''}` : '');
+  cfRender();
+  $('#crm-funnel-dlg').showModal();
+}
+$('#crm-funnel-btn').addEventListener('click', openFunnel);
+$('#cf-cancel').addEventListener('click', () => $('#crm-funnel-dlg').close());
+$('#cf-add').addEventListener('click', () => {
+  cfCollect();
+  const at = cfView.stages.findIndex((x) => ['won', 'lost'].includes(x.key));
+  cfView.stages.splice(at < 0 ? cfView.stages.length : at, 0, { key: '', name: 'Новый этап', color: '#64748b' });
+  cfRender();
+  const inputs = $('#cf-stages').querySelectorAll('[data-cf=name]');
+  inputs[Math.max(0, at)]?.select();
+});
+$('#cf-default').addEventListener('click', () => {
+  cfCollect();
+  const keep = new Set(CRM_DEFAULT_STAGES.map(([k]) => k));
+  const lost = cfView.stages.filter((x) => x.key && !keep.has(x.key) && cfView.counts[x.key]).reduce((s, x) => s + cfView.counts[x.key], 0);
+  if (lost && !confirm(`Сделки из убранных этапов (${lost}) перейдут в «${CRM_DEFAULT_STAGES[0][1]}». Продолжить?`)) return;
+  cfView.stages = CRM_DEFAULT_STAGES.map(([key, name, color]) => ({ key, name, color }));
+  cfRender();
+});
+$('#cf-stages').addEventListener('click', (e) => {
+  const up = e.target.closest('[data-cf-up]');
+  const del = e.target.closest('[data-cf-del]');
+  if (!up && !del) return;
+  cfCollect();
+  if (up) {
+    const i = Number(up.dataset.cfUp);
+    if (i > 1) [cfView.stages[i - 1], cfView.stages[i]] = [cfView.stages[i], cfView.stages[i - 1]];
+  } else {
+    const i = Number(del.dataset.cfDel);
+    const x = cfView.stages[i];
+    const n = cfView.counts[x.key] || 0;
+    if (n && !confirm(`В этапе «${x.name}» ${n} сделок — они перейдут в «${cfView.stages[0].name}». Удалить этап?`)) return;
+    cfView.stages.splice(i, 1);
+  }
+  cfRender();
+});
+$('#cf-shift').addEventListener('click', async (e) => {
+  if (e.target.id !== 'cf-assign') return;
+  try {
+    const r = await api('/api/crm/assign-free', { method: 'POST' });
+    toast(`Раздано сделок: ${r.assigned}`);
+    $('#crm-funnel-dlg').close();
+    renderCrm();
+  } catch (err) { toast(err.message, 'error'); }
+});
+$('#crm-funnel-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  cfCollect();
+  try {
+    applyFunnel(await api('/api/crm/funnel', { method: 'PUT', body: { stages: cfView.stages, autoAssign: $('#cf-auto').checked, assignFree: $('#cf-free').checked } }));
+    $('#crm-funnel-dlg').close();
+    toast('Воронка сохранена');
+    renderCrm();
+  } catch (err) { toast(err.message, 'error'); }
 });
 
 views.crm = { show: renderCrm, right: 'crm' };
