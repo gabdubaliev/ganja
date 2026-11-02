@@ -61,6 +61,36 @@ function renderPrice(template, p) {
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+// Образ из рилса (несколько товаров): короткая строка на каждый товар, сумма образа и строки шаблона без подстановок
+// (адрес, часы работы). Одно сообщение — не длиннее 1000 знаков: так требует Instagram, а ответ на комментарий
+// можно отправить только один, поэтому лишние товары сворачиваются в «и ещё N».
+const MSG_MAX = 1000;
+function renderMulti(template, products, { whole = true } = {}) {
+  const line = (p) => {
+    const art = p.article && !String(p.name).toLowerCase().includes(String(p.article).toLowerCase()) ? ` (арт. ${p.article})` : '';
+    const price = p.maxPrice > p.price ? `${money(p.price)}–${money(p.maxPrice)}` : money(p.price);
+    return `• ${p.name}${art} — ${price} сом${p.oldPrice ? ` (без скидки ${money(p.oldPrice)})` : ''}${p.inStock ? (p.sizes.length ? `, размеры: ${p.sizes.join(', ')}` : '') : ', сейчас нет в наличии'}`;
+  };
+  const footer = String(template || DEFAULTS.priceTemplate).split('\n').filter((l) => l.trim() && !/\{\w+\}/.test(l)).join('\n');
+  const build = (list, rest) => {
+    const inStock = list.filter((p) => p.inStock);
+    const out = ['Цены на вещи из этого видео:', ...list.map(line)];
+    if (rest) out.push(`…и ещё ${rest} — напишите, какая вещь интересует, пришлём цену`);
+    if (!rest && inStock.length > 1) out.push('', `${whole ? 'Весь образ' : 'Вместе'}: ${money(inStock.reduce((s, p) => s + p.price, 0))} сом`);
+    if (footer) out.push('', footer);
+    return out.join('\n');
+  };
+  let n = products.length;
+  let text = build(products, 0);
+  while (text.length > MSG_MAX && n > 1) { n--; text = build(products.slice(0, n), products.length - n); }
+  return text.length > MSG_MAX ? text.slice(0, MSG_MAX - 1) + '…' : text;
+}
+// Один товар — шаблон владельца, несколько — список образа.
+const renderReply = (template, list, opts) => (list.length === 1 ? renderPrice(template, list[0]).slice(0, MSG_MAX) : renderMulti(template, list, opts));
+
+// Основа слова для сравнения названий: «джинсы»/«джинсов» → «джин», «кепку» → «кепк».
+const stems = (t) => (String(t || '').toLowerCase().replace(/ё/g, 'е').match(/[a-zа-я]{4,}/g) || []).map((w) => w.slice(0, 4));
+
 function asksPrice(text, words) {
   const t = String(text || '').toLowerCase().trim();
   if (!t) return false;
@@ -92,6 +122,9 @@ function createIgPrice({ store, crm, notifier }) {
     CREATE INDEX IF NOT EXISTS ig_price_log_user ON ig_price_log(ig_user_id, media_id, at);
   `);
 
+  // Сумма сделки — образ целиком (вещи в наличии), а если в наличии ничего — первая вещь.
+  const sumOf = (list) => list.filter((p) => p.inStock).reduce((s, p) => s + p.price, 0) || list[0]?.price || 0;
+
   const captions = new Map(); // media id -> { caption, permalink, at }
 
   function settings() {
@@ -117,17 +150,31 @@ function createIgPrice({ store, crm, notifier }) {
     return found;
   }
 
-  // Первый артикул из текстов, который есть в базе. Возвращает и то, что искали, — для журнала.
-  function productFrom(...texts) {
+  // Все товары из подписи рилса (образ: кардиган, джинсы, кепка…), которые есть в базе.
+  // Если клиент сам назвал артикул или вещь («сколько джинсы?») — только эти товары.
+  function productsFrom(clientText, ...context) {
     const tried = [];
-    for (const t of texts) {
-      for (const c of articleCandidates(t)) {
-        tried.push(c);
-        const p = store.findByArticle(c);
-        if (p) return { product: p, article: c, tried };
+    const find = (texts) => {
+      const out = [];
+      for (const t of texts) {
+        for (const c of articleCandidates(t)) {
+          if (!tried.includes(c)) tried.push(c);
+          const p = store.findByArticle(c);
+          if (p && !out.some((x) => x.id === p.id)) out.push(p);
+        }
       }
+      return out;
+    };
+    const own = find([clientText]);
+    if (own.length) return { products: own.slice(0, 15), tried, whole: false };
+    let list = find(context).slice(0, 15);
+    let whole = true;
+    if (list.length > 1) {
+      const ask = new Set(stems(clientText));
+      const named = list.filter((p) => stems(p.name).some((w) => ask.has(w)));
+      if (named.length && named.length < list.length) { list = named; whole = false; }
     }
-    return { product: null, article: '', tried };
+    return { products: list, tried, whole };
   }
 
   function claim(extId, row) {
@@ -164,7 +211,9 @@ function createIgPrice({ store, crm, notifier }) {
     } catch (err) {
       return finish(logId, { status: 'error', error: `подпись рилса: ${err.message}` });
     }
-    const { product, article, tried } = productFrom(m.caption, v.text);
+    const { products, tried, whole } = productsFrom(v.text, m.caption);
+    const product = products[0];
+    const article = products.map((p) => p.article).join(', ');
     if (!product) {
       finish(logId, { status: 'not_found', article: tried.join(', '), permalink: m.permalink });
       if (s.notifyMissing) {
@@ -172,12 +221,13 @@ function createIgPrice({ store, crm, notifier }) {
       }
       return;
     }
-    const reply = renderPrice(s.priceTemplate, product);
+    const reply = renderReply(s.priceTemplate, products, { whole });
+    const names = products.map((p) => p.name).join(', ');
     try {
       await call('POST', '/me/messages', s.accessToken, { recipient: { comment_id: v.id }, message: { text: reply } });
     } catch (err) {
       finish(logId, { status: 'error', article, productId: product.id, reply, error: err.message, permalink: m.permalink });
-      await tellManager(`⚠️ Не получилось отправить цену @${v.from?.username || 'клиенту'} (${product.name}): ${err.message}\n${m.permalink}`);
+      await tellManager(`⚠️ Не получилось отправить цену @${v.from?.username || 'клиенту'} (${names}): ${err.message}\n${m.permalink}`);
       return;
     }
     finish(logId, { status: 'sent', article, productId: product.id, reply, permalink: m.permalink });
@@ -185,7 +235,7 @@ function createIgPrice({ store, crm, notifier }) {
       call('POST', `/${encodeURIComponent(v.id)}/replies`, s.accessToken, { message: s.publicReply })
         .catch((err) => console.error('Автоответ: публичный ответ не опубликован:', err.message));
     }
-    crm.logInstagramAuto({ igUserId: fromId, username: v.from?.username, inText: `Комментарий под рилсом: ${v.text}`, outText: reply, amount: product.price, title: product.name });
+    crm.logInstagramAuto({ igUserId: fromId, username: v.from?.username, inText: `Комментарий под рилсом: ${v.text}`, outText: reply, amount: sumOf(products), title: names });
   }
 
   async function onDirect(ownId, msg, s) {
@@ -204,18 +254,20 @@ function createIgPrice({ store, crm, notifier }) {
     for (const id of mediaIds) {
       try { texts.push((await media(id, s.accessToken)).caption); } catch {} // чужой рилс или удалён — пропускаем
     }
-    const { product, article } = productFrom(...texts);
+    const { products, whole } = productsFrom(texts[0], ...texts.slice(1));
+    const product = products[0];
+    const article = products.map((p) => p.article).join(', ');
     if (!product) return; // без артикула — вопрос менеджеру в CRM, как раньше
     const logId = claim(`d:${m.mid}`, { kind: 'direct', igUserId: fromId, mediaId: mediaIds[0], question: m.text || '📎 рилс' });
     if (!logId) return;
-    const reply = renderPrice(s.priceTemplate, product);
+    const reply = renderReply(s.priceTemplate, products, { whole });
     try {
       await call('POST', '/me/messages', s.accessToken, { recipient: { id: fromId }, message: { text: reply } });
     } catch (err) {
       return finish(logId, { status: 'error', article, productId: product.id, reply, error: err.message });
     }
     finish(logId, { status: 'sent', article, productId: product.id, reply });
-    crm.logInstagramAuto({ igUserId: fromId, outText: reply, amount: product.price, title: product.name });
+    crm.logInstagramAuto({ igUserId: fromId, outText: reply, amount: sumOf(products), title: products.map((p) => p.name).join(', ') });
   }
 
   return {
@@ -237,10 +289,11 @@ function createIgPrice({ store, crm, notifier }) {
     },
 
     // Проверка из настроек: какой ответ получит клиент на артикул.
+    // Можно ввести несколько артикулов через пробел — покажет ответ на образ.
     preview(article, template) {
-      const p = store.findByArticle(article);
-      if (!p) return { found: false };
-      return { found: true, product: p, text: renderPrice(template || settings().priceTemplate, p) };
+      const { products } = productsFrom('', article);
+      if (!products.length) return { found: false };
+      return { found: true, product: products[0], products, text: renderReply(template || settings().priceTemplate, products) };
     },
 
     log({ limit = 50 } = {}) {
@@ -256,4 +309,4 @@ function createIgPrice({ store, crm, notifier }) {
   };
 }
 
-module.exports = { createIgPrice, articleCandidates, renderPrice, asksPrice, IG_PRICE_DEFAULTS: DEFAULTS };
+module.exports = { createIgPrice, articleCandidates, renderPrice, renderMulti, asksPrice, IG_PRICE_DEFAULTS: DEFAULTS };

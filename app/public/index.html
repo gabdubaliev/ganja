@@ -1406,7 +1406,7 @@
       </div>
       <ol class="steps">
         <li>У товара в карточке заполните <b>Артикул</b> (MS-123). Если артикула нет, подойдёт код товара.</li>
-        <li>В подписи каждого рилса пишите артикул: «Кардиган MS-123». Лучше — и на самом видео.</li>
+        <li>В подписи каждого рилса пишите артикул: «Кардиган MS-123». Если в рилсе целый образ — артикул каждой вещи с новой строки: клиент получит цены всех вещей и сумму образа, а если спросит «сколько джинсы?» — только цену джинсов.</li>
         <li>В конце подписи призыв: «Напишите ЦЕНА — отправим в Direct».</li>
         <li>Instagram выше должен быть подключён, а в вебхуках включено поле <b>comments</b>.</li>
         <li>Если Instagram подключён ещё и к другому сервису (Chatplace и т.п.), выключите там автоответы на комментарии — иначе клиент получит два ответа.</li>
@@ -1417,7 +1417,7 @@
         <p class="sub">Подставляется: <b>{name}</b> — название, <b>{article}</b> — артикул, <b>{price}</b> — цена со скидкой, <b>{oldPrice}</b> — цена без скидки, <b>{sizes}</b> — размеры в наличии. Строка с {oldPrice} показывается только при скидке; если товара нет в наличии, вместо строки с {sizes} клиент увидит, что его нет. <button type="button" class="btn small" id="ia-reset">Вернуть текст по умолчанию</button></p></div>
       <div class="field"><label for="ia-public">Публичный ответ под комментарием</label><input id="ia-public" name="publicReply" class="input" autocomplete="off"><p class="sub">Пусто — под комментарием ничего не пишется.</p></div>
       <label class="check"><input type="checkbox" name="notifyMissing"> Сообщать в Telegram, если артикул не нашёлся</label>
-      <div class="field"><label for="ia-try">Проверить: какой ответ получит клиент</label><div class="input-row"><input id="ia-try" class="input" placeholder="Артикул, например MS-123" autocomplete="off"><button type="button" class="btn" id="ia-preview">Показать</button></div>
+      <div class="field"><label for="ia-try">Проверить: какой ответ получит клиент</label><div class="input-row"><input id="ia-try" class="input" placeholder="Артикул MS-123 или несколько: MS-101 MS-202 MS-505" autocomplete="off"><button type="button" class="btn" id="ia-preview">Показать</button></div>
         <pre id="ia-preview-text" class="sub" style="white-space:pre-wrap;font:inherit" hidden></pre></div>
       <p class="form-error" id="igauto-error" role="alert" hidden></p>
       <div class="form-actions start"><button type="submit" class="btn primary">Сохранить</button></div>
