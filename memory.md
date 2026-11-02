@@ -747,6 +747,11 @@
     loaded» → `crm.debugFacebookToken` (GET /debug_token, ключ «appId|appSecret»): тип, разрешения и ID аккаунтов Instagram
     из granular_scopes.target_ids; при сохранении EAA и при «Проверить подключение» ID аккаунта подставляется сам, а в
     ошибке — расшифровка (тип маркера, разрешения, доступные ID).
+    На деле (03.11): кнопка дала SYSTEM_USER со всеми instagram_* разрешениями, но без target_ids («доступ к аккаунтам: нет»),
+    а 17841464829611662 (из страницы старого входа) не читается. Поэтому `checkInstagram` перебирает кандидатов:
+    target_ids из debug_token, `instagram_hook_ids` (entry.id из пришедших вебхуков — запоминает `receiveInstagram`),
+    /me/assigned_instagram_accounts, /me/instagram_accounts, вписанный igId — и сохраняет первый, что открывается
+    (`GET /{id}`); проверенные — в `instagram_tried_ids`, показываются в ошибке.
     Ошибки скриптов витрины: `window.shopError` в shop.html → POST `/shop/client-error` (≤20/мин) → журнал
     (`journalctl -u shop | grep 'Витрина: ошибка'`); с `?debug=1` в адресе — красная панель с текстом ошибки на странице.
 

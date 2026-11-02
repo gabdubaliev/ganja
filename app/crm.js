@@ -339,6 +339,11 @@ function createCrm(store) {
     // Входящие сообщения из вебхука: каждое — в открытую сделку этого человека или в новую.
     receiveInstagram(payload) {
       const received = [];
+      // ID аккаунта магазина в том виде, в каком его знает Meta (entry.id), — запоминаем: по нему можно писать
+      // с маркером единого входа, если ID из панели приложения не подошёл.
+      const ids = new Set(JSON.parse(store.setting('instagram_hook_ids', '[]')));
+      for (const entry of payload?.entry || []) if (entry?.id) ids.add(String(entry.id));
+      store.setSetting('instagram_hook_ids', JSON.stringify([...ids].slice(-10)));
       for (const entry of payload?.entry || []) {
         for (const m of entry.messaging || []) {
           const senderId = String(m.sender?.id || '');
@@ -535,13 +540,29 @@ function createCrm(store) {
     // Проверка: какой аккаунт Instagram стоит за подключением.
     async checkInstagram() {
       let s = crm.instagramSettings();
-      // Единый вход: если Meta говорит, что маркер даёт доступ к другому ID аккаунта Instagram, — берём его.
-      if (crm.instagramMode(s) === 'unified' && s.appId && s.appSecret) {
-        const d = await crm.debugFacebookToken().catch(() => null);
-        if (d?.igIds?.length && !d.igIds.includes(s.igId)) {
-          store.setSetting('instagram', JSON.stringify({ ...s, igId: d.igIds[0] }));
-          s = crm.instagramSettings();
+      // Единый вход: подбираем ID аккаунта Instagram, который открывается этим маркером: из ответа Meta о маркере,
+      // из вебхуков (entry.id), из аккаунтов системного пользователя, затем вписанный. Сохраняем первый рабочий.
+      if (crm.instagramMode(s) === 'unified') {
+        const cand = [];
+        const d = s.appId && s.appSecret ? await crm.debugFacebookToken().catch(() => null) : null;
+        cand.push(...(d?.igIds || []));
+        cand.push(...JSON.parse(store.setting('instagram_hook_ids', '[]')));
+        for (const path of ['/me/assigned_instagram_accounts?fields=id,username', '/me/instagram_accounts?fields=id,username']) {
+          const r = await fetch(`${FACEBOOK_API}${path}&access_token=${encodeURIComponent(s.accessToken)}`, { signal: AbortSignal.timeout(15_000) }).then((x) => x.json()).catch(() => ({}));
+          cand.push(...(r.data || []).map((a) => String(a.id)));
         }
+        if (s.igId) cand.push(s.igId);
+        const tried = [];
+        for (const id of [...new Set(cand)]) {
+          const r = await fetch(`${FACEBOOK_API}/${id}?fields=id,username,name&access_token=${encodeURIComponent(s.accessToken)}`, { signal: AbortSignal.timeout(15_000) }).then((x) => x.json()).catch(() => ({}));
+          tried.push(id);
+          if (r.id && !r.error) {
+            if (id !== s.igId) store.setSetting('instagram', JSON.stringify({ ...crm.instagramSettings(), igId: id, igUsername: r.username || '' }));
+            return { username: r.username || '', name: r.name || '', id, mode: 'unified', page: '' };
+          }
+        }
+        store.setSetting('instagram_tried_ids', JSON.stringify(tried));
+        s = crm.instagramSettings();
       }
       if (!s.accessToken) throw new UserError('Маркер доступа не указан — нажмите «Подключить Instagram» или вставьте маркер');
       let data;
@@ -556,7 +577,8 @@ function createCrm(store) {
           else if (d) {
             const kind = d.type === 'SYSTEM_USER' ? 'системный (из кнопки «Подключить Instagram»)' : d.type === 'USER' ? 'пользовательский (например, из Graph API Explorer)' : d.type || 'неизвестный';
             why = ` Маркер: ${kind}${d.valid ? '' : ', НЕДЕЙСТВИТЕЛЕН'}; разрешения: ${d.scopes.join(', ') || 'нет'}; доступ к аккаунтам Instagram: ${d.igIds.join(', ') || 'нет'}.`
-              + (d.igIds.length ? (d.igIds.includes(s.igId) ? '' : ` Впишите в «ID аккаунта Instagram» ${d.igIds[0]}.`) : ' Подключите заново кнопкой «Подключить Instagram» и в окне Meta отметьте аккаунт Instagram магазина.');
+              + ` Проверены ID: ${JSON.parse(store.setting('instagram_tried_ids', '[]')).join(', ') || '—'}.`
+              + (d.igIds.length ? '' : ' Meta не привязала аккаунт Instagram к маркеру: напишите в Direct магазина с другого аккаунта (программа узнает ID из сообщения) и нажмите «Проверить подключение» ещё раз; если не поможет — в Meta Business Suite → Настройки → Пользователи → Системные пользователи дайте пользователю приложения MONT CRM доступ к аккаунту Instagram.');
           }
         }
         throw new UserError(`Instagram не принял маркер: ${err.message}${why}`);
