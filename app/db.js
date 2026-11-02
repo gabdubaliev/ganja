@@ -733,6 +733,13 @@ function open(file) {
   `);
   // Уценка, которую поставила автоматика (а не человек): её можно снять при новом поступлении.
   addColumns('products', [['auto_discount', 'REAL NOT NULL DEFAULT 0']]);
+  // Перенос из CloudShop: черновые карточки (строки выгрузки, собранные в товары), их правка и отметка «перенесено».
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS migrate_items (
+      id INTEGER PRIMARY KEY, sort INTEGER NOT NULL DEFAULT 0, sources TEXT NOT NULL DEFAULT '[]', data TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'new', product_id INTEGER, error TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL
+    );
+  `);
   // Отмена действий сотрудников: пока выполняется действие, которое можно отменить, сервер кладёт его метку
   // в undo_ctx, а триггеры записывают в undo_log каждую изменённую строку «до» и «после» (без картинок-BLOB).
   db.exec(`
@@ -764,8 +771,8 @@ function open(file) {
 }
 
 // Таблицы, изменения в которых можно отменить, — в порядке «родитель раньше детей».
-const UNDO_TABLES = ['categories', 'suppliers', 'products', 'docs', 'doc_items', 'expenses', 'recurring_expenses', 'stock_moves'];
-const UNDO_NAMES = { categories: 'категории', suppliers: 'поставщики', products: 'товары', docs: 'документы', doc_items: 'строки документов', expenses: 'расходы', recurring_expenses: 'постоянные расходы', stock_moves: 'движения остатков' };
+const UNDO_TABLES = ['categories', 'suppliers', 'products', 'docs', 'doc_items', 'expenses', 'recurring_expenses', 'stock_moves', 'migrate_items'];
+const UNDO_NAMES = { categories: 'категории', suppliers: 'поставщики', products: 'товары', docs: 'документы', doc_items: 'строки документов', expenses: 'расходы', recurring_expenses: 'постоянные расходы', stock_moves: 'движения остатков', migrate_items: 'карточки переноса' };
 const undoColumns = (db, t) => db.prepare(`PRAGMA table_info(${t})`).all().filter((c) => !/blob/i.test(c.type)).map((c) => c.name);
 
 // Следующий свободный код товара: 00001, 00002… Длинные коды (штрихкоды, вписанные как код) не учитываются.
@@ -1281,6 +1288,92 @@ function receiptBytes({ mime, data } = {}) {
   if (!bytes.length) throw new UserError('Файл чека пустой');
   if (bytes.length > 5e6) throw new UserError('Файл чека больше 5 МБ');
   return bytes;
+}
+
+/* ---------- Перенос из CloudShop: разбор названий ---------- */
+const MIG_SIZE_RE = /^(XXXS|XXS|XS|S|M|L|XL|XXL|XXXL|[2-6]XL|\d{2,3})$/i;
+const MIG_COLORS = ['Темно-синий', 'Темно-серый', 'Темно-зеленый', 'Светло-серый', 'Светло-бежевый', 'Черный', 'Белый', 'Серый', 'Синий', 'Голубой', 'Бежевый', 'Коричневый',
+  'Кофе', 'Айвори', 'Молочный', 'Песочный', 'Хаки', 'Оливковый', 'Зеленый', 'Бордовый', 'Красный', 'Графит', 'Мокко', 'Капучино', 'Розовый', 'Желтый', 'Оранжевый', 'Фиолетовый'];
+const MIG_SHORT = { 'чер': 'Черный', 'черн': 'Черный', 'сер': 'Серый', 'беж': 'Бежевый', 'кор': 'Коричневый', 'бел': 'Белый', 'син': 'Синий', 'т-синий': 'Темно-синий', 'т-серый': 'Темно-серый', 'хак': 'Хаки' };
+const migNorm = (s) => String(s || '').toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+function migColor(word) {
+  const w = migNorm(word);
+  if (!w) return null;
+  if (MIG_SHORT[w]) return MIG_SHORT[w];
+  return MIG_COLORS.find((c) => migNorm(c) === w) || null;
+}
+// «Футболка MS-009 (Белый)» → { base: 'Футболка MS-009', color: 'Белый' }; «(чер 36)» → цвет + размер; «(80GM562 C 33)» → не разобрано.
+function migParse(name) {
+  const m = String(name).match(/^(.*?)\s*\(([^()]*)\)\s*$/);
+  if (!m) return { base: String(name).trim(), parsed: false };
+  let color = null, size = null;
+  for (const t of m[2].split(/[\s,]+/).filter(Boolean)) {
+    if (!size && MIG_SIZE_RE.test(t)) { size = t.toUpperCase(); continue; }
+    const c = migColor(t);
+    if (!color && c) { color = c; continue; }
+    return { base: m[1].trim(), parsed: false };
+  }
+  return color || size ? { base: m[1].trim(), color, size, parsed: true } : { base: m[1].trim(), parsed: false };
+}
+// Категория по первому слову: «Фут.» → «Футболка», «СлIаксы» → «Слаксы»; бренды и числа — без категории.
+const MIG_CAT_FIX = { 'фут.': 'Футболка', 'фут': 'Футболка', 'слiаксы': 'Слаксы', 'слаксы': 'Слаксы', 'джинсовая': 'Рубашка' };
+function migCategory(name, known) {
+  const w = String(name).trim().split(/\s+/)[0] || '';
+  const fixed = MIG_CAT_FIX[migNorm(w)] || (/^[А-ЯЁа-яё]{4,}$/.test(w) ? w[0].toUpperCase() + w.slice(1).toLowerCase() : '');
+  if (!fixed) return '';
+  const k = migNorm(fixed);
+  const forms = [k, k.replace(/[аяь]$/, '') + 'и', k.replace(/[аяь]$/, '') + 'ы', k + 'ы', k + 'и', k.replace(/[ыи]$/, ''), k.replace(/[ыи]$/, 'а')];
+  for (const f of forms) if (known.has(f)) return known.get(f);
+  return fixed;
+}
+// Дата CloudShop «07/04/2024» (день/месяц/год) → время.
+function migDate(v) {
+  if (typeof v === 'number' && v > 20000 && v < 80000) return Math.round((v - 25569) * 864e5);
+  const m = String(v || '').match(/^(\d{1,2})[/.](\d{1,2})[/.](\d{4})/);
+  return m ? new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]), 12).getTime() : null;
+}
+
+// Черновые данные карточки по строкам выгрузки: одна строка — товар как есть; несколько — товар с модификациями,
+// где у каждой строки своя ячейка «цвет × размер» с её остатком. split — строка после «Разделить» (название целиком).
+function migData(list, known, split = false) {
+  const f = list[0];
+  const many = list.length > 1;
+  const colors = [...new Set(list.map((r) => r.color).filter(Boolean))];
+  const rank = (v) => { const i = ['XXXS', 'XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', 'XXXL', '3XL', '4XL', '5XL', '6XL'].indexOf(String(v).toUpperCase()); return i >= 0 ? i : 100 + (parseFloat(v) || 0); };
+  const sizes = [...new Set(list.map((r) => r.size).filter(Boolean))].sort((a, b) => rank(a) - rank(b));
+  const qty = {};
+  if (many) for (const r of list) { const k = `${r.color ?? ''}\u0001${r.size ?? ''}`; qty[k] = (qty[k] || 0) + r.stock; }
+  const stock = list.reduce((a, r) => a + r.stock, 0);
+  const codeBase = many ? (f.code.match(/^(.+)-\d+$/)?.[1] && list.every((r) => r.code.startsWith(f.code.match(/^(.+)-\d+$/)[1] + '-')) ? f.code.match(/^(.+)-\d+$/)[1] : f.code) : f.code;
+  return {
+    name: many && !split ? f.base : f.name, code: codeBase, barcode: many ? '' : f.barcode, unit: f.unit || 'шт',
+    category: migCategory(many ? f.base : f.name, known) || '', supplier_id: null, description: '',
+    price: Math.max(...list.map((r) => r.price)), purchase: f.purchase || f.cost, cost: f.cost || f.purchase, created: Math.min(...list.map((r) => r.created || Infinity).filter(Number.isFinite)) || null,
+    stock, variants: { on: many, colors, sizes, qty }, ignoreMismatch: false, selected: stock > 0,
+  };
+}
+// Поля, которые можно менять в карточке переноса.
+function migClean(d) {
+  const out = {};
+  const str = (v, max = 200) => String(v ?? '').trim().slice(0, max);
+  const num = (v, name) => { const n = Number(String(v ?? '').replace(/\s/g, '').replace(',', '.')); if (!Number.isFinite(n)) throw new UserError(`«${name}»: нужно число`); return n; };
+  if ('name' in d) { out.name = str(d.name); if (!out.name) throw new UserError('Название не может быть пустым'); }
+  for (const k of ['code', 'barcode', 'category', 'unit']) if (k in d) out[k] = str(d[k], 64);
+  if ('description' in d) out.description = str(d.description, 2000);
+  if ('supplier_id' in d) out.supplier_id = d.supplier_id ? Number(d.supplier_id) : null;
+  for (const [k, n] of [['price', 'Цена продажи'], ['purchase', 'Цена закупки'], ['cost', 'Себестоимость'], ['stock', 'Остаток']]) if (k in d) out[k] = Math.round(num(d[k], n) * 100) / 100;
+  if ('created' in d) out.created = d.created ? Number(d.created) : null;
+  for (const k of ['selected', 'ignoreMismatch']) if (k in d) out[k] = Boolean(d[k]);
+  if ('variants' in d && d.variants) {
+    const v = d.variants;
+    const list = (a) => [...new Set((Array.isArray(a) ? a : []).map((x) => str(x, 40)).filter(Boolean))].slice(0, 30);
+    out.variants = {};
+    if ('on' in v) out.variants.on = Boolean(v.on);
+    if ('colors' in v) out.variants.colors = list(v.colors);
+    if ('sizes' in v) out.variants.sizes = list(v.sizes);
+    if ('qty' in v && v.qty && typeof v.qty === 'object') out.variants.qty = Object.fromEntries(Object.entries(v.qty).slice(0, 1000).map(([k, q]) => [String(k).slice(0, 90), Math.round((Number(q) || 0) * 1000) / 1000]));
+  }
+  return out;
 }
 
 function createStore(file) {
@@ -1974,6 +2067,166 @@ function createStore(file) {
     // Импорт из таблицы. Существующий товар ищется по коду, а без кода — по паре
     // «название + штрихкод»: у разных товаров (цветов одной модели) штрихкод бывает общим.
     // Строки с ошибками пропускаются, остальные загружаются.
+    /* ---------- Перенос из CloudShop ---------- */
+    // Карточка переноса: sources — строки выгрузки (одна или несколько, собранных в один товар), data — то, что
+    // перенесётся (всё редактируется), status: new | done | skip.
+    migrateList() {
+      return db.prepare('SELECT * FROM migrate_items ORDER BY sort, id').all().map((r) => ({ ...r, sources: JSON.parse(r.sources), data: JSON.parse(r.data) }));
+    },
+    // rows — строки выгрузки CloudShop (разобраны в браузере). Строки одного товара (код с «-1», «-2»… или одно
+    // название с цветом/размером в скобках) собираются в одну карточку с модификациями и разложенным остатком.
+    migrateUpload(rows) {
+      if (!Array.isArray(rows) || !rows.length) throw new UserError('В файле нет товаров');
+      if (rows.length > 20000) throw new UserError('Слишком много строк');
+      if (db.prepare("SELECT 1 FROM migrate_items LIMIT 1").get()) throw new UserError('Файл уже загружен. Чтобы загрузить заново, сначала нажмите «Начать заново»');
+      const known = new Map(this.listCategories().map((c) => [migNorm(c.name), c.name]));
+      const src = rows.map((r, i) => {
+        const p = migParse(r.name);
+        return {
+          line: Number(r.line) || i + 2, srcId: String(r.srcId || ''), name: String(r.name || '').trim(), code: String(r.code || '').trim(), barcode: String(r.barcode || '').trim(),
+          unit: String(r.unit || '').replace(/\.$/, '').trim() || 'шт', group: String(r.group || ''), price: Number(r.price) || 0, cost: Number(r.cost) || 0,
+          purchase: Number(r.purchase) || 0, markup: r.markup === '' || r.markup == null ? null : Number(r.markup), margin: r.margin === '' || r.margin == null ? null : Number(r.margin),
+          created: migDate(r.created), stock: Number(r.stock) || 0, base: p.base, color: p.parsed ? p.color : null, size: p.parsed ? p.size : null, parsed: p.parsed,
+        };
+      }).filter((r) => r.name);
+      // Группы: общий код до «-N» (все строки разобраны) или общее название без скобок (все строки разобраны).
+      const byCode = new Map(), byBase = new Map();
+      for (const r of src) {
+        const m = r.code.match(/^(.+)-\d+$/);
+        if (m) byCode.set(m[1], [...(byCode.get(m[1]) || []), r]);
+        if (r.parsed) byBase.set(migNorm(r.base), [...(byBase.get(migNorm(r.base)) || []), r]);
+      }
+      const used = new Set();
+      const groups = [];
+      for (const [code, list] of byCode) if (list.length > 1 && list.every((r) => r.parsed)) { list.forEach((r) => used.add(r)); groups.push({ code, list }); }
+      for (const list0 of byBase.values()) {
+        const list = list0.filter((r) => !used.has(r));
+        if (list.length > 1) { list.forEach((r) => used.add(r)); groups.push({ code: '', list }); }
+      }
+      const items = [];
+      for (const g of groups) items.push(g.list);
+      for (const r of src) if (!used.has(r)) items.push([r]);
+      // Порядок — как в файле (по первой строке карточки).
+      items.sort((a, b) => Math.min(...a.map((r) => r.line)) - Math.min(...b.map((r) => r.line)));
+      const ins = db.prepare('INSERT INTO migrate_items (sort, sources, data, updated_at) VALUES (?, ?, ?, ?)');
+      transaction(db, () => items.forEach((list, i) => ins.run(i, JSON.stringify(list), JSON.stringify(migData(list, known)), Date.now())));
+      return { items: items.length, rows: src.length, grouped: groups.length };
+    },
+    migrateUpdate(id, data) {
+      const cur = db.prepare('SELECT * FROM migrate_items WHERE id = ?').get(Number(id));
+      if (!cur) throw new UserError('Карточка не найдена');
+      if (cur.status === 'done') throw new UserError('Этот товар уже перенесён — меняйте его в «Товарах»');
+      const next = { ...JSON.parse(cur.data), ...migClean(data || {}) };
+      db.prepare('UPDATE migrate_items SET data = ?, status = ?, error = ?, updated_at = ? WHERE id = ?')
+        .run(JSON.stringify(next), data?.skip === true ? 'skip' : data?.skip === false ? 'new' : cur.status, '', Date.now(), cur.id);
+      return this.migrateGet(cur.id);
+    },
+    migrateGet(id) {
+      const r = db.prepare('SELECT * FROM migrate_items WHERE id = ?').get(Number(id));
+      if (!r) throw new UserError('Карточка не найдена');
+      return { ...r, sources: JSON.parse(r.sources), data: JSON.parse(r.data) };
+    },
+    // Одинаковое изменение многим карточкам (категория, поставщик, размеры, отметка «переносить»…).
+    migrateBulk(ids, patch) {
+      const list = (Array.isArray(ids) ? ids : []).map(Number);
+      if (!list.length) throw new UserError('Отметьте товары');
+      const clean = migClean(patch || {});
+      transaction(db, () => {
+        for (const id of list) {
+          const cur = db.prepare("SELECT * FROM migrate_items WHERE id = ? AND status != 'done'").get(id);
+          if (!cur) continue;
+          const d = JSON.parse(cur.data);
+          const next = { ...d, ...clean };
+          if (clean.variants) next.variants = { ...d.variants, ...clean.variants, qty: { ...(d.variants?.qty || {}), ...(clean.variants.qty || {}) } };
+          db.prepare('UPDATE migrate_items SET data = ?, status = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(next), patch.skip === true ? 'skip' : patch.skip === false ? 'new' : cur.status, Date.now(), id);
+        }
+      });
+      return { updated: list.length };
+    },
+    // Объединить карточки в один товар (строки становятся цветами/размерами одного товара).
+    migrateMerge(ids) {
+      const list = (Array.isArray(ids) ? ids : []).map(Number);
+      if (list.length < 2) throw new UserError('Отметьте хотя бы две строки');
+      const rows = list.map((id) => db.prepare("SELECT * FROM migrate_items WHERE id = ? AND status != 'done'").get(id)).filter(Boolean);
+      if (rows.length < 2) throw new UserError('Перенесённые товары объединять нельзя');
+      const known = new Map(this.listCategories().map((c) => [migNorm(c.name), c.name]));
+      const sources = rows.flatMap((r) => JSON.parse(r.sources));
+      const keep = JSON.parse(rows[0].data);
+      const data = migData(sources, known);
+      Object.assign(data, { category: keep.category, supplier_id: keep.supplier_id, price: keep.price, purchase: keep.purchase, cost: keep.cost, selected: true });
+      transaction(db, () => {
+        db.prepare('UPDATE migrate_items SET sources = ?, data = ?, status = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(sources), JSON.stringify(data), 'new', Date.now(), rows[0].id);
+        for (const r of rows.slice(1)) db.prepare('DELETE FROM migrate_items WHERE id = ?').run(r.id);
+      });
+      return this.migrateGet(rows[0].id);
+    },
+    // Разделить карточку обратно на строки выгрузки.
+    migrateSplit(id) {
+      const cur = db.prepare("SELECT * FROM migrate_items WHERE id = ? AND status != 'done'").get(Number(id));
+      if (!cur) throw new UserError('Карточка не найдена или уже перенесена');
+      const sources = JSON.parse(cur.sources);
+      if (sources.length < 2) throw new UserError('Здесь одна строка — разделять нечего');
+      const known = new Map(this.listCategories().map((c) => [migNorm(c.name), c.name]));
+      transaction(db, () => {
+        db.prepare('UPDATE migrate_items SET sources = ?, data = ?, updated_at = ? WHERE id = ?').run(JSON.stringify([sources[0]]), JSON.stringify(migData([sources[0]], known, true)), Date.now(), cur.id);
+        for (const s of sources.slice(1)) db.prepare('INSERT INTO migrate_items (sort, sources, data, updated_at) VALUES (?, ?, ?, ?)').run(cur.sort, JSON.stringify([s]), JSON.stringify(migData([s], known, true)), Date.now());
+      });
+      return { parts: sources.length };
+    },
+    migrateClear() {
+      const done = db.prepare("SELECT COUNT(*) AS n FROM migrate_items WHERE status = 'done'").get().n;
+      db.prepare('DELETE FROM migrate_items').run();
+      return { removed: true, done };
+    },
+    // Перенести отмеченные карточки в товары. Каждая — отдельно: ошибка одной не мешает остальным.
+    migrateImport(ids) {
+      const list = (Array.isArray(ids) ? ids : []).map(Number);
+      if (!list.length) throw new UserError('Отметьте товары для переноса');
+      const res = { done: 0, products: 0, variants: 0, failed: [] };
+      for (const id of list) {
+        const it = db.prepare("SELECT * FROM migrate_items WHERE id = ? AND status = 'new'").get(id);
+        if (!it) continue;
+        const d = JSON.parse(it.data);
+        try {
+          const pid = withMove('import', 'cloudshop', null, () => transaction(db, () => {
+            const v = d.variants || {};
+            const on = v.on && ((v.colors || []).length || (v.sizes || []).length);
+            const base = { name: d.name, category: d.category, code: d.code, unit: d.unit || 'шт', price: d.price, purchase: d.purchase, cost: d.cost || d.purchase,
+              supplier_id: d.supplier_id || null, description: d.description || '', stock: 0 };
+            if (d.category && !findCategory(d.category)) this.createCategory({ name: d.category });
+            const setStock = db.prepare('UPDATE products SET stock = ? WHERE id = ?');
+            const setDate = db.prepare('UPDATE products SET created_at = ? WHERE id = ?');
+            if (!on) {
+              const p = this.createProduct({ ...base, barcode: d.barcode || '' });
+              if (Number(d.stock)) setStock.run(Number(d.stock), p.id);
+              if (d.created) setDate.run(d.created, p.id);
+              res.products++;
+              return p.id;
+            }
+            const colors = v.colors || [], sizes = v.sizes || [];
+            const cells = [];
+            for (const c of colors.length ? colors : [null]) for (const s of sizes.length ? sizes : [null]) cells.push({ c, s, qty: Number(v.qty?.[`${c ?? ''}\u0001${s ?? ''}`]) || 0 });
+            const total = cells.reduce((a, x) => a + x.qty, 0);
+            if (!d.ignoreMismatch && Math.abs(total - (Number(d.stock) || 0)) > 1e-9) throw new UserError(`по размерам распределено ${total} из ${d.stock}`);
+            const p = this.createProduct({ ...base, barcode: '' });
+            const made = this.createVariants(p.id, { barcodes: true, variants: cells.map((x) => ({ options: { ...(x.c ? { Цвет: x.c } : {}), ...(x.s ? { Размер: x.s } : {}) }, price: d.price, purchase: d.purchase, cost: d.cost || d.purchase, stock: 0 })) });
+            made.forEach((m, i) => { if (cells[i].qty) setStock.run(cells[i].qty, m.id); if (d.created) setDate.run(d.created, m.id); });
+            if (d.created) setDate.run(d.created, p.id);
+            res.products++;
+            res.variants += made.length;
+            return p.id;
+          }));
+          db.prepare("UPDATE migrate_items SET status = 'done', product_id = ?, error = '', updated_at = ? WHERE id = ?").run(pid, Date.now(), id);
+          res.done++;
+        } catch (err) {
+          if (!(err instanceof UserError)) throw err;
+          db.prepare('UPDATE migrate_items SET error = ?, updated_at = ? WHERE id = ?').run(err.message.slice(0, 300), Date.now(), id);
+          res.failed.push({ id, name: d.name, reason: err.message });
+        }
+      }
+      return res;
+    },
+
     importProducts(rows, { update = false } = {}) {
       if (!Array.isArray(rows) || !rows.length) throw new UserError('В файле нет товаров');
       return withMove('import', '', null, () => transaction(db, () => {

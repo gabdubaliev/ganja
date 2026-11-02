@@ -736,6 +736,15 @@ const routes = [
   ['GET', '/api/products', (p, url, body, user) => hideStock(user, store.listProducts({ archived: url.searchParams.get('archived') === '1' })), 'any'],
   ['POST', '/api/products', (p, url, body) => store.createProduct(body), 'products'],
   ['PUT', '/api/products/:id', (p, url, body) => store.updateProduct(p.id, body), 'products'],
+  // Перенос из CloudShop (раздел на время переноса; право «Импорт»).
+  ['GET', '/api/migrate', () => ({ items: store.migrateList() }), 'import'],
+  ['POST', '/api/migrate/upload', (p, url, body) => store.migrateUpload(body.rows), 'import'],
+  ['PUT', '/api/migrate/:id', (p, url, body) => store.migrateUpdate(p.id, body), 'import'],
+  ['POST', '/api/migrate/bulk', (p, url, body) => store.migrateBulk(body.ids, body.patch), 'import'],
+  ['POST', '/api/migrate/merge', (p, url, body) => store.migrateMerge(body.ids), 'import'],
+  ['POST', '/api/migrate/:id/split', (p) => store.migrateSplit(p.id), 'import'],
+  ['POST', '/api/migrate/import', (p, url, body) => store.migrateImport(body.ids), 'import'],
+  ['DELETE', '/api/migrate', () => store.migrateClear(), 'import'],
   ['POST', '/api/products/import', (p, url, body) => store.importProducts(body.rows, { update: Boolean(body.update) }), 'import'],
   ['PUT', '/api/products/:id/stock', (p, url, body, user) => store.setStock(p.id, body.stock, user), 'stock'],
   // Групповое изменение: удаление требует отдельного права.
@@ -1229,6 +1238,11 @@ const AUDIT_LABELS = {
   'PUT /api/products/:id': 'Изменил товар',
   'DELETE /api/products/:id': 'Удалил товар',
   'POST /api/products/import': 'Загрузил товары из Excel',
+  'POST /api/migrate/upload': 'Перенос из CloudShop: загрузил выгрузку',
+  'POST /api/migrate/import': 'Перенос из CloudShop: перенёс товары',
+  'POST /api/migrate/merge': 'Перенос из CloudShop: объединил строки в товар',
+  'POST /api/migrate/:id/split': 'Перенос из CloudShop: разделил товар на строки',
+  'DELETE /api/migrate': 'Перенос из CloudShop: начал заново (черновик удалён)',
   'PUT /api/products/:id/stock': 'Пересчитал остаток',
   'PUT /api/products/:id/photo': 'Поменял фото товара',
   'DELETE /api/products/:id/photo': 'Удалил фото товара',
@@ -1334,7 +1348,7 @@ const AUDIT_LABELS = {
 // Действия, которые можно отменить из журнала (меняют только товары, категории, поставщиков, документы склада и расходы).
 // Продажи, возвраты, сертификаты, деньги на счетах, сотрудники и настройки не отменяются.
 const UNDO_KEYS = new Set([
-  'POST /api/products', 'PUT /api/products/:id', 'DELETE /api/products/:id', 'POST /api/products/import', 'PUT /api/products/:id/stock',
+  'POST /api/products', 'PUT /api/products/:id', 'DELETE /api/products/:id', 'POST /api/products/import', 'POST /api/migrate/import', 'POST /api/migrate/merge', 'POST /api/migrate/:id/split', 'DELETE /api/migrate', 'PUT /api/products/:id/stock',
   'POST /api/products/bulk', 'POST /api/products/:id/variants', 'POST /api/expenses', 'DELETE /api/expenses/:id', 'POST /api/invoice/receive',
   'POST /api/recurring-expenses', 'PUT /api/recurring-expenses/:id', 'DELETE /api/recurring-expenses/:id',
   'POST /api/categories', 'PUT /api/categories/:id', 'DELETE /api/categories/:id', 'PUT /api/categories-order',
@@ -1364,6 +1378,8 @@ function auditDetails(key, params, body, result) {
       return `${r.count} ${word} на ${r.total} сом (${scope}), товар ${body.restock === false ? 'на склад не возвращён' : 'возвращён на склад'}`;
     }
     case 'POST /api/products/bulk': return `${{ delete: 'удаление', archive: 'убрать из продажи', restore: 'вернуть в продажу', price: 'цена', cost: 'себестоимость', category: 'категория', unit: 'единица', barcodes: 'штрихкоды' }[body.action] || body.action}${body.value !== undefined ? ` (${body.mode ? body.mode + ' ' : ''}${body.value})` : ''}, товаров: ${r.count ?? body.ids?.length}`;
+    case 'POST /api/migrate/upload': return `строк ${r.rows}, карточек ${r.items}, собрано в товары с модификациями: ${r.grouped}`;
+    case 'POST /api/migrate/import': return `перенесено ${r.done} (товаров ${r.products}, модификаций ${r.variants})${r.failed?.length ? `, не перенесено ${r.failed.length}` : ''}`;
     case 'POST /api/products/import': return `создано ${r.created}, обновлено ${r.updated}, пропущено ${r.skipped?.length ?? 0}`;
     case 'PUT /api/products/:id/stock': return `${r.name}: остаток ${r.stock}`;
     case 'PUT /api/products/:id': return `${r.name}: цена ${r.price}, себестоимость ${r.cost}`;
