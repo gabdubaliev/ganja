@@ -1,8 +1,9 @@
 'use strict';
 
-// MONT AI Studio: съёмки товара → исходные фото → задание (промпт) для ChatGPT → результат обратно →
-// сравнение с оригиналом → одобрение → в конец галереи товара. Платных API нет: в ChatGPT владелец работает сам,
-// своей подпиской. Локальная обработка (кадр, поворот, формат, однотонный фон) — в ai-studio-editor.js.
+// MONT AI Studio: съёмки товара → исходные фото (обязательно: спереди, сзади, деталь, бирка/логотип) → проверка Claude →
+// задание (промпт) для ChatGPT → результат обратно → Claude сравнивает с оригиналом → одобрение → в конец галереи товара.
+// Генерацию делает ChatGPT (вручную, подпиской владельца); Claude только проверяет и описывает (studio-ai.js, Claude API).
+// Локальная обработка (кадр, поворот, формат, однотонный фон) — в ai-studio-editor.js.
 
 const st = { meta: null, list: [], session: null, sessionId: null, filter: 'open', op: 'catalog', newProduct: null };
 const STATUS_TASK = { prepared: 'подготовлено', sent: 'отправлено в ChatGPT', result: 'есть результат', retried: 'отклонено → новая попытка', done: 'в каталоге', cancelled: 'отменено' };
@@ -13,7 +14,7 @@ const when = (t) => new Date(t).toLocaleString('ru-RU', { day: 'numeric', month:
 
 document.querySelector('[data-view="studio"]').innerHTML = `
   <header class="top">
-    <div class="title"><h1>🎨 MONT AI Studio</h1><span class="source" id="st-sub">Фото товаров: обработка на устройстве и задания для ChatGPT</span></div>
+    <div class="title"><h1>🎨 MONT AI Studio</h1><span class="source" id="st-sub">Фото товаров: проверка Claude, обработка на устройстве и задания для ChatGPT</span></div>
     <div class="tools" id="st-tools"></div>
   </header>
   <div id="st-body"></div>`;
@@ -206,6 +207,32 @@ function assetTile(a, extra = '') {
   </figure>`;
 }
 
+// Обязательный набор фото и итог проверки Claude над исходниками.
+function aiSourcesPanel(sources) {
+  const m = st.meta, s = st.session;
+  const have = new Set(sources.map((a) => a.role));
+  const chips = m.required.map((r) => `<span class="st-req ${r.roles.some((x) => have.has(x)) ? 'ok' : 'miss'}">${r.roles.some((x) => have.has(x)) ? '✅' : '⬜'} ${esc(r.label)}</span>`).join('');
+  const ai = s.ai;
+  const stale = ai && sources.some((a) => !(ai.photoIds || []).includes(a.id));
+  const busy = st.aiBusy === 'sources';
+  const it = ai?.item;
+  return `<div class="st-req-row">${chips}</div>
+    ${m.ai ? `<div class="st-ai ${ai ? (ai.ready && !stale ? 'good' : 'warn') : ''}">
+      <div class="st-ai-head"><b>🤖 Проверка Claude</b>
+        <button type="button" class="btn small ${ai && !stale ? '' : 'primary'}" id="st-ai-sources" ${busy || !sources.length ? 'disabled' : ''}>${busy ? '⏳ Claude смотрит фото…' : ai ? (stale ? 'Проверить снова (есть новые фото)' : 'Проверить снова') : 'Проверить фото'}</button></div>
+      ${ai ? `<p>${ai.ready && !stale ? '✅' : '⚠️'} ${esc(ai.summary)}${ai.missing?.length ? ` Не хватает: ${esc(ai.missing.join(', '))}.` : ''}</p>
+        ${it ? `<details class="st-ai-item"><summary>Что видит Claude: ${esc([it.type, it.color, it.closure].filter(Boolean).join(', '))}</summary>
+          <dl>${[['Цвет', `${it.color}${it.color_hex ? ` <span class="st-swatch" style="background:${esc(it.color_hex)}"></span>` : ''}`], ['Материал', esc(it.material)], ['Крой', esc(it.fit)], ['Застёжка', esc(it.closure)], ['Детали', esc((it.details || []).join(', '))], ['Бренд', esc(it.brand)], ['Бирка', esc(it.label_text)]].filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
+          ${it.description ? `<p class="st-ai-desc">${esc(it.description)}</p>${m.canDescribe ? '<button type="button" class="btn small" id="st-ai-desc">Вставить описание в карточку товара</button>' : ''}` : ''}</details>` : ''}`
+        : '<p class="sub">Claude проверит, что набор полный, фото резкие, вещь целиком в кадре и свет ровный, и опишет вещь для витрины. Стоимость — несколько центов за проверку, со счёта Claude API.</p>'}
+    </div>` : '<p class="sub">Чтобы фото проверял Claude, администратор вводит ключ Claude API в «Приход по фото накладной».</p>'}`;
+}
+function aiPhotoNote(a) {
+  const p = st.session.ai?.photos?.find((x) => x.id === a.id);
+  if (!p) return '';
+  return p.ok && p.role_ok ? '<small class="st-ai-ok">✅ годится</small>' : `<small class="st-ai-bad">⚠️ ${esc(p.problem || (p.role_ok ? 'переснять' : `на фото: ${st.meta.roles[p.seen_as] || p.seen_as}`))}</small>`;
+}
+
 function renderSession() {
   const s = st.session;
   const m = st.meta;
@@ -236,8 +263,9 @@ function renderSession() {
       <div class="st-sec-head"><h2>1. Исходные фото <small>${sources.length}</small></h2>
         <div class="st-upload"><select class="input small" id="st-up-role" aria-label="Что на загружаемых фото">${Object.entries(m.roles).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
         <button type="button" class="btn primary" id="st-up">+ Загрузить фото</button></div></div>
-      <p class="sub">Оригиналы хранятся без изменений. Обработка создаёт новое фото рядом.</p>
-      <div class="st-grid">${sources.map((a) => assetTile(a, `${roleSelect(a)}<span class="st-acts">
+      <p class="sub">Оригиналы хранятся без изменений. Обработка создаёт новое фото рядом. Обязательно: ${m.required.map((r) => r.label).join(', ')} — у каждого фото укажите, что на нём.</p>
+      ${aiSourcesPanel(sources)}
+      <div class="st-grid">${sources.map((a) => assetTile(a, `${roleSelect(a)}${aiPhotoNote(a)}<span class="st-acts">
         <button type="button" class="btn small" data-st-edit="${a.id}">✂ Обработать</button>
         <button type="button" class="btn small ghost" data-st-dl="${a.id}" title="Скачать">⬇</button>
         <button type="button" class="btn small ghost" data-st-del="${a.id}" title="Удалить">✕</button></span>`)).join('') || '<p class="empty">Загрузите фото товара: спереди, сзади, детали, ткань, принт.</p>'}</div>
@@ -295,6 +323,8 @@ function taskCard(t, results) {
       ${a.status === 'approved' && m.canAttach && !st.session.product.deleted ? `<button type="button" class="btn small primary" data-st-attach="${a.id}">В галерею товара</button>` : ''}
       ${a.status === 'attached' ? `<small>в галерее (фото №${a.attached.imageId})</small>` : ''}
       ${a.reviewNote ? `<small class="st-note">«${esc(a.reviewNote)}»</small>` : ''}
+      ${a.ai ? `<small class="${a.ai.verdict === 'ok' ? 'st-ai-ok' : 'st-ai-bad'}">🤖 ${a.ai.verdict === 'ok' ? '✅ совпадает с оригиналом' : `⚠️ ${esc(a.ai.summary)}`}</small>`
+        : st.meta.ai && a.status === 'pending' ? `<button type="button" class="btn small" data-st-ai-check="${a.id}" ${st.aiBusy ? 'disabled' : ''}>${st.aiBusy === `result-${a.id}` ? '⏳ Claude сравнивает…' : '🤖 Проверить Claude'}</button>` : ''}
       ${a.status === 'rejected' ? (() => { const next = st.session.tasks.find((x) => x.prevResultId === a.id && x.status !== 'cancelled'); return next
         ? `<button type="button" class="btn small" data-st-goto-task="${next.id}">→ Попытка ${next.attempt} (задание №${next.id})</button>`
         : `<button type="button" class="btn small primary" data-st-retry="${a.id}">🔁 Повторить генерацию</button>`; })() : ''}
@@ -417,6 +447,57 @@ async function uploadAssets(files, body) {
   return n;
 }
 
+// Для Claude: JPEG до 1568 px по стороне (так он видит фото — больше не нужно), base64.
+async function aiImage(id) {
+  const bmp = await createImageBitmap(await fetchBlob(id));
+  const scale = Math.min(1, 1568 / Math.max(bmp.width, bmp.height));
+  const c = document.createElement('canvas');
+  c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+  g.drawImage(bmp, 0, 0, c.width, c.height);
+  const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.85));
+  return { id: Number(id), data: await fileBase64(blob) };
+}
+// Claude проверяет исходники съёмки (набор, резкость, кадр, свет) и описывает вещь.
+async function aiCheckSources() {
+  const sources = st.session.assets.filter((a) => a.kind === 'source').slice(0, 12);
+  if (!sources.length) return toast('Сначала загрузите фото', 'error');
+  st.aiBusy = 'sources';
+  renderSession();
+  try {
+    const images = [];
+    for (const a of sources) images.push(await aiImage(a.id));
+    st.session = await api(`/api/studio/sessions/${st.session.id}/ai-sources`, { method: 'POST', body: { images } });
+    toast(st.session.ai?.ready ? '✅ Claude: исходные фото в порядке' : '⚠️ Claude нашёл, что поправить — см. замечания');
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    st.aiBusy = null;
+    renderSession();
+  }
+}
+// Claude сравнивает результат с оригиналами задания.
+async function aiCheckResult(id) {
+  const a = findAsset(id);
+  const t = findTask(a?.taskId);
+  const origIds = (t?.sourceIds || []).length ? t.sourceIds : st.session.assets.filter((x) => x.kind === 'source').map((x) => x.id);
+  st.aiBusy = `result-${id}`;
+  renderSession();
+  try {
+    const originals = [];
+    for (const oid of origIds.slice(0, 6)) originals.push(await aiImage(oid));
+    st.session = await api(`/api/studio/assets/${id}/ai-check`, { method: 'POST', body: { result: await aiImage(id), originals } });
+    const r = findAsset(id)?.ai;
+    toast(r?.verdict === 'ok' ? '✅ Claude: результат совпадает с оригиналом' : `⚠️ Claude: нужно переделать — ${r?.summary || ''}`, r?.verdict === 'ok' ? 'ok' : 'error');
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    st.aiBusy = null;
+    renderSession();
+  }
+}
+
 // Для галереи: JPEG до 2048 px и до 3 МБ (прозрачность заливается белым).
 async function galleryJpeg(id) {
   const bmp = await createImageBitmap(await fetchBlob(id));
@@ -487,7 +568,13 @@ $('[data-view="studio"]').addEventListener('click', async (e) => {
     if ((x = b('[data-st-op]'))) { st.op = x.dataset.stOp; for (const o of document.querySelectorAll('[data-st-op]')) o.setAttribute('aria-checked', String(o === x)); return renderOpForm(); }
     if (b('#st-make-task')) {
       const sourceIds = [...document.querySelectorAll('.st-src-pick input:checked')].map((i) => Number(i.value));
-      const t = await api(`/api/studio/sessions/${st.session.id}/tasks`, { method: 'POST', body: { operation: st.op, params: opParams(), sourceIds } });
+      let t;
+      try {
+        t = await api(`/api/studio/sessions/${st.session.id}/tasks`, { method: 'POST', body: { operation: st.op, params: opParams(), sourceIds } });
+      } catch (err) {
+        if (!err.data?.aiNotReady || !confirm(`${err.message}\n\nВсё равно продолжить с этими фото?`)) throw err;
+        t = await api(`/api/studio/sessions/${st.session.id}/tasks`, { method: 'POST', body: { operation: st.op, params: opParams(), sourceIds, force: true } });
+      }
       toast('Промпт готов — дальше по шагам в карточке задания');
       await reloadSession();
       document.querySelector(`[data-task="${t.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -544,10 +631,20 @@ $('[data-view="studio"]').addEventListener('click', async (e) => {
     if ((x = b('[data-st-result]'))) {
       const files = await pickImages(false);
       if (!files.length) return;
-      if (await uploadAssets(files, { kind: 'result', taskId: Number(x.dataset.stResult) })) toast('Результат загружен — сравните его с оригиналом');
+      if (await uploadAssets(files, { kind: 'result', taskId: Number(x.dataset.stResult) })) toast(st.meta.ai ? 'Результат загружен — Claude сравнивает его с оригиналом…' : 'Результат загружен — сравните его с оригиналом');
       await reloadSession();
       const last = st.session.assets.filter((a) => a.kind === 'result').at(-1);
+      if (last && st.meta.ai) await aiCheckResult(last.id);
       if (last) openCompare(last.id);
+      return;
+    }
+    if (b('#st-ai-sources')) return aiCheckSources();
+    if ((x = b('[data-st-ai-check]'))) return aiCheckResult(Number(x.dataset.stAiCheck));
+    if (b('#st-ai-desc')) {
+      const d = st.session.ai?.item?.description;
+      if (!d) return;
+      await api(`/api/products/${st.session.product.id}`, { method: 'PUT', body: { description: d } });
+      toast('Описание вставлено в карточку товара — оно видно на витрине');
       return;
     }
     if ((x = b('[data-st-save-prompt]'))) {
@@ -593,8 +690,12 @@ function openCompare(id) {
   $('#st-cmp-sub').textContent = `Результат №${a.id}${t ? ` · задание №${t.id}: ${t.operationName}` : ''}`;
   $('#st-cmp-orig').innerHTML = origs.map((o) => `<option value="${o.id}">Оригинал №${o.id} — ${esc(st.meta.roles[o.role] || 'обработка')}</option>`).join('');
   const locked = a.status === 'attached';
-  $('#st-cmp-check').innerHTML = `<b>Сравните с оригиналом и отметьте, что совпадает:</b>` + Object.entries(st.meta.checklist).map(([k, v]) => `<label class="check"><input type="checkbox" data-chk="${k}" ${a.checklist?.[k] ? 'checked' : ''} ${locked ? 'disabled' : ''}> ${v}</label>`).join('');
-  $('#st-cmp-note').value = a.reviewNote || '';
+  // Пункты отмечает Claude (если он проверял) — человек видит его замечания и решает.
+  const ai = a.ai;
+  const marked = (k) => (a.status !== 'pending' ? a.checklist?.[k] : ai ? ai.checks?.[k]?.ok : a.checklist?.[k]);
+  $('#st-cmp-check').innerHTML = (ai ? `<div class="st-ai ${ai.verdict === 'ok' ? 'good' : 'warn'}"><b>🤖 Claude: ${ai.verdict === 'ok' ? '✅ совпадает с оригиналом' : '⚠️ нужно переделать'}</b><p>${esc(ai.summary)}</p>${ai.quality && !ai.quality.ok ? `<p>Качество: ${esc(ai.quality.note)}</p>` : ''}</div>` : '')
+    + `<b>${ai ? 'Пункты отметил Claude — проверьте и решите:' : 'Сравните с оригиналом и отметьте, что совпадает:'}</b>` + Object.entries(st.meta.checklist).map(([k, v]) => `<label class="check"><input type="checkbox" data-chk="${k}" ${marked(k) ? 'checked' : ''} ${locked ? 'disabled' : ''}> ${v}${ai?.checks?.[k] && !ai.checks[k].ok && ai.checks[k].note ? ` <small class="st-ai-bad">— ${esc(ai.checks[k].note)}</small>` : ''}</label>`).join('');
+  $('#st-cmp-note').value = a.reviewNote || (a.status === 'pending' && ai?.verdict === 'redo' ? ai.redo_note || '' : '');
   $('#st-cmp-error').hidden = true;
   $('#st-cmp-zoom').checked = false;
   $('#st-cmp-approve').hidden = locked;

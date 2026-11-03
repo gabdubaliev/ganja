@@ -131,6 +131,10 @@ function createStudio(file, { UserError }) {
   // Съёмка по расцветке: цвет (например, «Чёрный») — фото для всех размеров этого цвета сразу.
   const sessCols = new Set(db.prepare('PRAGMA table_info(studio_sessions)').all().map((c) => c.name));
   if (!sessCols.has('color')) db.exec("ALTER TABLE studio_sessions ADD COLUMN color TEXT NOT NULL DEFAULT ''");
+  // Проверка Claude: по съёмке (исходники и описание вещи) и по каждому результату (сравнение с оригиналом).
+  if (!sessCols.has('ai')) db.exec("ALTER TABLE studio_sessions ADD COLUMN ai TEXT NOT NULL DEFAULT ''");
+  const assetCols = new Set(db.prepare('PRAGMA table_info(studio_assets)').all().map((c) => c.name));
+  if (!assetCols.has('ai')) db.exec("ALTER TABLE studio_assets ADD COLUMN ai TEXT NOT NULL DEFAULT ''");
 
   const who = (user) => String(user?.name || user?.email || '');
   const now = () => Date.now();
@@ -141,7 +145,7 @@ function createStudio(file, { UserError }) {
     id: a.id, kind: a.kind, role: a.role, parentId: a.parent_id, taskId: a.task_id, mime: a.mime, width: a.width, height: a.height, bytes: a.bytes,
     sha256: a.sha256, meta: JSON.parse(a.meta || '{}'), status: a.status, checklist: JSON.parse(a.checklist || '{}'), reviewNote: a.review_note,
     reviewedBy: a.reviewed_by, reviewedAt: a.reviewed_at, attached: a.attached_image_id ? { branchId: a.attached_branch_id, productId: a.attached_product_id, imageId: a.attached_image_id, by: a.attached_by, at: a.attached_at } : null,
-    createdBy: a.created_by, createdAt: a.created_at,
+    createdBy: a.created_by, createdAt: a.created_at, ai: a.ai ? JSON.parse(a.ai) : null,
   });
   // История замечаний цепочки: все отклонённые результаты попыток до этой включительно.
   const chainNotes = (t) => db.prepare(`SELECT t.attempt, a.id AS result_id, a.review_note AS note, a.reviewed_by, a.reviewed_at FROM studio_tasks t
@@ -158,7 +162,7 @@ function createStudio(file, { UserError }) {
     return s;
   }
   function asset(id) {
-    const a = db.prepare('SELECT id, session_id, kind, role, parent_id, task_id, mime, width, height, bytes, sha256, meta, status, checklist, review_note, reviewed_by, reviewed_at, attached_branch_id, attached_product_id, attached_image_id, attached_by, attached_at, created_by, created_at FROM studio_assets WHERE id = ?').get(Number(id));
+    const a = db.prepare('SELECT id, session_id, kind, role, parent_id, task_id, mime, width, height, bytes, sha256, meta, status, checklist, review_note, reviewed_by, reviewed_at, attached_branch_id, attached_product_id, attached_image_id, attached_by, attached_at, created_by, created_at, ai FROM studio_assets WHERE id = ?').get(Number(id));
     if (!a) throw new UserError('Файл не найден');
     return a;
   }
@@ -188,10 +192,10 @@ function createStudio(file, { UserError }) {
 
     getSession(id, branchId) {
       const s = session(id, branchId);
-      const assets = db.prepare("SELECT id, session_id, kind, role, parent_id, task_id, mime, width, height, bytes, sha256, meta, status, checklist, review_note, reviewed_by, reviewed_at, attached_branch_id, attached_product_id, attached_image_id, attached_by, attached_at, created_by, created_at FROM studio_assets WHERE session_id = ? ORDER BY id").all(s.id);
+      const assets = db.prepare("SELECT id, session_id, kind, role, parent_id, task_id, mime, width, height, bytes, sha256, meta, status, checklist, review_note, reviewed_by, reviewed_at, attached_branch_id, attached_product_id, attached_image_id, attached_by, attached_at, created_by, created_at, ai FROM studio_assets WHERE session_id = ? ORDER BY id").all(s.id);
       const tasks = db.prepare('SELECT * FROM studio_tasks WHERE session_id = ? ORDER BY id DESC').all(s.id);
       const history = db.prepare('SELECT at, user, action, details FROM studio_log WHERE session_id = ? ORDER BY id DESC LIMIT 200').all(s.id);
-      return { ...s, assets: assets.map(assetMeta), tasks: tasks.map(taskOut), history: history.map((h) => ({ ...h })), checklist: CHECKLIST };
+      return { ...s, ai: s.ai ? JSON.parse(s.ai) : null, assets: assets.map(assetMeta), tasks: tasks.map(taskOut), history: history.map((h) => ({ ...h })), checklist: CHECKLIST };
     },
 
     updateSession(id, branchId, patch, user, { variant, color } = {}) {
@@ -252,6 +256,26 @@ function createStudio(file, { UserError }) {
       const a = db.prepare('SELECT s.branch_id, a.mime, a.data FROM studio_assets a JOIN studio_sessions s ON s.id = a.session_id WHERE a.id = ?').get(Number(id));
       if (!a || a.branch_id !== branchId) return null;
       return { mime: a.mime, data: a.data };
+    },
+
+    // Итог проверки Claude: по съёмке (исходники) или по файлу (результат).
+    setSessionAi(id, branchId, data, user, summary) {
+      const sess = session(id, branchId);
+      db.prepare('UPDATE studio_sessions SET ai = ?, updated_at = ? WHERE id = ?').run(JSON.stringify({ ...data, at: now() }), now(), sess.id);
+      log(sess.id, user, 'Claude проверил исходные фото', summary);
+    },
+    setAssetAi(id, branchId, data, user, summary) {
+      const a = asset(id);
+      session(a.session_id, branchId);
+      db.prepare('UPDATE studio_assets SET ai = ? WHERE id = ?').run(JSON.stringify({ ...data, at: now() }), a.id);
+      touch(a.session_id);
+      log(a.session_id, user, `Claude сравнил результат №${a.id} с оригиналом`, summary);
+    },
+    // Данные файла для отправки в Claude (только своя съёмка).
+    assetData(id, branchId) {
+      const a = asset(id);
+      const sess = session(a.session_id, branchId);
+      return { id: a.id, kind: a.kind, role: a.role, taskId: a.task_id, sessionId: sess.id, mime: a.mime, bytes: a.bytes };
     },
 
     setRole(id, branchId, role, user) {

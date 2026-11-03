@@ -12,6 +12,7 @@ const { seedDemo } = require('./demo');
 const invoice = require('./invoice');
 const { createStudio } = require('./studio');
 const studioPrompts = require('./studio-prompts');
+const studioAi = require('./studio-ai');
 const crypto = require('node:crypto');
 const { AsyncLocalStorage } = require('node:async_hooks');
 const { createAuth, hashPassword, checkPassword } = require('./auth');
@@ -200,6 +201,24 @@ function studioSessionOut(s) {
   return { ...s, product };
 }
 // Данные товара для текста задания: название, категория, описание и свойства выбранной модификации.
+// Картинки для Claude из браузера: [{ id, data (base64 JPEG/PNG/WebP) }], только файлы из allowed, не больше max.
+function studioAiImages(list, allowed, max) {
+  const byId = new Map(allowed.filter(Boolean).map((a) => [a.id, a]));
+  const out = [];
+  for (const im of Array.isArray(list) ? list : []) {
+    const a = byId.get(Number(im?.id));
+    if (!a || typeof im.data !== 'string' || !im.data) continue;
+    if (im.data.length > 7e6) throw new UserError('Фото для проверки слишком большое — обновите страницу и попробуйте ещё раз');
+    const head = Buffer.from(im.data.slice(0, 24), 'base64');
+    const mime = head[0] === 0xff && head[1] === 0xd8 ? 'image/jpeg' : head[0] === 0x89 && head[1] === 0x50 ? 'image/png' : head.slice(8, 12).toString() === 'WEBP' ? 'image/webp' : null;
+    if (!mime) throw new UserError('Фото для проверки не похоже на картинку');
+    out.push({ id: a.id, role: a.role, mime, data: im.data });
+    if (out.length >= max) break;
+  }
+  if (!out.length) throw new UserError('Нет фото для проверки');
+  return out;
+}
+
 function studioFacts(s) {
   const p = studioProduct(s.branch_id, s.product_id);
   let options = {};
@@ -969,6 +988,7 @@ const routes = [
     operations: studioPrompts.OPERATIONS, roles: studioPrompts.ROLES, details: studioPrompts.DETAILS, backgrounds: studioPrompts.BACKGROUNDS, aspects: studioPrompts.ASPECTS,
     genders: studioPrompts.GENDERS, ages: studioPrompts.AGES, builds: studioPrompts.BUILDS, poses: studioPrompts.POSES, framings: studioPrompts.FRAMINGS,
     settings: studioPrompts.SETTINGS, platforms: studioPrompts.PLATFORMS, adStyles: studioPrompts.AD_STYLES, checklist: studio.CHECKLIST, canAttach: can(user, 'photos'),
+    required: studioAi.REQUIRED, ai: Boolean(invoice.apiKey(mainStore)), canDescribe: can(user, 'products'),
   }), 'studio'],
   ['GET', '/api/studio/sessions', (p, url) => studio.listSessions(current().id, { status: url.searchParams.get('status') || 'open' }).map((s) => ({ ...s, product: studioProductBrief(s) })), 'studio'],
   ['POST', '/api/studio/sessions', (p, url, body, user) => {
@@ -995,7 +1015,37 @@ const routes = [
   ['DELETE', '/api/studio/assets/:id', (p, url, body, user) => studio.deleteAsset(p.id, current().id, user), 'studio'],
   ['POST', '/api/studio/sessions/:id/tasks', (p, url, body, user) => {
     const s = studio.getSession(p.id, current().id);
+    // Обязательный набор исходников: спереди, сзади, деталь, бирка или логотип.
+    const miss = studioAi.missingRoles(s.assets.filter((a) => a.kind === 'source'));
+    if (miss.length) throw new UserError(`Не хватает исходных фото: ${miss.map((m) => m.label).join(', ')}. Загрузите их и укажите, что на фото`);
+    // Claude нашёл проблемы с исходниками — задание только после пересъёмки или если сотрудник явно решил продолжить.
+    if (s.ai && s.ai.ready === false && !body.force) throw new UserError(`Claude: исходники надо поправить — ${s.ai.summary || 'см. замечания к фото'}. Переснимите или нажмите «Всё равно продолжить»`, { aiNotReady: true });
     return studio.createTask(s.id, current().id, body, studioFacts(s), user);
+  }, 'studio'],
+  // Claude проверяет исходники: набор, резкость, кадр, свет — и описывает вещь. Фото присылает браузер, уменьшенные
+  // до 1568 px (так их видит Claude); номера проверяются — только фото этой съёмки.
+  ['POST', '/api/studio/sessions/:id/ai-sources', async (p, url, body, user) => {
+    const s = studio.getSession(p.id, current().id);
+    const sources = s.assets.filter((a) => a.kind === 'source');
+    const images = studioAiImages(body.images, sources, 12);
+    const { data, usage } = await studioAi.checkSources(current().store, { facts: studioFacts(s), images }, UserError);
+    data.missing = studioAi.missingRoles(sources).map((m) => m.label);
+    if (data.missing.length) data.ready = false;
+    studio.setSessionAi(s.id, current().id, { ...data, photoIds: images.map((i) => i.id), usage }, user, data.summary);
+    return studioSessionOut(studio.getSession(s.id, current().id));
+  }, 'studio'],
+  // Claude сравнивает результат с оригиналами задания и отмечает пункты проверки.
+  ['POST', '/api/studio/assets/:id/ai-check', async (p, url, body, user) => {
+    const a = studio.assetData(p.id, current().id);
+    if (a.kind === 'source') throw new UserError('Исходник сравнивать не с чем');
+    const s = studio.getSession(a.sessionId, current().id);
+    const task = s.tasks.find((t) => t.id === a.taskId);
+    const allowed = s.assets.filter((x) => x.kind !== 'result' && (!task || task.sourceIds.includes(x.id)));
+    const originals = studioAiImages(body.originals, allowed.length ? allowed : s.assets.filter((x) => x.kind === 'source'), 6);
+    const [result] = studioAiImages([body.result], [s.assets.find((x) => x.id === a.id)], 1);
+    const { data, usage } = await studioAi.checkResult(current().store, { facts: studioFacts(s), task, checklist: studio.CHECKLIST, result, originals }, UserError);
+    studio.setAssetAi(a.id, current().id, { ...data, usage }, user, data.summary);
+    return studioSessionOut(studio.getSession(s.id, current().id));
   }, 'studio'],
   ['PUT', '/api/studio/tasks/:id', (p, url, body, user) => studio.updateTask(p.id, current().id, body, user), 'studio'],
   ['POST', '/api/studio/assets/:id/review', (p, url, body, user) => studio.review(p.id, current().id, body, user), 'studio'],

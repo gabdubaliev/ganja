@@ -51,6 +51,52 @@ function apiKey(store) {
   return process.env.ANTHROPIC_API_KEY || store.setting('anthropic_api_key', '');
 }
 
+// Запрос к Claude с картинками и ответом строго по JSON-схеме. content — блоки сообщения (картинки и текст).
+// Общий для распознавания накладных и проверки фото в MONT AI Studio.
+async function askJson(store, { content, schema, effort = 'medium', maxTokens = 16000, timeout = 240000, what = 'Запрос' }, UserError) {
+  const key = apiKey(store);
+  if (!key) throw new UserError('Claude не подключён: администратор вводит ключ Claude API в «Приход по фото накладной» (блок «Распознавание фото»).');
+  let res;
+  try {
+    res = await fetch(`${process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2026-10-21',
+        // Если модель откажет по правилам безопасности, сервер сам повторит запрос на подходящей модели.
+        'anthropic-beta': 'server-side-fallback-2026-07-01',
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: maxTokens,
+        fallbacks: 'default',
+        output_config: { effort, format: { type: 'json_schema', schema } },
+        messages: [{ role: 'user', content }],
+      }),
+      signal: AbortSignal.timeout(timeout),
+    });
+  } catch (err) {
+    throw new UserError(err.name === 'TimeoutError' ? `${what}: Claude отвечал слишком долго — попробуйте ещё раз` : `Нет связи с Claude API: ${err.message}`);
+  }
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = body?.error?.message || res.statusText;
+    if (res.status === 401) throw new UserError('Ключ Claude API не подошёл — проверьте его в блоке «Распознавание фото»');
+    if (res.status === 429) throw new UserError('Слишком много запросов к Claude API — подождите минуту');
+    if (res.status === 400 && /credit|balance/i.test(msg)) throw new UserError('На счёте Claude API закончились деньги — пополните баланс в console.anthropic.com');
+    throw new UserError(`Claude API: ${msg}`);
+  }
+  if (body.stop_reason === 'refusal') throw new UserError(`${what}: Claude не стал это обрабатывать — попробуйте другие фото`);
+  if (body.stop_reason === 'max_tokens') throw new UserError(`${what}: ответ получился слишком длинным — уменьшите число фото`);
+  const text = (body.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+  try {
+    return { data: JSON.parse(text), usage: body.usage || {} };
+  } catch {
+    throw new UserError(`${what}: ответ Claude не получилось разобрать — попробуйте ещё раз`);
+  }
+}
+
 async function recognize(store, images, UserError) {
   const key = apiKey(store);
   if (!key) throw new UserError('Распознавание не настроено: администратор вводит ключ Claude API на этой странице (блок «Распознавание фото»).');
@@ -102,4 +148,4 @@ async function recognize(store, images, UserError) {
   }
 }
 
-module.exports = { recognize, apiKey, MODEL };
+module.exports = { recognize, askJson, apiKey, MODEL };
