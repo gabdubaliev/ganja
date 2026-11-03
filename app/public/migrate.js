@@ -92,6 +92,8 @@ function migDraw() {
   ].map(([t, n, s]) => `<div class="st-tile"><span>${t}</span><b class="num">${n}</b><small>${s}</small></div>`).join('') : '';
   $('#mig-filters').innerHTML = has ? Object.entries(MIG_FILTERS).map(([k, [label]]) => `<button type="button" class="chip" data-mig-filter="${k}" aria-pressed="${migView.filter === k}">${label} <small>${count(k)}</small></button>`).join('') : '';
   $('#mig-bulk').hidden = !has || !session.can('migrate');
+  // Колонки цен — по галочкам «Перенос из CloudShop: видеть …».
+  for (const k of ['purchase', 'cost', 'markup', 'margin']) document.body.classList.toggle(`no-mig-${k}`, !session.can(`migrate.${k}`));
   for (const id of ['#mig-upload-btn', '#mig-clear']) if ($(id) && !session.can('migrate')) $(id).hidden = true;
   $('#mig-search').hidden = !has;
   $('#mig-cats').innerHTML = categories.list.map((c) => `<option value="${esc(c.name)}">`).join('');
@@ -108,8 +110,8 @@ function migDraw() {
     const d = it.data;
     const done = it.status === 'done';
     const dis = done || !session.can('migrate') ? 'disabled' : '';
-    const markup = d.purchase > 0 ? ((d.price - d.purchase) / d.purchase) * 100 : null;
-    const margin = d.price > 0 && d.purchase > 0 ? ((d.price - d.purchase) / d.price) * 100 : null;
+    const markup = d.calc?.markup ?? null;
+    const margin = d.calc?.margin ?? null;
     const issues = migIssues(it);
     const sp = migSplit(d);
     const varLabel = d.variants?.on
@@ -124,11 +126,11 @@ function migDraw() {
       <td class="mig-art"><input class="input" data-f="article" value="${esc(d.article || '')}" placeholder="—" title="Артикул берётся из названия; можно исправить" ${dis}></td>
       <td><input class="input" data-f="category" list="mig-cats" value="${esc(d.category || '')}" placeholder="—" ${dis}></td>
       <td><select class="input" data-f="supplier_id" ${dis}>${supOpts(d.supplier_id)}</select></td>
-      <td class="cost-only"><input class="input num" data-f="purchase" inputmode="decimal" value="${migFmt(d.purchase)}" ${dis}></td>
-      <td class="cost-only"><input class="input num" data-f="cost" inputmode="decimal" value="${migFmt(d.cost)}" ${dis}></td>
-      <td class="cost-only"><input class="input num" data-f="markup" inputmode="decimal" value="${markup === null ? '' : migFmt(markup)}" title="В CloudShop: ${src[0].markup ?? '—'}%" ${dis}></td>
+      <td class="mig-c-purchase"><input class="input num" data-f="purchase" inputmode="decimal" value="${migFmt(d.purchase)}" ${dis}></td>
+      <td class="mig-c-cost"><input class="input num" data-f="cost" inputmode="decimal" value="${migFmt(d.cost)}" ${dis}></td>
+      <td class="mig-c-markup"><input class="input num" data-f="markup" inputmode="decimal" value="${markup === null ? '' : migFmt(markup)}" title="В CloudShop: ${src[0].markup ?? '—'}%" ${dis}></td>
       <td><input class="input num" data-f="price" inputmode="decimal" value="${migFmt(d.price)}" ${dis}></td>
-      <td class="num cost-only" title="В CloudShop: ${src[0].margin ?? '—'}%">${margin === null ? '—' : migFmt(margin) + '%'}</td>
+      <td class="num mig-c-margin" title="В CloudShop: ${src[0].margin ?? '—'}%">${margin === null ? '—' : migFmt(margin) + '%'}</td>
       <td><input class="input num" data-f="stock" inputmode="decimal" value="${migFmt(d.stock)}" ${dis}></td>
       <td>${d.variants?.on ? '<small>новые у каждой модификации</small>' : `<input class="input" data-f="barcode" value="${esc(d.barcode || '')}" ${dis}>`}</td>
       <td><button type="button" class="btn small ${d.variants?.on ? '' : 'ghost'}" data-mig-var ${dis}>${varLabel}</button>${src.length > 1 && !done && session.can('migrate') ? '<button type="button" class="link" data-mig-split>Разделить</button>' : ''}</td>
@@ -205,8 +207,8 @@ $('#mig-body').addEventListener('change', async (e) => {
   if (f === 'markup') {
     // Наценка — от цены закупки; цена продажи округляется до целого сома.
     const m = migN(v);
-    if (!Number.isFinite(m) || !(it.data.purchase > 0)) return toast('Наценка считается от цены закупки — сначала укажите её', 'error');
-    patch = { price: Math.round(it.data.purchase * (1 + m / 100)) };
+    if (!Number.isFinite(m)) return toast('Нужно число', 'error');
+    patch = { markupPct: m }; // цену от закупки считает сервер
   } else if (['purchase', 'cost', 'price', 'stock'].includes(f)) {
     if (!Number.isFinite(migN(v))) return toast('Нужно число', 'error');
     patch = { [f]: migN(v) };

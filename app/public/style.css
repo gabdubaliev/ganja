@@ -2048,3 +2048,4 @@ body.no-cost .cost-only { display: none !important; }
 .ac-cell input { width: 18px; height: 18px; cursor: pointer; }
 .ac-group th { background: var(--surface-2); text-transform: uppercase; font-size: 12px; letter-spacing: .04em; color: var(--muted); text-align: left; position: sticky; left: 0; }
 @media (max-width: 760px) { .ac-table .ac-right { min-width: 170px; max-width: 200px; } }
+body.no-mig-purchase .mig-c-purchase, body.no-mig-cost .mig-c-cost, body.no-mig-markup .mig-c-markup, body.no-mig-margin .mig-c-margin { display: none !important; }

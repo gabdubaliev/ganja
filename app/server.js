@@ -825,6 +825,23 @@ function updateBranch(id, input, user) {
 
 // Владельца и администраторов назначает и меняет только владелец. Администратор не даёт прав, которых нет у него самого,
 // и не меняет свои права.
+// Что из цен видно в переносе из CloudShop: у владельца и админа — всё, остальным — по галочкам.
+const migSee = (user) => ({ purchase: can(user, 'migrate.purchase'), cost: can(user, 'migrate.cost'), markup: can(user, 'migrate.markup'), margin: can(user, 'migrate.margin') });
+function migOut(user, it) {
+  const see = migSee(user);
+  const d = it.data;
+  const buy = Number(d.purchase) || 0, price = Number(d.price) || 0;
+  const calc = { markup: see.markup && buy > 0 ? ((price - buy) / buy) * 100 : null, margin: see.margin && buy > 0 && price > 0 ? ((price - buy) / price) * 100 : null };
+  const cut = (x) => {
+    const o = { ...x };
+    if (!see.purchase) delete o.purchase;
+    if (!see.cost) delete o.cost;
+    if (!see.markup) delete o.markup;
+    if (!see.margin) delete o.margin;
+    return o;
+  };
+  return { ...it, data: { ...cut(d), calc }, sources: it.sources.map(cut) };
+}
 function accessOut() {
   const users = store.listUsers().filter((u) => u.role !== 'owner' && !u.owner_shadow);
   const groups = [];
@@ -957,19 +974,39 @@ const routes = [
   ['POST', '/api/products', (p, url, body, user) => store.createProduct(stripCost(user, body)), 'products'],
   ['PUT', '/api/products/:id', (p, url, body, user) => store.updateProduct(p.id, stripCost(user, body)), 'products'],
   // Перенос из CloudShop (раздел на время переноса; право «Импорт»).
-  // Без права на закупку — список без цены закупки, себестоимости, наценки и маржи (и в строках выгрузки).
-  ['GET', '/api/migrate', (p, url, body, user) => {
-    const items = store.migrateList();
-    if (canCost(user)) return { items };
-    const strip = (x) => { const o = { ...x }; delete o.purchase; delete o.cost; delete o.markup; delete o.margin; return o; };
-    return { items: items.map((it) => ({ ...it, data: strip(it.data), sources: it.sources.map(strip) })), noCost: true };
-  }, ['migrate', 'migrate.view']],
+  // Перенос из CloudShop: закупка, себестоимость, наценка и маржа — каждая по своему праву. Наценку и маржу сервер
+  // считает сам (от закупки), поэтому их можно показать, не показывая закупку.
+  ['GET', '/api/migrate', (p, url, body, user) => ({ items: store.migrateList().map((it) => migOut(user, it)), see: migSee(user) }), ['migrate', 'migrate.view']],
   ['POST', '/api/migrate/upload', (p, url, body) => store.migrateUpload(body.rows), 'migrate'],
   ['PUT', '/api/migrate/:id', (p, url, body, user) => {
-    const it = store.migrateUpdate(p.id, stripCost(user, body));
-    return canCost(user) ? it : { ...it, data: { ...it.data, purchase: undefined, cost: undefined } };
+    const see = migSee(user);
+    const patch = { ...body };
+    if (!see.purchase) delete patch.purchase;
+    if (!see.cost) delete patch.cost;
+    // Сменили закупку, себестоимость не трогали и она «следовала» за закупкой — себестоимость = закупка + добавка.
+    if (patch.purchase !== undefined && patch.cost === undefined) {
+      const cur = store.migrateGet(p.id).data;
+      const extra = store.costExtra();
+      if (!cur.cost || cur.cost === cur.purchase || Math.abs(cur.cost - cur.purchase - extra) < 0.01) patch.cost = Math.round((Number(String(patch.purchase).replace(',', '.')) + extra) * 100) / 100;
+    }
+    // Наценка → цена продажи от закупки (закупку знает сервер).
+    if (patch.markupPct !== undefined) {
+      if (!see.markup) throw new UserError('Нет права менять наценку');
+      const m = Number(String(patch.markupPct).replace(',', '.'));
+      const buy = store.migrateGet(p.id).data.purchase;
+      if (!Number.isFinite(m) || !(buy > 0)) throw new UserError('Наценка считается от цены закупки — у товара её нет');
+      patch.price = Math.round(buy * (1 + m / 100));
+      delete patch.markupPct;
+    }
+    return migOut(user, store.migrateUpdate(p.id, patch));
   }, 'migrate'],
-  ['POST', '/api/migrate/bulk', (p, url, body, user) => store.migrateBulk(body.ids, stripCost(user, { ...(body.patch || {}) })), 'migrate'],
+  ['POST', '/api/migrate/bulk', (p, url, body, user) => {
+    const see = migSee(user);
+    const patch = { ...(body.patch || {}) };
+    if (!see.purchase) delete patch.purchase;
+    if (!see.cost) delete patch.cost;
+    return store.migrateBulk(body.ids, patch);
+  }, 'migrate'],
   ['POST', '/api/migrate/merge', (p, url, body) => store.migrateMerge(body.ids), 'migrate'],
   ['POST', '/api/migrate/:id/split', (p) => store.migrateSplit(p.id), 'migrate'],
   ['POST', '/api/migrate/import', (p, url, body) => store.migrateImport(body.ids), 'migrate'],
