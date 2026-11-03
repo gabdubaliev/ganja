@@ -110,6 +110,8 @@ function asksPrice(text, words) {
   return list.some((w) => t.includes(w));
 }
 
+const { UserError } = require('./db');
+
 function createIgPrice({ store, crm, notifier }) {
   const db = store.db;
   db.exec(`
@@ -185,6 +187,10 @@ function createIgPrice({ store, crm, notifier }) {
     }
     return byCode.get(code) || null;
   }
+
+  // Привязка сторис → артикулы/ссылка на рилс: { [storyId]: { text, at } }, сторис живёт сутки — храним 3 дня.
+  const storyImages = new Map(); // id сторис -> ссылка на превью (из последнего списка)
+  const storyMap = () => { try { return JSON.parse(store.setting('ig_story_map', '{}')) || {}; } catch { return {}; } };
 
   // Все товары из подписи рилса (образ: кардиган, джинсы, кепка…), которые есть в базе.
   // Если клиент сам назвал артикул или вещь («сколько джинсы?») — только эти товары.
@@ -299,6 +305,16 @@ function createIgPrice({ store, crm, notifier }) {
         if (found) { texts.push(found.caption); if (!mediaIds.length) mediaIds.push(found.id); }
       } catch {}
     }
+    // Ответ на сторис: артикулы или ссылку на рилс к сторис указывают в CRM → «Сторис» (Instagram их не отдаёт).
+    const storyId = m.reply_to?.story?.id ? String(m.reply_to.story.id) : '';
+    const storyText = storyId ? storyMap()[storyId]?.text : '';
+    if (storyText) {
+      if (!asksPrice(m.text, s.priceWords) && !productsFrom(texts[0]).products.length) return; // «🔥» под сторис — не про цену
+      texts.push(noLinks(storyText));
+      for (const code of [...new Set(shortcodes(storyText))].slice(0, 5)) {
+        try { const found = await mediaByCode(code, s.accessToken); if (found) texts.push(found.caption); } catch {}
+      }
+    }
     // Клиент сначала прислал рилс, следующим сообщением — «Цена?»: берём рилс из прошлого сообщения (15 минут).
     const context = texts.slice(1).filter(Boolean);
     if (context.length) shared.set(fromId, { texts: context, at: Date.now() });
@@ -403,6 +419,27 @@ function createIgPrice({ store, crm, notifier }) {
       const top = products.slice(0, 15);
       const text = top.length ? renderReply(template || s.priceTemplate, top, { whole: !rest && codes.length === 1, title: codes.length && !rest ? 'Цены на вещи из этого видео:' : 'Цены на вещи с фото:' }) : '';
       return { text, products: top, notFound, amount: sumOf(top) };
+    },
+
+    // Активные сторис магазина (за сутки) с привязанными артикулами — для окна «Сторис» в CRM.
+    async stories() {
+      const s = settings();
+      if (!s.accessToken) throw new UserError('Instagram не подключён');
+      let data;
+      try { data = await call('GET', '/me/stories?fields=id,media_type,media_url,thumbnail_url,permalink,timestamp', s.accessToken); }
+      catch (err) { throw new UserError(`Instagram не отдал сторис: ${err.message}`); }
+      const map = storyMap();
+      for (const x of data.data || []) storyImages.set(String(x.id), x.thumbnail_url || (x.media_type === 'VIDEO' ? '' : x.media_url) || '');
+      return (data.data || []).map((x) => ({ id: String(x.id), type: x.media_type, image: storyImages.get(String(x.id)) ? `/api/crm/stories/${encodeURIComponent(x.id)}/image` : '', permalink: x.permalink || '', at: x.timestamp ? Date.parse(x.timestamp) : null, text: map[x.id]?.text || '' }));
+    },
+    storyImage: (id) => storyImages.get(String(id)) || '',
+    async setStory(id, text) {
+      const map = storyMap();
+      const t = String(text || '').trim().slice(0, 500);
+      for (const [k, v] of Object.entries(map)) if (Date.now() - v.at > 3 * DAY) delete map[k];
+      if (t) map[String(id)] = { text: t, at: Date.now() }; else delete map[String(id)];
+      store.setSetting('ig_story_map', JSON.stringify(map));
+      return t ? this.priceForLinks(t) : { text: '', products: [], notFound: [] };
     },
 
     log({ limit = 50 } = {}) {

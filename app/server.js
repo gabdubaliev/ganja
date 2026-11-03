@@ -1378,6 +1378,8 @@ const routes = [
     return { ok: true, to };
   }, 'settings'],
   // Ответ ценой по артикулам, которые кассир увидел на фото/скриншоте клиента.
+  ['GET', '/api/crm/stories', () => igPrice.stories(), 'crm'],
+  ['PUT', '/api/crm/stories/:id', (p, url, body) => igPrice.setStory(p.id, body.text), 'crm'],
   ['POST', '/api/crm/leads/:id/price-preview', (p, url, body) => { crm.get(p.id); return igPrice.priceForLinks(body.articles); }, 'crm'],
   ['POST', '/api/crm/leads/:id/price-reply', async (p, url, body, user) => {
     const lead = crm.get(p.id);
@@ -1747,6 +1749,7 @@ const AUDIT_LABELS = {
   'POST /api/crm/leads': 'Создал сделку в CRM',
   'PUT /api/crm/leads/:id': 'Изменил сделку в CRM',
   'POST /api/crm/leads/:id/price-reply': 'Отправил клиенту цену по артикулу',
+  'PUT /api/crm/stories/:id': 'Привязал артикулы к сторис',
   'POST /api/settings/instagram/subscribe': 'Подписал Instagram на сообщения Direct',
   'PUT /api/crm/funnel': 'Изменил воронку CRM',
   'POST /api/kassa/expense': 'Расход из кассы',
@@ -1949,6 +1952,25 @@ async function handleAuth(req, res, url) {
     return sendJson(res, 200, { ok: true });
   }
   return false;
+}
+
+// Файл с серверов Meta через наш сервер (вложения клиентов, превью сторис): телефон не всегда открывает их напрямую.
+async function proxyMeta(req, res, target) {
+  let host = '';
+  try { host = new URL(target).hostname; } catch { return sendJson(res, 404, { error: 'Файла нет' }); }
+  if (!/(^|\.)(fbsbx\.com|fbcdn\.net|cdninstagram\.com|whatsapp\.net)$/i.test(host)) return sendJson(res, 404, { error: 'Файла нет' });
+  try {
+    const up = await fetch(target, { headers: req.headers.range ? { Range: req.headers.range } : {}, redirect: 'follow', signal: AbortSignal.timeout(60_000) });
+    if (!up.ok && up.status !== 206) return sendJson(res, 410, { error: 'Ссылка устарела — откройте в Instagram' });
+    const head = { 'Content-Type': up.headers.get('content-type') || 'application/octet-stream', 'Cache-Control': 'private, max-age=3600', 'Accept-Ranges': 'bytes' };
+    for (const h of ['content-length', 'content-range']) if (up.headers.get(h)) head[h] = up.headers.get(h);
+    res.writeHead(up.status, head);
+    for await (const chunk of up.body) if (!res.write(chunk)) await new Promise((r) => res.once('drain', r));
+    return res.end();
+  } catch (err) {
+    if (!res.headersSent) return sendJson(res, 502, { error: `Не получилось загрузить файл: ${err.message}` });
+    return res.destroy();
+  }
 }
 
 function sendBytes(res, type, data, cache = 'no-cache') {
@@ -2392,18 +2414,14 @@ async function handleRequest(req, res, url, user, owner) {
     if (!user || !can(user, 'crm')) return sendJson(res, 403, { error: 'Нет доступа' });
     const a = crm.eventFile(file[1], file[2]);
     if (!a) return sendJson(res, 404, { error: 'Вложения нет' });
-    try {
-      const up = await fetch(a.url, { headers: req.headers.range ? { Range: req.headers.range } : {}, redirect: 'follow', signal: AbortSignal.timeout(60_000) });
-      if (!up.ok && up.status !== 206) return sendJson(res, 410, { error: 'Ссылка устарела — откройте вложение в Instagram' });
-      const head = { 'Content-Type': up.headers.get('content-type') || 'application/octet-stream', 'Cache-Control': 'private, max-age=3600', 'Accept-Ranges': 'bytes' };
-      for (const h of ['content-length', 'content-range']) if (up.headers.get(h)) head[h] = up.headers.get(h);
-      res.writeHead(up.status, head);
-      for await (const chunk of up.body) if (!res.write(chunk)) await new Promise((r) => res.once('drain', r));
-      return res.end();
-    } catch (err) {
-      if (!res.headersSent) return sendJson(res, 502, { error: `Не получилось загрузить вложение: ${err.message}` });
-      return res.destroy();
-    }
+    return proxyMeta(req, res, a.url);
+  }
+  const storyImg = req.method === 'GET' && url.pathname.match(/^\/api\/crm\/stories\/([\w-]+)\/image$/);
+  if (storyImg) {
+    if (!user || !can(user, 'crm')) return sendJson(res, 403, { error: 'Нет доступа' });
+    const u = igPrice.storyImage(storyImg[1]);
+    if (!u) return sendJson(res, 404, { error: 'Сторис нет' });
+    return proxyMeta(req, res, u);
   }
   // Файл MONT AI Studio — только с правом «AI Studio» и только своей съёмки текущего магазина.
   const studioFile = req.method === 'GET' && url.pathname.match(/^\/api\/studio\/assets\/(\d+)\/file$/);

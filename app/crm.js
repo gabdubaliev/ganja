@@ -510,6 +510,7 @@ function createCrm(store) {
           const body = [story && m.message?.text ? `${story}: ${m.message.text}` : story || m.message?.text, mention, ...shared].filter(Boolean).join('\n')
             || (m.message?.attachments?.length ? `📎 ${{ image: 'Фото', video: 'Видео', audio: 'Голосовое', ig_reel: 'Рилс', reel: 'Рилс', share: 'Публикация', ig_post: 'Публикация', file: 'Файл' }[m.message.attachments[0].type] || 'Вложение'}` : '');
           const files = (m.message?.attachments || []).map((a) => ({ type: a.type, url: a.payload?.url }));
+          if (m.message?.reply_to?.story?.url) files.unshift({ type: 'story', url: m.message.reply_to.story.url });
           if (!body) continue;
           const mid = m.message?.mid ? String(m.message.mid) : null;
           if (mid && db.prepare('SELECT 1 FROM lead_events WHERE ext_id = ?').get(mid)) continue;
@@ -547,7 +548,7 @@ function createCrm(store) {
         if (!s.igId && mode === 'unified') throw new UserError('Укажите «ID аккаунта Instagram» (например, 17841464829611662) — без него маркер единого входа не знает, от чьего имени писать');
         if (mode === 'page') token = s.pageToken;
         // «/me/messages» — от имени страницы (или аккаунта Instagram); «/me?fields» — сведения об аккаунте Instagram.
-        path = path.replace(/^\/me\/messages/, `/${self}/messages`).replace(/^\/me\/media/, `/${s.igId || self}/media`).replace(/^\/me(?=\?|$)/, `/${s.igId}`);
+        path = path.replace(/^\/me\/messages/, `/${self}/messages`).replace(/^\/me\/media/, `/${s.igId || self}/media`).replace(/^\/me\/stories/, `/${s.igId || self}/stories`).replace(/^\/me(?=\?|$)/, `/${s.igId}`);
       }
       const base = mode === 'instagram' ? INSTAGRAM_API : fbBase();
       let res, data;

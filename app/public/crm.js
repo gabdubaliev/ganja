@@ -222,6 +222,7 @@ function leadFiles(raw, eventId) {
       const embed = code ? `https://www.instagram.com/${code[1] === 'p' ? 'p' : 'reel'}/${code[2]}/embed/` : '';
       return `<span class="tl-file"><span class="tl-btns">${embed ? `<button type="button" class="btn tl-embed" data-embed="${esc(embed)}">▶ Смотреть ${what} здесь</button>` : ''}<a class="btn" href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">↗ Перейти в Instagram</a></span></span>`;
     }
+    if (a.type === 'story') return `<button type="button" class="tl-img tl-story" data-full="${u}" aria-label="Сторис, на которую ответил клиент"><img src="${u}" alt="Сторис" loading="lazy" referrerpolicy="no-referrer" onerror="this.closest('button').outerHTML='<span class=&quot;pcat&quot;>Сторис уже недоступна (прошли сутки или это видео)</span>'"></button>`;
     if (['video', 'ig_reel', 'reel'].includes(a.type)) return `<span class="tl-file"><video src="${u}" controls preload="metadata" playsinline></video><a href="${u}" target="_blank" rel="noopener noreferrer">Не играет? Открыть видео</a></span>`;
     if (a.type === 'audio') return `<audio src="${u}" controls preload="none"></audio>`;
     if (a.type === 'file') return `<a href="${u}" target="_blank" rel="noopener noreferrer">📄 Открыть файл</a>`;
@@ -452,6 +453,67 @@ $('#crm-search').addEventListener('input', (e) => {
 $('#crm-source').addEventListener('change', (e) => { crmView.source = e.target.value; renderCrm(); });
 $('#crm-mine').addEventListener('change', (e) => { crmView.mine = e.target.checked; renderCrm(); });
 $('#crm-add').addEventListener('click', () => openLead());
+
+/* ---------- Сторис: какие вещи в какой сторис (Instagram не отдаёт программе подпись сторис) ---------- */
+{
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn';
+  btn.id = 'crm-stories';
+  btn.textContent = '📖 Сторис';
+  btn.title = 'Указать артикулы к сторис — бот ответит ценой тем, кто ответит на сторис';
+  $('#crm-add').before(btn);
+  btn.addEventListener('click', openStories);
+}
+async function openStories() {
+  let d = document.getElementById('stories-dlg');
+  if (!d) {
+    d = document.createElement('dialog');
+    d.id = 'stories-dlg';
+    d.className = 'stories-dlg';
+    d.innerHTML = `<div class="dlg-head"><h2>Сторис и артикулы</h2><button type="button" class="btn ghost" data-close aria-label="Закрыть">×</button></div>
+      <p class="sub">Instagram не показывает программе подпись сторис — даже если в сторис репост рилса. Впишите к сторис артикулы (MS-101, 69225) или вставьте ссылку на рилс — тогда на «Цена?» в ответ на эту сторис бот сам пришлёт цену. Сторис живёт сутки, привязка — тоже.</p>
+      <div id="stories-list"><p class="sub">Загружаю…</p></div>`;
+    document.body.append(d);
+    d.addEventListener('click', (e) => { if (e.target === d || e.target.closest('[data-close]')) d.close(); });
+    d.addEventListener('click', async (e) => {
+      const save = e.target.closest('[data-story-save]');
+      if (save) {
+        const row = save.closest('.story-row');
+        const out = row.querySelector('.story-out');
+        save.disabled = true;
+        try {
+          const r = await api(`/api/crm/stories/${row.dataset.id}`, { method: 'PUT', body: { text: row.querySelector('input').value } });
+          out.className = 'story-out sub';
+          out.textContent = r.products.length ? `✅ Бот ответит: ${r.products.map((p) => `${p.name} — ${Number(p.price).toLocaleString('ru-RU')} сом`).join('; ')}${r.notFound.length ? ` · не нашёл: ${r.notFound.join(', ')}` : ''}` : r.notFound.length ? `⚠️ Не нашёл: ${r.notFound.join(', ')}` : 'Привязка снята';
+        } catch (err) {
+          toast(err.message, 'error');
+        } finally {
+          save.disabled = false;
+        }
+      }
+      const pic = e.target.closest('.story-img');
+      if (pic) crmLightbox(pic.dataset.full);
+    });
+  }
+  d.showModal();
+  const box = d.querySelector('#stories-list');
+  box.innerHTML = '<p class="sub">Загружаю…</p>';
+  try {
+    const list = await api('/api/crm/stories');
+    box.innerHTML = list.length ? list.map((x) => `
+      <div class="story-row" data-id="${esc(x.id)}">
+        ${x.image ? `<button type="button" class="story-img" data-full="${esc(x.image)}" aria-label="Открыть сторис"><img src="${esc(x.image)}" alt="Сторис" referrerpolicy="no-referrer" loading="lazy"></button>` : '<span class="story-img"></span>'}
+        <div class="story-body">
+          <span class="sub">${x.at ? shortTime(x.at) : ''}${x.type === 'VIDEO' ? ' · видео' : ''}</span>
+          <div class="input-row"><input class="input" value="${esc(x.text)}" placeholder="MS-101, 69225 или ссылка на рилс" autocomplete="off"><button type="button" class="btn primary" data-story-save>Сохранить</button></div>
+          <p class="story-out sub">${x.text ? '✅ Привязано' : 'Не привязано — бот не знает, что в этой сторис'}</p>
+        </div>
+      </div>`).join('') : '<p class="sub">Сейчас нет активных сторис (сторис живёт 24 часа).</p>';
+  } catch (err) {
+    box.innerHTML = `<p class="form-error">${esc(err.message)}</p>`;
+  }
+}
 
 // Значок непрочитанных сделок в меню окна кассы.
 function updateCrmBadge() {
