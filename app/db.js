@@ -864,7 +864,9 @@ const SOUND = { А: 'A', Б: 'B', В: 'V', Г: 'G', Д: 'D', Е: 'E', Ё: 'E', �
 const articleKeys = (v) => {
   const s = String(v ?? '').toUpperCase().replace(/[^A-Z0-9А-ЯЁ]/g, '');
   if (!s) return [];
-  return [...new Set([s, s.replace(/[А-ЯЁ]/g, (c) => LOOKALIKE[c] ?? c), s.replace(/[А-ЯЁ]/g, (c) => SOUND[c] ?? c)])];
+  const base = [s, s.replace(/[А-ЯЁ]/g, (c) => LOOKALIKE[c] ?? c), s.replace(/[А-ЯЁ]/g, (c) => SOUND[c] ?? c)];
+  // Нули в начале числа не важны: MS-008 = MS-8, 0123 = 123.
+  return [...new Set([...base, ...base.map((k) => k.replace(/(^|[^0-9])0+(?=\d)/g, '$1'))])];
 };
 const articleKey = (v) => articleKeys(v)[0] || '';
 
