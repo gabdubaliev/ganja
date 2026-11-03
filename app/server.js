@@ -2295,6 +2295,7 @@ async function handleRequest(req, res, url, user, owner) {
       }
     } else if (undoToken) store.undoDiscard(undoToken);
     if (!body.dryRun) moveTelegram(key, route.params, body, result, user);
+    if (req.method !== 'GET') try { store.clearShopCache(); } catch {}
     if (result?.__file) return sendBytes(res, result.__file.mime, Buffer.from(result.__file.data), 'private, max-age=3600');
     sendJson(res, 200, result);
   } catch (err) {

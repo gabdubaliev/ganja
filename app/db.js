@@ -432,6 +432,9 @@ function open(file) {
       created_at INTEGER NOT NULL
     );
   `);
+  // Подкатегории: «Кардиганы › На замке» — подкатегория категории «Кардиганы» (parent_id). У товара в поле
+  // категории — полное название подкатегории, поэтому отчёты и фильтры работают как раньше.
+  if (!db.prepare('PRAGMA table_info(categories)').all().some((c) => c.name === 'parent_id')) db.exec('ALTER TABLE categories ADD COLUMN parent_id INTEGER');
   // Дни рождения и скидка в день рождения, оплата за смену.
   addColumns('customers', [['birthday', "TEXT NOT NULL DEFAULT ''"], ['birthday_used', 'INTEGER']]);
   addColumns('sales', [['discount', 'REAL NOT NULL DEFAULT 0'], ['discount_reason', "TEXT NOT NULL DEFAULT ''"], ['shift_id', 'INTEGER']]);
@@ -925,6 +928,8 @@ const LINE_FEE = `(CASE WHEN s.total > 0 THEN si.qty * si.price * ${SALE_FEE} / 
 // Хеши пароля и PIN-кода в браузер не уходят; вместо PIN — признак hasPin.
 // Виды документов: название и право, нужное, чтобы их создавать и проводить.
 // Статьи расходов, которые предлагаются при вводе (можно вписать и свою).
+// Разделитель «Категория › Подкатегория» в названии подкатегории.
+const CAT_SEP = ' › ';
 const EXPENSE_CATEGORIES = ['Аренда', 'Доставка', 'Налоги', 'Коммунальные услуги', 'Реклама', 'Связь и интернет', 'Хозяйственные расходы', 'Ремонт', 'Прочее'];
 
 const DOC_KINDS = {
@@ -1922,8 +1927,26 @@ function createStore(file) {
     listCategories() {
       const add = db.prepare('INSERT OR IGNORE INTO categories (name, created_at) VALUES (?, ?)');
       for (const { category } of db.prepare("SELECT DISTINCT category FROM products WHERE category <> '' AND deleted = 0").all()) add.run(category, Date.now());
-      return db.prepare(`SELECT c.*, (SELECT COUNT(*) FROM products p WHERE p.category = c.name AND p.parent_id IS NULL AND p.deleted = 0) AS count
+      // «Родитель › Подкатегория»: родитель заводится сам, связь проставляется.
+      for (const c of db.prepare(`SELECT * FROM categories WHERE name LIKE '%${CAT_SEP}%' AND parent_id IS NULL`).all()) {
+        const top = c.name.split(CAT_SEP)[0].trim();
+        if (!top) continue;
+        add.run(top, Date.now());
+        const parent = findCategory(top);
+        if (parent && parent.id !== c.id) db.prepare('UPDATE categories SET parent_id = ? WHERE id = ?').run(parent.id, c.id);
+      }
+      const rows = db.prepare(`SELECT c.*, (SELECT COUNT(*) FROM products p WHERE p.category = c.name AND p.parent_id IS NULL AND p.deleted = 0) AS count
         FROM categories c ORDER BY c.sort, c.name COLLATE NOCASE`).all();
+      // Порядок: категория, сразу под ней её подкатегории. label — короткое название («На замке»), total — с подкатегориями.
+      const tops = rows.filter((c) => !c.parent_id);
+      const out = [];
+      for (const t of tops) {
+        const subs = rows.filter((c) => c.parent_id === t.id).map((c) => ({ ...c, label: c.name.split(CAT_SEP).slice(1).join(CAT_SEP).trim() || c.name, parent: t.name }));
+        out.push({ ...t, label: t.name, parent: null, total: t.count + subs.reduce((a, x) => a + x.count, 0), subs: subs.length });
+        for (const x of subs) out.push({ ...x, total: x.count });
+      }
+      for (const c of rows) if (c.parent_id && !tops.some((t) => t.id === c.parent_id)) out.push({ ...c, label: c.name, parent: null, parent_id: null, total: c.count });
+      return out;
     },
 
     getCategory(id) {
@@ -1932,11 +1955,24 @@ function createStore(file) {
       return c;
     },
 
+    // parent — название или id категории: тогда создаётся подкатегория «Родитель › Название».
     createCategory(input) {
-      const name = text(input.name, 'Название категории', { required: true, max: 200 });
-      if (findCategory(name)) throw new UserError('Такая категория уже есть');
+      let name = text(input.name, 'Название категории', { required: true, max: 120 }).replaceAll(CAT_SEP.trim(), '-');
+      let parent = null;
+      if (input.parent) {
+        parent = /^\d+$/.test(String(input.parent)) ? db.prepare('SELECT * FROM categories WHERE id = ?').get(Number(input.parent)) : findCategory(input.parent);
+        if (!parent) throw new UserError('Категория для подкатегории не найдена');
+        if (parent.parent_id) throw new UserError('Подкатегорию можно создать только внутри основной категории');
+        name = `${parent.name}${CAT_SEP}${name}`;
+      }
+      if (findCategory(name)) throw new UserError(parent ? 'Такая подкатегория уже есть' : 'Такая категория уже есть');
       const sort = (db.prepare('SELECT MAX(sort) AS m FROM categories').get().m ?? 0) + 1;
-      const { lastInsertRowid } = db.prepare('INSERT INTO categories (name, sort, created_at) VALUES (?, ?, ?)').run(name, sort, Date.now());
+      const { lastInsertRowid } = db.prepare('INSERT INTO categories (name, sort, created_at, parent_id) VALUES (?, ?, ?, ?)').run(name, sort, Date.now(), parent?.id ?? null);
+      // Если на витрине выбраны отдельные категории и родитель среди них — новая подкатегория тоже видна.
+      if (parent) {
+        const shop = this.shop();
+        if (shop.categories?.length && shop.categories.includes(parent.name) && !shop.categories.includes(name)) this.setSetting('shop', JSON.stringify({ ...shop, categories: [...shop.categories, name] }));
+      }
       return this.getCategory(lastInsertRowid);
     },
 
@@ -1944,9 +1980,23 @@ function createStore(file) {
     // Если такая категория уже есть — категории объединяются.
     renameCategory(id, input) {
       const cur = this.getCategory(id);
-      const name = text(input.name, 'Название категории', { required: true, max: 200 });
+      let name = text(input.name, 'Название категории', { required: true, max: 200 });
+      // Подкатегорию переименовывают коротким названием — родитель остаётся.
+      if (cur.parent_id) {
+        const parent = db.prepare('SELECT * FROM categories WHERE id = ?').get(cur.parent_id);
+        const short = name.includes(CAT_SEP.trim()) ? name.split(CAT_SEP.trim()).slice(1).join('-').trim() : name;
+        if (parent) name = `${parent.name}${CAT_SEP}${short}`;
+      }
       if (name === cur.name) return cur;
+      // Переименовали основную категорию — её подкатегории («Старое › …») переходят следом.
+      const kids = cur.parent_id ? [] : db.prepare('SELECT * FROM categories WHERE parent_id = ?').all(cur.id);
       return transaction(db, () => {
+        for (const k of kids) {
+          const nk = name + k.name.slice(cur.name.length);
+          db.prepare('UPDATE products SET category = ? WHERE category = ?').run(nk, k.name);
+          db.prepare('UPDATE categories SET name = ? WHERE id = ?').run(nk, k.id);
+          this.renameShopCategory(k.name, nk);
+        }
         const found = findCategory(name);
         const other = found && found.id !== cur.id ? found : null;
         db.prepare('UPDATE products SET category = ? WHERE category = ?').run(other ? other.name : name, cur.name);
@@ -1964,6 +2014,7 @@ function createStore(file) {
     // Удаление: товары переходят в moveTo (другую категорию) или остаются без категории.
     deleteCategory(id, { moveTo = '' } = {}) {
       const cur = this.getCategory(id);
+      if (db.prepare('SELECT 1 FROM categories WHERE parent_id = ?').get(cur.id)) throw new UserError('Сначала удалите или перенесите подкатегории этой категории');
       const target = canonicalCategory(text(moveTo, 'Куда перенести', { max: 200 }));
       if (target.toLowerCase() === cur.name.toLowerCase()) throw new UserError('Выберите другую категорию');
       return transaction(db, () => {
@@ -5381,9 +5432,13 @@ function createStore(file) {
     },
 
     // Категории витрины с картинками — только те, где есть показанные товары, в порядке справочника.
+    // Подкатегории — с родителем (parent) и коротким названием (label); родитель показывается, если есть товары в нём или в его подкатегориях.
     shopCategories(products) {
       const used = new Set(products.map((p) => p.category).filter(Boolean));
-      return this.listCategories().filter((c) => used.has(c.name)).map((c) => ({ name: c.name, image: c.image_id ? `/img/${c.image_id}` : null }));
+      const list = this.listCategories();
+      const subsUsed = new Set(list.filter((c) => c.parent && used.has(c.name)).map((c) => c.parent));
+      return list.filter((c) => used.has(c.name) || (!c.parent && subsUsed.has(c.name)))
+        .map((c) => ({ name: c.name, label: c.label, parent: c.parent, image: c.image_id ? `/img/${c.image_id}` : null }));
     },
 
     // Витрина для покупателей: список товаров держится в памяти 10 секунд — сотни запросов фото и каталога
@@ -5396,6 +5451,8 @@ function createStore(file) {
       }
       return this._shopCache;
     },
+    // Изменили товары или настройки витрины — витрина сразу берёт свежий список.
+    clearShopCache() { this._shopCache = null; },
     shopPhotoAllowed(id) {
       return this.shopProductsCached().photos.has(Number(id));
     },

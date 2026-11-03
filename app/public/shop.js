@@ -20,7 +20,11 @@ const FONTS = {
   condensed: '"Roboto Condensed", "Arial Narrow", "Segoe UI", system-ui, sans-serif',
 };
 
-const state = { settings: null, products: [], categories: [], cat: '', query: '', sort: '', way: 'pickup', payId: '', payOrder: null, receiptFile: null, cart: loadCart(), open: null, sel: {}, cardColor: {}, me: null, orders: [], codeFor: null };
+// Подкатегория называется «Категория › Подкатегория»: на витрине сверху — категории, внутри — «Все» и подкатегории.
+const CAT_SEP = ' › ';
+const topCat = (name) => String(name || '').split(CAT_SEP)[0];
+const subLabel = (name) => String(name || '').split(CAT_SEP).slice(1).join(CAT_SEP);
+const state = { settings: null, products: [], categories: [], cat: '', sub: '', query: '', sort: '', way: 'pickup', payId: '', payOrder: null, receiptFile: null, cart: loadCart(), open: null, sel: {}, cardColor: {}, me: null, orders: [], codeFor: null };
 
 function loadCart() {
   try { return JSON.parse(localStorage.getItem('shop.cart')) || {}; } catch { return {}; }
@@ -161,9 +165,9 @@ function renderFrame() {
 /* ---------- Каталог ---------- */
 // Категории с картинками (если их задали в программе) в порядке справочника.
 function renderCats() {
-  const used = [...new Set(state.products.filter((p) => !p.parent_id).map((p) => p.category).filter(Boolean))];
+  const used = [...new Set(state.products.filter((p) => !p.parent_id).map((p) => topCat(p.category)).filter(Boolean))];
   const meta = new Map(state.categories.map((c) => [c.name, c]));
-  const cats = [...state.categories.map((c) => c.name).filter((n) => used.includes(n)), ...used.filter((n) => !meta.has(n))];
+  const cats = [...state.categories.filter((c) => !c.parent).map((c) => c.name).filter((n) => used.includes(n)), ...used.filter((n) => !meta.has(n))];
   const withImages = cats.some((c) => meta.get(c)?.image);
   $('#cats').hidden = cats.length < 2;
   $('#cats').classList.toggle('with-images', withImages);
@@ -176,6 +180,22 @@ function renderCats() {
     const pic = img ? `<img src="${img}" alt="" loading="lazy">` : all.length >= 2 ? `<span class="collage">${all.map((u) => `<img src="${u}" alt="" loading="lazy">`).join('')}</span>` : c ? esc(c.trim()[0].toUpperCase()) : '★';
     return `<button type="button" data-cat="${esc(c)}" aria-pressed="${state.cat === c}">${withImages ? `<span class="cat-pic">${pic}</span>` : ''}<span>${c ? esc(c) : 'Все товары'}</span></button>`;
   }).join('');
+  // Подкатегории выбранной категории: «Все» + «На замке», «На пуговицах»…
+  let subsBar = document.getElementById('subcats');
+  if (!subsBar) {
+    subsBar = document.createElement('div');
+    subsBar.id = 'subcats';
+    subsBar.className = 'subcats';
+    subsBar.setAttribute('role', 'group');
+    subsBar.setAttribute('aria-label', 'Подкатегории');
+    $('#cats').after(subsBar);
+  }
+  const order = state.categories.map((c) => c.name);
+  const pos = (n) => { const i = order.indexOf(n); return i < 0 ? 1e6 : i; };
+  const subs = state.cat ? [...new Set(state.products.filter((p) => !p.parent_id && topCat(p.category) === state.cat && subLabel(p.category)).map((p) => p.category))].sort((a, b) => pos(a) - pos(b) || a.localeCompare(b)) : [];
+  if (state.sub && !subs.includes(state.sub)) state.sub = '';
+  subsBar.hidden = !subs.length;
+  subsBar.innerHTML = subs.length ? [`<button type="button" data-sub="" aria-pressed="${!state.sub}">Все</button>`, ...subs.map((c) => `<button type="button" data-sub="${esc(c)}" aria-pressed="${state.sub === c}">${esc(subLabel(c))}</button>`)].join('') : '';
 }
 
 function priceHtml(p) {
@@ -321,7 +341,7 @@ function sortList(list) {
 
 function renderGrid() {
   const q = state.query.trim().toLowerCase();
-  const list = sortList(state.products.filter((p) => !p.parent_id && (!state.cat || p.category === state.cat) && (!q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q))));
+  const list = sortList(state.products.filter((p) => !p.parent_id && (!state.cat || topCat(p.category) === state.cat) && (!state.sub || p.category === state.sub) && (!q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q))));
   const grid = $('#grid');
   grid.className = 'grid ' + state.settings.cardStyle;
   $('#count').textContent = list.length ? `${list.length} ${['товар', 'товара', 'товаров'][list.length % 10 === 1 && list.length % 100 !== 11 ? 0 : [2, 3, 4].includes(list.length % 10) && ![12, 13, 14].includes(list.length % 100) ? 1 : 2]}` : '';
@@ -330,15 +350,15 @@ function renderGrid() {
     return;
   }
   // На «Все товары» без поиска и сортировки товары разбиты по категориям.
-  if (!state.cat && !q && !state.sort && new Set(list.map((p) => p.category)).size > 1) {
+  if (!state.cat && !q && !state.sort && new Set(list.map((p) => topCat(p.category))).size > 1) {
     let html = '';
     let current = null;
     let n = 0;
     for (const p of list) {
-      if (p.category !== current) {
-        current = p.category;
+      if (topCat(p.category) !== current) {
+        current = topCat(p.category);
         n = 0;
-        html += `<h2 class="cat-title">${esc(current || 'Другое')}<small>${list.filter((x) => x.category === current).length}</small></h2>`;
+        html += `<h2 class="cat-title">${esc(current || 'Другое')}<small>${list.filter((x) => topCat(x.category) === current).length}</small></h2>`;
       }
       html += cardHtml(p, n++);
     }
@@ -407,7 +427,7 @@ function openProduct(id) {
   $('#product-body').innerHTML = `<div class="pd">
     <div class="pd-pic ${urls.length ? 'pd-gal' : ''}">${urls.length ? galleryHtml(urls, p.name) : pic ? `<img src="${pic}" alt="${esc(p.name)}">` : initial(p)}${badgesHtml(p)}</div>
     <div class="pd-info">
-      ${p.category ? `<div class="pd-cat">${esc(p.category)}</div>` : ''}
+      ${p.category ? `<div class="pd-cat">${esc(p.category.replaceAll(CAT_SEP, ' · '))}</div>` : ''}
       <h2 id="product-name">${esc(p.name)}</h2>
       <div class="pd-price"><span class="price ${old ? 'sale' : ''}">${v ? rub(v.price) : priceHtml(p)}${p.unit !== 'шт' ? ` <span class="small">за ${esc(p.unit)}</span>` : ''}</span>${old ? `<s>${rub(old)}</s>` : ''}</div>
       ${pickers}
@@ -822,6 +842,13 @@ document.addEventListener('click', (e) => {
   const cat = e.target.closest('[data-cat]');
   if (cat) {
     state.cat = cat.dataset.cat;
+    state.sub = '';
+    renderCats();
+    return renderGrid();
+  }
+  const sub = e.target.closest('[data-sub]');
+  if (sub) {
+    state.sub = sub.dataset.sub;
     renderCats();
     return renderGrid();
   }

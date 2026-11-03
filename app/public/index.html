@@ -1652,7 +1652,7 @@
         <div class="field"><label>Колонок на компьютере: <span data-out="columns"></span></label><input type="range" name="columns" min="2" max="6"></div>
         <label class="check"><input type="checkbox" name="hideOutOfStock"> Скрывать товары, которых нет в наличии</label>
         <label class="check"><input type="checkbox" name="showStock"> Показывать покупателям остаток</label>
-        <div class="field"><label>Категории на витрине (ничего не отмечено — все)</label><div class="cat-list" id="shop-cats"></div></div>
+        <div class="field"><label>Категории и подкатегории на витрине (ничего не отмечено — все; галочка у категории ставит все её подкатегории)</label><div class="cat-list" id="shop-cats"></div></div>
       </details>
       <details open><summary>Оплата заказов</summary>
         <p class="sub">Покупатель выбирает способ, видит QR-код и сумму, переводит деньги и нажимает «Я оплатил». Заказ появляется в «Заказах» со статусом «Проверить оплату»: сверьте поступление и нажмите «Оплата поступила» — после этого заказ упаковывают и передают курьеру. Нет ни одного способа — оплата при получении.</p>
@@ -2126,7 +2126,7 @@
 <dialog id="categories-dialog" class="wide" aria-labelledby="cat-title">
   <div class="cat-manager">
     <div class="lead-head"><h2 id="cat-title">Категории</h2><button type="button" class="icon-btn" id="cat-close" aria-label="Закрыть">×</button></div>
-    <p class="sub">Переименование меняет категорию у всех её товаров — и на витрине тоже. Картинка показывается на витрине рядом с названием категории. Порядок стрелками — так категории идут на витрине.</p>
+    <p class="sub">Переименование меняет категорию у всех её товаров — и на витрине тоже. Картинка показывается на витрине рядом с названием категории. Порядок стрелками — так категории идут на витрине. «+ Подкатегория» — разделы внутри категории (например, «Кардиганы» → «На замке», «На пуговицах»): на витрине покупатель выбирает категорию, а внутри — «Все» или подкатегорию. Какие подкатегории показывать — в настройках интернет-витрины.</p>
     <form id="cat-add" class="cat-add" novalidate>
       <input name="name" class="input" placeholder="Новая категория" autocomplete="off" aria-label="Название новой категории">
       <button type="submit" class="btn primary">Добавить</button>

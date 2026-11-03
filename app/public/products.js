@@ -9,6 +9,9 @@ const productsView = { archived: false, query: '', category: '', selected: new S
 // Открыты ли модификации товара: общий режим, изменённый кнопкой у самого товара.
 const variantsOpen = (id) => productsView.showVariants !== productsView.toggled.has(id);
 // Справочник категорий: для фильтра, карточки товара и переноса.
+const CAT_SEP = ' › ';
+// Товар в категории cat: прямо в ней или в её подкатегории («Кардиганы» включает «Кардиганы › На замке»).
+const inCategory = (name, cat) => name === cat || String(name || '').startsWith(cat + CAT_SEP);
 const categories = {
   list: [],
   async load() { this.list = await api('/api/categories'); return this.list; },
@@ -292,7 +295,7 @@ async function renderProducts() {
   const catOf = (p) => (p.parent_id ? byId.get(p.parent_id)?.category ?? p.category : p.category);
   const matches = (p) => !q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q) || p.barcode.includes(q) || p.code.toLowerCase().includes(q);
   const rows = list
-    .filter((p) => !productsView.category || (productsView.category === '—' ? !catOf(p) : catOf(p) === productsView.category))
+    .filter((p) => !productsView.category || (productsView.category === '—' ? !catOf(p) : inCategory(catOf(p), productsView.category)))
     .filter(matches)
     // Модификация видна, если у её товара открыты модификации или если поиск нашёл именно её.
     .filter((p) => !p.parent_id || variantsOpen(p.parent_id) || (q && !matches(byId.get(p.parent_id) || {})))
@@ -422,7 +425,7 @@ async function exportProducts(onlySelected) {
   } else {
     const q = productsView.query.trim().toLowerCase();
     const matches = (p) => !q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q) || p.barcode.includes(q) || p.code.toLowerCase().includes(q);
-    const inCat = (p) => !productsView.category || (productsView.category === '—' ? !catOf(p) : catOf(p) === productsView.category);
+    const inCat = (p) => !productsView.category || (productsView.category === '—' ? !catOf(p) : inCategory(catOf(p), productsView.category));
     // Товар с модификациями выгружается своими модификациями; модификация попадает, если подходит она или её товар.
     picked = list.filter((p) => !kids.has(p.id) && inCat(p) && (matches(p) || (p.parent_id && matches(byId.get(p.parent_id) || {}))));
   }
@@ -1053,11 +1056,18 @@ function renderCategoryChips(list, catOf) {
   const goods = list.filter((p) => !p.parent_id);
   const count = new Map();
   for (const p of goods) count.set(catOf(p) || '—', (count.get(catOf(p) || '—') || 0) + 1);
-  const chip = (value, label, n) => `<button type="button" class="chip" data-cat-chip="${esc(value)}" aria-pressed="${productsView.category === value}">${esc(label)} <small>${n}</small></button>`;
+  const total = (c) => [...count].filter(([k]) => inCategory(k, c.name)).reduce((a, [, n]) => a + n, 0);
+  const chip = (value, label, n, sub = false) => `<button type="button" class="chip ${sub ? 'sub' : ''}" data-cat-chip="${esc(value)}" aria-pressed="${productsView.category === value}">${esc(label)} <small>${n}</small></button>`;
+  // Сверху — основные категории; выбрана категория с подкатегориями — под ней «Все» и подкатегории.
+  const tops = categories.list.filter((c) => !c.parent);
+  const cur = categories.list.find((c) => c.name === productsView.category);
+  const top = cur ? (cur.parent ? categories.list.find((c) => c.name === cur.parent) : cur) : null;
+  const subs = top ? categories.list.filter((c) => c.parent === top.name) : [];
   $('#products-cats').innerHTML = chip('', 'Все', goods.length)
-    + categories.list.map((c) => chip(c.name, c.name, count.get(c.name) || 0)).join('')
+    + tops.map((c) => chip(c.name, c.name, total(c)).replace('aria-pressed="false"', top && top.name === c.name ? 'aria-pressed="true"' : 'aria-pressed="false"')).join('')
     + (count.get('—') ? chip('—', 'Без категории', count.get('—')) : '')
-    + (session.can('products') || session.can('categories') ? '<button type="button" class="chip add" id="products-cat-add">+ Категория</button>' : '');
+    + (session.can('products') || session.can('categories') ? '<button type="button" class="chip add" id="products-cat-add">+ Категория</button>' : '')
+    + (subs.length ? `<div class="chip-subs">${chip(top.name, `Все ${top.name.toLowerCase()}`, total(top), true)}${subs.map((c) => chip(c.name, c.label, count.get(c.name) || 0, true)).join('')}</div>` : '');
 }
 $('#products-cats').addEventListener('click', async (e) => {
   const c = e.target.closest('[data-cat-chip]');
@@ -1078,30 +1088,37 @@ $('#products-cats').addEventListener('click', async (e) => {
 async function renderCategoryFilter() {
   const counts = new Map(categories.list.map((c) => [c.name, c.count]));
   $('#products-category').innerHTML = `<option value="">Все категории</option>` +
-    categories.list.map((c) => `<option value="${esc(c.name)}" ${c.name === productsView.category ? 'selected' : ''}>${esc(c.name)} (${counts.get(c.name) || 0})</option>`).join('') +
+    categories.list.map((c) => `<option value="${esc(c.name)}" ${c.name === productsView.category ? 'selected' : ''}>${c.parent ? '\u00a0\u00a0\u00a0↳ ' + esc(c.label) : esc(c.name)} (${c.parent ? counts.get(c.name) || 0 : c.total ?? counts.get(c.name) ?? 0})</option>`).join('') +
     `<option value="—" ${productsView.category === '—' ? 'selected' : ''}>Без категории</option>`;
 }
 
 async function renderCategoryManager() {
   try { await categories.load(); } catch (err) { return toast(err.message, 'error'); }
   const list = categories.list;
-  $('#cat-list').innerHTML = list.length ? list.map((c, i) => `
-    <div class="cat-row" data-cat-id="${c.id}">
+  // Соседи для стрелок ↑↓: основные категории — между собой, подкатегории — внутри своей категории.
+  const sibs = (c) => list.filter((o) => (o.parent || null) === (c.parent || null));
+  $('#cat-list').innerHTML = list.length ? list.map((c) => {
+    const sb = sibs(c), i = sb.indexOf(c);
+    return `
+    <div class="cat-row ${c.parent ? 'is-sub' : ''}" data-cat-id="${c.id}">
       <button type="button" class="cat-img" data-cat-image="${c.id}" title="${c.image_id ? 'Заменить картинку' : 'Добавить картинку для витрины'}">${c.image_id ? `<img src="/img/${c.image_id}" alt="">` : '<span aria-hidden="true">🖼️</span>'}</button>
-      <input class="input" value="${esc(c.name)}" data-cat-name="${c.id}" aria-label="Название категории">
-      <span class="pcat cat-count">${int(c.count)} ${plural(c.count, ['товар', 'товара', 'товаров'])}</span>
+      <input class="input" value="${esc(c.label || c.name)}" data-cat-name="${c.id}" aria-label="${c.parent ? 'Название подкатегории' : 'Название категории'}">
+      <span class="pcat cat-count">${c.parent ? `в «${esc(c.parent)}» · ` : ''}${int(c.parent ? c.count : c.total ?? c.count)} ${plural(c.parent ? c.count : c.total ?? c.count, ['товар', 'товара', 'товаров'])}</span>
       <div class="cat-actions">
         <button type="button" class="icon-btn" data-cat-move="-1" ${i === 0 ? 'disabled' : ''} aria-label="Выше">↑</button>
-        <button type="button" class="icon-btn" data-cat-move="1" ${i === list.length - 1 ? 'disabled' : ''} aria-label="Ниже">↓</button>
+        <button type="button" class="icon-btn" data-cat-move="1" ${i === sb.length - 1 ? 'disabled' : ''} aria-label="Ниже">↓</button>
+        ${c.parent ? '' : `<button type="button" class="btn small ghost" data-cat-sub="${c.id}">+ Подкатегория</button>`}
         ${c.image_id ? `<button type="button" class="btn small ghost" data-cat-image-del="${c.id}">Убрать картинку</button>` : ''}
         <button type="button" class="btn small ghost danger-text" data-cat-delete="${c.id}">Удалить</button>
       </div>
       <div class="cat-delete" data-cat-delete-box="${c.id}" hidden>
-        <span>Товары категории перенести в</span>
-        <select class="input"><option value="">Без категории</option>${list.filter((o) => o.id !== c.id).map((o) => `<option>${esc(o.name)}</option>`).join('')}</select>
-        <button type="button" class="btn small danger" data-cat-delete-ok="${c.id}">Удалить категорию</button>
+        <span>Товары ${c.parent ? 'подкатегории' : 'категории'} перенести в</span>
+        <select class="input"><option value="">Без категории</option>${list.filter((o) => o.id !== c.id).map((o) => `<option value="${esc(o.name)}">${esc(o.name)}</option>`).join('')}</select>
+        <button type="button" class="btn small danger" data-cat-delete-ok="${c.id}">Удалить</button>
       </div>
-    </div>`).join('') : '<p class="empty">Категорий пока нет. Добавьте первую выше или впишите категорию в карточке товара.</p>';
+      ${c.parent ? '' : `<form class="cat-sub-add" data-cat-sub-form="${c.id}" hidden><input name="name" class="input" placeholder="Подкатегория в «${esc(c.name)}», например «На замке»" autocomplete="off"><button type="submit" class="btn small primary">Добавить</button></form>`}
+    </div>`;
+  }).join('') : '<p class="empty">Категорий пока нет. Добавьте первую выше или впишите категорию в карточке товара.</p>';
 }
 
 $('#categories-open').addEventListener('click', async () => {
@@ -1126,7 +1143,8 @@ $('#cat-list').addEventListener('change', async (e) => {
   const input = e.target.closest('[data-cat-name]');
   if (!input) return;
   const cat = categories.list.find((c) => c.id === Number(input.dataset.catName));
-  if (!input.value.trim() || input.value.trim() === cat.name) { input.value = cat.name; return; }
+  const shown = cat.label || cat.name;
+  if (!input.value.trim() || input.value.trim() === shown) { input.value = shown; return; }
   try {
     const saved = await api(`/api/categories/${cat.id}`, { method: 'PUT', body: { name: input.value } });
     toast(saved.id === cat.id ? `Категория переименована: «${saved.name}»` : `Категории объединены в «${saved.name}»`);
@@ -1134,7 +1152,21 @@ $('#cat-list').addEventListener('change', async (e) => {
     renderCategoryManager();
   } catch (err) {
     toast(err.message, 'error');
-    input.value = cat.name;
+    input.value = shown;
+  }
+});
+// «+ Подкатегория»: поле под категорией.
+$('#cat-list').addEventListener('submit', async (e) => {
+  const form = e.target.closest('[data-cat-sub-form]');
+  if (!form) return;
+  e.preventDefault();
+  try {
+    const parent = categories.list.find((c) => c.id === Number(form.dataset.catSubForm));
+    const saved = await api('/api/categories', { method: 'POST', body: { name: form.elements.name.value, parent: parent.id } });
+    toast(`Подкатегория «${saved.name}» добавлена`);
+    renderCategoryManager();
+  } catch (err) {
+    toast(err.message, 'error');
   }
 });
 $('#cat-list').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('[data-cat-name]')) e.target.blur(); });
@@ -1144,10 +1176,21 @@ $('#cat-list').addEventListener('click', async (e) => {
   const id = Number(row.dataset.catId);
   const move = e.target.closest('[data-cat-move]');
   try {
+    if (e.target.closest('[data-cat-sub]')) {
+      const f = row.querySelector('[data-cat-sub-form]');
+      f.hidden = !f.hidden;
+      if (!f.hidden) f.elements.name.focus();
+      return;
+    }
     if (move) {
-      const ids = categories.list.map((c) => c.id);
-      const i = ids.indexOf(id), j = i + Number(move.dataset.catMove);
-      [ids[i], ids[j]] = [ids[j], ids[i]];
+      // Меняются местами соседи одного уровня; порядок сохраняется для всех.
+      const c = categories.list.find((x) => x.id === id);
+      const sb = categories.list.filter((o) => (o.parent || null) === (c.parent || null));
+      const i = sb.indexOf(c), j = i + Number(move.dataset.catMove);
+      if (!sb[j]) return;
+      [sb[i], sb[j]] = [sb[j], sb[i]];
+      const order = [...categories.list.filter((o) => (o.parent || null) !== (c.parent || null)), ...sb];
+      const ids = order.map((x) => x.id);
       await api('/api/categories-order', { method: 'PUT', body: { ids } });
       return renderCategoryManager();
     }

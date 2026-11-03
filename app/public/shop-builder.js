@@ -36,7 +36,7 @@ const shopFrame = () => $('#shop-preview');
 
 async function renderShop() {
   try {
-    [builder.saved, builder.products] = await Promise.all([api('/api/shop'), catalog.load(), loadCustomFonts()]);
+    [builder.saved, builder.products] = await Promise.all([api('/api/shop'), catalog.load(), loadCustomFonts(), typeof categories !== 'undefined' ? categories.load().catch(() => {}) : null]);
   } catch (err) {
     return toast(err.message, 'error');
   }
@@ -88,13 +88,35 @@ function fillShopForm() {
   renderLists();
   renderSizeEdit();
   renderColorMap();
-  const cats = [...new Set(builder.products.map((p) => p.category).filter(Boolean))].sort();
-  $('#shop-cats').innerHTML = cats.length ? cats.map((c) => `<label class="check"><input type="checkbox" data-cat="${esc(c)}" ${d.categories.includes(c) ? 'checked' : ''}> ${esc(c)}</label>`).join('') : '<span class="pick-meta">У товаров пока нет категорий</span>';
+  renderShopCats();
   renderImagePicks();
   renderPays();
   renderOutputs();
   markDirty();
 }
+
+// Категории и подкатегории витрины: отмеченные видны покупателям (ничего не отмечено — видны все).
+// Галочка у категории ставит или снимает все её подкатегории; подкатегории можно скрывать по одной.
+function renderShopCats() {
+  const d = builder.draft;
+  const SEP = ' › ';
+  const used = [...new Set(builder.products.map((p) => p.category).filter(Boolean))];
+  const order = (typeof categories !== 'undefined' ? categories.list : []).map((c) => c.name);
+  const pos = (n) => { const i = order.indexOf(n); return i < 0 ? 1e6 : i; };
+  const tops = [...new Set([...used.map((c) => c.split(SEP)[0]), ...order.filter((n) => !n.includes(SEP) && order.some((m) => m.startsWith(n + SEP) && used.includes(m)))])]
+    .sort((a, b) => pos(a) - pos(b) || a.localeCompare(b));
+  const box = (name, label, sub) => `<label class="check ${sub ? 'shop-cat-sub' : ''}"><input type="checkbox" data-cat="${esc(name)}" ${sub ? `data-cat-parent="${esc(name.split(SEP)[0])}"` : ''} ${d.categories.includes(name) ? 'checked' : ''}> ${esc(label)}</label>`;
+  $('#shop-cats').innerHTML = tops.length ? tops.map((t) => {
+    const subs = used.filter((c) => c.startsWith(t + SEP)).sort((a, b) => pos(a) - pos(b) || a.localeCompare(b));
+    return box(t, subs.length ? `${t} — все` : t, false) + subs.map((c) => box(c, c.slice(t.length + SEP.length), true)).join('');
+  }).join('') : '<span class="pick-meta">У товаров пока нет категорий</span>';
+}
+document.addEventListener('change', (e) => {
+  const b = e.target.closest('#shop-cats [data-cat]');
+  if (!b || b.dataset.catParent) return;
+  // Категория — все её подкатегории вместе с ней.
+  for (const x of document.querySelectorAll(`#shop-cats [data-cat-parent="${CSS.escape(b.dataset.cat)}"]`)) x.checked = b.checked;
+}, true);
 
 /* ---------- Способы оплаты: QR-код, реквизиты, счёт ---------- */
 let payAccounts = [];
