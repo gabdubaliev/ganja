@@ -1228,7 +1228,7 @@ function cleanLabelObject(o, w, h) {
     locked: Boolean(o.locked), hidden: Boolean(o.hidden),
   };
   if (type === 'text') {
-    return { ...base, text: str(o.text, 1000), font: pick(o.font, FONTS_PRINT, 'Arial'), size: clampNum(o.size, 3, 200, 10),
+    return { ...base, text: str(o.text, 1000), font: pick(o.font, [...FONTS_PRINT, ...customFamilies()], 'Arial'), size: clampNum(o.size, 3, 200, 10),
       bold: Boolean(o.bold), italic: Boolean(o.italic), underline: Boolean(o.underline), strike: Boolean(o.strike), upper: Boolean(o.upper),
       align: pick(o.align, ['left', 'center', 'right', 'justify'], 'left'), valign: pick(o.valign, ['top', 'middle', 'bottom'], 'middle'),
       fit: pick(o.fit, ['shrink', 'none', 'grow'], 'shrink'), wrap: o.wrap !== false, lineHeight: clampNum(o.lineHeight, 0.7, 3, 1.1),
@@ -1278,7 +1278,7 @@ function cleanReceipt(r) {
     if (type === 'payments') return { ...base, showChange: Boolean(b.showChange) };
     return { ...base, showCard: b.showCard !== false, showEarned: b.showEarned !== false, showBalance: b.showBalance !== false, showPhone: Boolean(b.showPhone) };
   });
-  return { paper: Number(r?.paper) === 80 ? 80 : 58, margin: clampNum(r?.margin, 0, 10, 2), font: pick(r?.font, FONTS_PRINT, 'Arial'),
+  return { paper: Number(r?.paper) === 80 ? 80 : 58, margin: clampNum(r?.margin, 0, 10, 2), font: pick(r?.font, [...FONTS_PRINT, ...customFamilies()], 'Arial'),
     lineHeight: clampNum(r?.lineHeight, 0.8, 2.5, 1.25), autoPrint: pick(r?.autoPrint, ['off', 'ask', 'always'], 'off'),
     copies: clampNum(r?.copies, 1, 3, 1), blocks };
 }
