@@ -2243,7 +2243,7 @@ const shopBot = createTgBot({
   async onMessage(m) {
     if (m.chat?.type !== 'private') return;
     const text = String(m.text || '').trim();
-    const shopTitle = mainStore.design().name || 'магазина';
+    const shopTitle = mainStore.shop().title || mainStore.design().name || 'магазина'; // название витрины, иначе — магазина
     const start = text.match(/^\/start\s+sc_([\w-]{10,40})$/);
     if (start) {
       const link = tgLinks.get(start[1]);
