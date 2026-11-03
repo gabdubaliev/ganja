@@ -1529,8 +1529,8 @@ const routes = [
 
   ['GET', '/api/design', () => store.design(), 'design'],
   ['PUT', '/api/design', (p, url, body) => store.setDesign(body), 'design'],
-  ['GET', '/api/fonts', () => mainStore.listFonts(), ['design', 'shop']],
-  ['POST', '/api/fonts', (p, url, body) => mainStore.addFont(body), ['design', 'shop']],
+  ['GET', '/api/fonts', () => mainStore.listFonts(), 'any'],
+  ['POST', '/api/fonts', (p, url, body) => mainStore.addFont(body), ['design', 'shop', 'print.design']],
   ['PUT', '/api/fonts/:id', (p, url, body) => mainStore.updateFont(p.id, body), ['design', 'shop']],
   ['DELETE', '/api/fonts/:id', (p) => mainStore.deleteFont(p.id), ['design', 'shop']],
   // Предпросмотр: та же тема, что отдаёт /theme.css, но из несохранённого черновика.

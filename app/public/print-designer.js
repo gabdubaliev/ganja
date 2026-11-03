@@ -26,7 +26,7 @@ async function renderPrintDesigner() {
     pz.labels = structuredClone(all.labels);
     pz.receipt = structuredClone(all.receipt);
     pz.sizes = all.labelSizes;
-    await catalog.load();
+    await Promise.all([catalog.load(), loadPrintFonts()]);
   } catch (err) {
     return toast(err.message, 'error');
   }
@@ -454,7 +454,7 @@ async function addImageObject(x, y, replace = null) {
 }
 
 /* ---------- Панель свойств ---------- */
-const FONT_OPTIONS = () => LABEL_FONTS.map((f) => `<option value="${f}" style="font-family:'${f}'">${f}</option>`).join('');
+const FONT_OPTIONS = () => labelFonts().map((f) => `<option value="${f}" style="font-family:'${f}'">${f}</option>`).join('');
 const tokenSelect = (target) => `<select class="input" data-insert="${target}"><option value="">＋ Вставить поле…</option>${LABEL_TOKENS.map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join('')}</select>`;
 const num = (p, v, label, step = 0.5) => `<div class="field"><label>${label}</label><input class="input num" data-p="${p}" data-num="1" value="${v}" inputmode="decimal" data-step="${step}"></div>`;
 const btnTog = (p, on, label, title) => `<button type="button" data-tog="${p}" aria-pressed="${Boolean(on)}" title="${title || ''}">${label}</button>`;
@@ -487,7 +487,7 @@ function renderProps() {
     <div class="lz-grid2">${num('rot', o.rot, 'Поворот, °', 1)}<div class="field"><label>&nbsp;</label><div class="lz-btns">${btnTog('locked', o.locked, '🔒', 'Закрепить')}${btnTog('hidden', o.hidden, '🙈', 'Скрыть (не печатать)')}</div></div></div>`;
   if (o.type === 'text') {
     h += `<div class="field"><label>Текст и поля</label><textarea class="input" data-p="text" rows="3">${esc(o.text)}</textarea>${tokenSelect('text')}</div>
-      <div class="lz-grid2"><div class="field"><label>Шрифт</label><select class="input" data-p="font">${FONT_OPTIONS()}</select></div>${num('size', o.size, 'Размер, пт')}</div>
+      <div class="lz-grid2"><div class="field"><label>Шрифт</label><select class="input" data-p="font">${FONT_OPTIONS()}</select><button type="button" class="btn small" data-font-upload="p">＋ Загрузить свой шрифт</button></div>${num('size', o.size, 'Размер, пт')}</div>
       <div class="lz-btns">${btnTog('bold', o.bold, '<b>Ж</b>', 'Жирный')}${btnTog('italic', o.italic, '<i>К</i>', 'Курсив')}${btnTog('underline', o.underline, '<u>Ч</u>', 'Подчёркнутый')}${btnTog('strike', o.strike, '<s>З</s>', 'Зачёркнутый (старая цена)')}${btnTog('upper', o.upper, 'АА', 'Заглавными')}${btnTog('invert', o.invert, '◼', 'Белым по чёрному')}</div>
       <div class="field"><span class="lab">По горизонтали</span><div class="lz-btns">${btnSet('align', 'left', o.align, '⯇ Слева')}${btnSet('align', 'center', o.align, '≡ Центр')}${btnSet('align', 'right', o.align, 'Справа ⯈')}${btnSet('align', 'justify', o.align, '☰ По ширине')}</div></div>
       <div class="field"><span class="lab">По вертикали</span><div class="lz-btns">${btnSet('valign', 'top', o.valign, 'Верх')}${btnSet('valign', 'middle', o.valign, 'Середина')}${btnSet('valign', 'bottom', o.valign, 'Низ')}</div></div>
@@ -855,7 +855,7 @@ function renderReceiptProps() {
   const chk = (p, on, label) => `<label class="check"><input type="checkbox" data-rchk="${p}" ${on ? 'checked' : ''}> ${label}</label>`;
   let h = `<h3>Чек целиком</h3>
     <div class="lz-grid2"><div class="field"><label>Лента</label><select class="input" data-rg="paper"><option value="58">58 мм</option><option value="80">80 мм</option></select></div>
-      <div class="field"><label>Шрифт</label><select class="input" data-rg="font">${FONT_OPTIONS()}</select></div></div>
+      <div class="field"><label>Шрифт</label><select class="input" data-rg="font">${FONT_OPTIONS()}</select><button type="button" class="btn small" data-font-upload="rg">＋ Загрузить свой шрифт</button></div></div>
     <div class="lz-grid2"><div class="field"><label>Поля, мм</label><input class="input num" data-rg="margin" data-num="1" value="${r.margin}"></div>
       <div class="field"><label>Межстрочный</label><input class="input num" data-rg="lineHeight" data-num="1" value="${r.lineHeight}"></div></div>
     <div class="field"><label>После продажи на кассе</label><select class="input" data-rg="autoPrint"><option value="off">Не печатать — кнопкой «Печать чека»</option><option value="ask">Спрашивать кассира</option><option value="always">Печатать сразу</option></select></div>
@@ -1003,5 +1003,40 @@ $('#pz-test').addEventListener('click', () => {
 });
 $('#pz-tabs').addEventListener('click', (e) => { const b = e.target.closest('[data-pz-tab]'); if (b) showPzTab(b.dataset.pzTab); });
 addEventListener('resize', () => { if (currentView === 'print' && pz.tab === 'label' && pz.labels) drawBoard(); });
+
+// Свой шрифт прямо из конструктора: файл WOFF2/WOFF/TTF/OTF, название — из имени файла (как в «Дизайне»).
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-font-upload]');
+  if (!b) return;
+  const sel = b.parentElement.querySelector('select');
+  const pick = document.createElement('input');
+  pick.type = 'file';
+  pick.accept = '.woff2,.woff,.ttf,.otf';
+  pick.multiple = true;
+  pick.addEventListener('change', async () => {
+    let family = '';
+    for (const file of pick.files) {
+      const g = typeof guessFont === 'function' ? guessFont(file.name) : { family: file.name.replace(/\.[^.]+$/, ''), weight: 400, style: 'normal' };
+      try {
+        const f = await api('/api/fonts', { method: 'POST', body: { family: g.family, weight: g.weight, style: g.style, fileName: file.name, data: await fileBase64(file) } });
+        family = family || f.family;
+      } catch (err) {
+        toast(`${file.name}: ${err.message}`, 'error');
+      }
+    }
+    if (!family) return;
+    await loadPrintFonts();
+    // Шрифт сразу виден на холсте: перечитываем оформление (там @font-face всех загруженных шрифтов).
+    const link = document.querySelector('link[href^="theme.css"], link[href^="/theme.css"]');
+    if (link) link.href = `/theme.css?v=${Date.now()}`;
+    else { const st = document.createElement('style'); st.textContent = printFontFaces(); document.head.append(st); }
+    sel.insertAdjacentHTML('afterbegin', `<option value="${esc(family)}" style="font-family:'${esc(family)}'">${esc(family)}</option>`);
+    sel.value = family;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    sel.dispatchEvent(new Event('input', { bubbles: true }));
+    toast(`Шрифт «${family}» загружен`);
+  });
+  pick.click();
+});
 
 views.print = { show: renderPrintDesigner, right: 'print.design' };

@@ -22,6 +22,14 @@ const RECEIPT_TOKENS = [
   ['total', 'Итого'], ['count', 'Товаров в чеке'],
 ];
 const LABEL_FONTS = ['Arial', 'Arial Narrow', 'Helvetica', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Times New Roman', 'Georgia', 'Courier New', 'Impact', 'Roboto', 'Segoe UI'];
+// Загруженные шрифты (Дизайн → Шрифты или кнопка в конструкторе этикеток) — в списке первыми и в печати.
+let PRINT_FONTS = [];
+async function loadPrintFonts() {
+  try { PRINT_FONTS = await api('/api/fonts'); } catch { /* без своих шрифтов */ }
+  return PRINT_FONTS;
+}
+const labelFonts = () => [...new Set([...PRINT_FONTS.map((f) => f.family), ...LABEL_FONTS])];
+const printFontFaces = () => PRINT_FONTS.map((f) => `@font-face { font-family: "${f.family}"; src: url("${location.origin}/fonts/${f.id}"); font-weight: ${f.weight}; font-style: ${f.style}; }`).join('\n');
 
 function productValues(p, shop = '') {
   let o = p.options;
@@ -62,16 +70,17 @@ function printHtml(body, css, title = 'Печать') {
   document.body.append(frame);
   const doc = frame.contentDocument;
   doc.open();
-  doc.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${css}</style></head><body>${body}</body></html>`);
+  doc.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${printFontFaces()}\n${css}</style></head><body>${body}</body></html>`);
   doc.close();
   const go = () => {
     frame.contentWindow.focus();
     frame.contentWindow.print();
     setTimeout(() => frame.remove(), 60_000);
   };
-  const imgs = [...doc.images].filter((i) => !i.complete);
-  if (!imgs.length) setTimeout(go, 80);
-  else Promise.all(imgs.map((i) => new Promise((ok) => { i.onload = ok; i.onerror = ok; }))).then(go);
+  // Ждём картинки и шрифты (свой шрифт грузится с сервера), но не дольше 5 секунд.
+  const imgs = [...doc.images].filter((i) => !i.complete).map((i) => new Promise((ok) => { i.onload = ok; i.onerror = ok; }));
+  const fonts = doc.fonts ? Promise.all([...doc.fonts].map((f) => f.load().catch(() => {}))).then(() => doc.fonts.ready) : Promise.resolve();
+  Promise.race([Promise.all([...imgs, fonts]), new Promise((ok) => setTimeout(ok, 5000))]).then(() => setTimeout(go, 80));
 }
 
 /* ---------- Этикетка ---------- */
@@ -171,6 +180,7 @@ function labelPrintCss(t, { sheet = false } = {}) {
 // items — [{ product, count }]. templateId — шаблон (по умолчанию — основной). sheet — лист A4.
 async function printLabelSheet(items, { templateId = null, sheet = false } = {}) {
   const { labels } = await printDesigns();
+  if (!PRINT_FONTS.length) await loadPrintFonts();
   const t = labels.list.find((x) => x.id === templateId) || labels.list.find((x) => x.id === labels.default) || labels.list[0];
   const shop = session.design?.name || '';
   const products = items.flatMap(({ product, count }) => Array.from({ length: count }, () => product));
