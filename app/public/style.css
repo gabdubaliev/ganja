@@ -2056,3 +2056,8 @@ body.no-cost .cost-only { display: none !important; }
 @media (max-width: 760px) { .ac-table .ac-right { min-width: 170px; max-width: 200px; } }
 body.no-mig-purchase .mig-c-purchase, body.no-mig-cost .mig-c-cost, body.no-mig-markup .mig-c-markup, body.no-mig-margin .mig-c-margin { display: none !important; }
 .price-ask-miss { margin: 0; font-size: 13px; color: var(--critical); }
+
+.tl-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.tl-files img, .tl-files video { max-width: 220px; max-height: 280px; border-radius: 8px; display: block; background: var(--hover); }
+.tl-files audio { max-width: 240px; }
+.tl-files a { font-size: 13px; }

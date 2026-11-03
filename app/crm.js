@@ -84,15 +84,20 @@ function createCrm(store) {
   // Номер сообщения Instagram: Meta иногда присылает одно сообщение повторно — второй раз не записываем.
   if (!db.prepare('PRAGMA table_info(lead_events)').all().some((c) => c.name === 'ext_id')) db.exec('ALTER TABLE lead_events ADD COLUMN ext_id TEXT');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS lead_events_ext ON lead_events(ext_id) WHERE ext_id IS NOT NULL');
+  // Вложения входящих сообщений (фото, видео, пересланные рилсы и посты): [{ type, url }] — ссылки Meta, живут несколько дней.
+  if (!db.prepare('PRAGMA table_info(lead_events)').all().some((c) => c.name === 'attach')) db.exec("ALTER TABLE lead_events ADD COLUMN attach TEXT NOT NULL DEFAULT ''");
   // wa_id — номер, с которого клиент написал в WhatsApp: только таким можно ответить из CRM.
   if (!db.prepare('PRAGMA table_info(leads)').all().some((c) => c.name === 'wa_id')) db.exec('ALTER TABLE leads ADD COLUMN wa_id TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS leads_wa ON leads(wa_id)');
 
   const who = (user) => (user ? user.name || user.email : '');
-  const event = (leadId, kind, body, userName = '', extId = null) => {
-    db.prepare('INSERT INTO lead_events (lead_id, at, kind, text, user_name, ext_id) VALUES (?, ?, ?, ?, ?, ?)').run(leadId, Date.now(), kind, String(body).slice(0, 4000), userName, extId);
+  const event = (leadId, kind, body, userName = '', extId = null, attach = []) => {
+    const files = (attach || []).filter((a) => /^https:\/\//i.test(a.url || '')).slice(0, 10).map((a) => ({ type: String(a.type || 'file').slice(0, 30), url: String(a.url).slice(0, 2000) }));
+    db.prepare('INSERT INTO lead_events (lead_id, at, kind, text, user_name, ext_id, attach) VALUES (?, ?, ?, ?, ?, ?, ?)').run(leadId, Date.now(), kind, String(body).slice(0, 4000), userName, extId, files.length ? JSON.stringify(files) : '');
     db.prepare('UPDATE leads SET updated_at = ? WHERE id = ?').run(Date.now(), leadId);
   };
+
+  const greeting = new Map(); // ig_user_id -> когда начали отправлять приветствие
 
   function getLead(id) {
     const l = db.prepare('SELECT * FROM leads WHERE id = ?').get(Number(id));
@@ -485,7 +490,8 @@ function createCrm(store) {
           const story = m.message?.reply_to?.story ? '↩️ Ответ на вашу сторис' : '';
           const mention = (m.message?.attachments || []).some((a) => a.type === 'story_mention') ? '📣 Отметил магазин в своей сторис (откройте в Instagram)' : '';
           const body = [story && m.message?.text ? `${story}: ${m.message.text}` : story || m.message?.text, mention, ...shared].filter(Boolean).join('\n')
-            || (m.message?.attachments?.length ? '📎 Вложение (фото, видео или голосовое — откройте в Instagram)' : '');
+            || (m.message?.attachments?.length ? `📎 ${{ image: 'Фото', video: 'Видео', audio: 'Голосовое', ig_reel: 'Рилс', reel: 'Рилс', share: 'Публикация', ig_post: 'Публикация', file: 'Файл' }[m.message.attachments[0].type] || 'Вложение'}` : '');
+          const files = (m.message?.attachments || []).map((a) => ({ type: a.type, url: a.payload?.url }));
           if (!body) continue;
           const mid = m.message?.mid ? String(m.message.mid) : null;
           if (mid && db.prepare('SELECT 1 FROM lead_events WHERE ext_id = ?').get(mid)) continue;
@@ -496,7 +502,7 @@ function createCrm(store) {
           } else {
             received.push({ lead, isNew: false });
           }
-          event(lead.id, 'in', body, lead.name || 'Instagram', mid);
+          event(lead.id, 'in', body, lead.name || 'Instagram', mid, files);
           db.prepare('UPDATE leads SET unread = 1 WHERE id = ?').run(lead.id);
         }
       }
@@ -565,7 +571,12 @@ function createCrm(store) {
       const last = db.prepare(`SELECT MAX(e.at) AS at FROM lead_events e JOIN leads l ON l.id = e.lead_id
         WHERE l.ig_user_id = ? AND e.kind = 'out' AND e.user_name = 'Автоответ'`).get(l.ig_user_id).at;
       if (last && Date.now() - last < s.autoHours * 3600e3) return null;
-      await crm.replyInstagram(l.id, s.autoText, null, 'Автоответ');
+      // Два сообщения подряд (вложение + «здравствуйте») приходят почти одновременно — приветствие одно.
+      const busy = greeting.get(l.ig_user_id);
+      if (busy && Date.now() - busy < 60_000) return null;
+      greeting.set(l.ig_user_id, Date.now());
+      if (greeting.size > 1000) greeting.delete(greeting.keys().next().value);
+      try { await crm.replyInstagram(l.id, s.autoText, null, 'Автоответ'); } catch (err) { greeting.delete(l.ig_user_id); throw err; }
       return s.autoText;
     },
 

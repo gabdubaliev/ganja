@@ -193,7 +193,7 @@ function renderLeadSide() {
   $('#lead-timeline').innerHTML = l.events.map((e) => `
     <div class="tl tl-${e.kind}">
       <div class="tl-meta">${{ in: '📩', out: '📤', call: '📞', note: '📝', stage: '➡️', system: '•' }[e.kind] || '•'} ${esc(e.user_name || '')} · ${shortTime(e.at)}</div>
-      <div class="tl-text">${esc(e.text)}</div>
+      <div class="tl-text">${esc(e.text)}</div>${leadFiles(e.attach)}
     </div>`).join('') || '<p class="pcat">Пока пусто</p>';
   const tl = $('#lead-timeline');
   tl.scrollTop = tl.scrollHeight;
@@ -204,6 +204,21 @@ function renderLeadSide() {
   if (l.id !== prevPriceLead) { pf.reset(); $('#lead-price-preview').hidden = true; prevPriceLead = l.id; }
   if ((!l.ig_user_id && crmView.kind === 'instagram') || (!l.wa_id && crmView.kind === 'whatsapp')) crmView.kind = 'note';
   renderComposeKind();
+}
+
+// Вложения из Instagram/WhatsApp: фото и пересланные посты — картинкой, видео и рилсы — плеером, голосовые — аудио.
+function leadFiles(raw) {
+  let list = [];
+  try { list = raw ? JSON.parse(raw) : []; } catch { return ''; }
+  if (!list.length) return '';
+  const one = (a) => {
+    const u = esc(a.url);
+    if (['video', 'ig_reel', 'reel'].includes(a.type)) return `<video src="${u}" controls preload="metadata" playsinline></video>`;
+    if (a.type === 'audio') return `<audio src="${u}" controls preload="none"></audio>`;
+    if (a.type === 'file') return `<a href="${u}" target="_blank" rel="noopener noreferrer">📄 Открыть файл</a>`;
+    return `<a href="${u}" target="_blank" rel="noopener noreferrer"><img src="${u}" alt="Вложение клиента" loading="lazy" referrerpolicy="no-referrer" onerror="this.closest('a').textContent='🔗 Открыть вложение (если не открывается — ссылка устарела, смотрите в Instagram)'"></a>`;
+  };
+  return `<div class="tl-files">${list.map(one).join('')}</div>`;
 }
 
 function defaultKind(l) {
