@@ -8,7 +8,8 @@
 #   3. сделать копию ВСЕХ баз (shop.db и branch-*.db) и проверить её (целостность, число строк, SHA-256);
 #   4. только если копия готова и проверена — переключить версию и запустить программу.
 # Ошибка на шагах 1–3: обновление отменяется, прежняя версия остаётся и снова запускается.
-# Копии перед обновлением лежат в $BACKUP_DIR/before-update/<дата_время>_update и автоматически не удаляются.
+# Копии перед обновлением лежат в $BACKUP_DIR/before-update/<дата_время>_update; хранятся последние $SHOP_KEEP_UPDATES (10),
+# более старые удаляются после успешного обновления. Ночные копии (30 дней) не трогаются.
 
 set -euo pipefail
 
@@ -21,6 +22,7 @@ SYSTEMCTL=${SHOP_SYSTEMCTL:-systemctl}
 # Копия делается от имени пользователя программы: так файлы копий принадлежат ему, как и сама база.
 RUN_AS=${SHOP_RUN_AS-runuser -u shop --}
 NODE=${SHOP_NODE:-/usr/bin/node}
+KEEP=${SHOP_KEEP_UPDATES:-10}
 
 say() { printf '\n==> %s\n' "$*"; }
 cancel() { printf '\n\033[1;31mОБНОВЛЕНИЕ ОТМЕНЕНО: %s\033[0m\n' "$*" >&2; exit 1; }
@@ -62,3 +64,23 @@ $SYSTEMCTL start "$SERVICE" || cancel "новая версия не запуст
 echo
 echo "Программа обновлена: $(git -C "$APP_DIR" log -1 --format='%h %s')"
 echo "Копия баз до обновления: $(ls -1d "$BACKUP_DIR"/before-update/*_update* 2>/dev/null | grep -v _FAILED | tail -n 1)"
+
+# Старые копии перед обновлениями: оставляем последние $KEEP (не меньше 3), остальные удаляем.
+# Имена начинаются с даты и времени, поэтому сортировка по имени — по времени.
+if (( KEEP < 3 )); then KEEP=3; fi
+mapfile -t old < <(ls -1d "$BACKUP_DIR"/before-update/[0-9]*_update* 2>/dev/null | sort | head -n -"$KEEP")
+if (( ${#old[@]} )); then
+  freed=$(du -sch "${old[@]}" 2>/dev/null | tail -n 1 | cut -f1)
+  for d in "${old[@]}"; do rm -rf -- "$d"; done
+  echo "Удалено старых копий перед обновлениями: ${#old[@]} (освобождено $freed), оставлено последних $KEEP."
+fi
+
+# Сам скрипт обновления тоже обновляется: новая версия из программы ставится в /usr/local/bin/shop-update
+# с теми же папками, что сейчас (как делает install.sh).
+self=$(readlink -f "$0" 2>/dev/null || echo "$0")
+if [[ -z ${SHOP_SYSTEMCTL:-} && -f $APP_DIR/deploy/shop-update.sh && $self == /usr/local/bin/shop-update ]]; then
+  new=$(mktemp)
+  sed "s|^APP_DIR=.*|APP_DIR=\${SHOP_APP_DIR:-$APP_DIR}|; s|^DATA_DIR=.*|DATA_DIR=\${SHOP_DATA_DIR:-$DATA_DIR}|; s|^BACKUP_DIR=.*|BACKUP_DIR=\${SHOP_BACKUP_DIR:-$BACKUP_DIR}|; s|^BRANCH=.*|BRANCH=\${SHOP_BRANCH:-$BRANCH}|" "$APP_DIR/deploy/shop-update.sh" > "$new"
+  if ! cmp -s "$new" /usr/local/bin/shop-update; then install -m 755 "$new" /usr/local/bin/shop-update && echo "Скрипт обновления shop-update обновлён."; fi
+  rm -f "$new"
+fi
