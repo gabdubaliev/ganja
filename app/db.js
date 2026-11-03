@@ -1247,7 +1247,9 @@ function cleanLabelTemplate(t) {
   const w = clampNum(t?.width, 10, 300, 58), h = clampNum(t?.height, 10, 300, 40);
   const objects = (Array.isArray(t?.objects) ? t.objects : []).slice(0, 200).map((o) => cleanLabelObject(o || {}, w, h));
   return { id: str(t?.id, 40).replace(/[^\w-]/g, '') || newId('t'), name: str(t?.name, 60).trim() || `Этикетка ${w}×${h}`, width: w, height: h,
-    rotate: pick(Number(t?.rotate), [0, 90, 180, 270], 0), border: Boolean(t?.border), objects };
+    rotate: pick(Number(t?.rotate), [0, 90, 180, 270], 0), border: Boolean(t?.border),
+    // Подгонка под принтер: сдвиг печати (мм) и масштаб (%), если принтер режет край или печатает со смещением.
+    shiftX: clampNum(t?.shiftX, -15, 15, 0), shiftY: clampNum(t?.shiftY, -15, 15, 0), scale: clampNum(t?.scale, 50, 120, 100), objects };
 }
 
 function cleanLabels(input) {

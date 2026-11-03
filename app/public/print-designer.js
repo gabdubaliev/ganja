@@ -104,6 +104,7 @@ function renderLabelEditor() {
   if (document.activeElement !== $('#lz-h')) $('#lz-h').value = t.height;
   $('#lz-rotate').value = String(t.rotate || 0);
   $('#lz-border').checked = Boolean(t.border);
+  for (const [id, k, d] of [['#lz-sx', 'shiftX', 0], ['#lz-sy', 'shiftY', 0], ['#lz-scale', 'scale', 100]]) if (document.activeElement !== $(id)) $(id).value = t[k] ?? d;
   $('#lz-default').disabled = t.id === pz.labels.default;
   $('#lz-default').textContent = t.id === pz.labels.default ? '★ Основной' : '☆ Сделать основным';
   $('#lz-undo').disabled = pz.hi <= 0;
@@ -726,6 +727,14 @@ $('#lz-preset').addEventListener('change', (e) => {
   pz.zoom = 0; renderLabelEditor(); commit();
 });
 $('#lz-rotate').addEventListener('change', (e) => { lt().rotate = Number(e.target.value); commit(); });
+for (const [id, k, min, max, d] of [['#lz-sx', 'shiftX', -15, 15, 0], ['#lz-sy', 'shiftY', -15, 15, 0], ['#lz-scale', 'scale', 50, 120, 100]]) {
+  $(id).addEventListener('change', (e) => {
+    const v = Number(String(e.target.value).replace(',', '.'));
+    lt()[k] = Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : d;
+    e.target.value = lt()[k];
+    commit();
+  });
+}
 $('#lz-border').addEventListener('change', (e) => { lt().border = e.target.checked; drawBoard(); commit(); });
 $('#lz-new').addEventListener('click', () => {
   const t = lt();

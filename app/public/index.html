@@ -422,6 +422,8 @@
       <select id="lz-preset" class="input" aria-label="Готовый размер"><option value="">Готовые размеры…</option></select>
       <select id="lz-rotate" class="input" aria-label="Поворот при печати" title="Как этикетка идёт в принтере"><option value="0">Печать: 0°</option><option value="90">Печать: 90°</option><option value="180">Печать: 180°</option><option value="270">Печать: 270°</option></select>
       <label class="check"><input type="checkbox" id="lz-border"> Рамка</label>
+      <span class="lz-sep"></span>
+      <label class="lz-size" title="Если принтер обрезает край или печатает со сдвигом: плюс — вправо/вниз, минус — влево/вверх">Подгонка: ↔ <input id="lz-sx" class="input num" inputmode="decimal" aria-label="Сдвиг вправо, мм"> ↕ <input id="lz-sy" class="input num" inputmode="decimal" aria-label="Сдвиг вниз, мм"> мм, масштаб <input id="lz-scale" class="input num" inputmode="decimal" aria-label="Масштаб, %"> %</label>
     </div>
     <div class="lz-main">
       <div class="lz-tools" id="lz-tools" role="toolbar" aria-label="Инструменты">

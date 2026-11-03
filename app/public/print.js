@@ -176,6 +176,9 @@ function renderLabelsForPrint(t, products, shop) {
 function labelPrintCss(t, { sheet = false } = {}) {
   const rot = t.rotate === 90 || t.rotate === 270;
   const pw = rot ? t.height : t.width, ph = rot ? t.width : t.height;
+  // Подгонка под принтер: масштаб — от центра этикетки, затем сдвиг.
+  const k = (Number(t.scale) || 100) / 100;
+  const fit = `translate(${(Number(t.shiftX) || 0) + (pw * (1 - k)) / 2}mm, ${(Number(t.shiftY) || 0) + (ph * (1 - k)) / 2}mm) scale(${k})`;
   return `@page { size: ${sheet ? 'A4' : `${pw}mm ${ph}mm`}; margin: ${sheet ? '8mm 5mm' : '0'}; }
     * { box-sizing: border-box; } body { margin: 0; font-family: Arial, sans-serif; }
     ${LABEL_BASE_CSS}
@@ -183,7 +186,7 @@ function labelPrintCss(t, { sheet = false } = {}) {
     .page { width: ${pw}mm; height: ${ph}mm; overflow: hidden; position: relative; break-inside: avoid; page-break-inside: avoid; ${sheet ? '' : 'page-break-after: always;'} }
     .page:last-child { page-break-after: auto; }
     .page .lbl { width: ${t.width}mm; height: ${t.height}mm; position: absolute; left: 0; top: 0; ${t.border ? 'outline: 0.25mm solid #000; outline-offset: -0.25mm;' : ''}
-      ${t.rotate ? `transform-origin: 0 0; transform: ${t.rotate === 90 ? `translateX(${pw}mm) rotate(90deg)` : t.rotate === 180 ? `translate(${pw}mm, ${ph}mm) rotate(180deg)` : `translateY(${ph}mm) rotate(270deg)`};` : ''} }`;
+      transform-origin: 0 0; transform: ${fit} ${t.rotate === 90 ? `translateX(${pw}mm) rotate(90deg)` : t.rotate === 180 ? `translate(${pw}mm, ${ph}mm) rotate(180deg)` : t.rotate === 270 ? `translateY(${ph}mm) rotate(270deg)` : ''}; }`;
 }
 
 // items — [{ product, count }]. templateId — шаблон (по умолчанию — основной). sheet — лист A4.
