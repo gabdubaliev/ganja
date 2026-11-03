@@ -225,7 +225,7 @@ function aiSourcesPanel(sources) {
           <dl>${[['Цвет', `${it.color}${it.color_hex ? ` <span class="st-swatch" style="background:${esc(it.color_hex)}"></span>` : ''}`], ['Материал', esc(it.material)], ['Крой', esc(it.fit)], ['Застёжка', esc(it.closure)], ['Детали', esc((it.details || []).join(', '))], ['Бренд', esc(it.brand)], ['Бирка', esc(it.label_text)]].filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
           ${it.description ? `<p class="st-ai-desc">${esc(it.description)}</p>${m.canDescribe ? '<button type="button" class="btn small" id="st-ai-desc">Вставить описание в карточку товара</button>' : ''}` : ''}</details>` : ''}`
         : '<p class="sub">Claude проверит, что набор полный, фото резкие, вещь целиком в кадре и свет ровный, и опишет вещь для витрины. Стоимость — несколько центов за проверку, со счёта Claude API.</p>'}
-    </div>` : '<p class="sub">Чтобы фото проверял Claude, администратор вводит ключ Claude API в «Приход по фото накладной».</p>'}`;
+    </div>` : '<p class="sub">Чтобы фото проверял Claude, введите ключ Claude API: <a href="#settings">Настройки → «Нейросеть Claude»</a>.</p>'}`;
 }
 function aiPhotoNote(a) {
   const p = st.session.ai?.photos?.find((x) => x.id === a.id);

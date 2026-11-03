@@ -19,7 +19,35 @@ async function renderSettings() {
     toast(err.message, 'error');
   }
   renderTgEvents();
+  renderClaudeKey();
 }
+
+// Ключ Claude API: для накладных по фото и проверки фото в AI Studio.
+async function renderClaudeKey() {
+  let st;
+  try { st = await api('/api/invoice/status'); } catch { return; }
+  $('#claude-status').innerHTML = st.fromEnv ? '✅ Ключ задан на сервере (ANTHROPIC_API_KEY) — здесь вводить не нужно.'
+    : st.configured ? '✅ Ключ сохранён. Чтобы заменить — вставьте новый.' : '⬜ Ключ ещё не введён — Claude не работает.';
+  $('#claude-key').hidden = st.fromEnv;
+  $('#claude-form button[type=submit]').hidden = st.fromEnv;
+  $('#claude-clear').hidden = !st.configured || st.fromEnv;
+}
+$('#claude-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('#claude-error').hidden = true;
+  const key = $('#claude-key').value.trim();
+  if (!/^sk-ant-/.test(key)) return showFormError('#claude-error', new Error('Ключ Claude API начинается с sk-ant- — скопируйте его целиком из console.anthropic.com'));
+  try {
+    await api('/api/invoice/key', { method: 'PUT', body: { key } });
+    $('#claude-key').value = '';
+    toast('Ключ Claude сохранён');
+    renderClaudeKey();
+  } catch (err) { showFormError('#claude-error', err); }
+});
+$('#claude-clear').addEventListener('click', async () => {
+  if (!confirm('Удалить ключ Claude? Распознавание накладных и проверка фото перестанут работать.')) return;
+  try { await api('/api/invoice/key', { method: 'PUT', body: { key: '' } }); toast('Ключ удалён'); renderClaudeKey(); } catch (err) { toast(err.message, 'error'); }
+});
 
 // Переключатели: какие уведомления присылать в Telegram.
 async function renderTgEvents() {

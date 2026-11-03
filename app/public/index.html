@@ -1355,6 +1355,27 @@
       <div class="form-actions start"><button type="submit" class="btn primary">Сохранить</button></div>
     </form>
   </section>
+  <section class="panel" data-can="settings" id="claude-settings">
+    <form id="claude-form" class="settings-form" novalidate>
+      <div>
+        <h2>🤖 Нейросеть Claude (ключ API)</h2>
+        <p class="sub">Claude читает фото накладных («Приход по фото накладной») и проверяет фото в MONT AI Studio. Оплата — с баланса Claude API за каждую проверку (несколько центов), отдельно от подписки на чат.</p>
+      </div>
+      <p class="pick-meta" id="claude-status"></p>
+      <ol class="steps">
+        <li>Откройте <b>console.anthropic.com</b> и войдите (можно через Google-аккаунт).</li>
+        <li><b>Settings → Billing</b>: пополните баланс (например, на $10–20) картой.</li>
+        <li><b>Settings → API Keys → Create Key</b>: назовите его «MONT», скопируйте ключ — он начинается с <code>sk-ant-</code> и показывается только один раз.</li>
+        <li>Вставьте ключ ниже и нажмите «Сохранить». Никому его не пересылайте — ни в чат, ни мне.</li>
+      </ol>
+      <div class="field"><label for="claude-key">Ключ Claude API</label><input id="claude-key" name="key" class="input" type="password" autocomplete="off" placeholder="sk-ant-..."></div>
+      <p class="form-error" id="claude-error" role="alert" hidden></p>
+      <div class="form-actions start">
+        <button type="submit" class="btn primary">Сохранить ключ</button>
+        <button type="button" class="btn ghost" id="claude-clear" hidden>Удалить ключ</button>
+      </div>
+    </form>
+  </section>
   <section class="panel" data-can="settings">
     <form id="telegram-form" class="settings-form" novalidate>
       <div>

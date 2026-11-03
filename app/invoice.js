@@ -55,7 +55,7 @@ function apiKey(store) {
 // Общий для распознавания накладных и проверки фото в MONT AI Studio.
 async function askJson(store, { content, schema, effort = 'medium', maxTokens = 16000, timeout = 240000, what = 'Запрос' }, UserError) {
   const key = apiKey(store);
-  if (!key) throw new UserError('Claude не подключён: администратор вводит ключ Claude API в «Приход по фото накладной» (блок «Распознавание фото»).');
+  if (!key) throw new UserError('Claude не подключён: введите ключ Claude API в «Настройках» → «Нейросеть Claude».');
   let res;
   try {
     res = await fetch(`${process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'}/v1/messages`, {
@@ -82,7 +82,7 @@ async function askJson(store, { content, schema, effort = 'medium', maxTokens = 
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     const msg = body?.error?.message || res.statusText;
-    if (res.status === 401) throw new UserError('Ключ Claude API не подошёл — проверьте его в блоке «Распознавание фото»');
+    if (res.status === 401) throw new UserError('Ключ Claude API не подошёл — проверьте его в «Настройках» → «Нейросеть Claude»');
     if (res.status === 429) throw new UserError('Слишком много запросов к Claude API — подождите минуту');
     if (res.status === 400 && /credit|balance/i.test(msg)) throw new UserError('На счёте Claude API закончились деньги — пополните баланс в console.anthropic.com');
     throw new UserError(`Claude API: ${msg}`);
@@ -134,7 +134,7 @@ async function recognize(store, images, UserError) {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     const msg = body?.error?.message || res.statusText;
-    if (res.status === 401) throw new UserError('Ключ Claude API не подошёл — проверьте его в блоке «Распознавание фото»');
+    if (res.status === 401) throw new UserError('Ключ Claude API не подошёл — проверьте его в «Настройках» → «Нейросеть Claude»');
     if (res.status === 429) throw new UserError('Слишком много запросов к Claude API — подождите минуту');
     throw new UserError(`Claude API: ${msg}`);
   }
