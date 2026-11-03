@@ -213,7 +213,9 @@ function leadFiles(raw) {
   if (!list.length) return '';
   const one = (a) => {
     const u = esc(a.url);
-    if (['video', 'ig_reel', 'reel'].includes(a.type)) return `<video src="${u}" controls preload="metadata" playsinline></video>`;
+    // Ссылка на страницу Instagram (рилс, пост) — не файл, плеер её не откроет.
+    if (/^https:\/\/(www\.)?instagram\.com\//i.test(a.url)) return `<a class="btn" href="${u}" target="_blank" rel="noopener noreferrer">▶ Открыть ${['ig_reel', 'reel'].includes(a.type) ? 'рилс' : 'публикацию'} в Instagram</a>`;
+    if (['video', 'ig_reel', 'reel'].includes(a.type)) return `<span class="tl-file"><video src="${u}" controls preload="metadata" playsinline></video><a href="${u}" target="_blank" rel="noopener noreferrer">Не играет? Открыть видео</a></span>`;
     if (a.type === 'audio') return `<audio src="${u}" controls preload="none"></audio>`;
     if (a.type === 'file') return `<a href="${u}" target="_blank" rel="noopener noreferrer">📄 Открыть файл</a>`;
     return `<a href="${u}" target="_blank" rel="noopener noreferrer"><img src="${u}" alt="Вложение клиента" loading="lazy" referrerpolicy="no-referrer" onerror="this.closest('a').textContent='🔗 Открыть вложение (если не открывается — ссылка устарела, смотрите в Instagram)'"></a>`;

@@ -2061,3 +2061,4 @@ body.no-mig-purchase .mig-c-purchase, body.no-mig-cost .mig-c-cost, body.no-mig-
 .tl-files img, .tl-files video { max-width: 220px; max-height: 280px; border-radius: 8px; display: block; background: var(--hover); }
 .tl-files audio { max-width: 240px; }
 .tl-files a { font-size: 13px; }
+.tl-file { display: grid; gap: 4px; }

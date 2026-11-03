@@ -137,6 +137,7 @@ function createIgPrice({ store, crm, notifier }) {
   const sumOf = (list) => list.filter((p) => p.inStock).reduce((s, p) => s + p.price, 0) || list[0]?.price || 0;
 
   const captions = new Map(); // media id -> { caption, permalink, at }
+  const shared = new Map(); // ig user id -> { texts: подписи последнего присланного рилса, at }
 
   function settings() {
     const s = crm.instagramSettings();
@@ -298,17 +299,33 @@ function createIgPrice({ store, crm, notifier }) {
         if (found) { texts.push(found.caption); if (!mediaIds.length) mediaIds.push(found.id); }
       } catch {}
     }
-    const { products, whole } = productsFrom(texts[0], ...texts.slice(1));
+    // Клиент сначала прислал рилс, следующим сообщением — «Цена?»: берём рилс из прошлого сообщения (15 минут).
+    const context = texts.slice(1).filter(Boolean);
+    if (context.length) shared.set(fromId, { texts: context, at: Date.now() });
+    else if (asksPrice(m.text, s.priceWords) && shared.get(fromId)?.at > Date.now() - 15 * 60_000) context.push(...shared.get(fromId).texts);
+    if (shared.size > 1000) shared.delete(shared.keys().next().value);
+    const { products, whole } = productsFrom(texts[0], ...context);
     const product = products[0];
     const article = products.map((p) => p.article).join(', ');
-    if (!product) return; // без артикула — вопрос менеджеру в CRM, как раньше
-    const logId = claim(`d:${m.mid}`, { kind: 'direct', igUserId: fromId, mediaId: mediaIds[0], question: m.text || '📎 рилс' });
+    const question = m.text || (m.attachments?.length ? '📎 рилс/публикация' : '');
+    if (!product) {
+      // Прислали рилс/публикацию, а артикула в подписи нет — видно в журнале автоответа.
+      if (context.length || codes.length) { const id = claim(`d:${m.mid}`, { kind: 'direct', igUserId: fromId, mediaId: mediaIds[0], question }); if (id) finish(id, { status: 'not_found' }); }
+      return; // без артикула — вопрос менеджеру в CRM, как раньше
+    }
+    // Цену уже отправили по этому рилсу (рилс, а следом «Цена?») — второй раз не шлём.
+    const again = db.prepare("SELECT 1 FROM ig_price_log WHERE kind = 'direct' AND ig_user_id = ? AND article = ? AND status IN ('sent', 'new') AND at > ?").get(fromId, article, Date.now() - 15 * 60_000);
+    if (again) return;
+    const logId = claim(`d:${m.mid}`, { kind: 'direct', igUserId: fromId, mediaId: mediaIds[0], question });
     if (!logId) return;
+    db.prepare('UPDATE ig_price_log SET article = ? WHERE id = ?').run(article, logId);
     const reply = renderReply(s.priceTemplate, products, { whole });
     try {
       await call('POST', '/me/messages', s.accessToken, { recipient: { id: fromId }, message: { text: reply } });
     } catch (err) {
-      return finish(logId, { status: 'error', article, productId: product.id, reply, error: err.message });
+      finish(logId, { status: 'error', article, productId: product.id, reply, error: err.message });
+      crm.noteInstagram?.(fromId, `⚠️ Автоответ ценой (${article}) не отправлен: ${err.message}. Ответьте клиенту сами — поле «Впишите артикулы» ниже.`);
+      return;
     }
     finish(logId, { status: 'sent', article, productId: product.id, reply });
     crm.logInstagramAuto({ igUserId: fromId, outText: reply, amount: sumOf(products), title: products.map((p) => p.name).join(', ') });

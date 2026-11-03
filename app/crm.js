@@ -451,6 +451,12 @@ function createCrm(store) {
     },
 
     // Автоответ в CRM: клиент — в открытую сделку (или новую), вопрос и ответ — в ленту событий.
+    // Служебная строка в открытую сделку клиента Instagram (например, «автоответ не отправлен»).
+    noteInstagram(igUserId, body) {
+      const lead = db.prepare('SELECT id FROM leads WHERE ig_user_id = ? AND closed_at IS NULL ORDER BY updated_at DESC LIMIT 1').get(String(igUserId));
+      if (lead) event(lead.id, 'system', body, 'Автоответ');
+    },
+
     logInstagramAuto({ igUserId, username = '', inText = '', outText, amount = 0, title = '' }) {
       let lead = db.prepare('SELECT * FROM leads WHERE ig_user_id = ? AND closed_at IS NULL ORDER BY updated_at DESC LIMIT 1').get(String(igUserId));
       if (!lead) {
