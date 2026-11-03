@@ -337,3 +337,33 @@ document.querySelector('[data-view="automation"]').addEventListener('click', asy
   }
 });
 views.automation = { show: renderAutomation, right: 'automation' };
+
+/* ---------- Заканчиваются размеры ---------- */
+const sz = { days: 28, data: null };
+async function renderSizes() {
+  try { sz.data = await api(`/api/reports/sizes?days=${sz.days}`); } catch (err) { return toast(err.message, 'error'); }
+  const d = sz.data;
+  $('#sz-sub').textContent = `продажи за ${d.days} дней`;
+  $('#sz-days').innerHTML = [14, 28, 56].map((n) => `<button type="button" class="chip" data-sz-days="${n}" aria-pressed="${n === sz.days}">${n === 14 ? '2 недели' : n === 28 ? '4 недели' : '8 недель'}</button>`).join('');
+  $('#sz-tiles').innerHTML = `<div class="st-tile"><span>Моделей с проблемой</span><b class="num">${d.totals.models}</b></div>
+    <div class="st-tile"><span>Размеров нет, а их покупают</span><b class="num">${d.totals.out}</b></div>
+    <div class="st-tile"><span>Последние штуки</span><b class="num">${d.totals.low}</b></div>
+    <div class="st-tile ${d.totals.waiting ? 'accent' : ''}"><span>Клиентов ждут размер</span><b class="num">${d.totals.waiting}</b></div>`;
+  const q = $('#sz-q').value.trim().toLowerCase();
+  const list = d.list.filter((m) => !q || `${m.name} ${m.article || ''}`.toLowerCase().includes(q));
+  const cls = { out: 'sz-out', low: 'sz-low', ok: 'sz-ok' };
+  $('#sz-list').innerHTML = list.length ? list.map((m) => `<article class="sz-model">
+      <header><b>${esc(m.name)}</b><span class="pcat">${m.article && !m.name.includes(m.article) ? esc(m.article) + ' · ' : ''}продано ${qtyFmt.format(m.sold)} шт за ${d.days} дн.${m.waiting ? ` · <b>ждут ${m.waiting}</b>` : ''}</span></header>
+      <div class="sz-sizes">${m.sizes.map((x) => `<span class="sz-size ${cls[x.status]}" title="Продано за ${d.days} дн.: ${qtyFmt.format(x.sold)}${x.daysLeft !== null && x.stock > 0 ? ` · хватит примерно на ${x.daysLeft} дн.` : ''}">
+        <b>${esc(x.label || '—')}</b><span>${x.stock > 0 ? `${qtyFmt.format(x.stock)} шт` : 'нет'}</span>${x.waiting ? `<small>ждут ${x.waiting}</small>` : x.sold ? `<small>прод. ${qtyFmt.format(x.sold)}</small>` : ''}</span>`).join('')}</div>
+    </article>`).join('') : '<p class="sub">Всё в порядке: ходовые размеры есть в наличии.</p>';
+}
+$('#sz-days').addEventListener('click', (e) => { const b = e.target.closest('[data-sz-days]'); if (b) { sz.days = Number(b.dataset.szDays); renderSizes(); } });
+let szTimer = null;
+$('#sz-q').addEventListener('input', () => { clearTimeout(szTimer); szTimer = setTimeout(renderSizes, 300); });
+$('#sz-export').addEventListener('click', () => {
+  if (!sz.data) return;
+  const rows = sz.data.list.flatMap((m) => m.sizes.map((x) => [m.name, m.article || '', x.label, x.stock, x.sold, x.daysLeft ?? '', x.waiting, { out: 'нет', low: 'заканчивается', ok: 'есть' }[x.status]]));
+  csvDownload(`Заканчиваются размеры ${new Date().toLocaleDateString('ru-RU')}.csv`, ['Модель', 'Артикул', 'Размер', 'Остаток', `Продано за ${sz.days} дн.`, 'Хватит на, дней', 'Ждут клиентов', 'Состояние'], rows);
+});
+views.sizes = { show: renderSizes, right: 'reports.stock' };

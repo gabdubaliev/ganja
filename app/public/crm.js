@@ -213,6 +213,7 @@ function renderLeadSide() {
   }
   sw.dataset.story = leadStoryId(l);
   sw.hidden = !sw.dataset.story;
+  renderLeadWaits(l);
   if ((!l.ig_user_id && crmView.kind === 'instagram') || (!l.wa_id && crmView.kind === 'whatsapp')) crmView.kind = 'note';
   renderComposeKind();
 }
@@ -427,6 +428,120 @@ $('#lead-note-form').addEventListener('submit', async (e) => {
     btn.disabled = false;
   }
 });
+
+/* ---------- Лист ожидания в карточке сделки ---------- */
+// Клиент ждёт размер, которого нет: выбираем модификацию — когда она поступит, программа сама напишет клиенту.
+async function renderLeadWaits(l) {
+  let box = $('#lead-waits');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'lead-waits';
+    box.className = 'lead-waits';
+    $('#lead-timeline').previousElementSibling.before(box);
+  }
+  box.dataset.lead = l.id;
+  let list = [];
+  try { list = (await api(`/api/waitlist?lead=${l.id}&status=all`)).list; } catch { /* нет права */ return; }
+  if (box.dataset.lead !== String(l.id)) return;
+  const st = { waiting: '⏳ ждёт', notified: '✅ сообщили', cancelled: 'отменено', bought: '🛍️ купил' };
+  box.innerHTML = `<h3>Ждёт размер</h3>
+    ${list.length ? `<ul class="wait-list">${list.map((w) => `<li><span>${esc(w.product)} <span class="pcat">· ${st[w.status] || w.status}${w.status === 'waiting' ? ` · на складе ${w.stock}` : w.result ? ` · ${esc(w.result)}` : ''}</span></span>
+      ${w.status === 'waiting' ? `<button type="button" class="btn small ghost" data-wait-cancel="${w.id}">Отменить</button>` : ''}</li>`).join('')}</ul>` : ''}
+    <div class="wait-add"><input class="input" id="wait-q" placeholder="Артикул или название, например MS-33807 L" autocomplete="off" aria-label="Какой размер ждёт клиент">
+    <div class="wait-found" id="wait-found"></div></div>`;
+}
+let waitTimer = null;
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'wait-q') return;
+  clearTimeout(waitTimer);
+  waitTimer = setTimeout(async () => {
+    const out = $('#wait-found');
+    const q = e.target.value.trim();
+    if (q.length < 2) { out.innerHTML = ''; return; }
+    try {
+      const list = await api(`/api/waitlist/search?q=${encodeURIComponent(q)}`);
+      out.innerHTML = list.length ? list.map((p) => `<button type="button" class="wait-pick" data-wait-add="${p.id}"><b>${esc(p.label)}</b><span class="pcat">${p.article ? esc(p.article) + ' · ' : ''}${p.stock > 0 ? `есть ${p.stock} шт` : 'нет в наличии'} · ${money(p.price)}</span></button>`).join('')
+        : '<p class="pcat">Не нашёл. Попробуйте артикул или часть названия.</p>';
+    } catch (err) { out.innerHTML = `<p class="pcat">${esc(err.message)}</p>`; }
+  }, 300);
+});
+document.addEventListener('click', async (e) => {
+  const add = e.target.closest('[data-wait-add]');
+  const cancel = e.target.closest('[data-wait-cancel]');
+  if (!add && !cancel) return;
+  try {
+    if (add) {
+      const w = await api('/api/waitlist', { method: 'POST', body: { productId: Number(add.dataset.waitAdd), leadId: crmView.lead.id } });
+      toast(w.stock > 0 ? `Добавлено. Этот размер уже есть (${w.stock} шт) — программа напишет клиенту в ближайшие минуты` : 'Добавлено: когда размер поступит, клиенту напишут сами');
+    } else {
+      await api(`/api/waitlist/${cancel.dataset.waitCancel}/status`, { method: 'POST', body: { status: 'cancelled' } });
+    }
+    crmView.lead = await api(`/api/crm/leads/${crmView.lead.id}`);
+    renderLeadSide();
+  } catch (err) { toast(err.message, 'error'); }
+});
+
+/* ---------- Окно «Ждут размер»: все клиенты в листе ожидания ---------- */
+{
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn';
+  btn.id = 'crm-waits';
+  btn.textContent = '⏳ Ждут размер';
+  $('#crm-add').before(btn);
+  btn.addEventListener('click', openWaits);
+}
+async function openWaits() {
+  let d = document.getElementById('waits-dlg');
+  if (!d) {
+    d = document.createElement('dialog');
+    d.id = 'waits-dlg';
+    d.className = 'stories-dlg';
+    d.innerHTML = `<div class="dlg-head"><h2>Лист ожидания</h2><button type="button" class="btn ghost" data-close aria-label="Закрыть">×</button></div>
+      <p class="sub">Клиенты, которые ждут размер. Когда товар оприходуют, программа сама пишет клиенту в Instagram или WhatsApp (проверка — каждые 5 минут). Если Instagram не даёт написать (прошло больше суток с последнего сообщения клиента), в сделке появится задача «сообщить клиенту», а в Telegram — уведомление. Добавить клиента — в карточке его сделки, блок «Ждёт размер».</p>
+      <div class="seg" id="waits-tabs"><button type="button" data-ws="waiting" aria-pressed="true">Ждут</button><button type="button" data-ws="done" aria-pressed="false">Сообщили / закрыто</button></div>
+      <div id="waits-list"><p class="sub">Загружаю…</p></div>
+      <details class="waits-text" data-can="crm.settings"><summary>Текст сообщения «Поступил ваш размер»</summary>
+        <textarea class="input" id="waits-tpl" rows="4"></textarea>
+        <p class="sub">{name} — товар с размером, {price} — цена, {article} — артикул.</p>
+        <button type="button" class="btn small primary" id="waits-tpl-save">Сохранить текст</button></details>`;
+    document.body.append(d);
+    d.addEventListener('click', async (e) => {
+      if (e.target === d || e.target.closest('[data-close]')) return d.close();
+      const tab = e.target.closest('[data-ws]');
+      if (tab) { d.dataset.ws = tab.dataset.ws; return drawWaits(); }
+      const set = e.target.closest('[data-wset]');
+      if (set) {
+        try { await api(`/api/waitlist/${set.dataset.id}/status`, { method: 'POST', body: { status: set.dataset.wset } }); drawWaits(); } catch (err) { toast(err.message, 'error'); }
+      }
+      const open = e.target.closest('[data-wlead]');
+      if (open) { d.close(); openLead(Number(open.dataset.wlead)); }
+      if (e.target.id === 'waits-tpl-save') {
+        try { await api('/api/waitlist/text', { method: 'PUT', body: { text: $('#waits-tpl').value } }); toast('Текст сохранён'); } catch (err) { toast(err.message, 'error'); }
+      }
+    });
+    for (const el of d.querySelectorAll('[data-can]')) el.hidden = !session.can(el.dataset.can);
+  }
+  d.dataset.ws = d.dataset.ws || 'waiting';
+  d.showModal();
+  drawWaits();
+}
+async function drawWaits() {
+  const d = document.getElementById('waits-dlg');
+  for (const b of d.querySelectorAll('[data-ws]')) b.setAttribute('aria-pressed', String(b.dataset.ws === d.dataset.ws));
+  const box = d.querySelector('#waits-list');
+  try {
+    const r = await api(`/api/waitlist?status=${d.dataset.ws}`);
+    if (document.activeElement !== $('#waits-tpl')) $('#waits-tpl').value = r.text;
+    const st = { notified: '✅ сообщили', cancelled: 'отменено', bought: '🛍️ купил' };
+    box.innerHTML = r.list.length ? `<ul class="wait-list">${r.list.map((w) => `<li>
+        <span><b>${esc(w.product)}</b><br><span class="pcat">${esc(w.lead_name || w.name || 'клиент')}${w.contact ? ' · ' + esc(w.contact) : ''} · с ${shortTime(w.created_at)}${w.status === 'waiting' ? ` · на складе ${w.stock}` : ` · ${st[w.status] || w.status}${w.result ? ' (' + esc(w.result) + ')' : ''}`}</span></span>
+        <span class="wait-acts">${w.lead_id ? `<button type="button" class="btn small" data-wlead="${w.lead_id}">Сделка</button>` : ''}
+        ${w.status === 'waiting' ? `<button type="button" class="btn small" data-wset="notified" data-id="${w.id}" title="Сообщили сами — убрать из ожидания">Сообщили</button><button type="button" class="btn small ghost" data-wset="cancelled" data-id="${w.id}">Отменить</button>`
+          : `<button type="button" class="btn small ghost" data-wset="bought" data-id="${w.id}">Купил</button>`}</span></li>`).join('')}</ul>`
+      : `<p class="sub">${d.dataset.ws === 'waiting' ? 'Сейчас никто не ждёт.' : 'Пока пусто.'}</p>`;
+  } catch (err) { box.innerHTML = `<p class="form-error">${esc(err.message)}</p>`; }
+}
 
 /* ---------- Цена по артикулам с фото клиента ---------- */
 let prevPriceLead = null;

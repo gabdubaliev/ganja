@@ -722,6 +722,22 @@
   </section>
 </main>
 
+<main class="page" data-view="sizes" hidden>
+  <header class="top">
+    <div class="title"><h1>📉 Заканчиваются размеры</h1><span class="source" id="sz-sub"></span></div>
+    <div class="tools"><button type="button" class="btn" id="sz-export">Скачать для Excel</button></div>
+  </header>
+  <section class="stock-totals as-tiles" id="sz-tiles"></section>
+  <section class="panel">
+    <div class="panel-head">
+      <div class="chips" id="sz-days"></div>
+      <input id="sz-q" class="input search" type="search" placeholder="Найти модель" aria-label="Найти модель">
+    </div>
+    <p class="pick-meta">Показаны модели, которые покупают (или ждут), но какой-то размер закончился или остался последний. «Хватит на» — сколько дней продержится остаток при нынешней скорости продаж. Каждый день в 10:00 список приходит в Telegram.</p>
+    <div id="sz-list" class="sz-list"></div>
+  </section>
+</main>
+
 <main class="page" data-view="deadstock" hidden>
   <header class="top">
     <div class="title"><h1>🐌 Неликвиды</h1><span class="source" id="ds-sub"></span></div>

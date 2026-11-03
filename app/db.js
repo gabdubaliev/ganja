@@ -133,6 +133,24 @@ function open(file) {
   // Модификации: parent_id — основной товар, options — {"Цвет": "Красный", "Размер": "M"}.
   addColumns('products', [['parent_id', 'INTEGER'], ['options', "TEXT NOT NULL DEFAULT ''"]]);
   db.exec('CREATE INDEX IF NOT EXISTS products_parent ON products(parent_id)');
+  // Лист ожидания: клиент ждёт размер (модификацию), которого нет; когда товар поступит — ему пишут сами.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS waitlist (
+      id INTEGER PRIMARY KEY,
+      product_id INTEGER NOT NULL,
+      lead_id INTEGER,
+      name TEXT NOT NULL DEFAULT '',
+      contact TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'waiting',
+      created_at INTEGER NOT NULL,
+      created_by TEXT NOT NULL DEFAULT '',
+      notified_at INTEGER,
+      result TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS waitlist_status ON waitlist(status, product_id);
+    CREATE INDEX IF NOT EXISTS waitlist_lead ON waitlist(lead_id);
+  `);
   db.exec(`
     CREATE TABLE IF NOT EXISTS orders (
       id INTEGER PRIMARY KEY,
@@ -5154,6 +5172,123 @@ function createStore(file) {
 
     // Неликвиды: товары с остатком, которые давно не продаются. days — сколько дней без продаж считать «залежавшимся».
     // Отсчёт — от последней продажи, а если продаж не было — от последнего поступления (или заведения товара).
+    /* ---------- Лист ожидания ---------- */
+    // Название с размером/цветом для людей: «Кофта MS-33807 · Серый, L».
+    waitProductLabel(p) {
+      let o = {};
+      try { o = p.options ? JSON.parse(p.options) : {}; } catch { o = {}; }
+      const opts = Object.values(o).filter(Boolean).join(', ');
+      return opts && !String(p.name).includes(opts) ? `${p.name} · ${opts}` : p.name;
+    },
+    // Поиск модификации для листа ожидания: по артикулу, названию, коду, штрихкоду; основной товар с размерами не предлагается.
+    waitSearch(q) {
+      const t = String(q || '').trim();
+      if (!t) return [];
+      // Каждое слово ищется отдельно: «MS-33807 L», «кофта серый xl», «мс33807 m».
+      const words = t.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 5);
+      const keyOf = (v) => new Set(articleKeys(v));
+      const rows = db.prepare(`SELECT p.id, p.name, p.article, p.code, p.barcode, p.price, p.discount, p.stock, p.options, p.parent_id,
+          (SELECT COUNT(*) FROM products c WHERE c.parent_id = p.id AND c.deleted = 0) AS kids,
+          (SELECT a.article FROM products a WHERE a.id = p.parent_id) AS parent_article,
+          (SELECT a.name FROM products a WHERE a.id = p.parent_id) AS parent_name
+        FROM products p WHERE p.deleted = 0 AND p.archived = 0`).all().filter((r) => !r.kids);
+      const out = [];
+      for (const r of rows) {
+        const hay = `${this.waitProductLabel(r)} ${r.parent_name || ''} ${r.code || ''} ${r.barcode || ''}`.toLowerCase().replace(/ё/g, 'е');
+        const arts = new Set([...keyOf(r.article || ''), ...keyOf(r.parent_article || '')]);
+        let o = {};
+        try { o = r.options ? JSON.parse(r.options) : {}; } catch { o = {}; }
+        const opts = Object.values(o).map((v) => String(v).toLowerCase());
+        const ok = words.every((w) => {
+          const ww = w.replace(/ё/g, 'е');
+          if (opts.includes(ww)) return true; // размер или цвет целиком: «l» не путается с «xl»
+          if (ww.length <= 3 && /^[a-z0-9]+$/i.test(ww) && opts.length && !/\d{3,}/.test(ww)) return opts.some((v) => v === ww);
+          return hay.includes(ww) || articleKeys(ww).some((k) => arts.has(k));
+        });
+        if (ok) out.push(r);
+        if (out.length >= 30) break;
+      }
+      return out.map((r) => ({ id: r.id, label: this.waitProductLabel(r), article: r.article || r.parent_article || '', stock: round2(r.stock), price: salePrice(r) }));
+    },
+    waitlistAdd({ productId, leadId = null, name = '', contact = '', note = '' }, user) {
+      const p = db.prepare('SELECT id, name, options, stock FROM products WHERE id = ? AND deleted = 0').get(Number(productId));
+      if (!p) throw new UserError('Товар не найден');
+      if (db.prepare("SELECT 1 FROM waitlist WHERE product_id = ? AND lead_id IS ? AND status = 'waiting'").get(p.id, leadId ? Number(leadId) : null) && leadId) throw new UserError('Этот клиент уже ждёт этот размер');
+      const { lastInsertRowid } = db.prepare('INSERT INTO waitlist (product_id, lead_id, name, contact, note, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(p.id, leadId ? Number(leadId) : null, text(name, 'Имя', { max: 120 }), text(contact, 'Контакт', { max: 120 }), text(note, 'Заметка', { max: 300 }), Date.now(), user ? user.name || user.email : '');
+      return this.waitlistGet(lastInsertRowid);
+    },
+    waitlistGet(id) {
+      const w = db.prepare(`SELECT w.*, p.name AS p_name, p.options AS p_options, p.stock, p.price, p.discount, p.article, l.name AS lead_name
+        FROM waitlist w JOIN products p ON p.id = w.product_id LEFT JOIN leads l ON l.id = w.lead_id WHERE w.id = ?`).get(Number(id));
+      if (!w) throw new UserError('Запись не найдена');
+      return { ...w, product: this.waitProductLabel({ name: w.p_name, options: w.p_options }), stock: round2(w.stock), price: salePrice(w) };
+    },
+    waitlistList({ status = 'waiting', leadId = null } = {}) {
+      const where = [];
+      const args = [];
+      if (status === 'waiting') where.push("w.status = 'waiting'");
+      else if (status === 'done') { where.push("w.status <> 'waiting' AND w.created_at > ?"); args.push(Date.now() - 60 * 864e5); }
+      if (leadId) { where.push('w.lead_id = ?'); args.push(Number(leadId)); }
+      return db.prepare(`SELECT w.id FROM waitlist w ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY w.created_at DESC LIMIT 500`).all(...args)
+        .map((r) => this.waitlistGet(r.id));
+    },
+    waitlistSet(id, status, result = '') {
+      if (!['waiting', 'notified', 'cancelled', 'bought'].includes(status)) throw new UserError('Неизвестное состояние');
+      db.prepare('UPDATE waitlist SET status = ?, notified_at = ?, result = ? WHERE id = ?').run(status, status === 'waiting' ? null : Date.now(), String(result).slice(0, 300), Number(id));
+      return this.waitlistGet(id);
+    },
+    // Кому пора писать: товар появился. На каждую единицу — один клиент, по очереди (кто раньше ждёт).
+    waitlistDue() {
+      const out = [];
+      const stock = new Map();
+      for (const w of db.prepare(`SELECT w.id, w.product_id, p.stock FROM waitlist w JOIN products p ON p.id = w.product_id
+          WHERE w.status = 'waiting' AND p.deleted = 0 AND p.stock > 0 ORDER BY w.created_at`).all()) {
+        const left = stock.has(w.product_id) ? stock.get(w.product_id) : w.stock;
+        if (left < 1) continue;
+        stock.set(w.product_id, left - 1);
+        out.push(this.waitlistGet(w.id));
+      }
+      return out;
+    },
+
+    /* ---------- Заканчиваются размеры ---------- */
+    // Модель и её размеры: сколько осталось, сколько продано за days дней, на сколько дней хватит.
+    // low — размер, которого 1 шт (или хватит меньше чем на 14 дней), out — закончился, а его покупали.
+    sizesReport({ days = 28 } = {}) {
+      const d = Math.min(120, Math.max(7, Number(days) || 28));
+      const since = Date.now() - d * 864e5;
+      const sold = new Map(db.prepare(`SELECT si.product_id AS id, SUM(si.qty) AS q FROM sale_items si JOIN sales s ON s.id = si.sale_id
+        WHERE s.refunded_at IS NULL AND s.created_at >= ? GROUP BY si.product_id`).all(since).map((r) => [r.id, r.q]));
+      const waiting = new Map(db.prepare("SELECT product_id AS id, COUNT(*) AS n FROM waitlist WHERE status = 'waiting' GROUP BY product_id").all().map((r) => [r.id, r.n]));
+      const rows = db.prepare(`SELECT id, name, article, code, category, price, discount, stock, options, parent_id,
+          (SELECT COUNT(*) FROM products c WHERE c.parent_id = products.id AND c.deleted = 0) AS kids
+        FROM products WHERE deleted = 0 AND archived = 0`).all();
+      const models = new Map();
+      for (const p of rows) {
+        if (p.kids) { if (!models.has(p.id)) models.set(p.id, { id: p.id, name: p.name, article: p.article, category: p.category, price: salePrice(p), sizes: [] }); continue; }
+        const key = p.parent_id || p.id;
+        if (!models.has(key)) {
+          const parent = p.parent_id ? rows.find((x) => x.id === p.parent_id) : p;
+          models.set(key, { id: key, name: parent?.name || p.name, article: parent?.article || p.article, category: parent?.category || p.category, price: salePrice(parent || p), sizes: [] });
+        }
+        let o = {};
+        try { o = p.options ? JSON.parse(p.options) : {}; } catch { o = {}; }
+        const label = Object.values(o).filter(Boolean).join(', ') || (p.parent_id ? p.name.split(' · ').pop() : '');
+        const q = sold.get(p.id) || 0;
+        const perDay = q / d;
+        const daysLeft = perDay > 0 ? Math.floor(p.stock / perDay) : null;
+        const wait = waiting.get(p.id) || 0;
+        const status = p.stock <= 0 && (q > 0 || wait) ? 'out' : p.stock > 0 && (q > 0 || wait) && (p.stock <= 1 || (daysLeft !== null && daysLeft < 14)) ? 'low' : 'ok';
+        models.get(key).sizes.push({ id: p.id, label, stock: round2(p.stock), sold: round2(q), daysLeft, waiting: wait, status });
+      }
+      const list = [...models.values()].filter((m) => m.sizes.some((x) => x.status !== 'ok'))
+        .map((m) => ({ ...m, sold: round2(m.sizes.reduce((a, x) => a + x.sold, 0)), out: m.sizes.filter((x) => x.status === 'out').length,
+          low: m.sizes.filter((x) => x.status === 'low').length, waiting: m.sizes.reduce((a, x) => a + x.waiting, 0) }))
+        .sort((a, b) => b.waiting - a.waiting || b.sold - a.sold);
+      return { days: d, list, totals: { models: list.length, out: list.reduce((a, m) => a + m.out, 0), low: list.reduce((a, m) => a + m.low, 0), waiting: list.reduce((a, m) => a + m.waiting, 0) } };
+    },
+
     deadStock({ days = 30 } = {}) {
       const min = Math.max(1, Number(days) || 30);
       const now = Date.now();

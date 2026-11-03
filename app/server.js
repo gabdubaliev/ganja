@@ -507,6 +507,52 @@ async function runJob(ctx, job, { manual = false } = {}) {
   throw new UserError('Неизвестная задача');
 }
 
+/* ---------- Лист ожидания: товар поступил — пишем клиенту сами ---------- */
+const WAIT_DEFAULT = 'Здравствуйте! Поступил размер, который вы ждали: {name} — {price} сом.\nОтложим его для вас на 24 часа — напишите, когда удобно забрать.';
+const waitText = () => mainStore.setting('waitlist_text', '') || WAIT_DEFAULT;
+async function waitlistTick(ctx) {
+  const st = ctx.store;
+  const sent = [];
+  for (const w of st.waitlistDue()) {
+    const text = waitText().replace(/\{name\}/g, w.product).replace(/\{price\}/g, new Intl.NumberFormat('ru-RU').format(w.price)).replace(/\{article\}/g, w.article || '');
+    let how = '';
+    let why = '';
+    if (w.lead_id) {
+      const lead = (() => { try { return ctx.crm.get(w.lead_id); } catch { return null; } })();
+      for (const [ok, fn, name] of [[lead?.ig_user_id, () => ctx.crm.replyInstagram(w.lead_id, text, null, 'Лист ожидания'), 'Instagram'], [lead?.wa_id, () => ctx.crm.replyWhatsapp(w.lead_id, text, null), 'WhatsApp']]) {
+        if (!ok || how) continue;
+        try { await fn(); how = name; } catch (err) { why = err.message; }
+      }
+    }
+    if (how) {
+      st.waitlistSet(w.id, 'notified', how);
+    } else {
+      // Написать сами не смогли (прошло больше 24 часов — Instagram не даёт писать первым, или клиент без переписки):
+      // задача ответственному и сообщение в Telegram — позвонить или написать вручную.
+      st.waitlistSet(w.id, 'notified', `нужно написать вручную${why ? ': ' + why : ''}`.slice(0, 300));
+      if (w.lead_id) { try { ctx.crm.addTask(w.lead_id, { text: `Поступил ${w.product} — сообщить клиенту`, due_at: Date.now() }, null); } catch { /* сделка удалена */ } }
+    }
+    sent.push({ ...w, how });
+    const tg = ctx.notifier.tgFor('waitlist');
+    if (tg) {
+      const who = w.lead_name || w.name || 'клиент';
+      ctx.notifier.sendTelegram(`⏳ Поступил размер из листа ожидания\n${w.product} — ${new Intl.NumberFormat('ru-RU').format(w.price)} сом\nЖдал: ${who}${w.contact ? ` (${w.contact})` : ''}\n${how ? `✅ Клиенту написали в ${how}` : '⚠️ Написать клиенту не получилось — свяжитесь сами'}`, tg).catch(() => {});
+    }
+  }
+  return { sent: sent.length };
+}
+
+// Каждый день в 10:00 — какие ходовые размеры заканчиваются (только если есть что сказать).
+async function sizesDigest(ctx) {
+  const tg = ctx.notifier.tgFor('sizes_low');
+  if (!tg) return;
+  const r = ctx.store.sizesReport({ days: 28 });
+  if (!r.list.length) return;
+  const lines = r.list.slice(0, 15).map((m) => `• ${m.name}${m.article && !m.name.includes(m.article) ? ` (${m.article})` : ''}: `
+    + m.sizes.filter((x) => x.status !== 'ok').map((x) => `${x.label || 'шт'} ${x.status === 'out' ? '— нет' : `— ${x.stock} шт`}${x.waiting ? `, ждут ${x.waiting}` : ''}`).join('; '));
+  await ctx.notifier.sendTelegram(`📉 Заканчиваются размеры (продажи за 4 недели)\nНет в наличии: ${r.totals.out}, последние штуки: ${r.totals.low}${r.totals.waiting ? `, клиентов ждут: ${r.totals.waiting}` : ''}\n\n${lines.join('\n')}${r.list.length > 15 ? `\n…и ещё ${r.list.length - 15} моделей — Ещё → «Заканчиваются размеры»` : ''}`, tg);
+}
+
 // Раз в 5 минут: что пора сделать в каждом магазине. Последний запуск — в настройках магазина (auto_last_*).
 async function automationTick() {
   const now = new Date();
@@ -520,6 +566,9 @@ async function automationTick() {
     const mark = (k) => ctx.store.setSetting(`auto_last_${k}`, String(Date.now()));
     const due = [];
     if (cfg.markdown.on && now.getHours() >= cfg.markdown.hour && last('markdown') < today) due.push('markdown');
+    // Лист ожидания — каждые 5 минут; отчёт о размерах — раз в день с 10:00.
+    try { await als.run(ctx, () => waitlistTick(ctx)); } catch (err) { console.error(`Лист ожидания (${b.name}):`, err.message); }
+    if (now.getHours() >= 10 && last('sizes') < today) { mark('sizes'); try { await als.run(ctx, () => sizesDigest(ctx)); } catch (err) { console.error(`Размеры (${b.name}):`, err.message); } }
     if (cfg.weekly.on && now.getDay() === cfg.weekly.weekday && now.getHours() >= cfg.weekly.hour && last('weekly') < today) due.push('weekly');
     const monthDue = new Date(now.getFullYear(), now.getMonth(), cfg.monthly.day).getTime();
     if (cfg.monthly.on && now.getTime() >= monthDue + cfg.monthly.hour * 36e5 && last('monthly') < monthDue) due.push('monthly');
@@ -1301,6 +1350,19 @@ const routes = [
   ['GET', '/api/reports/stock', (p, url) => store.stockReport({ ...range(url), category: url.searchParams.get('category') || '', q: url.searchParams.get('q') || '' }), 'reports.stock'],
   ['GET', '/api/reports/profit', (p, url) => store.profitByMonth(range(url)), 'reports.money'],
   ['GET', '/api/reports/cashflow', (p, url) => store.cashFlow({ ...range(url), methodId: url.searchParams.get('account') || null }), 'reports.money'],
+  ['GET', '/api/reports/sizes', (p, url) => store.sizesReport({ days: Number(url.searchParams.get('days')) || 28 }), 'reports.stock'],
+  // Лист ожидания размера (CRM).
+  ['GET', '/api/waitlist', (p, url) => ({ list: store.waitlistList({ status: url.searchParams.get('status') || 'waiting', leadId: url.searchParams.get('lead') || null }), text: waitText() }), 'crm'],
+  ['GET', '/api/waitlist/search', (p, url) => store.waitSearch(url.searchParams.get('q')), 'crm'],
+  ['POST', '/api/waitlist', (p, url, body, user) => {
+    const lead = body.leadId ? crm.get(body.leadId) : null;
+    const w = store.waitlistAdd({ productId: body.productId, leadId: lead?.id, name: body.name || lead?.name || '', contact: body.contact || (lead ? lead.phone || (lead.instagram ? '@' + lead.instagram : '') : ''), note: body.note }, user);
+    if (lead) crm.addEvent(lead.id, { kind: 'note', text: `⏳ Ждёт поступления: ${w.product}. Когда товар придёт, программа сама напишет клиенту.` }, user);
+    return w;
+  }, 'crm'],
+  ['POST', '/api/waitlist/:id/status', (p, url, body) => store.waitlistSet(p.id, body.status, body.status === 'notified' ? 'вручную' : ''), 'crm'],
+  ['PUT', '/api/waitlist/text', (p, url, body) => { mainStore.setSetting('waitlist_text', String(body.text || '').trim().slice(0, 1000)); return { text: waitText() }; }, 'crm.settings'],
+  ['POST', '/api/waitlist/run', () => waitlistTick(current()), 'crm'],
   ['GET', '/api/reports/dead', (p, url) => store.deadStock({ days: Number(url.searchParams.get('days')) || 30 }), 'reports.stock'],
   ['POST', '/api/reports/dead/discount', (p, url, body) => store.setDiscountBulk(body.ids, body.discount), 'products'],
   ['GET', '/api/automation', () => ({ settings: store.automation(), preview: store.autoMarkdown({ dryRun: true }), telegram: notifier.telegramSettings().enabled }), 'automation'],
@@ -1782,6 +1844,9 @@ const AUDIT_LABELS = {
   'PUT /api/crm/leads/:id': 'Изменил сделку в CRM',
   'POST /api/crm/leads/:id/price-reply': 'Отправил клиенту цену по артикулу',
   'PUT /api/crm/stories/:id': 'Привязал артикулы к сторис',
+  'POST /api/waitlist': 'Добавил клиента в лист ожидания',
+  'POST /api/waitlist/:id/status': 'Изменил запись листа ожидания',
+  'PUT /api/waitlist/text': 'Изменил текст «Поступил ваш размер»',
   'POST /api/settings/instagram/subscribe': 'Подписал Instagram на сообщения Direct',
   'PUT /api/crm/funnel': 'Изменил воронку CRM',
   'POST /api/kassa/expense': 'Расход из кассы',
