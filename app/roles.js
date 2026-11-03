@@ -26,6 +26,8 @@ const RIGHTS = [
   { key: 'discount', group: 'Касса', label: 'Давать скидку на кассе (на товар и на чек; предел — в карточке сотрудника)' },
   { key: 'sales.delete', group: 'Касса', label: 'Удалять продажи: по одной, выбранные и все сразу' },
   { key: 'products', group: 'Товары', label: 'Заводить и менять товары, цены, групповое изменение' },
+  { key: 'products.cost', group: 'Товары', label: 'Видеть и менять цену закупки, себестоимость, наценку; оценка склада по закупке' },
+  { key: 'products.value', group: 'Товары', label: 'Видеть оценку склада по цене продажи (на сколько товара в магазине)' },
   { key: 'products.delete', group: 'Товары', label: 'Удалять товары' },
   { key: 'categories', group: 'Товары', label: 'Категории: создавать, переименовывать, удалять, менять порядок и картинки' },
   { key: 'import', group: 'Товары', label: 'Импорт товаров из Excel' },
@@ -93,7 +95,7 @@ const ROLES = {
   manager: {
     name: 'Управляющий',
     about: 'Видит всё и ведёт магазин, выписывает штрафы, правит смены, ведёт табель, даёт и проверяет задания. По умолчанию не меняет сотрудников, бонусы, оформление, настройки и не видит журнал действий.',
-    can: ['dashboard', 'kpi', 'pos', 'customers.create', 'certificates.sell', 'certificates.accept', 'certificates', 'sales', 'refund', 'discount', 'products', 'categories', 'stock.view', 'products.delete', 'import', 'products.export', 'migrate', 'docs.newproduct', 'stock', 'photos', 'arrivals', 'crm', 'crm.settings', 'customers', 'customers.accounts', 'orders', 'orders.payment', 'notify', 'shifts', 'fines', 'timesheet', 'timesheet.edit', 'tasks', 'writeoff', 'docs.sale', 'transfer', 'docs.unpost', 'expenses', 'expenses.cash', 'pos.chefchange', 'finance', 'abc', 'reports.stock', 'reports.money', 'products.history', 'receive.photo', 'mytimesheet', 'undo.own'],
+    can: ['dashboard', 'kpi', 'pos', 'customers.create', 'certificates.sell', 'certificates.accept', 'certificates', 'sales', 'refund', 'discount', 'products', 'products.cost', 'products.value', 'categories', 'stock.view', 'products.delete', 'import', 'products.export', 'migrate', 'docs.newproduct', 'stock', 'photos', 'arrivals', 'crm', 'crm.settings', 'customers', 'customers.accounts', 'orders', 'orders.payment', 'notify', 'shifts', 'fines', 'timesheet', 'timesheet.edit', 'tasks', 'writeoff', 'docs.sale', 'transfer', 'docs.unpost', 'expenses', 'expenses.cash', 'pos.chefchange', 'finance', 'abc', 'reports.stock', 'reports.money', 'products.history', 'receive.photo', 'mytimesheet', 'undo.own'],
   },
   cashier: {
     name: 'Кассир',

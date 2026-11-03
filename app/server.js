@@ -712,7 +712,10 @@ const whatsappPublic = (s) => ({ enabled: s.enabled, verifyToken: s.verifyToken,
   otpEnabled: Boolean(s.otpEnabled), otpTemplate: s.otpTemplate || '', otpLang: s.otpLang || 'ru', webhookPath: '/webhooks/whatsapp' });
 
 // Закупочная цена, себестоимость и поставщик — только тем, кому они нужны для работы (кассиру — нет).
-const COST_RIGHTS = ['products', 'arrivals', 'stock', 'writeoff', 'transfer', 'docs.sale', 'abc', 'finance', 'reports.stock', 'reports.money', 'kpi', 'receive.photo'];
+const COST_RIGHTS = ['products.cost', 'arrivals', 'stock', 'writeoff', 'transfer', 'docs.sale', 'abc', 'finance', 'reports.stock', 'reports.money', 'kpi', 'receive.photo'];
+const canCost = (user) => COST_RIGHTS.some((r) => can(user, r));
+// Без права на закупку цены закупки и себестоимость из запроса не принимаются (не затираются нулями).
+const stripCost = (user, body) => { if (body && !canCost(user)) { delete body.cost; delete body.purchase; } return body; };
 const hideStock = (user, list) => {
   const stock = can(user, 'stock.view');
   const cost = COST_RIGHTS.some((r) => can(user, r));
@@ -938,8 +941,8 @@ const routes = [
 
   // Без права «Видеть остатки» остаток не уходит в браузер вовсе.
   ['GET', '/api/products', (p, url, body, user) => hideStock(user, store.listProducts({ archived: url.searchParams.get('archived') === '1' })), 'any'],
-  ['POST', '/api/products', (p, url, body) => store.createProduct(body), 'products'],
-  ['PUT', '/api/products/:id', (p, url, body) => store.updateProduct(p.id, body), 'products'],
+  ['POST', '/api/products', (p, url, body, user) => store.createProduct(stripCost(user, body)), 'products'],
+  ['PUT', '/api/products/:id', (p, url, body, user) => store.updateProduct(p.id, stripCost(user, body)), 'products'],
   // Перенос из CloudShop (раздел на время переноса; право «Импорт»).
   ['GET', '/api/migrate', () => ({ items: store.migrateList() }), 'migrate'],
   ['POST', '/api/migrate/upload', (p, url, body) => store.migrateUpload(body.rows), 'migrate'],
@@ -954,6 +957,7 @@ const routes = [
   // Групповое изменение: удаление требует отдельного права.
   ['POST', '/api/products/bulk', (p, url, body, user) => {
     if (body.action === 'delete' && !can(user, 'products.delete')) throw new UserError('У вас нет права удалять товары');
+    if (['purchase', 'cost'].includes(body.action) && !canCost(user)) throw new UserError('У вас нет права менять цену закупки');
     return store.bulkProducts(body);
   }, 'products'],
   ['DELETE', '/api/products/:id', (p) => store.bulkProducts({ ids: [Number(p.id)], action: 'delete' }), 'products.delete'],
@@ -972,7 +976,7 @@ const routes = [
   ['PUT', '/api/categories-order', (p, url, body) => store.sortCategories(body.ids), ['products', 'shop', 'categories']],
   // Картинка категории для витрины: загрузить (mime + data) или убрать (пустое тело).
   ['PUT', '/api/categories/:id/image', (p, url, body) => store.setCategoryImage(p.id, body.data ? store.addImage(body).id : null), ['products', 'shop', 'photos', 'categories']],
-  ['POST', '/api/products/:id/variants', (p, url, body) => store.createVariants(p.id, body), 'products'],
+  ['POST', '/api/products/:id/variants', (p, url, body, user) => store.createVariants(p.id, { ...body, variants: Array.isArray(body.variants) ? body.variants.map((v) => stripCost(user, { ...v })) : body.variants }), 'products'],
   ['GET', '/api/barcode', () => ({ barcode: store.newBarcode() }), 'products'],
   ['GET', '/api/products/:id/info', (p, url, body, user) => {
     const info = store.getProductInfo(p.id);

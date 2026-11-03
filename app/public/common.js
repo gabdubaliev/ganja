@@ -317,6 +317,9 @@ session.ready = api('/api/status').then((s) => {
   applyBrand(s.design.name);
   setOrdersBadge(s.newOrders);
   for (const el of document.querySelectorAll('[data-can]')) el.hidden = !session.can(el.dataset.can);
+  // Закупка и себестоимость — только с правом на них (или на закупки, отчёты); остальным колонки и поля скрыты.
+  const COST_RIGHTS = ['products.cost', 'arrivals', 'stock', 'writeoff', 'transfer', 'docs.sale', 'abc', 'finance', 'reports.stock', 'reports.money', 'kpi', 'receive.photo'];
+  document.body.classList.toggle('no-cost', !COST_RIGHTS.some((r) => session.can(r)));
   for (const el of document.querySelectorAll('[data-can-any]')) el.hidden = !el.dataset.canAny.split(' ').some((r) => session.can(r));
   $('#nav-user').hidden = !s.user;
   if (s.user) {

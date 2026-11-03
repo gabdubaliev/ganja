@@ -156,7 +156,7 @@
     <div class="bulk-bar" id="bulk-bar" hidden>
       <b id="bulk-count"></b>
       <button type="button" class="btn small" data-bulk="price">Цена</button>
-      <button type="button" class="btn small" data-bulk="purchase">Закупка</button>
+      <button type="button" class="btn small cost-only" data-bulk="purchase">Закупка</button>
       <button type="button" class="btn small" data-bulk="cost">Себестоимость</button>
       <button type="button" class="btn small" data-bulk="category">Категория</button>
       <button type="button" class="btn small" data-bulk="unit">Единица</button>
@@ -172,7 +172,7 @@
     </div>
     <div class="table-wrap">
       <table class="products-table">
-        <thead><tr><th class="sel" data-can="products" hidden><input type="checkbox" id="products-all" aria-label="Выбрать все товары в списке"></th><th class="name-col">Товар</th><th>Код</th><th>Штрихкод</th><th>Цена</th><th>Закупка</th><th>Себестоимость</th><th>Наценка</th><th>Остаток</th><th>Поступление</th><th></th></tr></thead>
+        <thead><tr><th class="sel" data-can="products" hidden><input type="checkbox" id="products-all" aria-label="Выбрать все товары в списке"></th><th class="name-col">Товар</th><th>Код</th><th>Штрихкод</th><th>Цена</th><th class="cost-only">Закупка</th><th class="cost-only">Себестоимость</th><th class="cost-only">Наценка</th><th>Остаток</th><th>Поступление</th><th></th></tr></thead>
         <tbody id="products-body"></tbody>
       </table>
     </div>
@@ -2089,13 +2089,13 @@
       <fieldset class="prices wide">
         <legend>Цены и скидки</legend>
         <div class="usd-calc" id="pf-usd" hidden>
-          <div class="field"><label for="pf-usd-purchase">Закупка в $</label><input id="pf-usd-purchase" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+          <div class="field cost-only"><label for="pf-usd-purchase">Закупка в $</label><input id="pf-usd-purchase" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
           <div class="field"><label for="pf-usd-price">Продажа в $</label><input id="pf-usd-price" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
           <p class="pick-meta" id="pf-usd-note"></p>
         </div>
-        <div class="field"><label for="pf-purchase">Цена закупки, сом</label><input id="pf-purchase" name="purchase" class="input num" inputmode="decimal" autocomplete="off" placeholder="Сколько платите поставщику"></div>
-        <div class="field"><label for="pf-cost">Себестоимость, сом</label><input id="pf-cost" name="cost" class="input num" inputmode="decimal" autocomplete="off" placeholder="Закупка + расходы"></div>
-        <div class="field"><label for="pf-markup">Наценка, %</label><input id="pf-markup" name="markup" class="input num" inputmode="decimal" autocomplete="off" placeholder="Например, 40"></div>
+        <div class="field cost-only"><label for="pf-purchase">Цена закупки, сом</label><input id="pf-purchase" name="purchase" class="input num" inputmode="decimal" autocomplete="off" placeholder="Сколько платите поставщику"></div>
+        <div class="field cost-only"><label for="pf-cost">Себестоимость, сом</label><input id="pf-cost" name="cost" class="input num" inputmode="decimal" autocomplete="off" placeholder="Закупка + расходы"></div>
+        <div class="field cost-only"><label for="pf-markup">Наценка, %</label><input id="pf-markup" name="markup" class="input num" inputmode="decimal" autocomplete="off" placeholder="Например, 40"></div>
         <div class="field"><label for="pf-price">Цена продажи, сом</label><input id="pf-price" name="price" class="input num" inputmode="decimal" required autocomplete="off"></div>
         <div class="field"><label for="pf-discount">Скидка, %</label><input id="pf-discount" name="discount" class="input num" inputmode="decimal" autocomplete="off" placeholder="0"></div>
         <p class="pick-meta price-note" id="pf-profit">Меняете наценку — пересчитывается цена, меняете цену — пересчитывается наценка.</p>

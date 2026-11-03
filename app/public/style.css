@@ -2025,3 +2025,6 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .st-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--border); vertical-align: middle; }
 .st-ai-ok { display: block; color: #15803d; font-weight: 600; }
 .st-ai-bad { display: block; color: #b45309; font-weight: 600; }
+
+/* Без права на закупку и себестоимость */
+body.no-cost .cost-only { display: none !important; }

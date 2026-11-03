@@ -35,6 +35,9 @@ const receivedOf = (p, kids = []) => Math.max(p.received_at || 0, ...kids.map((k
 /* ---------- Итоги остатков ---------- */
 // Сколько товара на складе: позиций, единиц, по себестоимости и по цене продажи.
 // list — продаваемые товары (без «шапок» с модификациями); отрицательный остаток не считается.
+// Права «Видеть закупку и себестоимость» и «Видеть оценку склада по цене продажи».
+const seesCost = () => document.body.classList.contains('no-cost') === false;
+const seesValue = () => session.can('products.value');
 function stockTotalsHtml(list) {
   const positions = list.length;
   if (list.some((p) => p.stock === null)) {
@@ -48,9 +51,9 @@ function stockTotalsHtml(list) {
   const noCost = inStock.filter((p) => !p.cost).length;
   return `
     <div class="st-tile"><span>Товаров</span><b class="num">${int(positions)}</b><small>${int(inStock.length)} в наличии · ${int(positions - inStock.length)} нет · ${qtyFmt.format(Math.round(units * 1000) / 1000)} ед.</small></div>
-    <div class="st-tile"><span>По цене закупки</span><b class="num">${money(atPurchase)}</b><small>сколько заплачено поставщикам</small></div>
-    <div class="st-tile"><span>По себестоимости</span><b class="num">${money(atCost)}</b><small>${noCost ? `у ${noCost} без себестоимости` : 'закупка с расходами'}</small></div>
-    <div class="st-tile accent"><span>По цене продажи</span><b class="num">${money(atPrice)}</b><small>можно выручить · наценка ${money(atPrice - atPurchase)}</small></div>`;
+    ${seesCost() ? `<div class="st-tile"><span>По цене закупки</span><b class="num">${money(atPurchase)}</b><small>сколько заплачено поставщикам</small></div>
+    <div class="st-tile"><span>По себестоимости</span><b class="num">${money(atCost)}</b><small>${noCost ? `у ${noCost} без себестоимости` : 'закупка с расходами'}</small></div>` : ''}
+    ${seesValue() ? `<div class="st-tile accent"><span>По цене продажи</span><b class="num">${money(atPrice)}</b><small>можно выручить${seesCost() ? ` · наценка ${money(atPrice - atPurchase)}` : ''}</small></div>` : ''}`;
 }
 
 /* ---------- Карточка товара: информация, цены, склад, история ---------- */
@@ -93,7 +96,7 @@ async function openProductCard(id, stats = null) {
   $('#pc-variants').innerHTML = kids.length ? `<h3>Модификации (${kids.length})</h3><div class="pc-variants">${kids.map((k) => `
     <button type="button" class="pc-variant" data-card-kid="${k.id}"><span>${esc(optionsText(k) || k.name)}<small class="pcat"> · код ${esc(k.code || '—')}</small></span><span class="num">${money2(salePrice(k))}</span>${k.stock === null ? '' : `<span class="num ${k.stock <= 0 ? 'neg' : ''}">${qty(k.stock, k.unit)}</span>`}</button>`).join('')}</div>` : '';
   $('#pc-sales').innerHTML = stats ? `<h3>Продажи за выбранный на главной период</h3><div class="pc-grid">
-    ${pcCell('Продано', qty(stats.qty, p.unit))}${pcCell('Выручка', money(stats.revenue))}${pcCell('Прибыль', money(stats.profit), stats.margin === null ? '' : `маржа ${pct(stats.margin)}`)}
+    ${pcCell('Продано', qty(stats.qty, p.unit))}${pcCell('Выручка', money(stats.revenue))}${seesCost() ? pcCell('Прибыль', money(stats.profit), stats.margin === null ? '' : `маржа ${pct(stats.margin)}`) : ''}
     ${stock !== null && stats.daysLeft !== null ? pcCell('Хватит на', stats.daysLeft === Infinity ? 'не продаётся' : stats.daysLeft < 1 ? 'меньше дня' : `${int(Math.floor(stats.daysLeft))} ${plural(Math.floor(stats.daysLeft), ['день', 'дня', 'дней'])}`, `за 30 дней продано ${qty(stats.sold30, p.unit)}`) : ''}</div>` : '';
 
   renderCardPrices(p, kids);
@@ -136,23 +139,23 @@ function renderCardPrices(p, kids) {
     $('#pc-prices').innerHTML = pcCell('Цена продажи', lo === hi ? money2(lo) : `${money2(lo)} – ${money2(hi)}`, 'у модификаций');
     $('#pc-prices-note').textContent = 'Цены, скидки и себестоимость у каждой модификации свои. Нажмите на модификацию, чтобы открыть её карточку.';
     $('#pc-prices-variants').innerHTML = `<div class="table-wrap"><table class="pc-table">
-      <thead><tr><th>Модификация</th><th class="num">Цена</th><th class="num">Скидка</th><th class="num">Закупка</th><th class="num">Себест.</th><th class="num">Наценка</th><th class="num">Маржа</th></tr></thead>
+      <thead><tr><th>Модификация</th><th class="num">Цена</th><th class="num">Скидка</th><th class="num cost-only">Закупка</th><th class="num cost-only">Себест.</th><th class="num cost-only">Наценка</th><th class="num cost-only">Маржа</th></tr></thead>
       <tbody>${kids.map((k) => { const c = one(k); return `<tr class="clickable" data-card-kid="${k.id}">
-        <td>${esc(optionsText(k) || k.name)}</td><td class="num">${money2(c.sale)}</td><td class="num">${k.discount ? `${int(k.discount)}%` : '—'}</td><td class="num">${money2(c.purchase)}</td><td class="num">${money2(k.cost)}</td>
-        <td class="num">${c.markup === null ? '—' : pct(c.markup)}</td><td class="num">${c.margin === null ? '—' : pct(c.margin)}</td></tr>`; }).join('')}</tbody></table></div>`;
+        <td>${esc(optionsText(k) || k.name)}</td><td class="num">${money2(c.sale)}</td><td class="num">${k.discount ? `${int(k.discount)}%` : '—'}</td><td class="num cost-only">${money2(c.purchase)}</td><td class="num cost-only">${money2(k.cost)}</td>
+        <td class="num cost-only">${c.markup === null ? '—' : pct(c.markup)}</td><td class="num cost-only">${c.margin === null ? '—' : pct(c.margin)}</td></tr>`; }).join('')}</tbody></table></div>`;
     return;
   }
   const c = one(p);
   const extra = p.cost - c.purchase;
   $('#pc-prices').innerHTML = [
     pcCell('Цена продажи', money2(p.price), p.discount > 0 ? `со скидкой <b>${money2(c.sale)}</b>` : '', 'accent'),
-    pcCell('Цена закупки', c.purchase ? money2(c.purchase) : '—', 'только товар у поставщика'),
-    pcCell('Себестоимость', p.cost ? money2(p.cost) : '—', p.cost && extra > 0.004 ? `закупка + расходы ${money2(extra)}` : 'закупка с расходами'),
+    seesCost() ? pcCell('Цена закупки', c.purchase ? money2(c.purchase) : '—', 'только товар у поставщика') : '',
+    seesCost() ? pcCell('Себестоимость', p.cost ? money2(p.cost) : '—', p.cost && extra > 0.004 ? `закупка + расходы ${money2(extra)}` : 'закупка с расходами') : '',
     pcCell('Скидка', p.discount > 0 ? `${int(p.discount)}%` : '0%', p.discount > 0 ? `−${money2(p.price - c.sale)} с единицы` : 'без скидки'),
-    pcCell('Наценка', c.markup === null ? '—' : pct(c.markup), c.purchase ? `от цены закупки, +${money2(p.price - c.purchase)}` : 'от цены закупки'),
-    pcCell('Маржинальность', c.margin === null ? '—' : pct(c.margin), c.margin === null ? 'от цены закупки' : `от цены закупки · с единицы ${money2(c.profit)}`),
+    seesCost() ? pcCell('Наценка', c.markup === null ? '—' : pct(c.markup), c.purchase ? `от цены закупки, +${money2(p.price - c.purchase)}` : 'от цены закупки') : '',
+    seesCost() ? pcCell('Маржинальность', c.margin === null ? '—' : pct(c.margin), c.margin === null ? 'от цены закупки' : `от цены закупки · с единицы ${money2(c.profit)}`) : '',
   ].join('');
-  $('#pc-prices-note').textContent = c.purchase && c.purchase !== p.cost
+  $('#pc-prices-note').textContent = !seesCost() ? '' : c.purchase && c.purchase !== p.cost
     ? `С учётом расходов на единицу (себестоимость ${money2(p.cost)}): наценка ${pct((p.price - p.cost) / p.cost)}, маржинальность ${c.sale > 0 ? pct((c.sale - p.cost) / c.sale) : '—'}.`
     : 'Маржинальность — какая доля цены продажи (со скидкой) остаётся после цены закупки.';
   $('#pc-prices-variants').innerHTML = '';
@@ -335,9 +338,9 @@ async function renderProducts() {
       <td class="num">${group ? '' : esc(p.code) || '—'}</td>
       <td class="num">${group ? '' : esc(p.barcode) || '—'}</td>
       <td>${lo === hi ? money2(lo) : `${money2(lo)} – ${money2(hi)}`}${!group && p.discount > 0 ? `<div class="pcat disc-tag">скидка ${int(p.discount)}% → ${money2(salePrice(p))}</div>` : ''}</td>
-      <td>${group ? '' : purchase ? money2(purchase) : '—'}</td>
-      <td>${group ? '' : p.cost ? money2(p.cost) : '—'}</td>
-      <td>${group || m === null ? '—' : pct(m)}</td>
+      <td class="cost-only">${group ? '' : purchase ? money2(purchase) : '—'}</td>
+      <td class="cost-only">${group ? '' : p.cost ? money2(p.cost) : '—'}</td>
+      <td class="cost-only">${group || m === null ? '—' : pct(m)}</td>
       <td class="${stock !== null && stock <= 0 ? 'neg' : ''}">${p.stock === null ? '—' : qty(stock, p.unit)}</td>
       <td class="nowrap">${received ? dateOnly(received) : '—'}</td>
       <td><div class="actions">
@@ -435,16 +438,17 @@ async function exportProducts(onlySelected) {
   let suppliers = new Map();
   try { suppliers = new Map((await api('/api/suppliers')).map((s) => [s.id, s.name])); } catch { /* без права — без поставщика */ }
   const withStock = picked.some((p) => p.stock !== null);
-  const head = ['Название', 'Основной товар', 'Свойства', 'Категория', 'Код товара', 'Штрихкод', 'Цена продажи', 'Скидка, %', 'Цена со скидкой', 'Себестоимость', 'Цена закупки',
-    ...(withStock ? ['Остаток', 'Остаток в ценах продажи'] : []), 'Единица', 'Поставщик', 'Описание', 'В продаже'];
+  const cost = seesCost(), value = seesValue();
+  const head = ['Название', 'Основной товар', 'Свойства', 'Категория', 'Код товара', 'Штрихкод', 'Цена продажи', 'Скидка, %', 'Цена со скидкой', ...(cost ? ['Себестоимость', 'Цена закупки'] : []),
+    ...(withStock ? ['Остаток', ...(value ? ['Остаток в ценах продажи'] : [])] : []), 'Единица', 'Поставщик', 'Описание', 'В продаже'];
   const rows = picked.map((p) => {
     const base = p.parent_id ? byId.get(p.parent_id) : null;
     const purchase = p.purchase ?? p.cost;
-    return [p.name, base?.name || '', optionsText(p), catOf(p) || '', p.code || '', p.barcode || '', p.price, p.discount || 0, salePrice(p), p.cost || 0, purchase || 0,
-      ...(withStock ? [p.stock ?? '', p.stock === null ? '' : Math.round(p.stock * salePrice(p) * 100) / 100] : []),
+    return [p.name, base?.name || '', optionsText(p), catOf(p) || '', p.code || '', p.barcode || '', p.price, p.discount || 0, salePrice(p), ...(cost ? [p.cost || 0, purchase || 0] : []),
+      ...(withStock ? [p.stock ?? '', ...(value ? [p.stock === null ? '' : Math.round(p.stock * salePrice(p) * 100) / 100] : [])] : []),
       p.unit || 'шт', suppliers.get(p.supplier_id) || '', (base?.description ?? p.description) || '', p.archived ? 'нет' : 'да'];
   });
-  const widths = [38, 26, 18, 18, 12, 16, 13, 10, 15, 14, 13, ...(withStock ? [10, 20] : []), 9, 20, 40, 10];
+  const widths = [38, 26, 18, 18, 12, 16, 13, 10, 15, ...(cost ? [14, 13] : []), ...(withStock ? [10, ...(value ? [20] : [])] : []), 9, 20, 40, 10];
   const date = new Date().toLocaleDateString('ru-RU').split('.').reverse().join('-');
   // Имя файла латиницей: с русскими буквами некоторые браузеры сохраняют файл как «download» без расширения.
   downloadBlob(writeXlsx([{ name: 'Товары', rows: [head, ...rows], widths }]), `tovary${onlySelected ? '-vybrannye' : productsView.category ? '-kategoriya' : ''}-${date}.xlsx`);
