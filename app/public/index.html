@@ -254,7 +254,8 @@
 <main class="page" data-view="accounts" hidden>
   <header class="top">
     <div class="title"><h1>Счета</h1><span class="source" id="acc-sub"></span></div>
-    <div class="periods" id="acc-ranges" role="group" aria-label="Период"></div>
+    <div class="tools"><div class="periods" id="acc-ranges" role="group" aria-label="Период"></div>
+      <button type="button" class="btn primary" id="acc-new" data-can-any="settings accounts">+ Создать счёт</button></div>
   </header>
   <div class="acc-list" id="acc-list"></div>
   <section class="panel">
@@ -948,6 +949,20 @@
   </div>
 </dialog>
 
+<dialog id="acc-new-dlg" aria-labelledby="acc-new-title">
+  <form id="acc-new-form" novalidate>
+    <h2 id="acc-new-title">Новый счёт</h2>
+    <p class="sub">Счёт — место, где лежат деньги: касса, банковская карта, МБАНК, сейф, «Счёт прибыли», «На зарплату». На него можно вносить, изымать и переводить деньги с других счетов.</p>
+    <div class="field"><label for="an-name">Название</label><input id="an-name" name="name" class="input" maxlength="60" placeholder="Например, Счёт прибыли" autocomplete="off" required></div>
+    <div class="field"><label for="an-kind">Тип</label><select id="an-kind" name="kind" class="input"><option value="transfer">Банковский счёт / перевод</option><option value="card">Карта</option><option value="cash">Наличные (сейф, касса)</option><option value="qr">QR-код</option><option value="other">Другое</option></select></div>
+    <div class="field"><label for="an-opening">Сейчас на счёте, сом</label><input id="an-opening" name="opening" class="input num" inputmode="decimal" placeholder="0" autocomplete="off"></div>
+    <label class="check"><input type="checkbox" name="pos"> Принимать на кассе как способ оплаты (кнопка у кассира)</label>
+    <div class="field" id="an-fee-row" hidden><label for="an-fee">Комиссия банка, %</label><input id="an-fee" name="commission" class="input num" inputmode="decimal" placeholder="0" autocomplete="off"></div>
+    <p class="form-error" id="an-error" role="alert" hidden></p>
+    <div class="form-actions"><button type="button" class="btn ghost" id="an-cancel">Отмена</button><button type="submit" class="btn primary">Создать счёт</button></div>
+  </form>
+</dialog>
+
 <dialog id="crm-funnel-dlg" aria-labelledby="crm-funnel-title">
   <form method="dialog" id="crm-funnel-form">
     <h2 id="crm-funnel-title">Воронка и раздача сделок</h2>
@@ -1493,6 +1508,7 @@
         <input name="name" class="input" placeholder="Например, МБАНК" autocomplete="off" aria-label="Название способа оплаты">
         <select name="kind" class="input" aria-label="Тип"></select>
         <input name="commission" class="input num" inputmode="decimal" placeholder="Комиссия, %" autocomplete="off" aria-label="Комиссия банка, %">
+        <label class="check"><input type="checkbox" name="pos" checked> на кассе</label>
         <button type="submit" class="btn primary">Добавить</button>
       </form>
       <div id="pm-list" class="pm-list"></div>

@@ -1024,7 +1024,7 @@ const routes = [
   ['GET', '/api/payment-methods', (p, url, body, user) => (url.searchParams.get('mine') === '1'
     ? store.allowedPaymentMethods(user && store.findUser(user.id))
     : { methods: store.listPaymentMethods({ all: url.searchParams.get('all') === '1' }), kinds: store.paymentKinds }), 'any'],
-  ['POST', '/api/payment-methods', (p, url, body) => store.savePaymentMethod(null, body), 'settings'],
+  ['POST', '/api/payment-methods', (p, url, body) => store.savePaymentMethod(null, body), ['settings', 'accounts']],
   ['PUT', '/api/payment-methods/:id', (p, url, body) => store.savePaymentMethod(p.id, body), 'settings'],
   ['PUT', '/api/payment-methods-order', (p, url, body) => store.sortPaymentMethods(body.ids), 'settings'],
   ['GET', '/api/reports/payments', (p, url) => store.reportPayments(range(url)), ['kpi', 'sales']],
@@ -1737,6 +1737,7 @@ const AUDIT_LABELS = {
   'PUT /api/crm/funnel': 'Изменил воронку CRM',
   'POST /api/kassa/expense': 'Расход из кассы',
   'POST /api/access': 'Изменил права сотрудников (Права и доступ)',
+  'POST /api/payment-methods': 'Создал счёт / способ оплаты',
   'PUT /api/cash-drawer': 'Изменил настройку «Один денежный ящик на все кассы»',
   'POST /api/crm/assign-free': 'Раздал свободные сделки CRM',
   'DELETE /api/crm/leads/:id': 'Удалил сделку в CRM',

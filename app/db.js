@@ -498,6 +498,8 @@ function open(file) {
   addColumns('sales', [['change_kept', 'REAL NOT NULL DEFAULT 0']]);
   // «Сдача от шефа»: сдачи в кассе нет — владелец переводит её клиенту сам, а наличные остаются в кассе.
   addColumns('sales', [['chef_change', 'REAL NOT NULL DEFAULT 0'], ['chef_change_to', "TEXT NOT NULL DEFAULT ''"]]);
+  // Счёт без кнопки на кассе («Счёт прибыли», «Сейф», «На зарплату»): pos = 0 — виден в «Счетах», но на кассе им не платят.
+  addColumns('payment_methods', [['pos', 'INTEGER NOT NULL DEFAULT 1']]);
   // Продажа без интернета: номер чека с кассы (тот же чек дважды не пробьётся) и время, когда его пробили на самом деле.
   addColumns('sales', [['client_id', 'TEXT'], ['offline_at', 'INTEGER']]);
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS sales_client_id ON sales(client_id) WHERE client_id IS NOT NULL');
@@ -1865,7 +1867,8 @@ function createStore(file) {
     allowedPaymentMethods(user) {
       const active = this.listPaymentMethods();
       const own = user?.payment_methods ? JSON.parse(user.payment_methods) : null;
-      return Array.isArray(own) && !['admin', 'owner'].includes(user.role) ? active.filter((m) => own.includes(m.id)) : active;
+      const onPos = active.filter((m) => m.pos !== 0); // счета «не для кассы» оплатой не принимаются
+      return Array.isArray(own) && !['admin', 'owner'].includes(user.role) ? onPos.filter((m) => own.includes(m.id)) : onPos;
     },
 
     // Способ оплаты для чека: по id или, для старых запросов, первый способ нужного типа.
@@ -1894,13 +1897,15 @@ function createStore(file) {
         }
         const commission = input.commission === undefined ? cur.commission : number(input.commission || 0, 'Комиссия, %');
         if (commission > 50) throw new UserError('Комиссия больше 50% — проверьте число');
-        db.prepare('UPDATE payment_methods SET name = ?, kind = ?, active = ?, commission = ? WHERE id = ?').run(name, kind, active, commission, cur.id);
+        const pos = input.pos === undefined ? cur.pos : input.pos ? 1 : 0;
+        db.prepare('UPDATE payment_methods SET name = ?, kind = ?, active = ?, commission = ?, pos = ? WHERE id = ?').run(name, kind, active, commission, pos, cur.id);
         return db.prepare('SELECT * FROM payment_methods WHERE id = ?').get(cur.id);
       }
       const sort = (db.prepare('SELECT MAX(sort) AS m FROM payment_methods').get().m ?? 0) + 1;
       const commission = number(input.commission || 0, 'Комиссия, %');
       if (commission > 50) throw new UserError('Комиссия больше 50% — проверьте число');
-      const { lastInsertRowid } = db.prepare('INSERT INTO payment_methods (name, kind, sort, created_at, commission) VALUES (?, ?, ?, ?, ?)').run(name, kind, sort, Date.now(), commission);
+      const { lastInsertRowid } = db.prepare('INSERT INTO payment_methods (name, kind, sort, created_at, commission, pos) VALUES (?, ?, ?, ?, ?, ?)').run(name, kind, sort, Date.now(), commission, input.pos === false || input.pos === 0 ? 0 : 1);
+      if (input.opening !== undefined && input.opening !== '' && Number(input.opening)) this.setOpeningBalance(lastInsertRowid, input.opening);
       return db.prepare('SELECT * FROM payment_methods WHERE id = ?').get(lastInsertRowid);
     },
 
@@ -2868,7 +2873,7 @@ function createStore(file) {
     /* ---------- Деньги в кассе ---------- */
     // Счёт наличных, куда идут деньги кассы (первый включённый способ «наличные»).
     cashAccount() {
-      return db.prepare("SELECT * FROM payment_methods WHERE kind = 'cash' AND active = 1 ORDER BY sort, id LIMIT 1").get() || null;
+      return db.prepare("SELECT * FROM payment_methods WHERE kind = 'cash' AND active = 1 ORDER BY pos DESC, sort, id LIMIT 1").get() || null;
     },
     // Наличные не от продаж между моментами a и b: расходы из кассы и ручные внесения/изъятия.
     // Считаются, только когда касса одна — иначе непонятно, из какой кассы взяли.
@@ -4039,7 +4044,7 @@ function createStore(file) {
         const all = flows(0, 8.64e15);
         const period = flows(from, to);
         const net = (f) => round2(f.sales - f.commission - f.returns - f.purchases - f.expenses + f.ops + f.certificates);
-        return { id: m.id, name: m.name, kind: m.kind, active: m.active, commission: m.commission, opening: m.opening_balance,
+        return { id: m.id, name: m.name, kind: m.kind, active: m.active, pos: m.pos, commission: m.commission, opening: m.opening_balance,
           balance: round2(m.opening_balance + net(all)), period: { ...Object.fromEntries(Object.entries(period).map(([k, v]) => [k, round2(v)])), net: net(period) } };
       });
     },

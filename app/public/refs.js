@@ -16,7 +16,7 @@ async function renderAccounts() {
   $('#acc-list').innerHTML = r.accounts.map((a) => {
     const p = a.period;
     return `<article class="acc-card ${a.kind === 'cash' ? 'cash' : ''} ${a.active ? '' : 'off'}">
-      <div class="acc-head"><b>${a.kind === 'cash' ? '💵' : '💳'} ${esc(a.name)}</b>${a.active ? '' : '<span class="pick-meta">выключен</span>'}</div>
+      <div class="acc-head"><b>${a.kind === 'cash' ? '💵' : '💳'} ${esc(a.name)}</b>${a.active ? '' : '<span class="pick-meta">выключен</span>'}${a.pos === 0 ? '<span class="pick-meta">не на кассе</span>' : ''}</div>
       <div class="acc-balance num">${money(a.balance)}</div>
       <dl class="acc-flows">
         <dt>Оплаты чеков</dt><dd class="pos-text">+${money(p.sales)}</dd>
@@ -129,6 +129,29 @@ $('#reg-list').addEventListener('change', async (e) => {
     toast('Сохранено');
   } catch (err) { toast(err.message, 'error'); }
   renderRegisters();
+});
+
+// «+ Создать счёт»: счёт для денег (прибыль, сейф, зарплата) — по желанию и кнопкой оплаты на кассе.
+$('#acc-new').addEventListener('click', () => {
+  const f = $('#acc-new-form');
+  f.reset();
+  $('#an-error').hidden = true;
+  $('#an-fee-row').hidden = true;
+  $('#acc-new-dlg').showModal();
+  f.elements.name.focus();
+});
+$('#an-cancel').addEventListener('click', () => $('#acc-new-dlg').close());
+$('#acc-new-form').addEventListener('change', (e) => { if (e.target.name === 'pos') $('#an-fee-row').hidden = !e.target.checked; });
+$('#acc-new-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  try {
+    const m = await api('/api/payment-methods', { method: 'POST', body: { name: f.elements.name.value, kind: f.elements.kind.value, pos: f.elements.pos.checked,
+      commission: parseNum(f.elements.commission.value) || 0, opening: parseNum(f.elements.opening.value) || 0 } });
+    $('#acc-new-dlg').close();
+    toast(`Счёт «${m.name}» создан${m.pos ? ' и появится на кассе' : ''}`);
+    renderAccounts();
+  } catch (err) { showFormError('#an-error', err); }
 });
 
 views.accounts = { show: renderAccounts, right: 'accounts' };
