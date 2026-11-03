@@ -2087,3 +2087,9 @@ body.no-mig-purchase .mig-c-purchase, body.no-mig-cost .mig-c-cost, body.no-mig-
 .story-out { margin: 0; }
 .tl-story img { max-height: 200px; }
 .price-ask-story { font-size: 13px; }
+
+.pos-cart.need-shift > :not(.cart-lock) { filter: blur(2px); opacity: .45; pointer-events: none; user-select: none; }
+.pos-cart.need-shift { position: relative; }
+.cart-lock { position: absolute; inset: 0; z-index: 5; display: grid; place-content: center; justify-items: center; gap: 8px; text-align: center; padding: 24px; }
+.cart-lock::before { content: ''; position: absolute; inset: 0; background: color-mix(in srgb, var(--surface, #fff) 70%, transparent); border-radius: inherit; z-index: -1; }
+.cart-lock p { margin: 0; }

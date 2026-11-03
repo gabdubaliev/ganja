@@ -501,6 +501,7 @@ $('#customer-spend').addEventListener('input', (e) => {
 });
 
 function addToCart(id, amount = 1) {
+  if (shiftGuard()) return;
   const p = catalog.byId(id);
   if (!p) return;
   const line = pos.cart.find((l) => l.productId === p.id);
@@ -704,6 +705,7 @@ function resetCheck() {
 }
 
 $('#checkout').addEventListener('click', async () => {
+  if (shiftGuard()) return;
   const paid = r2(cartTotal() - bonusSpend() - certUse());
   if (!currentMethod()) return toast('Выберите способ оплаты', 'error');
   const parts = payParts(paid);
@@ -782,13 +784,43 @@ $('#cart-print').addEventListener('click', () => {
 });
 
 /* ---------- Смена ---------- */
+// Сотруднику без открытой смены «Чек» закрыт (владельцу и праву «Продавать без открытой смены» — открыт).
+const shiftLocked = () => Boolean(session.user) && session.user.role !== 'owner' && !session.can('pos.noshift') && !pos.shift;
+function renderShiftLock() {
+  const box = $('.pos-cart');
+  if (!box) return;
+  const locked = shiftLocked();
+  box.classList.toggle('need-shift', locked);
+  let lock = $('#cart-lock');
+  if (locked && !lock) {
+    lock = document.createElement('div');
+    lock.id = 'cart-lock';
+    lock.className = 'cart-lock';
+    lock.innerHTML = '<p><b>Смена не открыта</b></p><p class="sub">Чтобы продавать, откройте смену и пересчитайте деньги в кассе.</p><button type="button" class="btn primary" id="cart-lock-open">Открыть смену</button>';
+    box.append(lock);
+    lock.querySelector('#cart-lock-open').addEventListener('click', () => openShiftCashDialog());
+  }
+  if (lock) lock.hidden = !locked;
+}
+function shiftGuard() {
+  if (!shiftLocked()) return false;
+  toast('Сначала откройте смену', 'error');
+  openShiftCashDialog();
+  return true;
+}
+
 async function loadShift() {
   if (!session.user) return;
   try {
     [pos.shift, pos.registers] = await Promise.all([api('/api/shift'), api('/api/registers')]);
+    try { localStorage.setItem('kassa.shiftOpen', pos.shift ? JSON.stringify(pos.shift) : ''); } catch {}
   } catch {
+    // Нет интернета: помним, была ли смена открыта, — касса без сети продолжает продавать.
+    try { const saved = localStorage.getItem('kassa.shiftOpen'); if (saved && !pos.shift) pos.shift = JSON.parse(saved); } catch {}
+    renderShiftLock();
     return;
   }
+  renderShiftLock();
   const sh = pos.shift;
   // Касса запоминается в этом браузере: на одном компьютере обычно одна и та же касса.
   let saved = null;

@@ -1143,6 +1143,11 @@ const routes = [
     let at;
     const off = Number(body.offlineAt);
     if (clientId && off && off <= Date.now() + 60_000 && off > Date.now() - 7 * 864e5) at = Math.min(off, Date.now());
+    // Сотрудник продаёт только в открытой смене (владелец и право «Продавать без открытой смены» — без этого).
+    // Чек из очереди без интернета проверяется на смену в момент продажи.
+    if (auth.enabled && user && user.role !== 'owner' && !can(user, 'pos.noshift') && !(at ? store.shiftAt(user.id, at) : store.currentShift(user.id))) {
+      throw new UserError('Сначала откройте смену — без неё продавать нельзя');
+    }
     const sale = store.createSale({ ...body, at }, user);
     if (clientId) store.db.prepare('UPDATE sales SET client_id = ?, offline_at = ? WHERE id = ?').run(clientId, at ? Math.round(off) : null, sale.id);
     if (at) sale.offlineAt = at;
