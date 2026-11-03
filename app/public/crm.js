@@ -215,15 +215,74 @@ function leadFiles(raw, eventId) {
     // Файлы Meta — через наш сервер (так видео играет и на iPhone); страницы instagram.com — ссылкой.
     const meta = /^https:\/\/[^/]*(fbsbx\.com|fbcdn\.net|cdninstagram\.com|whatsapp\.net)\//i.test(a.url);
     const u = esc(meta ? `/api/crm/file/${eventId}/${i}` : a.url);
-    // Ссылка на страницу Instagram (рилс, пост) — не файл, плеер её не откроет.
-    if (/^https:\/\/(www\.)?instagram\.com\//i.test(a.url)) return `<a class="btn" href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">▶ Открыть ${['ig_reel', 'reel'].includes(a.type) ? 'рилс' : 'публикацию'} в Instagram</a>`;
+    // Ссылка на страницу Instagram (рилс, пост) — файла нет, поэтому показываем встроенный плеер Instagram.
+    if (/^https:\/\/(www\.)?instagram\.com\//i.test(a.url)) {
+      const code = a.url.match(/\/(p|reels?|tv)\/([A-Za-z0-9_-]+)/);
+      const what = ['ig_reel', 'reel'].includes(a.type) || /reel/.test(a.url) ? 'рилс' : 'публикацию';
+      const embed = code ? `https://www.instagram.com/${code[1] === 'p' ? 'p' : 'reel'}/${code[2]}/embed/` : '';
+      return `<span class="tl-file">${embed ? `<button type="button" class="btn tl-embed" data-embed="${esc(embed)}">▶ Смотреть ${what} здесь</button>` : ''}<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">Открыть в Instagram</a></span>`;
+    }
     if (['video', 'ig_reel', 'reel'].includes(a.type)) return `<span class="tl-file"><video src="${u}" controls preload="metadata" playsinline></video><a href="${u}" target="_blank" rel="noopener noreferrer">Не играет? Открыть видео</a></span>`;
     if (a.type === 'audio') return `<audio src="${u}" controls preload="none"></audio>`;
     if (a.type === 'file') return `<a href="${u}" target="_blank" rel="noopener noreferrer">📄 Открыть файл</a>`;
-    return `<a href="${u}" target="_blank" rel="noopener noreferrer"><img src="${u}" alt="Вложение клиента" loading="lazy" referrerpolicy="no-referrer" onerror="this.closest('a').textContent='🔗 Открыть вложение (если не открывается — ссылка устарела, смотрите в Instagram)'"></a>`;
+    return `<button type="button" class="tl-img" data-full="${u}" aria-label="Открыть фото крупно"><img src="${u}" alt="Фото клиента" loading="lazy" referrerpolicy="no-referrer" onerror="this.closest('button').outerHTML='<span class=&quot;pcat&quot;>Фото не загрузилось — ссылка устарела, смотрите в Instagram</span>'"></button>`;
   };
   return `<div class="tl-files">${list.map(one).join('')}</div>`;
 }
+
+// Просмотр фото поверх карточки сделки: нажатие — приблизить в этом месте, ещё раз — обратно;
+// на телефоне работает и щипок двумя пальцами. Закрыть — ×, Esc или нажатие на тёмный фон.
+function crmLightbox(src) {
+  let d = document.getElementById('crm-lightbox');
+  if (!d) {
+    d = document.createElement('dialog');
+    d.id = 'crm-lightbox';
+    d.className = 'lightbox';
+    d.innerHTML = '<button type="button" class="lightbox-close" aria-label="Закрыть">×</button><div class="lightbox-stage"><img alt="Фото клиента"></div>';
+    document.body.append(d);
+    const img = d.querySelector('img');
+    d.addEventListener('click', (e) => {
+      if (e.target === img) {
+        // Приближаем в 2,5 раза к точке нажатия; дальше фото двигается пальцем или прокруткой.
+        const r = img.getBoundingClientRect();
+        const fx = (e.clientX - r.left) / r.width;
+        const fy = (e.clientY - r.top) / r.height;
+        const zoomed = img.classList.toggle('zoomed');
+        if (zoomed) {
+          img.style.width = `${r.width * 2.5}px`;
+          const stage = d.querySelector('.lightbox-stage');
+          requestAnimationFrame(() => {
+            stage.scrollLeft = img.offsetLeft + img.offsetWidth * fx - stage.clientWidth / 2;
+            stage.scrollTop = img.offsetTop + img.offsetHeight * fy - stage.clientHeight / 2;
+          });
+        } else img.style.width = '';
+        return;
+      }
+      d.close();
+    });
+    d.addEventListener('close', () => { img.classList.remove('zoomed'); img.style.width = ''; });
+  }
+  const img = d.querySelector('img');
+  img.classList.remove('zoomed');
+  img.style.width = '';
+  img.src = src;
+  d.showModal();
+}
+
+$('#lead-timeline').addEventListener('click', (e) => {
+  const pic = e.target.closest('.tl-img');
+  if (pic) return crmLightbox(pic.dataset.full);
+  const emb = e.target.closest('.tl-embed');
+  if (emb) {
+    const f = document.createElement('iframe');
+    f.src = emb.dataset.embed;
+    f.className = 'tl-embed-frame';
+    f.title = 'Рилс из Instagram';
+    f.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+    f.loading = 'lazy';
+    emb.replaceWith(f);
+  }
+});
 
 function defaultKind(l) {
   if (l.wa_id && (l.source === 'WhatsApp' || !l.ig_user_id)) return 'whatsapp';
