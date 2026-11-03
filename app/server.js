@@ -2385,6 +2385,26 @@ async function handleRequest(req, res, url, user, owner) {
     }
     return serveStatic(res, pathname);
   }
+  // Вложение клиента из Instagram/WhatsApp через наш сервер: телефон (Safari) не всегда играет видео
+  // со ссылки Meta напрямую. Только ссылки, сохранённые в переписке, и только домены Meta; перемотка (Range) работает.
+  const file = req.method === 'GET' && url.pathname.match(/^\/api\/crm\/file\/(\d+)\/(\d+)$/);
+  if (file) {
+    if (!user || !can(user, 'crm')) return sendJson(res, 403, { error: 'Нет доступа' });
+    const a = crm.eventFile(file[1], file[2]);
+    if (!a) return sendJson(res, 404, { error: 'Вложения нет' });
+    try {
+      const up = await fetch(a.url, { headers: req.headers.range ? { Range: req.headers.range } : {}, redirect: 'follow', signal: AbortSignal.timeout(60_000) });
+      if (!up.ok && up.status !== 206) return sendJson(res, 410, { error: 'Ссылка устарела — откройте вложение в Instagram' });
+      const head = { 'Content-Type': up.headers.get('content-type') || 'application/octet-stream', 'Cache-Control': 'private, max-age=3600', 'Accept-Ranges': 'bytes' };
+      for (const h of ['content-length', 'content-range']) if (up.headers.get(h)) head[h] = up.headers.get(h);
+      res.writeHead(up.status, head);
+      for await (const chunk of up.body) if (!res.write(chunk)) await new Promise((r) => res.once('drain', r));
+      return res.end();
+    } catch (err) {
+      if (!res.headersSent) return sendJson(res, 502, { error: `Не получилось загрузить вложение: ${err.message}` });
+      return res.destroy();
+    }
+  }
   // Файл MONT AI Studio — только с правом «AI Studio» и только своей съёмки текущего магазина.
   const studioFile = req.method === 'GET' && url.pathname.match(/^\/api\/studio\/assets\/(\d+)\/file$/);
   if (studioFile) {

@@ -451,6 +451,18 @@ function createCrm(store) {
     },
 
     // Автоответ в CRM: клиент — в открытую сделку (или новую), вопрос и ответ — в ленту событий.
+    // Вложение события переписки по номеру — для показа через наш сервер. Только домены Meta.
+    eventFile(eventId, idx) {
+      const row = db.prepare('SELECT attach FROM lead_events WHERE id = ?').get(Number(eventId));
+      let list = [];
+      try { list = row?.attach ? JSON.parse(row.attach) : []; } catch { return null; }
+      const a = list[Number(idx)];
+      if (!a) return null;
+      let host = '';
+      try { host = new URL(a.url).hostname; } catch { return null; }
+      return /(^|\.)(fbsbx\.com|fbcdn\.net|cdninstagram\.com|whatsapp\.net)$/i.test(host) ? a : null;
+    },
+
     // Служебная строка в открытую сделку клиента Instagram (например, «автоответ не отправлен»).
     noteInstagram(igUserId, body) {
       const lead = db.prepare('SELECT id FROM leads WHERE ig_user_id = ? AND closed_at IS NULL ORDER BY updated_at DESC LIMIT 1').get(String(igUserId));

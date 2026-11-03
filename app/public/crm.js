@@ -193,7 +193,7 @@ function renderLeadSide() {
   $('#lead-timeline').innerHTML = l.events.map((e) => `
     <div class="tl tl-${e.kind}">
       <div class="tl-meta">${{ in: '📩', out: '📤', call: '📞', note: '📝', stage: '➡️', system: '•' }[e.kind] || '•'} ${esc(e.user_name || '')} · ${shortTime(e.at)}</div>
-      <div class="tl-text">${esc(e.text)}</div>${leadFiles(e.attach)}
+      <div class="tl-text">${esc(e.text)}</div>${leadFiles(e.attach, e.id)}
     </div>`).join('') || '<p class="pcat">Пока пусто</p>';
   const tl = $('#lead-timeline');
   tl.scrollTop = tl.scrollHeight;
@@ -207,14 +207,16 @@ function renderLeadSide() {
 }
 
 // Вложения из Instagram/WhatsApp: фото и пересланные посты — картинкой, видео и рилсы — плеером, голосовые — аудио.
-function leadFiles(raw) {
+function leadFiles(raw, eventId) {
   let list = [];
   try { list = raw ? JSON.parse(raw) : []; } catch { return ''; }
   if (!list.length) return '';
-  const one = (a) => {
-    const u = esc(a.url);
+  const one = (a, i) => {
+    // Файлы Meta — через наш сервер (так видео играет и на iPhone); страницы instagram.com — ссылкой.
+    const meta = /^https:\/\/[^/]*(fbsbx\.com|fbcdn\.net|cdninstagram\.com|whatsapp\.net)\//i.test(a.url);
+    const u = esc(meta ? `/api/crm/file/${eventId}/${i}` : a.url);
     // Ссылка на страницу Instagram (рилс, пост) — не файл, плеер её не откроет.
-    if (/^https:\/\/(www\.)?instagram\.com\//i.test(a.url)) return `<a class="btn" href="${u}" target="_blank" rel="noopener noreferrer">▶ Открыть ${['ig_reel', 'reel'].includes(a.type) ? 'рилс' : 'публикацию'} в Instagram</a>`;
+    if (/^https:\/\/(www\.)?instagram\.com\//i.test(a.url)) return `<a class="btn" href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">▶ Открыть ${['ig_reel', 'reel'].includes(a.type) ? 'рилс' : 'публикацию'} в Instagram</a>`;
     if (['video', 'ig_reel', 'reel'].includes(a.type)) return `<span class="tl-file"><video src="${u}" controls preload="metadata" playsinline></video><a href="${u}" target="_blank" rel="noopener noreferrer">Не играет? Открыть видео</a></span>`;
     if (a.type === 'audio') return `<audio src="${u}" controls preload="none"></audio>`;
     if (a.type === 'file') return `<a href="${u}" target="_blank" rel="noopener noreferrer">📄 Открыть файл</a>`;
