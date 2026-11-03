@@ -545,6 +545,31 @@ const igRefresh = () => {
 setInterval(igRefresh, 6 * 3600e3).unref?.();
 setTimeout(igRefresh, 60_000).unref?.();
 
+// Место на диске сервера: меньше 1,5 ГБ или меньше 15% — уведомление в Telegram (не чаще раза в сутки, пока места мало).
+const DISK_LOW_BYTES = 1.5 * 1024 ** 3;
+const gb = (b) => (b / 1024 ** 3).toFixed(1).replace('.', ',');
+async function diskCheck() {
+  let st;
+  try { st = fs.statfsSync(path.dirname(DB_FILE)); } catch { return; }
+  const total = st.blocks * st.bsize, free = st.bavail * st.bsize;
+  const low = free < DISK_LOW_BYTES || free / total < 0.15;
+  const last = Number(mainStore.setting('disk_alert_at', '0')) || 0;
+  if (!low) { if (last) mainStore.setSetting('disk_alert_at', '0'); return; }
+  if (Date.now() - last < 24 * 3600e3) return;
+  const ctx = contextOf(1);
+  const tg = ctx?.notifier.tgFor('disk_low');
+  if (!tg) return;
+  const text = `💾 На сервере заканчивается место\nСвободно ${gb(free)} ГБ из ${gb(total)} ГБ (${Math.round((free / total) * 100)}%).\nКогда место кончится, программа не сможет сохранять продажи. Напишите разработчику — подскажет, что безопасно удалить.`;
+  try {
+    await ctx.notifier.sendTelegram(text, tg);
+    mainStore.setSetting('disk_alert_at', String(Date.now()));
+  } catch (err) {
+    console.error('Уведомление о месте на диске не отправлено:', err.message);
+  }
+}
+setInterval(() => diskCheck().catch(() => {}), 6 * 3600e3).unref?.();
+setTimeout(() => diskCheck().catch(() => {}), 2 * 60_000).unref?.();
+
 const storeName = (id) => branchList().find((b) => b.id === (id || 1))?.name || '';
 
 // Администратор из переменных. APP_PASSWORD — пароль из прошлых версий, где вход был без email.
