@@ -4,7 +4,7 @@
 
 async function renderSettings() {
   if (session.can('currency')) {
-    api('/api/settings/currency').then((c) => { $('#currency-form').elements.usdRate.value = c.usdRate ? String(c.usdRate).replace('.', ',') : ''; }).catch(() => {});
+    api('/api/settings/currency').then((c) => { $('#currency-form').elements.usdRate.value = c.usdRate ? String(c.usdRate).replace('.', ',') : ''; $('#currency-form').elements.costExtra.value = String(c.costExtra ?? 0).replace('.', ','); }).catch(() => {});
   }
   if (!session.can('settings')) return;
   const f = $('#telegram-form');
@@ -74,9 +74,10 @@ $('#currency-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   $('#currency-error').hidden = true;
   try {
-    const c = await api('/api/settings/currency', { method: 'PUT', body: { usdRate: e.target.elements.usdRate.value.trim() } });
+    const c = await api('/api/settings/currency', { method: 'PUT', body: { usdRate: e.target.elements.usdRate.value.trim(), costExtra: e.target.elements.costExtra.value.trim() } });
     e.target.elements.usdRate.value = c.usdRate ? String(c.usdRate).replace('.', ',') : '';
-    toast(c.usdRate ? `Курс сохранён: 1 $ = ${String(c.usdRate).replace('.', ',')} сом` : 'Курс доллара убран');
+    e.target.elements.costExtra.value = String(c.costExtra).replace('.', ',');
+    toast(`Сохранено: ${c.usdRate ? `1 $ = ${String(c.usdRate).replace('.', ',')} сом` : 'курс доллара не задан'} · себестоимость = закупка + ${c.costExtra} сом`);
   } catch (err) {
     showFormError('#currency-error', err);
   }

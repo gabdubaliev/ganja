@@ -1518,11 +1518,13 @@ function createStore(file) {
 
   // Цена закупки — без неё берётся себестоимость (старые клиенты и импорт знают только её).
   // Себестоимость — без неё равна цене закупки.
+  // Себестоимость по умолчанию = цена закупки + постоянная добавка на единицу (доставка, налоги…), настройка cost_extra.
+  const costExtra = () => { const v = Number(db.prepare("SELECT value FROM settings WHERE key = 'cost_extra'").get()?.value ?? 500); return Number.isFinite(v) && v > 0 ? v : 0; };
   const productFields = (input, current = {}) => {
     const given = (v) => v !== undefined && v !== null && v !== '';
     const purchase = round2(number(given(input.purchase) ? input.purchase : current.purchase ?? (given(input.cost) ? input.cost : current.cost ?? 0), 'Цена закупки'));
     let cost = round2(number(given(input.cost) ? input.cost : input.cost === '' ? 0 : current.cost ?? 0, 'Себестоимость'));
-    if (!cost && purchase) cost = purchase;
+    if (!cost && purchase) cost = round2(purchase + costExtra());
     const discount = round2(number(given(input.discount) ? input.discount : input.discount === '' ? 0 : current.discount ?? 0, 'Скидка, %'));
     if (discount >= 100) throw new UserError('Скидка должна быть меньше 100%');
     const supplierId = input.supplier_id === undefined ? current.supplier_id ?? null : input.supplier_id ? Number(input.supplier_id) : null;
@@ -2271,6 +2273,7 @@ function createStore(file) {
       transaction(db, () => items.forEach((list, i) => ins.run(i, JSON.stringify(list), JSON.stringify(migData(list, known)), Date.now())));
       return { items: items.length, rows: src.length, grouped: groups.length };
     },
+    costExtra() { return costExtra(); },
     migrateUpdate(id, data) {
       const cur = db.prepare('SELECT * FROM migrate_items WHERE id = ?').get(Number(id));
       if (!cur) throw new UserError('Карточка не найдена');
@@ -3860,7 +3863,8 @@ function createStore(file) {
             const old = Math.max(0, p.stock);
             const oldPurchase = p.purchase ?? p.cost;
             const purchase = old > 0 ? round2((old * oldPurchase + i.qty * i.cost) / (old + i.qty)) : i.cost;
-            const cost = round2(purchase + Math.max(0, p.cost - oldPurchase));
+            // Расходы на единицу сверх закупки сохраняются; если их у товара не было — ставится добавка из настроек.
+            const cost = round2(purchase + (p.cost > oldPurchase ? p.cost - oldPurchase : costExtra()));
             db.prepare('UPDATE doc_items SET prev_cost = ?, prev_purchase = ? WHERE id = ?').run(p.cost, oldPurchase, i.id);
             db.prepare('UPDATE products SET stock = stock + ?, cost = ?, purchase = ?, supplier_id = COALESCE(supplier_id, ?) WHERE id = ?').run(i.qty, cost, purchase, d.supplier_id, p.id);
           }

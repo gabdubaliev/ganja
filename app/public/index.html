@@ -336,6 +336,18 @@
   </form>
 </dialog>
 
+<main class="page" data-view="access" hidden>
+  <header class="top">
+    <div class="title"><h1>🔐 Права и доступ</h1><span class="source" id="ac-sub">все сотрудники и их права одной таблицей</span></div>
+    <div class="tools">
+      <select id="ac-role" class="input" aria-label="Роль"></select>
+      <input id="ac-q" class="input search" type="search" placeholder="Найти право или сотрудника" aria-label="Поиск">
+    </div>
+  </header>
+  <p class="sub ac-help">Галочка — право есть. Нажмите на клетку, чтобы дать или убрать право одному сотруднику. «✓ Всем» и «✕ Всем» в строке меняют право сразу у всех сотрудников в таблице (выберите роль сверху — изменится только у неё). Владелец видит и может всё — его здесь нет.</p>
+  <section class="panel ac-panel"><div class="table-wrap ac-wrap" id="ac-table"></div></section>
+</main>
+
 <main class="page" data-view="more" hidden>
   <header class="top"><div class="title"><h1>Ещё</h1></div></header>
   <div class="more-groups" id="more-groups"></div>
@@ -1118,7 +1130,7 @@
       <button type="button" class="btn small primary" id="mig-run">Перенести отмеченные</button>
     </div>
     <div class="table-wrap"><table class="mig-table">
-      <thead><tr><th></th><th>Товар</th><th title="Берётся из названия: «Водолазка M-163» → M-163. Можно исправить">Артикул</th><th>Категория</th><th>Поставщик</th><th class="num">Закупка</th><th class="num">Себест.</th><th class="num">Наценка, %</th><th class="num">Продажа</th><th class="num">Маржа</th><th class="num">Остаток</th><th>Штрихкод</th><th>Модификации</th></tr></thead>
+      <thead><tr><th></th><th>Товар</th><th title="Берётся из названия: «Водолазка M-163» → M-163. Можно исправить">Артикул</th><th>Категория</th><th>Поставщик</th><th class="num cost-only">Закупка</th><th class="num cost-only">Себест.</th><th class="num cost-only">Наценка, %</th><th class="num">Продажа</th><th class="num cost-only">Маржа</th><th class="num">Остаток</th><th>Штрихкод</th><th>Модификации</th></tr></thead>
       <tbody id="mig-body"></tbody>
     </table></div>
     <div class="mig-pager" id="mig-pager"></div>
@@ -1351,6 +1363,8 @@
         <p class="sub">Сколько сом за 1 $. В карточке товара можно вводить цену закупки и продажи в долларах — программа сама пересчитает в сомы по этому курсу. В базе цены хранятся только в сомах; при смене курса старые цены не меняются. Этот же курс подставляется в приход по фото накладной в долларах.</p>
       </div>
       <div class="field"><label for="usd-rate">1 $ =, сом</label><input id="usd-rate" name="usdRate" class="input num" inputmode="decimal" autocomplete="off" placeholder="Например, 87,5"></div>
+      <div class="field"><label for="cost-extra">Себестоимость = цена закупки + … сом</label><input id="cost-extra" name="costExtra" class="input num" inputmode="decimal" autocomplete="off" placeholder="Например, 500">
+        <small class="sub">Вводите в товаре цену закупки — себестоимость заполнится сама: закупка + эта сумма (доставка, налоги, упаковка на единицу). Так же при закупке и в переносе из CloudShop. Если в товаре себестоимость вписана вручную — она не меняется. 0 — себестоимость равна закупке.</small></div>
       <p class="form-error" id="currency-error" role="alert" hidden></p>
       <div class="form-actions start"><button type="submit" class="btn primary">Сохранить</button></div>
     </form>
@@ -2231,6 +2245,7 @@
 <script src="orders.js"></script>
 <script src="gallery.js"></script>
 <script src="ai-studio.js"></script>
+<script src="access.js"></script>
 <script src="ai-studio-editor.js"></script>
 <script src="colors.js"></script>
 <script src="shop-builder.js"></script>

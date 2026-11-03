@@ -825,6 +825,19 @@ function updateBranch(id, input, user) {
 
 // Владельца и администраторов назначает и меняет только владелец. Администратор не даёт прав, которых нет у него самого,
 // и не меняет свои права.
+function accessOut() {
+  const users = store.listUsers().filter((u) => u.role !== 'owner' && !u.owner_shadow);
+  const groups = [];
+  for (const r of RIGHTS) {
+    let g = groups.find((x) => x.name === r.group);
+    if (!g) groups.push(g = { name: r.group, rights: [] });
+    g.rights.push({ key: r.key, label: r.label });
+  }
+  return {
+    groups, roles: Object.fromEntries(Object.entries(ROLES).map(([k, v]) => [k, v.name])),
+    users: users.map((u) => ({ id: u.id, name: u.name || u.email, email: u.email, role: u.role, disabled: u.disabled, custom: Array.isArray(u.rights), rights: rightsOf({ ...u, rights: u.rights }) })),
+  };
+}
 function guardAdmin(user, target, body) {
   if (!user || user.role === 'owner') return;
   const high = (r) => r === 'owner' || r === 'admin';
@@ -944,10 +957,19 @@ const routes = [
   ['POST', '/api/products', (p, url, body, user) => store.createProduct(stripCost(user, body)), 'products'],
   ['PUT', '/api/products/:id', (p, url, body, user) => store.updateProduct(p.id, stripCost(user, body)), 'products'],
   // Перенос из CloudShop (раздел на время переноса; право «Импорт»).
-  ['GET', '/api/migrate', () => ({ items: store.migrateList() }), 'migrate'],
+  // Без права на закупку — список без цены закупки, себестоимости, наценки и маржи (и в строках выгрузки).
+  ['GET', '/api/migrate', (p, url, body, user) => {
+    const items = store.migrateList();
+    if (canCost(user)) return { items };
+    const strip = (x) => { const o = { ...x }; delete o.purchase; delete o.cost; delete o.markup; delete o.margin; return o; };
+    return { items: items.map((it) => ({ ...it, data: strip(it.data), sources: it.sources.map(strip) })), noCost: true };
+  }, ['migrate', 'migrate.view']],
   ['POST', '/api/migrate/upload', (p, url, body) => store.migrateUpload(body.rows), 'migrate'],
-  ['PUT', '/api/migrate/:id', (p, url, body) => store.migrateUpdate(p.id, body), 'migrate'],
-  ['POST', '/api/migrate/bulk', (p, url, body) => store.migrateBulk(body.ids, body.patch), 'migrate'],
+  ['PUT', '/api/migrate/:id', (p, url, body, user) => {
+    const it = store.migrateUpdate(p.id, stripCost(user, body));
+    return canCost(user) ? it : { ...it, data: { ...it.data, purchase: undefined, cost: undefined } };
+  }, 'migrate'],
+  ['POST', '/api/migrate/bulk', (p, url, body, user) => store.migrateBulk(body.ids, stripCost(user, { ...(body.patch || {}) })), 'migrate'],
   ['POST', '/api/migrate/merge', (p, url, body) => store.migrateMerge(body.ids), 'migrate'],
   ['POST', '/api/migrate/:id/split', (p) => store.migrateSplit(p.id), 'migrate'],
   ['POST', '/api/migrate/import', (p, url, body) => store.migrateImport(body.ids), 'migrate'],
@@ -1141,12 +1163,17 @@ const routes = [
   ['GET', '/api/docs-writeoff-summary', (p, url) => store.writeoffSummary(range(url)), 'writeoff'],
   // Курс доллара (сом за 1 $): задаёт владелец в «Настройках»; им же пересчитываются цены из $ в карточке товара
   // и по нему по умолчанию считается приход по фото накладной в долларах.
-  ['GET', '/api/settings/currency', () => ({ usdRate: Number(store.setting('usd_rate', '0')) || null }), ['products', 'settings', 'currency', 'arrivals', 'receive.photo']],
+  ['GET', '/api/settings/currency', () => ({ usdRate: Number(store.setting('usd_rate', '0')) || null, costExtra: store.costExtra() }), ['products', 'settings', 'currency', 'arrivals', 'receive.photo', 'migrate', 'migrate.view']],
   ['PUT', '/api/settings/currency', (p, url, body) => {
     const rate = body.usdRate === '' || body.usdRate === null ? 0 : Number(String(body.usdRate).replace(',', '.').replace(/\s/g, ''));
     if (!Number.isFinite(rate) || rate < 0 || rate > 100000) throw new UserError('Курс доллара: укажите число, например 87,5');
     store.setSetting('usd_rate', rate ? String(Math.round(rate * 10000) / 10000) : '0');
-    return { usdRate: rate || null };
+    if (body.costExtra !== undefined) {
+      const extra = body.costExtra === '' || body.costExtra === null ? 0 : Number(String(body.costExtra).replace(',', '.').replace(/\s/g, ''));
+      if (!Number.isFinite(extra) || extra < 0 || extra > 1e6) throw new UserError('Добавка к себестоимости: укажите число сом, например 500');
+      store.setSetting('cost_extra', String(Math.round(extra * 100) / 100));
+    }
+    return { usdRate: rate || null, costExtra: store.costExtra() };
   }, 'currency'],
   ['GET', '/api/suppliers', () => store.listSuppliers(), ['arrivals', 'transfer', 'stock', 'writeoff', 'products']],
   // Приход по фото накладной: распознать, подобрать товары, провести.
@@ -1413,6 +1440,24 @@ const routes = [
     if (made.role !== 'owner') store.setUserSecrets(made.id, { password: String(body.password), pin: body.pin ? String(body.pin).trim() : undefined }, encryptSecret);
     return pin ? store.setUserPin(made.id, pin) : made;
   }), 'staff'],
+  // «Права и доступ»: все сотрудники магазина и их действующие права одной таблицей; изменения сразу многим.
+  ['GET', '/api/access', (p, url, body, user) => inBranch(url, user, () => accessOut()), 'staff'],
+  ['POST', '/api/access', (p, url, body, user) => inBranch(url, user, () => {
+    const ids = (Array.isArray(body.userIds) ? body.userIds : []).map(Number);
+    if (!ids.length) throw new UserError('Выберите сотрудников');
+    const add = Array.isArray(body.add) ? body.add.map(String) : [];
+    const remove = new Set(Array.isArray(body.remove) ? body.remove.map(String) : []);
+    let changed = 0;
+    for (const id of ids) {
+      const target = store.findUser(id);
+      if (!target || target.role === 'owner') continue;
+      const next = body.reset ? null : [...new Set([...rightsOf(target), ...add])].filter((r) => !remove.has(r));
+      guardAdmin(user, target, { rights: next });
+      store.updateUser(id, { rights: next });
+      changed++;
+    }
+    return { ...accessOut(), changed };
+  }), 'staff'],
   ['PUT', '/api/users/:id', (p, url, body, user) => inBranch(url, user, () => {
     guardAdmin(user, store.findUser(p.id), body);
     const pin = body.clearPin ? null : body.pin ? pinHash(body.pin) : undefined;
@@ -1654,6 +1699,7 @@ const AUDIT_LABELS = {
   'PUT /api/crm/leads/:id': 'Изменил сделку в CRM',
   'PUT /api/crm/funnel': 'Изменил воронку CRM',
   'POST /api/kassa/expense': 'Расход из кассы',
+  'POST /api/access': 'Изменил права сотрудников (Права и доступ)',
   'PUT /api/cash-drawer': 'Изменил настройку «Один денежный ящик на все кассы»',
   'POST /api/crm/assign-free': 'Раздал свободные сделки CRM',
   'DELETE /api/crm/leads/:id': 'Удалил сделку в CRM',

@@ -530,7 +530,8 @@ const fmtNum = (n) => (Number.isFinite(n) ? String(Math.round(n * 100) / 100).re
 // Пока себестоимость не трогали, она повторяет цену закупки.
 function syncPrices(changed) {
   const f = $('#product-form');
-  if (changed === 'purchase' && f.dataset.costFollows === '1') f.elements.cost.value = f.elements.purchase.value;
+  // Себестоимость = закупка + добавка из настроек (500 сом и т.п.), пока её не вписали вручную.
+  if (changed === 'purchase' && f.dataset.costFollows === '1') { const pv = parseNum(f.elements.purchase.value); f.elements.cost.value = pv > 0 ? fmtNum(Math.round((pv + costExtra) * 100) / 100) : ''; }
   if (changed === 'cost') f.dataset.costFollows = f.elements.cost.value === '' ? '1' : '0';
   const purchase = parseNum(f.elements.purchase.value);
   const cost = parseNum(f.elements.cost.value) || purchase;
@@ -577,9 +578,10 @@ function renderBarcodePreview() {
 
 // Калькулятор $ → сом в карточке товара. Курс — из «Настроек»; в базу записываются только сомы.
 let usdRate = null;
+let costExtra = 0; // добавка к себестоимости от закупки, сом (Настройки)
 const round2 = (n) => Math.round(n * 100) / 100;
 function loadUsdRate() {
-  api('/api/settings/currency').then((r) => { usdRate = r.usdRate || null; }, () => { usdRate = null; }).finally(renderUsd);
+  api('/api/settings/currency').then((r) => { usdRate = r.usdRate || null; costExtra = r.costExtra || 0; }, () => { usdRate = null; }).finally(renderUsd);
 }
 function renderUsd() {
   $('#pf-usd').hidden = false;
@@ -648,7 +650,8 @@ function openProductDialog(product = null, onSaved = null) {
     f.elements.archived.checked = Boolean(product.archived);
   }
   // У нового товара себестоимость повторяет закупку, пока её не поменяли отдельно.
-  f.dataset.costFollows = !product || !product.cost || product.cost === (product.purchase ?? product.cost) ? '1' : '0';
+  const pp = product ? product.purchase ?? product.cost : 0;
+  f.dataset.costFollows = !product || !product.cost || product.cost === pp || Math.abs(product.cost - pp - costExtra) < 0.01 ? '1' : '0';
   fillSupplierSelect(product);
   gen.options = [{ name: 'Цвет', values: '' }, { name: 'Размер', values: '' }];
   gen.edits = {};

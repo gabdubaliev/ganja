@@ -2028,3 +2028,23 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 
 /* Без права на закупку и себестоимость */
 body.no-cost .cost-only { display: none !important; }
+
+/* Права и доступ */
+.ac-help { margin: -6px 0 0; }
+.ac-wrap { max-height: calc(100vh - 230px); overflow: auto; }
+.ac-table { border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.ac-table th, .ac-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.ac-table thead th { position: sticky; top: 0; z-index: 2; vertical-align: bottom; }
+.ac-table .ac-right { position: sticky; left: 0; z-index: 1; text-align: left; font-weight: 500; min-width: 260px; max-width: 360px; }
+.ac-table thead .ac-right { z-index: 3; }
+.ac-user { min-width: 96px; text-align: center; }
+.ac-user b, .ac-user small { display: block; }
+.ac-user small { color: var(--muted); font-weight: 400; }
+.ac-user.off { opacity: .5; }
+.ac-all { white-space: nowrap; text-align: center; }
+.ac-all small { display: block; color: var(--muted); }
+.ac-all .btn { padding: 2px 8px; }
+.ac-cell { text-align: center; }
+.ac-cell input { width: 18px; height: 18px; cursor: pointer; }
+.ac-group th { background: var(--surface-2); text-transform: uppercase; font-size: 12px; letter-spacing: .04em; color: var(--muted); text-align: left; position: sticky; left: 0; }
+@media (max-width: 760px) { .ac-table .ac-right { min-width: 170px; max-width: 200px; } }

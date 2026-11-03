@@ -91,7 +91,8 @@ function migDraw() {
     ['Перенесено', done, done ? 'уже в «Товарах»' : 'пока ничего'],
   ].map(([t, n, s]) => `<div class="st-tile"><span>${t}</span><b class="num">${n}</b><small>${s}</small></div>`).join('') : '';
   $('#mig-filters').innerHTML = has ? Object.entries(MIG_FILTERS).map(([k, [label]]) => `<button type="button" class="chip" data-mig-filter="${k}" aria-pressed="${migView.filter === k}">${label} <small>${count(k)}</small></button>`).join('') : '';
-  $('#mig-bulk').hidden = !has;
+  $('#mig-bulk').hidden = !has || !session.can('migrate');
+  for (const id of ['#mig-upload-btn', '#mig-clear']) if ($(id) && !session.can('migrate')) $(id).hidden = true;
   $('#mig-search').hidden = !has;
   $('#mig-cats').innerHTML = categories.list.map((c) => `<option value="${esc(c.name)}">`).join('');
   const list = migFiltered();
@@ -106,7 +107,7 @@ function migDraw() {
   $('#mig-body').innerHTML = !has ? '<tr><td colspan="13" class="empty">Выгрузка ещё не загружена</td></tr>' : shown.length ? shown.map((it) => {
     const d = it.data;
     const done = it.status === 'done';
-    const dis = done ? 'disabled' : '';
+    const dis = done || !session.can('migrate') ? 'disabled' : '';
     const markup = d.purchase > 0 ? ((d.price - d.purchase) / d.purchase) * 100 : null;
     const margin = d.price > 0 && d.purchase > 0 ? ((d.price - d.purchase) / d.price) * 100 : null;
     const issues = migIssues(it);
@@ -123,14 +124,14 @@ function migDraw() {
       <td class="mig-art"><input class="input" data-f="article" value="${esc(d.article || '')}" placeholder="—" title="Артикул берётся из названия; можно исправить" ${dis}></td>
       <td><input class="input" data-f="category" list="mig-cats" value="${esc(d.category || '')}" placeholder="—" ${dis}></td>
       <td><select class="input" data-f="supplier_id" ${dis}>${supOpts(d.supplier_id)}</select></td>
-      <td><input class="input num" data-f="purchase" inputmode="decimal" value="${migFmt(d.purchase)}" ${dis}></td>
-      <td><input class="input num" data-f="cost" inputmode="decimal" value="${migFmt(d.cost)}" ${dis}></td>
-      <td><input class="input num" data-f="markup" inputmode="decimal" value="${markup === null ? '' : migFmt(markup)}" title="В CloudShop: ${src[0].markup ?? '—'}%" ${dis}></td>
+      <td class="cost-only"><input class="input num" data-f="purchase" inputmode="decimal" value="${migFmt(d.purchase)}" ${dis}></td>
+      <td class="cost-only"><input class="input num" data-f="cost" inputmode="decimal" value="${migFmt(d.cost)}" ${dis}></td>
+      <td class="cost-only"><input class="input num" data-f="markup" inputmode="decimal" value="${markup === null ? '' : migFmt(markup)}" title="В CloudShop: ${src[0].markup ?? '—'}%" ${dis}></td>
       <td><input class="input num" data-f="price" inputmode="decimal" value="${migFmt(d.price)}" ${dis}></td>
-      <td class="num" title="В CloudShop: ${src[0].margin ?? '—'}%">${margin === null ? '—' : migFmt(margin) + '%'}</td>
+      <td class="num cost-only" title="В CloudShop: ${src[0].margin ?? '—'}%">${margin === null ? '—' : migFmt(margin) + '%'}</td>
       <td><input class="input num" data-f="stock" inputmode="decimal" value="${migFmt(d.stock)}" ${dis}></td>
       <td>${d.variants?.on ? '<small>новые у каждой модификации</small>' : `<input class="input" data-f="barcode" value="${esc(d.barcode || '')}" ${dis}>`}</td>
-      <td><button type="button" class="btn small ${d.variants?.on ? '' : 'ghost'}" data-mig-var ${dis}>${varLabel}</button>${src.length > 1 && !done ? '<button type="button" class="link" data-mig-split>Разделить</button>' : ''}</td>
+      <td><button type="button" class="btn small ${d.variants?.on ? '' : 'ghost'}" data-mig-var ${dis}>${varLabel}</button>${src.length > 1 && !done && session.can('migrate') ? '<button type="button" class="link" data-mig-split>Разделить</button>' : ''}</td>
     </tr>`;
   }).join('') : '<tr><td colspan="13" class="empty">В этом списке пусто</td></tr>';
   $('#mig-pager').innerHTML = pages > 1 ? `<button type="button" class="btn small" data-mig-page="-1" ${migView.page ? '' : 'disabled'}>‹ Назад</button>
@@ -210,7 +211,8 @@ $('#mig-body').addEventListener('change', async (e) => {
     if (!Number.isFinite(migN(v))) return toast('Нужно число', 'error');
     patch = { [f]: migN(v) };
     // Себестоимость повторяет закупку, если были равны.
-    if (f === 'purchase' && it.data.cost === it.data.purchase) patch.cost = migN(v);
+    // Себестоимость = закупка + добавка из настроек, если её не вписывали отдельно.
+    if (f === 'purchase' && (it.data.cost === it.data.purchase || Math.abs(it.data.cost - it.data.purchase - migCostExtra) < 0.01 || !it.data.cost)) patch.cost = Math.round((migN(v) + migCostExtra) * 100) / 100;
   } else patch = { [f]: f === 'supplier_id' ? (v ? Number(v) : null) : v };
   await migSave(it.id, patch);
   migDraw();
@@ -442,4 +444,6 @@ $('#mig-var-form').addEventListener('submit', async (e) => {
   migDraw();
 });
 
-views.migrate = { show: renderMigrate, right: 'migrate' };
+let migCostExtra = 0;
+api('/api/settings/currency').then((r) => { migCostExtra = r.costExtra || 0; }).catch(() => {});
+views.migrate = { show: renderMigrate, right: ['migrate', 'migrate.view'] };
