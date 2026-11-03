@@ -57,6 +57,11 @@ function loadEnv(file) {
    филиалы — branch-N.db рядом с ней, список хранится в настройках основного. Каждый запрос выполняется
    в контексте своего магазина (AsyncLocalStorage), поэтому код маршрутов работает с «store» как раньше. */
 const mainStore = createStore(DB_FILE);
+// Секреты (токены, ключи) — не в базе, а в отдельном файле рядом с ней (права 600): копия базы их не содержит.
+const { createVault, protectSettings } = require('./vault');
+const vault = createVault(process.env.SHOP_SECRETS_FILE || path.join(path.dirname(DB_FILE), 'secrets.json'));
+protectSettings(mainStore, vault, path.basename(DB_FILE, '.db'));
+{ const moved = mainStore.migrateSecrets(); if (moved) console.log(`Секреты перенесены из базы в ${vault.file}: ${moved}`); }
 useFontsFrom(mainStore);
 // MONT AI Studio — своя база studio.db рядом с основной (исходники и черновики много весят).
 const studio = createStudio(path.join(path.dirname(DB_FILE), 'studio.db'), { UserError });
@@ -116,7 +121,9 @@ function contextOf(id) {
   if (contexts.has(n)) return contexts.get(n);
   const b = branchList().find((x) => x.id === n);
   if (!b || b.main) return null;
-  return makeContext(n, createStore(path.join(path.dirname(DB_FILE), b.file)));
+  const bst = protectSettings(createStore(path.join(path.dirname(DB_FILE), b.file)), vault, path.basename(b.file, '.db'));
+  bst.migrateSecrets();
+  return makeContext(n, bst);
 }
 
 /* ---------- MONT AI Studio: товары берутся из базы своего магазина, не копируются ---------- */
