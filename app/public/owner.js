@@ -29,7 +29,55 @@ function showOwnerTab(tab) {
   ownerView.tab = tab;
   for (const b of document.querySelectorAll('#owner-tabs [data-owner-tab]')) b.setAttribute('aria-pressed', String(b.dataset.ownerTab === tab));
   for (const p of document.querySelectorAll('[data-owner-pane]')) p.hidden = p.dataset.ownerPane !== tab;
-  ({ sections: drawOwnerSections, home: drawOwnerHome, staff: drawOwnerStaff, look: () => {}, backup: drawOwnerBackup })[tab]();
+  ({ sections: drawOwnerSections, home: drawOwnerHome, staff: drawOwnerStaff, look: () => {}, backup: drawOwnerBackup, security: drawOwnerSecurity })[tab]();
+}
+
+/* ---------- Безопасность: вход с кодом из Telegram ---------- */
+async function drawOwnerSecurity() {
+  const box = $('#tfa-box');
+  let st;
+  try { st = await api('/api/2fa'); } catch (err) { box.innerHTML = `<p class="form-error">${esc(err.message)}</p>`; return; }
+  if (st.enabled) {
+    box.innerHTML = `<p class="tfa-on">✅ <b>Включено.</b> Коды приходят в Telegram${st.who ? `: ${esc(st.who)}` : ''}.</p>
+      <form id="tfa-off" class="tfa-row" novalidate><input type="password" class="input" name="password" placeholder="Пароль владельца" autocomplete="current-password" aria-label="Пароль владельца">
+      <button type="submit" class="btn danger-text">Отключить</button></form>
+      <p class="sub">Если бот перестанет работать, а войти нужно: на сервере команда <code>cd /opt/shop/app && sudo -u shop DB_FILE=/var/lib/shop/shop.db node server.js --2fa-off</code>.</p>`;
+    $('#tfa-off').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try { await api('/api/2fa/disable', { method: 'POST', body: { password: e.target.elements.password.value } }); toast('Вход с кодом отключён'); drawOwnerSecurity(); }
+      catch (err) { toast(err.message, 'error'); }
+    });
+    return;
+  }
+  if (!st.bot) { box.innerHTML = '<p class="sub">Сначала подключите бота уведомлений: <a href="#settings">Настройки → Telegram</a>.</p>'; return; }
+  box.innerHTML = `<ol class="steps">
+      <li><button type="button" class="btn primary" id="tfa-link">Подключить Telegram</button> — откроется ваш бот. Нажмите в нём <b>«Start»</b> (или «Запустить»). Делайте это со <b>своего личного</b> Telegram.</li>
+      <li><button type="button" class="btn" id="tfa-check" disabled>Проверить</button> — бот пришлёт проверочный код.</li>
+      <li><form id="tfa-on" class="tfa-row" novalidate><input class="input num" name="code" inputmode="numeric" maxlength="6" placeholder="Код из 6 цифр" aria-label="Проверочный код" disabled><button type="submit" class="btn primary" disabled>Включить</button></form></li>
+    </ol><p class="sub" id="tfa-note"></p>`;
+  $('#tfa-link').addEventListener('click', async () => {
+    const w = window.open('', '_blank');
+    try {
+      const r = await api('/api/2fa/link', { method: 'POST' });
+      if (w) w.location = r.link; else location.href = r.link;
+      $('#tfa-check').disabled = false;
+      $('#tfa-note').textContent = `Откройте бота @${r.bot}, нажмите «Start», затем вернитесь сюда и нажмите «Проверить».`;
+    } catch (err) { if (w) w.close(); toast(err.message, 'error'); }
+  });
+  $('#tfa-check').addEventListener('click', async () => {
+    try {
+      const r = await api('/api/2fa/check', { method: 'POST' });
+      const f = $('#tfa-on');
+      for (const el of f.elements) el.disabled = false;
+      f.elements.code.focus();
+      $('#tfa-note').textContent = `Код отправлен${r.who ? ` в Telegram: ${r.who}` : ''}. Введите его и нажмите «Включить».`;
+    } catch (err) { toast(err.message, 'error'); }
+  });
+  $('#tfa-on').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try { await api('/api/2fa/enable', { method: 'POST', body: { code: e.target.elements.code.value } }); toast('Вход с кодом из Telegram включён'); drawOwnerSecurity(); }
+    catch (err) { toast(err.message, 'error'); }
+  });
 }
 
 /* ---------- Копия базы ---------- */

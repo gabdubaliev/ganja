@@ -2097,3 +2097,7 @@ body.no-mig-purchase .mig-c-purchase, body.no-mig-cost .mig-c-cost, body.no-mig-
 .backup-list { list-style: none; margin: 12px 0; padding: 0; display: grid; gap: 8px; }
 .backup-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; }
 .owner-backup .btn { text-decoration: none; }
+
+.tfa-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
+.tfa-row .input { flex: 1 1 180px; max-width: 260px; }
+.owner-security code { font-size: 12px; overflow-wrap: anywhere; }

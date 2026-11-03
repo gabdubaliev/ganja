@@ -363,6 +363,7 @@
       <button type="button" data-owner-tab="staff" aria-pressed="false">Сотрудники</button>
       <button type="button" data-owner-tab="look" aria-pressed="false">Оформление</button>
       <button type="button" data-owner-tab="backup" aria-pressed="false">Копия базы</button>
+      <button type="button" data-owner-tab="security" aria-pressed="false">Безопасность</button>
     </div>
   </header>
 
@@ -405,6 +406,14 @@
       <p class="sub">Сервер сам делает копию каждую ночь, но хранит её у себя. Если с сервером что-то случится, пропадут и копии, поэтому раз в неделю скачивайте копию на свой компьютер или флешку. В копии все товары, продажи, клиенты и их телефоны: не пересылайте её никому и храните в надёжном месте.</p>
       <div id="backup-list"><p class="sub">Загружаю…</p></div>
       <p class="sub">Чтобы вернуть магазин из копии, напишите разработчику: восстановление делается на сервере командой, с проверкой копии.</p>
+    </div>
+  </section>
+
+  <section class="owner-pane" data-owner-pane="security" hidden>
+    <div class="panel owner-security">
+      <h2>Вход с кодом из Telegram</h2>
+      <p class="sub">После пароля бот пришлёт вам в личный чат код из 6 цифр — без него в программу как владелец не войти, даже зная пароль. На своём компьютере и телефоне можно отметить «Запомнить устройство» — код будет спрашиваться раз в 30 дней. Сотрудников это не касается.</p>
+      <div id="tfa-box"><p class="sub">Загружаю…</p></div>
     </div>
   </section>
 </main>

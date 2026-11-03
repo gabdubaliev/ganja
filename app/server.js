@@ -1892,6 +1892,23 @@ function auditDetails(key, params, body, result) {
   }
 }
 
+/* ---------- Вход владельца с кодом из Telegram (двойная проверка) ---------- */
+// Настройка в основной базе: { enabled, chatId, who } — код приходит в личный чат владельца с ботом уведомлений.
+const twoFa = () => { try { return JSON.parse(mainStore.setting('owner_2fa', '{}')) || {}; } catch { return {}; } };
+const setTwoFa = (v) => mainStore.setSetting('owner_2fa', JSON.stringify(v));
+const needs2fa = (user) => Boolean(user && user.role === 'owner' && twoFa().enabled && twoFa().chatId);
+const tgBot = () => contextOf(1).notifier.telegramSettings();
+async function tgSendTo(chatId, text) {
+  const tg = tgBot();
+  if (!tg.token) throw new UserError('В «Настройки → Telegram» не указан токен бота');
+  await contextOf(1).notifier.sendTelegram(text, { ...tg, chatId });
+}
+const codeHash = (code) => crypto.createHash('sha256').update(String(code)).digest('hex');
+const newCode = () => String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+const pending2fa = new Map(); // token -> { result, hash, exp, tries, password }
+setInterval(() => { const now = Date.now(); for (const [k, v] of pending2fa) if (v.exp < now) pending2fa.delete(k); }, 60_000).unref();
+const TWOFA_OFF_HINT = 'Если бот не работает, отключите проверку на сервере: cd /opt/shop/app && sudo -u shop DB_FILE=/var/lib/shop/shop.db node server.js --2fa-off';
+
 async function handleAuth(req, res, url) {
   if (url.pathname === '/api/login' && req.method === 'POST') {
     const body = await readBody(req, 16_384);
@@ -1902,11 +1919,45 @@ async function handleAuth(req, res, url) {
       if (result.status !== 429) store.audit({ ...who, kind: 'login_failed', userName: String(body.email || '').slice(0, 120), action: 'Неудачная попытка входа', details: result.error });
       return sendJson(res, result.status, { error: result.error });
     }
+    // Владелец с двойной проверкой на новом устройстве: сначала код из Telegram, сессия — только после кода.
+    if (needs2fa(result.user) && !auth.trusted(req, result.user)) {
+      const code = newCode();
+      const token = crypto.randomBytes(18).toString('base64url');
+      try {
+        await tgSendTo(twoFa().chatId, `🔐 Код для входа в программу: ${code}\nДействует 5 минут. Никому его не сообщайте.\nЕсли это не вы — смените пароль владельца.`);
+      } catch (err) {
+        return sendJson(res, 503, { error: `Не получилось отправить код в Telegram: ${err.message}. ${TWOFA_OFF_HINT}` });
+      }
+      pending2fa.set(token, { result, hash: codeHash(code), exp: Date.now() + 5 * 60_000, tries: 0, password: body.password });
+      store.audit({ ...who, kind: 'change', user: result.user, action: 'Пароль верный — код входа отправлен в Telegram' });
+      return sendJson(res, 200, { ok: false, need2fa: true, token });
+    }
     // Вход пишется в журнал магазина сотрудника: там и ищется его «последний вход».
     (contextOf(result.user.branch || 1)?.store || store).audit({ ...who, kind: 'login', user: result.user, action: 'Вход в программу' });
     keepSecret(result.user, 'password', body.password);
     res.setHeader('Set-Cookie', result.cookie);
     return sendJson(res, 200, { ok: true, user: store.publicUser(result.user) });
+  }
+  // Второй шаг входа владельца: код из Telegram.
+  if (url.pathname === '/api/login/2fa' && req.method === 'POST') {
+    const body = await readBody(req, 16_384);
+    const p = pending2fa.get(String(body.token || ''));
+    const who = { ip: clientIp(req), device: device(req) };
+    if (!p || p.exp < Date.now()) return sendJson(res, 400, { error: 'Код устарел. Введите пароль ещё раз — придёт новый код.', restart: true });
+    if (auth.isBlocked(req, 'owner-2fa')) return sendJson(res, 429, { error: 'Слишком много неверных попыток. Подождите 15 минут.' });
+    if (codeHash(String(body.code || '').replace(/\D/g, '')) !== p.hash) {
+      auth.countFailure(req, 'owner-2fa');
+      if (++p.tries >= 5) pending2fa.delete(String(body.token));
+      store.audit({ ...who, kind: 'login_failed', userName: p.result.user.name || p.result.user.email, action: 'Неверный код входа из Telegram' });
+      return sendJson(res, 401, { error: p.tries >= 5 ? 'Код введён неверно 5 раз. Введите пароль ещё раз.' : 'Неверный код', restart: p.tries >= 5 });
+    }
+    pending2fa.delete(String(body.token));
+    const u = p.result.user;
+    (contextOf(u.branch || 1)?.store || store).audit({ ...who, kind: 'login', user: u, action: 'Вход в программу (код из Telegram)', details: body.remember ? 'устройство запомнено на 30 дней' : '' });
+    keepSecret(u, 'password', p.password);
+    res.setHeader('Set-Cookie', body.remember ? [p.result.cookie, auth.trustCookie(req, u)] : p.result.cookie);
+    tgSendTo(twoFa().chatId, `✅ Вход владельца в программу\n${who.device || 'устройство'} · IP ${who.ip}${body.remember ? '\nУстройство запомнено на 30 дней' : ''}`).catch(() => {});
+    return sendJson(res, 200, { ok: true, user: store.publicUser(u) });
   }
   // Смена кассира: только с кассы, где уже работает сотрудник с правом «Касса».
   if (url.pathname === '/api/switch-user' && req.method === 'POST') {
@@ -1915,6 +1966,7 @@ async function handleAuth(req, res, url) {
     const body = await readBody(req, 16_384);
     const target = store.findUser(body.userId);
     if (!target || !can(target, 'pos')) return sendJson(res, 400, { error: 'Этот сотрудник не работает на кассе' });
+    if (needs2fa(target)) return sendJson(res, 403, { error: 'Владелец входит через обычный вход: пароль и код из Telegram' });
     // Кассир выбирается в магазине, где сейчас открыта касса.
     const result = auth.switchUser(req, staffDirectory.keyOf({ ...target, branch: current().id }), String(body.code || ''));
     const who = { ip: clientIp(req), device: device(req) };
@@ -2469,6 +2521,61 @@ async function handleRequest(req, res, url, user, owner) {
     if (!u) return sendJson(res, 404, { error: 'Сторис нет' });
     return proxyMeta(req, res, u);
   }
+  // Двойная проверка входа владельца: привязка личного чата, включение и отключение.
+  if (url.pathname.startsWith('/api/2fa')) {
+    if (!user || !isOwner(user)) return sendJson(res, 403, { error: 'Это настройка владельца' });
+    try {
+      const cfg = twoFa();
+      if (req.method === 'GET' && url.pathname === '/api/2fa') {
+        return sendJson(res, 200, { enabled: Boolean(cfg.enabled && cfg.chatId), linked: Boolean(cfg.chatId), who: cfg.who || '', bot: Boolean(tgBot().token) });
+      }
+      const body = req.method === 'POST' ? await readBody(req, 16_384) : {};
+      if (req.method === 'POST' && url.pathname === '/api/2fa/link') {
+        const tg = tgBot();
+        if (!tg.token) throw new UserError('Сначала подключите бота: «Настройки → Telegram»');
+        const me = await fetch(`https://api.telegram.org/bot${tg.token}/getMe`, { signal: AbortSignal.timeout(10_000) }).then((r) => r.json()).catch(() => ({}));
+        if (!me.ok) throw new UserError('Telegram не узнал бота — проверьте токен в «Настройки → Telegram»');
+        const start = crypto.randomBytes(6).toString('hex');
+        setTwoFa({ ...cfg, start, startAt: Date.now() });
+        return sendJson(res, 200, { link: `https://t.me/${me.result.username}?start=${start}`, bot: me.result.username });
+      }
+      if (req.method === 'POST' && url.pathname === '/api/2fa/check') {
+        // Ищем «/start КОД» от владельца в личном чате с ботом и шлём туда пробный код.
+        if (!cfg.start || Date.now() - (cfg.startAt || 0) > 30 * 60_000) throw new UserError('Нажмите «Подключить Telegram» ещё раз');
+        const tg = tgBot();
+        const upd = await fetch(`https://api.telegram.org/bot${tg.token}/getUpdates?allowed_updates=%5B%22message%22%5D`, { signal: AbortSignal.timeout(10_000) }).then((r) => r.json()).catch(() => ({}));
+        if (!upd.ok) throw new UserError(`Telegram не отдал сообщения бота: ${upd.description || 'нет связи'}`);
+        const msg = (upd.result || []).map((u) => u.message).filter(Boolean).reverse().find((m) => m.chat?.type === 'private' && String(m.text || '').trim() === `/start ${cfg.start}`);
+        if (!msg) throw new UserError('Бот ещё не получил ваше сообщение. Откройте ссылку, нажмите «Start» (или «Запустить») и нажмите «Проверить» ещё раз.');
+        const code = newCode();
+        await tgSendTo(msg.chat.id, `🔐 Проверочный код: ${code}\nВведите его в программе, чтобы включить вход с кодом.`);
+        const who = [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ') + (msg.from?.username ? ` (@${msg.from.username})` : '');
+        setTwoFa({ ...cfg, pendingChat: String(msg.chat.id), pendingWho: who, pendingHash: codeHash(code), pendingAt: Date.now() });
+        return sendJson(res, 200, { sent: true, who });
+      }
+      if (req.method === 'POST' && url.pathname === '/api/2fa/enable') {
+        if (!cfg.pendingChat || Date.now() - (cfg.pendingAt || 0) > 10 * 60_000) throw new UserError('Код устарел — нажмите «Проверить» ещё раз');
+        if (auth.isBlocked(req, 'owner-2fa')) throw new UserError('Слишком много неверных попыток. Подождите 15 минут.');
+        if (codeHash(String(body.code || '').replace(/\D/g, '')) !== cfg.pendingHash) { auth.countFailure(req, 'owner-2fa'); throw new UserError('Неверный код'); }
+        setTwoFa({ enabled: true, chatId: cfg.pendingChat, who: cfg.pendingWho || '' });
+        store.audit({ kind: 'change', user, ip: clientIp(req), device: device(req), action: 'Включил вход с кодом из Telegram', details: cfg.pendingWho || '' });
+        // Это устройство сразу запоминается — владельца не выкидывает и код здесь не спрашивается 30 дней.
+        res.setHeader('Set-Cookie', auth.trustCookie(req, user));
+        return sendJson(res, 200, { enabled: true, who: cfg.pendingWho || '' });
+      }
+      if (req.method === 'POST' && url.pathname === '/api/2fa/disable') {
+        // Отключить — только зная пароль владельца: забытый открытым компьютер не снимет защиту.
+        if (!checkPassword(String(body.password || ''), user.password_hash)) { auth.countFailure(req, 'owner-2fa'); throw new UserError('Неверный пароль'); }
+        setTwoFa({ enabled: false, chatId: cfg.chatId || '', who: cfg.who || '' });
+        store.audit({ kind: 'change', user, ip: clientIp(req), device: device(req), action: 'Отключил вход с кодом из Telegram' });
+        if (cfg.chatId) tgSendTo(cfg.chatId, '⚠️ Вход с кодом из Telegram отключён. Теперь владелец входит только по паролю.').catch(() => {});
+        return sendJson(res, 200, { enabled: false });
+      }
+      return sendJson(res, 404, { error: 'Не найдено' });
+    } catch (err) {
+      return sendJson(res, err instanceof UserError ? 400 : 500, { error: err instanceof UserError ? err.message : 'Что-то пошло не так' });
+    }
+  }
   // Резервная копия базы — только владелец: целостный снимок (VACUUM INTO) во временный файл рядом с базой, отдаём и удаляем.
   if (req.method === 'GET' && url.pathname === '/api/backup/list') {
     if (auth.enabled && !isOwner(user)) return sendJson(res, 403, { error: 'Копию базы скачивает только владелец' });
@@ -2580,6 +2687,14 @@ async function handleRequest(req, res, url, user, owner) {
   }
 }
 
+if (process.argv.includes('--2fa-off')) {
+  // Аварийно: бот не работает, а владелец не может войти — снять вход с кодом прямо на сервере.
+  const c = (() => { try { return JSON.parse(mainStore.setting('owner_2fa', '{}')) || {}; } catch { return {}; } })();
+  mainStore.setSetting('owner_2fa', JSON.stringify({ ...c, enabled: false }));
+  mainStore.audit({ kind: 'change', userName: 'Сервер', action: 'Вход с кодом из Telegram отключён командой на сервере' });
+  console.log('Вход с кодом из Telegram отключён. Владелец входит по паролю.');
+  process.exit(0);
+}
 if (process.argv.includes('--demo')) {
   if (!store.isEmpty()) {
     console.log(`В базе ${DB_FILE} уже есть товары, пример не загружен.`);

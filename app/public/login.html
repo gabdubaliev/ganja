@@ -30,6 +30,21 @@
     <p class="form-error" id="login-error" role="alert" hidden></p>
     <button type="submit" class="btn primary big">Войти</button>
   </form>
+  <form class="login-card" id="code-form" novalidate hidden>
+    <div class="login-badge" aria-hidden="true">🔐</div>
+    <div>
+      <h1>Код из Telegram</h1>
+      <p class="sub">Бот прислал вам код из 6 цифр. Введите его, чтобы войти.</p>
+    </div>
+    <div class="field">
+      <label for="code">Код</label>
+      <input id="code" name="code" class="input big num" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
+    </div>
+    <label class="check"><input type="checkbox" name="remember" checked> Запомнить это устройство на 30 дней</label>
+    <p class="form-error" id="code-error" role="alert" hidden></p>
+    <button type="submit" class="btn primary big">Войти</button>
+    <button type="button" class="btn ghost" id="code-again">Прислать код ещё раз</button>
+  </form>
 </main>
 <script>
 
@@ -55,6 +70,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
       body: JSON.stringify({ email: e.target.elements.email.value, password: e.target.elements.password.value }),
     });
     const data = await res.json().catch(() => ({}));
+    if (res.ok && data.need2fa) return askCode(data.token);
     if (res.ok) return location.replace('/');
     error.textContent = data.error || 'Не получилось войти';
   } catch {
@@ -64,6 +80,58 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
   button.disabled = false;
   e.target.elements.password.select();
 });
+
+// Второй шаг для владельца: код из Telegram.
+let codeToken = '';
+function askCode(token) {
+  codeToken = token;
+  document.getElementById('login-form').hidden = true;
+  const f = document.getElementById('code-form');
+  f.hidden = false;
+  f.elements.code.value = '';
+  document.getElementById('code-error').hidden = true;
+  f.elements.code.focus();
+}
+function backToPassword(msg) {
+  const lf = document.getElementById('login-form');
+  document.getElementById('code-form').hidden = true;
+  lf.hidden = false;
+  lf.querySelector('button').disabled = false;
+  const error = document.getElementById('login-error');
+  error.textContent = msg;
+  error.hidden = !msg;
+  lf.elements.password.select();
+}
+document.getElementById('code-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const error = document.getElementById('code-error');
+  const button = f.querySelector('button[type=submit]');
+  button.disabled = true;
+  error.hidden = true;
+  try {
+    const res = await fetch('/api/login/2fa', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: codeToken, code: f.elements.code.value, remember: f.elements.remember.checked }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) return location.replace('/');
+    if (data.restart) return backToPassword(data.error);
+    error.textContent = data.error || 'Неверный код';
+  } catch {
+    error.textContent = 'Нет связи с сервером. Проверьте интернет.';
+  }
+  error.hidden = false;
+  button.disabled = false;
+  f.elements.code.select();
+});
+document.getElementById('code-form').elements.code.addEventListener('input', (e) => {
+  e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
+  if (e.target.value.length === 6) e.target.form.requestSubmit();
+});
+// Новый код: ещё раз тот же вход по паролю (пароль ещё в форме).
+document.getElementById('code-again').addEventListener('click', () => document.getElementById('login-form').requestSubmit());
 </script>
 </body>
 </html>

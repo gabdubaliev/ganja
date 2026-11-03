@@ -8,6 +8,7 @@ const crypto = require('node:crypto');
 
 const COOKIE = 'shop_session';
 const OWNER_COOKIE = 'shop_owner';
+const TRUST_COOKIE = 'shop_trust'; // «Запомнить это устройство» для входа с кодом из Telegram
 const SESSION_DAYS = 30;
 const MAX_FAILURES = 10;
 const FAILURE_WINDOW_MS = 15 * 60_000;
@@ -158,6 +159,21 @@ function createAuth(users, secret) {
       const cookie = `${COOKIE}=${value}.${sign(`${value}.${user.password_hash}`)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${isSecure(req) ? '; Secure' : ''}`;
       return { ok: true, cookie, user };
     },
+
+    // Доверенное устройство (вход с кодом): подписано ключом сотрудника и хешем пароля — смена пароля отменяет доверие.
+    trustCookie(req, user, days = 30) {
+      const exp = String(Date.now() + days * 864e5);
+      const value = `${keyOf(user)}.${exp}`;
+      return `${TRUST_COOKIE}=${value}.${sign(`trust.${value}.${user.password_hash}`)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${days * 86400}${isSecure(req) ? '; Secure' : ''}`;
+    },
+    trusted(req, user) {
+      const [id, exp, sig] = readCookie(req, TRUST_COOKIE).split('.');
+      if (!id || !exp || !sig || Number(exp) < Date.now() || String(id) !== String(keyOf(user))) return false;
+      return sameText(sig, sign(`trust.${id}.${exp}.${user.password_hash}`));
+    },
+    // Неверные коды считаются вместе с неверными паролями (тот же замок на 15 минут).
+    isBlocked: (req, acc) => blocked(clientIp(req), acc),
+    countFailure: (req, acc) => fail(clientIp(req), acc),
 
     logoutCookie(req) {
       const secure = isSecure(req) ? '; Secure' : '';
