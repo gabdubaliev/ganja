@@ -68,6 +68,9 @@ function createNotifier(store) {
     res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
     res.write('retry: 5000\n\n');
     const client = { res, user };
+    // Не больше 6 открытых окон на сотрудника: лишние (самые старые) закрываются — защита от перегрузки.
+    const mine = [...clients].filter((c) => c.user && user && c.user.id === user.id);
+    for (const old of mine.slice(0, Math.max(0, mine.length - 5))) { clients.delete(old); try { old.res.end(); } catch {} }
     clients.add(client);
     // Прокси на хостинге закрывают молчащие соединения, поэтому раз в 25 секунд шлём пустую строку.
     const ping = setInterval(() => res.write(': ping\n\n'), 25_000);

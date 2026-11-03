@@ -1,7 +1,7 @@
 'use strict';
 
-// Капча для входа и регистрации на витрине: картинка с цифрами, нарисованными линиями (без текста в SVG —
-// бот не прочитает код из разметки), с наклоном, искажением и шумовыми кривыми. Код одноразовый, живёт 5 минут.
+// Капча для входа и регистрации на витрине: картинка с цифрами, нарисованными линиями (без текста в SVG, а штрихи
+// всех цифр перемешаны в одну линию — бот не прочитает код из разметки), с наклоном, искажением и шумовыми кривыми. Код одноразовый, живёт 5 минут.
 
 const crypto = require('node:crypto');
 
@@ -24,6 +24,27 @@ const rnd = (a, b) => a + crypto.randomInt(0, 1_000_000) / 1_000_000 * (b - a);
 // Чуть сдвинуть каждую точку пути — у каждой картинки цифры немного разные.
 const jitter = (path, k) => path.replace(/-?\d*\.?\d+/g, (n) => (Number(n) + rnd(-k, k)).toFixed(3));
 
+// Путь цифры (M, L, C, Z в координатах 0..1) → ломаные из точек.
+function digitLines(path) {
+  const t = path.match(/[MLCZ]|-?\d*\.?\d+/g);
+  const lines = [];
+  let cur = null, start = null, i = 0;
+  const num = () => Number(t[i++]);
+  while (i < t.length) {
+    const c = t[i++];
+    if (c === 'M') { start = [num(), num()]; cur = [start]; lines.push(cur); }
+    else if (c === 'L') { const p = [num(), num()]; const a = cur.at(-1); for (let k = 1; k <= 6; k++) cur.push([a[0] + (p[0] - a[0]) * k / 6, a[1] + (p[1] - a[1]) * k / 6]); }
+    else if (c === 'C') {
+      const a = cur.at(-1), b = [num(), num()], q = [num(), num()], e = [num(), num()];
+      for (let k = 1; k <= 10; k++) {
+        const s = k / 10, r = 1 - s;
+        cur.push([r * r * r * a[0] + 3 * r * r * s * b[0] + 3 * r * s * s * q[0] + s * s * s * e[0], r * r * r * a[1] + 3 * r * r * s * b[1] + 3 * r * s * s * q[1] + s * s * s * e[1]]);
+      }
+    } else if (c === 'Z') cur.push([...start]);
+  }
+  return lines;
+}
+
 function create() {
   const keys = Object.keys(DIGITS);
   const code = Array.from({ length: 5 }, () => keys[crypto.randomInt(0, keys.length)]).join('');
@@ -33,12 +54,32 @@ function create() {
   // Шумовые кривые под цифрами и поверх.
   const curve = () => `<path d="M${rnd(-10, 10)} ${rnd(5, H - 5)} C${rnd(30, 60)} ${rnd(-10, H + 10)} ${rnd(80, 120)} ${rnd(-10, H + 10)} ${W + 10} ${rnd(5, H - 5)}" fill="none" stroke="${colors[crypto.randomInt(0, colors.length)]}" stroke-opacity="${rnd(0.25, 0.5).toFixed(2)}" stroke-width="${rnd(1, 2).toFixed(1)}"/>`;
   for (let i = 0; i < 3; i++) body += curve();
+  // Цифры переводятся в точки картинки (наклон, поворот, масштаб считаются здесь, а не в SVG), режутся на короткие
+  // штрихи, и все штрихи всех цифр перемешиваются в одну линию — по разметке нельзя понять, где какая цифра.
+  const strokes = [];
   [...code].forEach((d, i) => {
     const size = rnd(30, 36);
-    const x = 10 + i * 27 + rnd(-3, 3), y = 8 + rnd(-3, 3);
-    const tr = `translate(${x.toFixed(1)} ${y.toFixed(1)}) rotate(${rnd(-14, 14).toFixed(1)} ${(size * 0.3).toFixed(1)} ${(size * 0.5).toFixed(1)}) skewX(${rnd(-8, 8).toFixed(1)}) scale(${size.toFixed(1)} ${(size * rnd(0.95, 1.1)).toFixed(1)})`;
-    body += `<path d="${jitter(DIGITS[d], 0.03)}" transform="${tr}" fill="none" stroke="${colors[crypto.randomInt(0, colors.length)]}" stroke-width="${(rnd(2.6, 3.4) / size).toFixed(4)}" stroke-linecap="round" stroke-linejoin="round"/>`;
+    const x0 = 10 + i * 27 + rnd(-3, 3), y0 = 8 + rnd(-3, 3);
+    const rot = rnd(-14, 14) * Math.PI / 180, skew = Math.tan(rnd(-8, 8) * Math.PI / 180), sy = size * rnd(0.95, 1.1);
+    const cx = size * 0.3, cy = size * 0.5;
+    const map = ([u, v]) => {
+      let px = (u + skew * v) * size, py = v * sy; // масштаб и наклон
+      const dx = px - cx, dy = py - cy;
+      px = cx + dx * Math.cos(rot) - dy * Math.sin(rot); py = cy + dx * Math.sin(rot) + dy * Math.cos(rot);
+      return [x0 + px + rnd(-0.6, 0.6), y0 + py + rnd(-0.6, 0.6)];
+    };
+    for (const line of digitLines(jitter(DIGITS[d], 0.03))) {
+      const pts = line.map(map);
+      for (let k = 0; k < pts.length - 1;) {
+        const n = 2 + crypto.randomInt(0, 3);
+        strokes.push(pts.slice(k, k + n + 1));
+        k += n;
+      }
+    }
   });
+  for (let i = strokes.length - 1; i > 0; i--) { const j = crypto.randomInt(0, i + 1); [strokes[i], strokes[j]] = [strokes[j], strokes[i]]; }
+  const d = strokes.map((pts) => 'M' + pts.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join(' L')).join(' ');
+  body += `<path d="${d}" fill="none" stroke="${colors[crypto.randomInt(0, colors.length)]}" stroke-width="${rnd(2.6, 3.2).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round"/>`;
   for (let i = 0; i < 2; i++) body += curve();
   for (let i = 0; i < 22; i++) body += `<circle cx="${rnd(0, W).toFixed(1)}" cy="${rnd(0, H).toFixed(1)}" r="${rnd(0.6, 1.6).toFixed(1)}" fill="${colors[crypto.randomInt(0, colors.length)]}" fill-opacity="0.45"/>`;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Код с картинки">${body}</svg>`;

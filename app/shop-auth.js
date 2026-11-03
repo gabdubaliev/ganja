@@ -52,7 +52,8 @@ function createShopAuth(store, { onCodeRequested } = {}) {
 
   const secret = crypto.createHash('sha256').update('shop:' + store.setting('session_secret', crypto.randomBytes(32).toString('base64url'))).digest();
   const sign = (value) => crypto.createHmac('sha256', secret).update(value).digest('base64url');
-  const failures = new Map(); // ip -> { count, since }
+  const failures = new Map(); // 'ip:…' / 'ph:…' -> { count, since }
+  setInterval(() => { const now = Date.now(); for (const [k, f] of failures) if (now - f.since > FAILURE_WINDOW) failures.delete(k); }, 5 * 60_000).unref();
   const dummyHash = hashPassword(crypto.randomBytes(16).toString('hex'));
 
   const readCookie = (req) => {
@@ -224,20 +225,19 @@ function createShopAuth(store, { onCodeRequested } = {}) {
 
     login(input, req, ip) {
       const now = Date.now();
-      const f = failures.get(ip);
-      if (f && now - f.since > FAILURE_WINDOW) failures.delete(ip);
-      if ((failures.get(ip)?.count || 0) >= MAX_FAILURES) throw new UserError('Слишком много неверных попыток. Подождите 15 минут.');
       let p = '';
       try { p = phone(input.phone); } catch { /* неверный номер — просто неудачный вход */ }
+      // Неверные попытки — и по адресу, и по номеру: удачный вход в свой аккаунт не сбрасывает счётчик чужого номера.
+      const keys = [`ip:${ip}`, `ph:${p}`];
+      for (const k of keys) { const f = failures.get(k); if (f && now - f.since > FAILURE_WINDOW) failures.delete(k); }
+      if ((failures.get(keys[0])?.count || 0) >= MAX_FAILURES || (p && (failures.get(keys[1])?.count || 0) >= MAX_FAILURES * 2)) throw new UserError('Слишком много неверных попыток. Подождите 15 минут.');
       const c = p ? findByPhone(p) : null;
       const ok = checkPassword(String(input.password ?? ''), c?.password_hash || dummyHash) && c?.password_hash;
       if (!ok || c.login_disabled) {
-        const entry = failures.get(ip) || { count: 0, since: now };
-        entry.count++;
-        failures.set(ip, entry);
+        for (const k of keys) { const e = failures.get(k) || { count: 0, since: now }; e.count++; failures.set(k, e); }
         throw new UserError(c?.login_disabled ? 'Вход для этого номера закрыт. Позвоните нам.' : 'Неверный номер или пароль');
       }
-      failures.delete(ip);
+      failures.delete(keys[1]);
       const fresh = loggedIn(c);
       return { ok: true, customer: publicCustomer(fresh), cookie: sessionCookie(req, fresh) };
     },

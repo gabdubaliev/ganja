@@ -5356,13 +5356,23 @@ function createStore(file) {
       return this.listCategories().filter((c) => used.has(c.name)).map((c) => ({ name: c.name, image: c.image_id ? `/img/${c.image_id}` : null }));
     },
 
+    // Витрина для покупателей: список товаров держится в памяти 10 секунд — сотни запросов фото и каталога
+    // не пересчитывают всю базу каждый раз (защита от перегрузки). Заказ всегда проверяет свежие остатки.
+    shopProductsCached() {
+      const now = Date.now();
+      if (!this._shopCache || now - this._shopCache.at > 10_000) {
+        const list = this.shopProducts();
+        this._shopCache = { at: now, list, photos: new Set(list.filter((p) => p.photo).map((p) => p.id)), ids: new Set(list.map((p) => p.id)) };
+      }
+      return this._shopCache;
+    },
     shopPhotoAllowed(id) {
-      return this.shopProducts().some((p) => p.id === Number(id) && p.photo);
+      return this.shopProductsCached().photos.has(Number(id));
     },
 
     // Дополнительное фото на витрине — только у товара, который показан на витрине.
     shopGalleryImage(productId, imageId) {
-      if (!this.shopProducts().some((p) => p.id === Number(productId))) return null;
+      if (!this.shopProductsCached().ids.has(Number(productId))) return null;
       return this.getGalleryImage(productId, imageId);
     },
 

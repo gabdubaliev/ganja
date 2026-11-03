@@ -230,8 +230,20 @@ say "Настраиваю веб-сервер"
 if [[ -n $DOMAIN ]]; then
   cat > /etc/caddy/Caddyfile <<EOF
 # Создано install.sh. Caddy сам получает и продлевает сертификаты HTTPS.
+# Общая защита: не больше 25 МБ на запрос, сжатие, HTTPS всегда, без версии сервера в ответах.
+(protect) {
+	request_body {
+		max_size 25MB
+	}
+	encode gzip
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000"
+	}
+}
 # Витрина для покупателей:
 $DOMAIN {
+	import protect
 	reverse_proxy 127.0.0.1:3000
 }
 www.$DOMAIN {
@@ -239,6 +251,7 @@ www.$DOMAIN {
 }
 # Программа для владельца и сотрудников:
 $ADMIN_DOMAIN {
+	import protect
 	reverse_proxy 127.0.0.1:3000
 }
 EOF

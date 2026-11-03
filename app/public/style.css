@@ -1988,3 +1988,12 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .offline-bar.wait { background: #e8f1ff; color: #123e7a; border-bottom: 1px solid #bcd3f5; }
 .offline-bar.bad { background: #ffe9e9; color: #7a1212; border-bottom: 1px solid #f3bcbc; }
 .offline-bar .ob-line, .offline-bar .ob-err { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+
+/* Телефон: ничего не вылезает за край экрана — длинные ряды кнопок прокручиваются внутри, текст переносится */
+.page > *, .top > *, .settings-form > *, .panel > * { min-width: 0; max-width: 100%; }
+.settings-form code, .settings-form a, .settings-form li, .settings-form p { overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .seg.tabs { display: flex; overflow-x: auto; scrollbar-width: none; max-width: 100%; }
+  .seg.tabs button { flex: none; }
+}
+.form-actions { flex-wrap: wrap; }

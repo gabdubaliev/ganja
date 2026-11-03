@@ -69,6 +69,21 @@ function createAuth(users, secret) {
     return req.headers['x-forwarded-proto'] === 'https' || Boolean(req.socket.encrypted);
   }
 
+  // Защита от подбора пароля и PIN: неверные попытки считаются и по адресу, и по учётной записи.
+  // Удачный вход сбрасывает только счётчик этой учётной записи — сбросить чужой счётчик своим PIN нельзя.
+  const ACCOUNT_MAX = MAX_FAILURES * 2;
+  function blocked(ip, acc) {
+    const now = Date.now();
+    for (const k of [`ip:${ip}`, `acc:${acc}`]) { const f = failures.get(k); if (f && now - f.since > FAILURE_WINDOW_MS) failures.delete(k); }
+    return (failures.get(`ip:${ip}`)?.count || 0) >= MAX_FAILURES || (failures.get(`acc:${acc}`)?.count || 0) >= ACCOUNT_MAX;
+  }
+  function fail(ip, acc) {
+    const now = Date.now();
+    for (const k of [`ip:${ip}`, `acc:${acc}`]) { const e = failures.get(k) || { count: 0, since: now }; e.count++; failures.set(k, e); }
+  }
+  // Старые записи не копятся в памяти.
+  setInterval(() => { const now = Date.now(); for (const [k, f] of failures) if (now - f.since > FAILURE_WINDOW_MS) failures.delete(k); }, 5 * 60_000).unref();
+
   function clientIp(req) {
     return String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '';
   }
@@ -104,20 +119,17 @@ function createAuth(users, secret) {
     login(req, email, password) {
       const ip = clientIp(req);
       const now = Date.now();
-      const f = failures.get(ip);
-      if (f && now - f.since > FAILURE_WINDOW_MS) failures.delete(ip);
-      if ((failures.get(ip)?.count || 0) >= MAX_FAILURES) {
+      const acc = String(email || '').trim().toLowerCase().slice(0, 120);
+      if (blocked(ip, acc)) {
         return { ok: false, status: 429, error: 'Слишком много неверных попыток. Подождите 15 минут.' };
       }
       const user = users.findUserByEmail(email);
       const valid = checkPassword(password, user?.password_hash || dummyHash) && user && !user.disabled;
       if (!valid) {
-        const entry = failures.get(ip) || { count: 0, since: now };
-        entry.count++;
-        failures.set(ip, entry);
+        fail(ip, acc);
         return { ok: false, status: 401, error: 'Неверный email или пароль' };
       }
-      failures.delete(ip);
+      failures.delete(`acc:${acc}`);
       const expires = String(now + SESSION_DAYS * 864e5);
       const value = `${keyOf(user)}.${expires}`;
       const cookie = `${COOKIE}=${value}.${sign(`${value}.${user.password_hash}`)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${isSecure(req) ? '; Secure' : ''}`;
@@ -129,21 +141,18 @@ function createAuth(users, secret) {
     switchUser(req, userId, code) {
       const ip = clientIp(req);
       const now = Date.now();
-      const f = failures.get(ip);
-      if (f && now - f.since > FAILURE_WINDOW_MS) failures.delete(ip);
-      if ((failures.get(ip)?.count || 0) >= MAX_FAILURES) {
+      const acc = `user-${Number(userId) || 0}`;
+      if (blocked(ip, acc)) {
         return { ok: false, status: 429, error: 'Слишком много неверных попыток. Подождите 15 минут.' };
       }
       const user = users.findUser(userId);
       const stored = user?.pin_hash || user?.password_hash || dummyHash;
       const valid = checkPassword(code, stored) && user && !user.disabled;
       if (!valid) {
-        const entry = failures.get(ip) || { count: 0, since: now };
-        entry.count++;
-        failures.set(ip, entry);
+        fail(ip, acc);
         return { ok: false, status: 401, error: user?.pin_hash ? 'Неверный PIN-код' : 'Неверный пароль' };
       }
-      failures.delete(ip);
+      failures.delete(`acc:${acc}`);
       const expires = String(now + SESSION_DAYS * 864e5);
       const value = `${keyOf(user)}.${expires}`;
       const cookie = `${COOKIE}=${value}.${sign(`${value}.${user.password_hash}`)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${isSecure(req) ? '; Secure' : ''}`;

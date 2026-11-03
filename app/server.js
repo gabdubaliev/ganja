@@ -692,7 +692,19 @@ function setSms(input) {
 const whatsappPublic = (s) => ({ enabled: s.enabled, verifyToken: s.verifyToken, phoneNumberId: s.phoneNumberId, hasSecret: Boolean(s.appSecret), hasToken: Boolean(s.accessToken),
   otpEnabled: Boolean(s.otpEnabled), otpTemplate: s.otpTemplate || '', otpLang: s.otpLang || 'ru', webhookPath: '/webhooks/whatsapp' });
 
-const hideStock = (user, list) => (can(user, 'stock.view') ? list : list.map((p) => ({ ...p, stock: null })));
+// Закупочная цена, себестоимость и поставщик — только тем, кому они нужны для работы (кассиру — нет).
+const COST_RIGHTS = ['products', 'arrivals', 'stock', 'writeoff', 'transfer', 'docs.sale', 'abc', 'finance', 'reports.stock', 'reports.money', 'kpi', 'receive.photo'];
+const hideStock = (user, list) => {
+  const stock = can(user, 'stock.view');
+  const cost = COST_RIGHTS.some((r) => can(user, r));
+  if (stock && cost) return list;
+  return list.map((p) => {
+    const x = { ...p };
+    if (!stock) x.stock = null;
+    if (!cost) { delete x.cost; delete x.purchase; delete x.supplier_id; delete x.supplier; }
+    return x;
+  });
+};
 
 // Право на вид документа: продажа, закупка, списание… — у каждого своё (см. DOC_KINDS в db.js).
 // Остаток товара во всех магазинах, где может работать сотрудник. Товар в другом магазине
@@ -836,12 +848,14 @@ function sendJson(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-async function readBody(req) {
+// limit — сколько байт можно прислать: публичным адресам (вход, витрина) — немного, сотрудникам — до 20 МБ (фото).
+async function readBody(req, limit = 20e6) {
+  if (Number(req.headers['content-length']) > limit) throw new UserError('Слишком большой запрос');
   let size = 0;
   const chunks = [];
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 20e6) throw new UserError('Слишком большой запрос');
+    if (size > limit) throw new UserError('Слишком большой запрос');
     chunks.push(chunk);
   }
   try {
@@ -1689,11 +1703,12 @@ function auditDetails(key, params, body, result) {
 
 async function handleAuth(req, res, url) {
   if (url.pathname === '/api/login' && req.method === 'POST') {
-    const body = await readBody(req);
+    const body = await readBody(req, 16_384);
     const result = auth.login(req, body.email || '', body.password || '');
     const who = { ip: clientIp(req), device: device(req) };
     if (!result.ok) {
-      store.audit({ ...who, kind: 'login_failed', userName: String(body.email || '').slice(0, 120), action: 'Неудачная попытка входа', details: result.error });
+      // Когда адрес уже заблокирован за подбор, каждую попытку в журнал не пишем — журнал не забивается.
+      if (result.status !== 429) store.audit({ ...who, kind: 'login_failed', userName: String(body.email || '').slice(0, 120), action: 'Неудачная попытка входа', details: result.error });
       return sendJson(res, result.status, { error: result.error });
     }
     // Вход пишется в журнал магазина сотрудника: там и ищется его «последний вход».
@@ -1706,7 +1721,7 @@ async function handleAuth(req, res, url) {
   if (url.pathname === '/api/switch-user' && req.method === 'POST') {
     const onTill = auth.currentUser(req);
     if (!onTill || !can(onTill, 'pos')) return sendJson(res, 403, { error: 'Смена кассира доступна только на открытой кассе' });
-    const body = await readBody(req);
+    const body = await readBody(req, 16_384);
     const target = store.findUser(body.userId);
     if (!target || !can(target, 'pos')) return sendJson(res, 400, { error: 'Этот сотрудник не работает на кассе' });
     // Кассир выбирается в магазине, где сейчас открыта касса.
@@ -1725,7 +1740,7 @@ async function handleAuth(req, res, url) {
   if (url.pathname === '/api/branch/switch' && req.method === 'POST') {
     const me = auth.currentUser(req);
     if (!me) return sendJson(res, 401, { error: 'Нужно войти' });
-    const body = await readBody(req);
+    const body = await readBody(req, 16_384);
     const ctx = contextOf(body.id);
     if (!ctx) return sendJson(res, 400, { error: 'Магазин не найден' });
     if (!allowedBranches(me).includes(ctx.id)) return sendJson(res, 403, { error: 'У вас нет доступа к этому магазину. Его открывает владелец в карточке сотрудника.' });
@@ -1737,7 +1752,7 @@ async function handleAuth(req, res, url) {
   if (url.pathname === '/api/act-as' && req.method === 'POST') {
     const me = auth.ownerOf(req) || auth.currentUser(req);
     if (!me || !isOwner(me)) return sendJson(res, 403, { error: 'Входить от имени сотрудника может только владелец' });
-    const body = await readBody(req);
+    const body = await readBody(req, 16_384);
     const b = Number(body.branch) || 1;
     const ctx = contextOf(b);
     const target = ctx?.store.findUser(body.id);
@@ -1904,7 +1919,7 @@ async function shopAccount(req, res, url) {
       });
     }
     if (req.method !== 'POST' && req.method !== 'PUT') return sendJson(res, 405, { error: 'Неверный запрос' });
-    const body = await readBody(req);
+    const body = await readBody(req, 65_536);
     if (['login', 'register', 'reset/request'].includes(action) && !captcha.verify(body.captchaId, body.captcha)) {
       return sendJson(res, 400, { error: 'Неверный код с картинки — введите цифры с новой картинки', captcha: true });
     }
@@ -2021,7 +2036,7 @@ async function handlePublic(req, res, url, user) {
     const { css, payments, ...rest } = shop;
     // Способы оплаты: без счёта программы — покупателю он не нужен.
     const publicSettings = { ...rest, payments: payments.map((x) => ({ id: x.id, name: x.name, details: x.details, qr: x.qrId ? `/img/${x.qrId}` : null })) };
-    const products = store.shopProducts();
+    const products = store.shopProductsCached().list;
     return sendJson(res, 200, { settings: { ...publicSettings, preview: !shop.enabled }, products, categories: store.shopCategories(products) });
   }
   const photo = req.method === 'GET' && pathname.match(/^\/shop\/photo\/(\d+)$/);
@@ -2055,7 +2070,7 @@ async function handlePublic(req, res, url, user) {
     try {
       const customer = shopAuth.current(req);
       if (!customer) return sendJson(res, 401, { error: 'Войдите снова' });
-      const order = store.addOrderReceipt(receipt[1], customer, await readBody(req));
+      const order = store.addOrderReceipt(receipt[1], customer, await readBody(req, 8e6));
       notifier.orderReceipt(order);
       store.audit({ kind: 'change', userName: `Покупатель: ${order.name}`, ip: clientIp(req), device: device(req), action: 'Покупатель прикрепил чек об оплате', details: `Заказ №${order.id} на ${order.total} сом` });
       return sendJson(res, 200, { ok: true, status: order.status, receipts: order.receipts.length });
@@ -2085,7 +2100,7 @@ async function handlePublic(req, res, url, user) {
     const recent = (orderLog.get(ip) || []).filter((t) => now - t < 10 * 60_000);
     if (recent.length >= ORDER_LIMIT) return sendJson(res, 429, { error: 'Слишком много заказов подряд. Попробуйте через несколько минут или позвоните нам.' });
     try {
-      const body = await readBody(req);
+      const body = await readBody(req, 262_144);
       // Скрытое поле: люди его не видят и не заполняют, а боты заполняют.
       if (body.website) return sendJson(res, 200, { ok: true, id: 0 });
       const customer = shopAuth.current(req);
@@ -2138,10 +2153,46 @@ const server = http.createServer((req, res) => {
   return als.run(ctx, () => handleRequest(req, res, url, user, owner));
 });
 
+/* ---------- Защита от перегрузки (DDoS) и подделки запросов ---------- */
+// Сколько запросов можно с одного адреса за минуту: обычная работа и витрина укладываются с большим запасом.
+const RATE = { all: 3000, auth: 60 }; // мобильные операторы дают один адрес многим покупателям — пределы с запасом
+const hits = new Map(); // ip -> { min, all, auth }
+setInterval(() => { const m = Math.floor(Date.now() / 60_000); for (const [k, v] of hits) if (v.min < m - 1) hits.delete(k); }, 60_000).unref();
+function rateLimited(req, url) {
+  const ip = clientIp(req);
+  if (!ip || ip === '127.0.0.1' || ip === '::1') return false;
+  const min = Math.floor(Date.now() / 60_000);
+  let h = hits.get(ip);
+  if (!h || h.min !== min) { h = { min, all: 0, auth: 0 }; hits.set(ip, h); }
+  h.all++;
+  // Вход, регистрация, коды и капча — отдельный, строгий предел: подбор паролей и спам кодами.
+  if (req.method !== 'GET' && (url.pathname === '/api/login' || url.pathname === '/api/switch-user' || url.pathname.startsWith('/shop/account/'))) h.auth++;
+  if (url.pathname === '/shop/account/captcha') h.auth++;
+  return h.all > RATE.all || h.auth > RATE.auth;
+}
+// Изменения (POST/PUT/DELETE) принимаются только со страниц самой программы: чужой сайт (и витрина для
+// адреса программы) не может отправить запрос от имени вошедшего сотрудника. Вебхуки Meta — без cookie, им можно.
+function foreignOrigin(req, url) {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS' || url.pathname.startsWith('/webhooks/')) return false;
+  if (req.headers['sec-fetch-site'] === 'cross-site') return true;
+  const origin = req.headers.origin;
+  if (!origin || origin === 'null') return false;
+  try { return new URL(origin).host !== String(req.headers.host || ''); } catch { return true; }
+}
+
 async function handleRequest(req, res, url, user, owner) {
   // SAMEORIGIN, а не DENY: конструктор витрины показывает её предпросмотр во фрейме.
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=(), payment=()');
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'self'; base-uri 'self'; object-src 'none'; form-action 'self'");
+  if (req.headers['x-forwarded-proto'] === 'https') res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+  if (rateLimited(req, url)) {
+    res.setHeader('Retry-After', '60');
+    return sendJson(res, 429, { error: 'Слишком много запросов. Подождите минуту.' });
+  }
+  if (foreignOrigin(req, url)) return sendJson(res, 403, { error: 'Запрос с чужого сайта отклонён' });
   try {
     if ((await handleAuth(req, res, url)) !== false) return;
   } catch (err) {
@@ -2263,6 +2314,9 @@ if (process.argv.includes('--demo')) {
     console.error(`Чтобы перезапустить, остановите её командой: pkill -f server.js. Или запустите на другом порту: PORT=3001 npm start`);
     process.exit(1);
   });
+  // Медленные «висящие» подключения (атака slowloris) обрываются: заголовки — за 20 секунд.
+  server.headersTimeout = 20_000;
+  server.requestTimeout = 300_000;
   server.listen(PORT, HOST, () => {
     console.log(`Программа открыта: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
     console.log(`База данных: ${DB_FILE}`);
