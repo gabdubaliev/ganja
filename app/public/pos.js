@@ -733,6 +733,7 @@ $('#checkout').addEventListener('click', async () => {
         customerId: pos.customer?.id, bonusSpend: bonusSpend(), birthday: birthdayRate() > 0,
         certificate: pos.cert ? { number: pos.cert.number, amount: certUse() } : undefined,
         changeKept: changeKeptAmount(paid) || undefined,
+        cashGiven: parseNum($('#cash-given').value) || undefined,
         chefChange: chef ? { amount: chef.amount, to: chef.to, given: chef.given } : undefined,
       },
     });

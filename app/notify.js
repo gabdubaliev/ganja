@@ -131,6 +131,10 @@ function createNotifier(store) {
       `🧾 Чек №${sale.id} — ${rub(sale.total)}`,
       sale.offlineAt ? `📴 Пробит без интернета в ${new Date(sale.offlineAt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}, отправлен, когда появилась связь` : '',
       `Кассир: ${who}`,
+      // Способ оплаты: «Наличные», «Карта» или смешанная — «Наличные 2 000 сом + МБанк 2 500 сом».
+      sale.payments?.length ? `Оплата: ${sale.payments.length > 1 ? sale.payments.map((x) => `${x.name} ${rub(x.amount)}`).join(' + ') : sale.payments[0].name}` : (sale.method ? `Оплата: ${sale.method}` : ''),
+      sale.cashGiven ? `Получено наличными ${rub(sale.cashGiven)}, сдача ${rub(Math.max(0, sale.cashGiven - (sale.cashPart ?? sale.total)))}` : '',
+      sale.discount ? `Скидка: ${rub(sale.discount)}${sale.discountReason ? ` (${sale.discountReason})` : ''}` : '',
       ...sale.items.slice(0, 10).map((i) => `• ${i.name} × ${i.qty} = ${rub(i.qty * i.price)}`),
       sale.items.length > 10 ? `…и ещё ${sale.items.length - 10}` : '',
       sale.bonusSpent ? `Оплачено бонусами: ${rub(sale.bonusSpent)}` : '',

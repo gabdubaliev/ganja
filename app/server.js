@@ -1033,6 +1033,10 @@ const routes = [
     const sale = store.createSale({ ...body, at }, user);
     if (clientId) store.db.prepare('UPDATE sales SET client_id = ?, offline_at = ? WHERE id = ?').run(clientId, at ? Math.round(off) : null, sale.id);
     if (at) sale.offlineAt = at;
+    // Сколько наличных дал покупатель — для уведомления (сдача).
+    const given = Number(body.cashGiven);
+    const cashPart = (sale.payments || []).filter((x) => x.kind === 'cash').reduce((a, x) => a + x.amount, 0);
+    if (given > 0 && cashPart > 0 && given >= cashPart && given < cashPart + 100000) { sale.cashGiven = given; sale.cashPart = cashPart; }
     // Сдачу не выдали — записываем в кассу (если запись не удалась, чек всё равно пробит).
     if (Number(body.changeKept) > 0) {
       try { sale.changeKept = store.keepChange(sale.id, body.changeKept, user); } catch (err) { sale.changeError = err.message; }

@@ -2537,7 +2537,7 @@ function createStore(file) {
         if (earned) changeBonus(customer.id, earned, `Начислено за чек №${saleId}`, who, saleId);
         return { id: Number(saleId), method: names, total, paid, bonusSpent: spent, bonusEarned: earned, discount, discountReason: reasons.join('; '),
           certificate: cert ? { number: cert.number, used: certAmount, balance: round2(cert.balance - certAmount) } : null,
-          payments: [...(cert ? [{ name: `Сертификат №${cert.number}`, amount: certAmount, commission: 0 }] : []), ...parts.filter((x) => x.amount > 0 || !cert).map((x) => ({ name: x.method.name, amount: x.amount, commission: x.commission }))],
+          payments: [...(cert ? [{ name: `Сертификат №${cert.number}`, amount: certAmount, commission: 0 }] : []), ...parts.filter((x) => x.amount > 0 || !cert).map((x) => ({ name: x.method.name, kind: x.method.kind, amount: x.amount, commission: x.commission }))],
           items: lines.map((l) => ({ name: l.p.name, qty: l.qty, price: l.price })), customer: customer && this.findCustomer(customer.id) };
       });
     },
