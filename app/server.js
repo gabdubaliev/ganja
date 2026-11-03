@@ -93,6 +93,9 @@ function makeContext(id, st) {
   ctx.igPrice = createIgPrice({ store: st, crm: ctx.crm, notifier: ctx.notifier });
   // Код подтверждения, который сотрудник передаёт покупателю сам: уведомление в программу и в Telegram.
   ctx.shopAuth = createShopAuth(st, {
+    // Коды покупателям — через Telegram-бота магазина, если бот подключён (бесплатно, без SMS).
+    // Бот не получает сообщения (подключён к другому сервису — ошибка 409) — коды как раньше, через сотрудника.
+    telegramCodes: () => mainStore.setting('shop_tg_codes', '1') !== '0' && Boolean(contextOf(1)?.notifier.telegramSettings().token) && !shopBot.problem,
     onCodeRequested(c) {
       const what = c.purpose === 'reset' ? 'восстановление пароля' : 'регистрация';
       ctx.notifier.broadcast('code', { phone: c.phone, name: c.name, purpose: c.purpose }, 'customers.accounts');
@@ -2230,6 +2233,58 @@ async function metaWebhook(req, res, url, channel) {
 }
 
 // Личный кабинет покупателя на витрине: регистрация, вход, «Забыл пароль», мои заказы.
+/* ---------- Telegram-бот магазина: коды покупателям витрины ---------- */
+const { createTgBot } = require('./tgbot');
+const tgLinks = new Map(); // токен ссылки -> { ctxId, phone, purpose, exp }
+const tgChats = new Map(); // chat id -> токен ссылки
+let tgBotName = '';
+const shopBot = createTgBot({
+  token: () => contextOf(1)?.notifier.telegramSettings().token || '',
+  async onMessage(m) {
+    if (m.chat?.type !== 'private') return;
+    const text = String(m.text || '').trim();
+    const shopTitle = mainStore.design().name || 'магазина';
+    const start = text.match(/^\/start\s+sc_([\w-]{10,40})$/);
+    if (start) {
+      const link = tgLinks.get(start[1]);
+      if (!link || link.exp < Date.now()) return shopBot.send(m.chat.id, 'Ссылка устарела. Вернитесь на сайт и нажмите «Получить код в Telegram» ещё раз.');
+      tgChats.set(m.chat.id, start[1]);
+      return shopBot.send(m.chat.id, `Здравствуйте! Чтобы получить код для сайта ${shopTitle}, подтвердите номер телефона — нажмите кнопку «📱 Поделиться номером» внизу.`, {
+        reply_markup: { keyboard: [[{ text: '📱 Поделиться номером', request_contact: true }]], resize_keyboard: true, one_time_keyboard: true },
+      });
+    }
+    if (m.contact) {
+      const token = tgChats.get(m.chat.id);
+      const link = token && tgLinks.get(token);
+      const done = { reply_markup: { remove_keyboard: true } };
+      if (!link || link.exp < Date.now()) return shopBot.send(m.chat.id, 'Сначала нажмите на сайте «Получить код в Telegram».', done);
+      // Только свой номер: Telegram подтверждает номер владельца аккаунта, чужой контакт не подойдёт.
+      if (String(m.contact.user_id || '') !== String(m.from?.id || '')) return shopBot.send(m.chat.id, 'Нужен ваш собственный номер — нажмите кнопку «📱 Поделиться номером».');
+      const digits = String(m.contact.phone_number || '').replace(/\D/g, '');
+      const ctx = contextOf(link.ctxId);
+      if (!digits || digits.slice(-9) !== link.phone.slice(-9)) {
+        ctx?.store.audit({ kind: 'denied', userName: `Покупатель: +${link.phone}`, action: 'Код в Telegram не выдан: номер не совпал', details: `в Telegram +${digits}` });
+        return shopBot.send(m.chat.id, `Номер вашего Telegram (+${digits}) не совпадает с номером на сайте. Проверьте номер на сайте или выберите там «Нет Telegram — код сообщит магазин».`, done);
+      }
+      const row = ctx?.shopAuth.telegramCode(link.phone, link.purpose);
+      if (!row) return shopBot.send(m.chat.id, 'Код устарел. Вернитесь на сайт и запросите новый.', done);
+      tgLinks.delete(token);
+      tgChats.delete(m.chat.id);
+      ctx.shopAuth.markCodeSent(row.id, { name: 'Telegram-бот' });
+      ctx.store.audit({ kind: 'change', userName: `Покупатель: +${link.phone}`, action: 'Код для витрины отправлен в Telegram', details: link.purpose === 'reset' ? 'восстановление пароля' : 'регистрация' });
+      return shopBot.send(m.chat.id, `🔑 Ваш код: ${row.code}\nВведите его на сайте. Код действует 15 минут. Никому его не сообщайте — сотрудники магазина никогда его не спрашивают.`, done);
+    }
+    if (text === '/start') return shopBot.send(m.chat.id, `Это бот ${shopTitle}. Код для входа на сайт можно получить кнопкой «Получить код в Telegram» на сайте.`);
+  },
+});
+setInterval(() => { const now = Date.now(); for (const [k, v] of tgLinks) if (v.exp < now) tgLinks.delete(k); }, 5 * 60_000).unref();
+async function botName() {
+  if (tgBotName) return tgBotName;
+  const me = await shopBot.call('getMe').catch(() => null);
+  tgBotName = me?.username || '';
+  return tgBotName;
+}
+
 async function shopAccount(req, res, url) {
   const action = url.pathname.slice('/shop/account/'.length);
   const ip = clientIp(req);
@@ -2300,6 +2355,19 @@ async function shopAccount(req, res, url) {
         return sendJson(res, 200, { ok: true });
       case 'reset/request':
         return done(await shopAuth.requestReset(body));
+      // Код через Telegram-бота: ссылка в бота, там «Поделиться номером» — и бот присылает код.
+      case 'tg-link': {
+        const purpose = body.purpose === 'register' ? 'register' : 'reset';
+        const p = normalizePhone(body.phone);
+        if (!shopAuth.hasActiveCode(p, purpose)) throw new UserError('Сначала запросите код ещё раз');
+        const name = await botName();
+        if (!name) throw new UserError('Бот магазина сейчас недоступен — выберите «Нет Telegram — код сообщит магазин»');
+        const token = crypto.randomBytes(12).toString('base64url');
+        tgLinks.set(token, { ctxId: current().id, phone: p, purpose, exp: Date.now() + 15 * 60_000 });
+        return sendJson(res, 200, { link: `https://t.me/${name}?start=sc_${token}` });
+      }
+      case 'code-manual':
+        return sendJson(res, 200, shopAuth.askManual(body));
       case 'reset': {
         const r = shopAuth.resetPassword(body, req);
         store.audit({ ...who(r.customer), kind: 'change', action: 'Покупатель сменил пароль по коду' });
@@ -2605,10 +2673,9 @@ async function handleRequest(req, res, url, user, owner) {
       if (req.method === 'POST' && url.pathname === '/api/2fa/check') {
         // Ищем «/start КОД» от владельца в личном чате с ботом и шлём туда пробный код.
         if (!cfg.start || Date.now() - (cfg.startAt || 0) > 30 * 60_000) throw new UserError('Нажмите «Подключить Telegram» ещё раз');
-        const tg = tgBot();
-        const upd = await fetch(`https://api.telegram.org/bot${tg.token}/getUpdates?allowed_updates=%5B%22message%22%5D`, { signal: AbortSignal.timeout(10_000) }).then((r) => r.json()).catch(() => ({}));
-        if (!upd.ok) throw new UserError(`Telegram не отдал сообщения бота: ${upd.description || 'нет связи'}`);
-        const msg = (upd.result || []).map((u) => u.message).filter(Boolean).reverse().find((m) => m.chat?.type === 'private' && String(m.text || '').trim() === `/start ${cfg.start}`);
+        // Сообщения бота слушает shopBot (getUpdates можно читать только в одном месте) — ищем в его последних сообщениях.
+        if (shopBot.problem) throw new UserError(`Бот не получает сообщения: ${shopBot.problem}`);
+        const msg = shopBot.recent(30).reverse().find((m) => m.chat?.type === 'private' && String(m.text || '').trim() === `/start ${cfg.start}`);
         if (!msg) throw new UserError('Бот ещё не получил ваше сообщение. Откройте ссылку, нажмите «Start» (или «Запустить») и нажмите «Проверить» ещё раз.');
         const code = newCode();
         await tgSendTo(msg.chat.id, `🔐 Проверочный код: ${code}\nВведите его в программе, чтобы включить вход с кодом.`);
@@ -2779,5 +2846,6 @@ if (process.argv.includes('--demo')) {
     console.log(`Программа открыта: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
     console.log(`База данных: ${DB_FILE}`);
     console.log(auth.enabled ? 'Вход по email и паролю включён.' : 'Вход без пароля (администратор задаётся в ADMIN_EMAIL и ADMIN_PASSWORD).');
+    if (process.env.SHOP_TG_POLL !== '0') shopBot.start();
   });
 }

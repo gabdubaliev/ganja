@@ -25,7 +25,7 @@ const MAX_FAILURES = 10;
 const FAILURE_WINDOW = 15 * 60_000;
 const WHATSAPP_API = 'https://graph.facebook.com/v21.0';
 
-function createShopAuth(store, { onCodeRequested } = {}) {
+function createShopAuth(store, { onCodeRequested, telegramCodes = () => false } = {}) {
   const db = store.db;
   const have = new Set(db.prepare('PRAGMA table_info(customers)').all().map((c) => c.name));
   for (const [name, def] of [['password_hash', 'TEXT'], ['registered_at', 'INTEGER'], ['last_login_at', 'INTEGER'], ['login_disabled', 'INTEGER NOT NULL DEFAULT 0']]) {
@@ -150,9 +150,12 @@ function createShopAuth(store, { onCodeRequested } = {}) {
         console.error('Код в WhatsApp не отправлен, передадим через сотрудника:', err.message);
       }
     }
+    // Бесплатно: покупатель сам получает код в Telegram-боте магазина, подтвердив номер кнопкой «Поделиться номером».
+    // Нет Telegram — нажмёт «Код сообщит магазин», и код получит сотрудник (askManual).
+    if (channel === 'manual' && telegramCodes()) channel = 'telegram';
     const { lastInsertRowid } = db.prepare(`INSERT INTO phone_codes (phone, purpose, code_hash, code, channel, pending, created_at, expires_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(p, purpose, hashPassword(code), channel === 'manual' ? code : null, channel, pending ? JSON.stringify(pending) : null, Date.now(), Date.now() + CODE_TTL);
+      .run(p, purpose, hashPassword(code), channel === 'manual' || channel === 'telegram' ? code : null, channel, pending ? JSON.stringify(pending) : null, Date.now(), Date.now() + CODE_TTL);
     // Код для ручной передачи хранится, пока действует, — его видит сотрудник.
     if (channel === 'manual') onCodeRequested?.({ id: Number(lastInsertRowid), phone: p, purpose, code, name: pending?.name || findByPhone(p)?.name || '' });
     return { channel, expiresIn: CODE_TTL / 60_000 };
@@ -249,7 +252,7 @@ function createShopAuth(store, { onCodeRequested } = {}) {
       const c = findByPhone(p);
       if (c?.password_hash && !c.login_disabled) return issueCode(p, 'reset');
       const cs = codeSettings();
-      return { channel: cs.sms ? 'sms' : cs.whatsapp ? 'whatsapp' : 'manual', expiresIn: CODE_TTL / 60_000 };
+      return { channel: cs.sms ? 'sms' : cs.whatsapp ? 'whatsapp' : telegramCodes() ? 'telegram' : 'manual', expiresIn: CODE_TTL / 60_000 };
     },
 
     resetPassword(input, req) {
@@ -311,6 +314,25 @@ function createShopAuth(store, { onCodeRequested } = {}) {
         FROM phone_codes pc LEFT JOIN customers c ON c.phone = pc.phone
         WHERE pc.channel = 'manual' AND pc.used_at IS NULL AND pc.expires_at > ? ORDER BY pc.created_at DESC`).all(Date.now())
         .map((r) => ({ ...r, name: r.name || JSON.parse(db.prepare('SELECT pending FROM phone_codes WHERE id = ?').get(r.id).pending || '{}').name || '' }));
+    },
+
+    // Действующий код для Telegram-бота: только канал telegram, только этот номер и цель.
+    telegramCode(p, purpose) {
+      return db.prepare("SELECT id, phone, purpose, code FROM phone_codes WHERE phone = ? AND purpose = ? AND channel = 'telegram' AND used_at IS NULL AND expires_at > ? AND code IS NOT NULL ORDER BY created_at DESC LIMIT 1")
+        .get(phone(p), purpose, Date.now()) || null;
+    },
+    hasActiveCode(p, purpose) {
+      return Boolean(db.prepare('SELECT 1 FROM phone_codes WHERE phone = ? AND purpose = ? AND used_at IS NULL AND expires_at > ?').get(phone(p), purpose, Date.now()));
+    },
+    // Нет Telegram: тот же код передаст сотрудник (уведомление в программе и в Telegram магазина).
+    askManual(input) {
+      const p = phone(input.phone);
+      const purpose = input.purpose === 'register' ? 'register' : 'reset';
+      const row = db.prepare("SELECT * FROM phone_codes WHERE phone = ? AND purpose = ? AND channel = 'telegram' AND used_at IS NULL AND expires_at > ? ORDER BY created_at DESC LIMIT 1").get(p, purpose, Date.now());
+      if (!row) return { ok: true }; // одинаковый ответ, есть номер или нет
+      db.prepare("UPDATE phone_codes SET channel = 'manual' WHERE id = ?").run(row.id);
+      onCodeRequested?.({ id: row.id, phone: p, purpose, code: row.code, name: JSON.parse(row.pending || '{}').name || findByPhone(p)?.name || '' });
+      return { ok: true };
     },
 
     markCodeSent(id, user) {

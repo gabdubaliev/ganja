@@ -34,11 +34,11 @@ img { max-width: 100%; display: block; }
 .opt-values button.na { color: var(--ink-soft); text-decoration: line-through; opacity: 0.6; }
 
 /* Аккаунт покупателя */
-.acc { display: grid; gap: 12px; }
+.acc { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); }
 .acc label, .acc-form label { display: grid; gap: 4px; font-size: 14px; color: var(--ink-soft); }
 .acc input { padding: 11px 14px; border: 1px solid var(--line); border-radius: calc(var(--radius) * 0.7); background: var(--surface); color: var(--ink); font: inherit; }
 .acc input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
-.code-input { font-size: 26px !important; letter-spacing: 0.4em; text-align: center; font-variant-numeric: tabular-nums; }
+.code-input { width: 100%; min-width: 0; box-sizing: border-box; font-size: 26px !important; letter-spacing: 0.4em; text-align: center; font-variant-numeric: tabular-nums; }
 .acc-links { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
 .link { border: 0; background: none; color: var(--accent); padding: 0; font-weight: 600; font-size: 14px; }
 .small.left { text-align: left; }
@@ -629,3 +629,7 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .subcats::-webkit-scrollbar { display: none; }
 .subcats button { flex: none; padding: 7px 14px; border-radius: 999px; border: 1px dashed var(--line); background: transparent; font-weight: 600; font-size: 13px; color: var(--ink); }
 .subcats button[aria-pressed="true"] { border-style: solid; border-color: var(--ink); background: var(--ink); color: var(--bg); }
+
+.tg-code { display: grid; gap: 6px; margin: 4px 0 8px; }
+.tg-code .tg-btn { width: 100%; }
+.tg-code[hidden] { display: none; }

@@ -143,6 +143,11 @@
   <form class="acc" data-view="code" novalidate hidden>
     <h2>Подтвердите номер</h2>
     <p class="small left code-hint"></p>
+    <div class="tg-code" hidden>
+      <button type="button" class="primary tg-btn" data-tg-code>📲 Получить код в Telegram</button>
+      <p class="small left">Откроется бот магазина: нажмите в нём «Поделиться номером» — код придёт сразу. Номер Telegram должен совпадать с номером на сайте.</p>
+      <button type="button" class="link" data-code-manual>Нет Telegram — код сообщит магазин</button>
+    </div>
     <label>Код из 6 цифр<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" class="code-input" required></label>
     <label class="new-pass">Новый пароль<input name="password" type="password" autocomplete="new-password" minlength="6" placeholder="Не короче 6 символов"></label>
     <p class="error" hidden></p>

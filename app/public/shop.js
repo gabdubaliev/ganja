@@ -1059,7 +1059,10 @@ function openCode(purpose, phone, channel, extra = {}) {
   const form = $('#account [data-view="code"]');
   form.reset();
   form.querySelector('.new-pass').hidden = purpose !== 'reset';
-  form.querySelector('.code-hint').textContent = channel === 'sms'
+  form.querySelector('.tg-code').hidden = channel !== 'telegram';
+  form.querySelector('.code-hint').textContent = channel === 'telegram'
+    ? 'Получите код в нашем Telegram-боте — это бесплатно и сразу. Код действует 15 минут.'
+    : channel === 'sms'
     ? `Мы отправили SMS с кодом на номер ${phone}. Код действует 15 минут.`
     : channel === 'whatsapp'
     ? 'Мы отправили код в WhatsApp на ваш номер. Код действует 15 минут.'
@@ -1222,6 +1225,27 @@ $('#account [data-view="code"]').addEventListener('submit', async (e) => {
   try {
     if (c.purpose === 'register') loggedIn(await account('register/confirm', { phone: c.phone, code: f.elements.code.value }), 'Номер подтверждён, вы зарегистрированы');
     else loggedIn(await account('reset', { phone: c.phone, code: f.elements.code.value, password: f.elements.password.value }), 'Пароль изменён, вы вошли');
+  } catch (err) { showError(f, err); }
+});
+// Код через Telegram-бота: ссылка открывается в Telegram, там «Поделиться номером» — бот присылает код.
+$('#account [data-tg-code]').addEventListener('click', async () => {
+  const c = state.codeFor;
+  const f = $('#account [data-view="code"]');
+  const w = window.open('', '_blank');
+  try {
+    const d = await account('tg-link', { phone: c.phone, purpose: c.purpose });
+    if (w) w.location = d.link; else location.href = d.link;
+    f.querySelector('.code-hint').textContent = 'В Telegram нажмите «Start», затем «📱 Поделиться номером» — бот пришлёт код. Вернитесь сюда и введите его.';
+    f.elements.code.focus();
+  } catch (err) { if (w) w.close(); showError(f, err); }
+});
+$('#account [data-code-manual]').addEventListener('click', async () => {
+  const c = state.codeFor;
+  const f = $('#account [data-view="code"]');
+  try {
+    await account('code-manual', { phone: c.phone, purpose: c.purpose });
+    f.querySelector('.tg-code').hidden = true;
+    f.querySelector('.code-hint').textContent = 'Хорошо: сотрудник магазина позвонит или напишет вам и назовёт код. Код действует 15 минут.' + (state.settings.phone ? ` Можно позвонить нам: ${state.settings.phone}.` : '');
   } catch (err) { showError(f, err); }
 });
 $('#account [data-resend]').addEventListener('click', async () => {
