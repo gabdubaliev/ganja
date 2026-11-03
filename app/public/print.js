@@ -14,7 +14,8 @@ async function printDesigns(force = false) {
 const LABEL_TOKENS = [
   ['name', 'Название товара'], ['price', 'Цена (со скидкой)'], ['price_num', 'Цена без «сом»'], ['oldPrice', 'Старая цена (если скидка)'],
   ['discount', 'Скидка, %'], ['barcode', 'Штрихкод'], ['code', 'Код товара'], ['article', 'Артикул'], ['category', 'Категория'],
-  ['options', 'Модификация (цвет, размер…)'], ['unit', 'Единица'], ['shop', 'Магазин'], ['date', 'Дата печати'],
+  ['options', 'Модификация (цвет, размер…)'], ['model', 'Название без размера и цвета'], ['size', 'Размер'], ['color', 'Цвет'],
+  ['unit', 'Единица'], ['shop', 'Магазин'], ['date', 'Дата печати'],
 ];
 const RECEIPT_TOKENS = [
   ['shop', 'Магазин'], ['number', 'Номер чека'], ['date', 'Дата'], ['time', 'Время'], ['cashier', 'Кассир'], ['register', 'Касса'],
@@ -45,6 +46,14 @@ function productValues(p, shop = '') {
     shop, date: new Date().toLocaleDateString('ru-RU'),
   };
   for (const [k, v] of Object.entries(opts)) vals[k] = String(v ?? '');
+  // Размер и цвет отдельно от названия: «Двойка 516 · Коричневый, 2XL» → model «Двойка 516», color «Коричневый», size «2XL».
+  const [model, tail = ''] = String(p.name || '').split(' · ');
+  const pick = (re) => Object.entries(opts).find(([k]) => re.test(k))?.[1];
+  const parts = tail.split(',').map((x) => x.trim()).filter(Boolean);
+  const SIZE_RE = /^(\d{2,3}(\/\d{2,3})?|[2-6]?X{0,3}[SML]|XX?S|\d?XL|\d{2}-\d{2}|one ?size)$/i;
+  vals.model = model.trim();
+  vals.size = String(pick(/размер|size|рост/i) ?? parts.find((x) => SIZE_RE.test(x)) ?? '');
+  vals.color = String(pick(/цвет|colou?r/i) ?? parts.find((x) => !SIZE_RE.test(x)) ?? '');
   return vals;
 }
 
