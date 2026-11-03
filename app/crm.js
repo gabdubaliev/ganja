@@ -755,6 +755,12 @@ function createCrm(store) {
           steps.push({ title: 'Подписка аккаунта на сообщения', ok: ig.ok, detail: ig.ok ? 'готово' : `маркеру не видна Facebook-страница магазина (${r?.note || ig.err}). Дайте системному пользователю доступ к странице, к которой привязан Instagram, и нажмите ещё раз` });
         }
       }
+      // Meta отказал из-за разрешений — понятной строкой, каких не хватает маркеру.
+      for (const st of steps) {
+        if (st.ok) continue;
+        const need = [...new Set(String(st.detail).match(/pages_[a-z_]+|instagram_[a-z_]+/g) || [])];
+        if (need.length) st.detail = `Маркеру не хватает разрешений: ${need.join(', ')}. Выпустите маркер системного пользователя заново (business.facebook.com → Пользователи → Системные пользователи → «Создать маркер»), отметьте эти разрешения, проверьте, что страница «${s.pageName || 'магазина'}» добавлена ему в ресурсы с полным доступом, и вставьте новый маркер в поле «Маркер доступа». Ответ Meta: ${st.detail}`;
+      }
       store.setSetting('instagram_sub_check', JSON.stringify({ at: Date.now(), ok: steps.every((x) => x.ok) }));
       return { steps, ok: steps.every((x) => x.ok) };
     },
