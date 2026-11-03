@@ -1409,6 +1409,7 @@ const routes = [
   }, 'settings'],
   ['POST', '/api/settings/instagram/check', () => crm.checkInstagram(), 'settings'],
   ['POST', '/api/settings/instagram/diagnose', () => crm.diagnoseInstagram(), 'settings'],
+  ['POST', '/api/settings/instagram/subscribe', (p, url) => crm.subscribeInstagramMessages(url.host), 'settings'],
   // Отмена действия сотрудника из журнала: dryRun — показать, что изменится и что мешает.
   // С правом «Журнал» — отмена любых действий; с правом «Свои действия» — только своих.
   ['POST', '/api/audit/:id/undo', (p, url, body, user) => store.undoActions(p.id, { scope: body.scope === 'after' ? 'after' : 'one', dryRun: Boolean(body.dryRun), onlyUser: can(user, 'audit') ? null : user }, user, reqMeta), ['audit', 'undo.own']],
@@ -1746,6 +1747,7 @@ const AUDIT_LABELS = {
   'POST /api/crm/leads': 'Создал сделку в CRM',
   'PUT /api/crm/leads/:id': 'Изменил сделку в CRM',
   'POST /api/crm/leads/:id/price-reply': 'Отправил клиенту цену по артикулу',
+  'POST /api/settings/instagram/subscribe': 'Подписал Instagram на сообщения Direct',
   'PUT /api/crm/funnel': 'Изменил воронку CRM',
   'POST /api/kassa/expense': 'Расход из кассы',
   'POST /api/access': 'Изменил права сотрудников (Права и доступ)',
@@ -1970,10 +1972,12 @@ function igAutoPublic(s) {
 // Настройки Instagram для экрана: без секретов; когда последний раз приходил вебхук и был ли отказ.
 function igSettingsOut(s) {
   const lastHook = Number(store.setting('instagram_last_hook', '0')) || null;
+  const lastComment = Number(store.setting('instagram_last_comment', '0')) || null;
+  const lastDm = Number(store.setting('instagram_last_dm', '0')) || null;
   const denied = store.listAudit({ from: Date.now() - 7 * 864e5, to: Date.now() + 1, kind: 'denied', q: 'Вебхук Instagram', limit: 1 })[0];
   const failed = store.listAudit({ from: Date.now() - 7 * 864e5, to: Date.now() + 1, kind: 'change', q: 'Автоответ в Instagram не отправлен', limit: 1 })[0];
   return { enabled: s.enabled, verifyToken: s.verifyToken, hasSecret: Boolean(s.appSecret), hasToken: Boolean(s.accessToken), webhookPath: '/webhooks/instagram',
-    autoReply: s.autoReply, autoText: s.autoText, autoHours: s.autoHours, lastHook, appId: s.appId || '', configId: s.configId || '', igId: s.igId || '', igUsername: s.igUsername || '', pageName: s.pageName || '', resolveNote: s.resolveNote || '', mode: crm.instagramMode(s), tokenExpires: s.tokenExpires || null, tokenKind: s.accessToken ? (/^IG/.test(s.accessToken) ? 'instagram' : /^EAA/.test(s.accessToken) ? 'facebook' : 'other') : null,
+    autoReply: s.autoReply, autoText: s.autoText, autoHours: s.autoHours, lastHook, lastComment, lastDm, appId: s.appId || '', configId: s.configId || '', igId: s.igId || '', igUsername: s.igUsername || '', pageName: s.pageName || '', resolveNote: s.resolveNote || '', mode: crm.instagramMode(s), tokenExpires: s.tokenExpires || null, tokenKind: s.accessToken ? (/^IG/.test(s.accessToken) ? 'instagram' : /^EAA/.test(s.accessToken) ? 'facebook' : 'other') : null,
     lastDenied: denied ? { at: denied.at, details: denied.details } : null, lastAutoError: failed ? { at: failed.at, details: failed.details } : null, auto: igAutoPublic(s) };
 }
 const META_CHANNELS = {
@@ -2006,6 +2010,15 @@ async function metaWebhook(req, res, url, channel) {
   sendJson(res, 200, { ok: true });
   // Когда Meta последний раз прислала событие — видно в настройках (доходят ли сообщения вообще).
   try { store.setSetting(`${channel}_last_hook`, String(Date.now())); } catch { /* не важно */ }
+  // Отдельно: доходят ли комментарии и сообщения Direct (часто приходят только комментарии).
+  if (channel === 'instagram') {
+    try {
+      const p = JSON.parse(raw.toString('utf8'));
+      const entries = p.entry || [];
+      if (entries.some((e) => (e.changes || []).some((c) => c.field === 'comments'))) store.setSetting('instagram_last_comment', String(Date.now()));
+      if (entries.some((e) => (e.messaging || []).some((m) => m.message && !m.message.is_echo) || (e.changes || []).some((c) => c.field === 'messages'))) store.setSetting('instagram_last_dm', String(Date.now()));
+    } catch { /* не важно */ }
+  }
   const greet = [];
   try {
     for (const { lead, isNew } of ch.receive(JSON.parse(raw.toString('utf8')))) {

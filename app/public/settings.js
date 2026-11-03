@@ -135,6 +135,8 @@ async function renderInstagram() {
       s.resolveNote ? `⚠️ ${esc(s.resolveNote)}` : '',
       s.tokenKind === 'instagram' && s.tokenExpires ? `🔑 Маркер Instagram действует до <b>${when(s.tokenExpires)}</b>, программа продлевает его сама` : '',
       s.lastHook ? `✅ Последнее событие от Instagram: <b>${when(s.lastHook)}</b>` : '⏳ От Instagram ещё не приходило ни одного сообщения на этот адрес',
+      s.lastHook ? (s.lastComment ? `💬 Комментарии приходят: последний <b>${when(s.lastComment)}</b>` : '💬 Комментариев ещё не приходило') : '',
+      s.lastHook ? (s.lastDm ? `✉️ Сообщения Direct приходят: последнее <b>${when(s.lastDm)}</b>` : '⚠️ <b>Сообщения Direct не приходят</b> — нажмите «✉️ Включить сообщения Direct» ниже') : '',
       s.lastDenied ? `⚠️ ${when(s.lastDenied.at)} Instagram прислал сообщение, но программа его отклонила: ${esc(s.lastDenied.details)} (проверьте App Secret и галочку «Принимать сообщения»)` : '',
       s.lastAutoError ? `⚠️ ${when(s.lastAutoError.at)} автоответ не отправлен: ${esc(s.lastAutoError.details)}` : '',
     ].filter(Boolean).map((x) => `<p class="pick-meta">${x}</p>`).join('');
@@ -238,6 +240,25 @@ $('#ig-diag').addEventListener('click', async () => {
     renderInstagram();
   } catch (err) {
     box.innerHTML = `<p class="form-error">${esc(err.message)}</p>`;
+  }
+});
+
+$('#ig-sub').addEventListener('click', async (e) => {
+  const box = $('#ig-diag-out');
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  box.hidden = false;
+  box.innerHTML = '<p class="pick-meta">Проверяю подписку на сообщения…</p>';
+  try {
+    const r = await api('/api/settings/instagram/subscribe', { method: 'POST' });
+    box.innerHTML = `<p><b>Сообщения Direct</b> — ${r.ok ? '✅ подписка в порядке. Напишите в Direct магазина с другого аккаунта и обновите страницу' : '❌ не всё получилось, см. ниже'}.</p>`
+      + `<ol>${r.steps.map((x) => `<li class="${x.ok ? 'ok' : 'bad'}"><b>${x.ok ? '✅' : '❌'} ${esc(x.title)}</b><br><code>${esc(x.detail)}</code></li>`).join('')}</ol>`
+      + '<p class="pick-meta">Если всё ✅, а сообщения всё равно не приходят: в приложении Instagram на телефоне магазина откройте Настройки → Сообщения и ответы на истории → Управление сообщениями → Подключённые инструменты → включите «Разрешить доступ к сообщениям».</p>';
+    renderInstagram();
+  } catch (err) {
+    box.innerHTML = `<p class="form-error">${esc(err.message)}</p>`;
+  } finally {
+    btn.disabled = false;
   }
 });
 

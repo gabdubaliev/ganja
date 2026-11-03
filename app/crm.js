@@ -700,6 +700,65 @@ function createCrm(store) {
       }
       return { items: out, works: Boolean(found) };
     },
+    // Подписка на сообщения Direct. Комментарии приходят, а сообщения нет — значит, Meta не шлёт поле «messages»:
+    // (1) в приложении (Webhooks → Instagram) не отмечено «messages»; (2) аккаунт/страница не подписаны на приложение.
+    // Проверяем оба места и подписываем то, чего не хватает. Возвращает шаги для экрана настроек.
+    async subscribeInstagramMessages(host = '') {
+      const s = crm.instagramSettings();
+      if (!s.accessToken) throw new UserError('Маркер не сохранён — нажмите «Подключить Instagram»');
+      const steps = [];
+      const req = async (method, url, token) => {
+        try {
+          const r = await fetch(`${url}${url.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(token)}`, { method, signal: AbortSignal.timeout(20_000) });
+          const d = await r.json().catch(() => ({}));
+          return r.ok && !d.error ? { ok: true, d } : { ok: false, err: d.error?.message || `ошибка ${r.status}` };
+        } catch (err) { return { ok: false, err: `нет связи: ${err.message}` }; }
+      };
+      const root = fbBase();
+      const want = ['messages', 'comments', 'messaging_postbacks'];
+      // 1. Приложение: на какие поля объекта «instagram» оно подписано.
+      if (s.appId && s.appSecret) {
+        const app = `${s.appId}|${s.appSecret}`;
+        const cur = await req('GET', `${root}/${s.appId}/subscriptions`, app);
+        const sub = cur.ok ? (cur.d.data || []).find((x) => x.object === 'instagram') : null;
+        const has = new Set((sub?.fields || []).map((f) => f.name || f));
+        if (!cur.ok) steps.push({ title: 'Вебхуки приложения', ok: false, detail: cur.err });
+        else if (want.slice(0, 2).every((f) => has.has(f))) steps.push({ title: 'Вебхуки приложения', ok: true, detail: `подписано: ${[...has].join(', ')}` });
+        else {
+          const callback = sub?.callback_url || (host ? `https://${host}/webhooks/instagram` : '');
+          if (!callback || !s.verifyToken) steps.push({ title: 'Вебхуки приложения', ok: false, detail: `не отмечено «messages» (сейчас: ${[...has].join(', ') || 'ничего'}). Отметьте в developers.facebook.com → приложение → Webhooks → Instagram → messages` });
+          else {
+            const fields = [...new Set([...has, ...want])].join(',');
+            const r = await req('POST', `${root}/${s.appId}/subscriptions?${new URLSearchParams({ object: 'instagram', callback_url: callback, fields, verify_token: s.verifyToken, include_values: 'true' })}`, app);
+            steps.push({ title: 'Вебхуки приложения: добавил «messages»', ok: r.ok, detail: r.ok ? `теперь: ${fields}` : `${r.err}. Отметьте вручную: Webhooks → Instagram → messages` });
+          }
+        }
+      } else steps.push({ title: 'Вебхуки приложения', ok: false, detail: 'не указаны ID и секрет приложения — проверить нельзя' });
+      // 2. Аккаунт: подписан ли он на приложение (без этого Meta не шлёт сообщения Direct).
+      const mode = crm.instagramMode(s);
+      if (mode === 'instagram') {
+        const r = await req('POST', `${INSTAGRAM_GRAPH}/v21.0/me/subscribed_apps?subscribed_fields=${want.join(',')}`, s.accessToken);
+        steps.push({ title: 'Аккаунт Instagram подписан на приложение', ok: r.ok, detail: r.ok ? want.join(', ') : r.err });
+      } else if (mode === 'page') {
+        const r = await req('POST', `${root}/${s.pageId}/subscribed_apps?subscribed_fields=messages,messaging_postbacks,message_reactions,feed`, s.pageToken);
+        const g = await req('GET', `${root}/${s.pageId}/subscribed_apps`, s.pageToken);
+        steps.push({ title: `Страница «${s.pageName}» подписана на приложение`, ok: r.ok, detail: r.ok ? JSON.stringify(g.d?.data || []).slice(0, 300) : r.err });
+      } else {
+        // Единый вход без страницы: пробуем найти страницу заново (маркеру могли дать доступ).
+        const r = await crm.resolveFacebookToken().catch((e) => ({ note: e.message }));
+        const again = crm.instagramSettings();
+        if (again.pageId) {
+          const sub = await req('POST', `${root}/${again.pageId}/subscribed_apps?subscribed_fields=messages,messaging_postbacks,message_reactions,feed`, again.pageToken);
+          steps.push({ title: `Страница «${again.pageName}» подписана на приложение`, ok: sub.ok, detail: sub.ok ? 'messages' : sub.err });
+        } else {
+          const ig = await req('POST', `${root}/${s.igId}/subscribed_apps?subscribed_fields=messages,comments`, s.accessToken);
+          steps.push({ title: 'Подписка аккаунта на сообщения', ok: ig.ok, detail: ig.ok ? 'готово' : `маркеру не видна Facebook-страница магазина (${r?.note || ig.err}). Дайте системному пользователю доступ к странице, к которой привязан Instagram, и нажмите ещё раз` });
+        }
+      }
+      store.setSetting('instagram_sub_check', JSON.stringify({ at: Date.now(), ok: steps.every((x) => x.ok) }));
+      return { steps, ok: steps.every((x) => x.ok) };
+    },
+
     // Продление долгого маркера IGAA (раз в 6 часов; продлевается, если до конца < 20 дней).
     async refreshInstagramToken() {
       const s = crm.instagramSettings();
