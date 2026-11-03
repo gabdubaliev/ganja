@@ -126,6 +126,7 @@ function createNotifier(store) {
     if (!tg) return;
     const lines = [
       `🧾 Чек №${sale.id} — ${rub(sale.total)}`,
+      sale.offlineAt ? `📴 Пробит без интернета в ${new Date(sale.offlineAt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}, отправлен, когда появилась связь` : '',
       `Кассир: ${who}`,
       ...sale.items.slice(0, 10).map((i) => `• ${i.name} × ${i.qty} = ${rub(i.qty * i.price)}`),
       sale.items.length > 10 ? `…и ещё ${sale.items.length - 10}` : '',

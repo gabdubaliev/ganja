@@ -1980,3 +1980,11 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .chef-box { display: grid; gap: 8px; margin-top: 4px; }
 .chef-box .field { display: grid; gap: 4px; }
 .change-choice .seg { flex-wrap: wrap; }
+
+/* Касса без интернета */
+.offline-bar { position: sticky; top: 0; z-index: 50; padding: 10px 16px; font-size: 14px; display: grid; gap: 6px; }
+.offline-bar[hidden] { display: none; }
+.offline-bar.off { background: #fff4d6; color: #6b4d00; border-bottom: 1px solid #f0d58a; }
+.offline-bar.wait { background: #e8f1ff; color: #123e7a; border-bottom: 1px solid #bcd3f5; }
+.offline-bar.bad { background: #ffe9e9; color: #7a1212; border-bottom: 1px solid #f3bcbc; }
+.offline-bar .ob-line, .offline-bar .ob-err { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }

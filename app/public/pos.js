@@ -717,10 +717,14 @@ $('#checkout').addEventListener('click', async () => {
   if (chef && chef.amount > chef.max + 0.009) return toast(`Сдача всего ${money2(chef.max)} — шеф не может перевести больше`, 'error');
   pos.busy = true;
   renderCart();
+  // Номер чека с кассы: если связь оборвётся, этот же чек из очереди не пробьётся второй раз.
+  if (!pos.clientId) pos.clientId = newClientId();
+  let saleBody = null;
   try {
     const sale = await api('/api/sales', {
       method: 'POST',
-      body: {
+      body: saleBody = {
+        clientId: pos.clientId,
         methodId: pos.methodId,
         // Остаток (способ pos.methodId) уходит без суммы — его досчитает сервер.
         payments: pos.split ? parts.filter((x) => x.method.id === pos.methodId || x.amount > 0).map((x) => ({ methodId: x.method.id, amount: x.method.id === pos.methodId ? null : x.amount })) : undefined,
@@ -734,12 +738,22 @@ $('#checkout').addEventListener('click', async () => {
     });
     const how = sale.payments.length > 1 ? sale.payments.map((x) => `${x.name} ${money2(x.amount)}`).join(' + ') : sale.method;
     toast(`Чек №${sale.id} на ${money2(sale.total)} (${how}) пробит${sale.changeKept ? `, сдача ${money2(sale.changeKept)} записана в кассу` : ''}${sale.chefChange ? `. Шефу отправлено: перевести клиенту ${money2(sale.chefChange)}` : ''}${sale.changeError ? `. ⚠️ ${sale.changeError}` : ''}${sale.discount ? `, скидка ${money2(sale.discount)}` : ''}${sale.bonusEarned ? `, начислено ${sale.bonusEarned} бонусов` : ''}${sale.certificate ? `. На сертификате осталось ${money2(sale.certificate.balance)}` : ''}`);
+    pos.clientId = null;
     loadShift();
     resetCheck();
     afterSalePrint(sale.id);
     await catalog.load();
   } catch (err) {
-    toast(err.message, 'error');
+    // Нет интернета — чек сохраняется на устройстве и пробьётся сам, когда появится связь (с этим временем).
+    if (err.offline && saleBody) {
+      offlineQueue.add(saleBody, cartTotal());
+      for (const l of pos.cart) { const p = catalog.byId(l.productId); if (p && typeof p.stock === 'number') p.stock -= l.qty; }
+      pos.clientId = null;
+      toast(`📴 Нет интернета. Чек на ${money2(cartTotal())} сохранён и пробьётся сам, когда появится связь`);
+      resetCheck();
+    } else {
+      toast(err.message, 'error');
+    }
   } finally {
     pos.busy = false;
     renderCart();
@@ -853,6 +867,11 @@ $('#so-form').addEventListener('submit', async (e) => {
 
 /* Закрытие: насчитано = сдано на счёт + оставлено в кассе. Насчитанное сверяется с программой. */
 async function closeShiftCashDialog() {
+  // Сначала отправить чеки, пробитые без интернета: иначе смена закроется без них.
+  if (offlineQueue.mine().length) {
+    await offlineQueue.sync();
+    if (offlineQueue.mine().length) return toast(`Сначала должны уйти чеки без интернета (${offlineQueue.mine().length}). Дождитесь связи — они отправятся сами`, 'error');
+  }
   let info = { accounts: [] };
   try { info = await api('/api/shift/info'); } catch {}
   const sh = pos.shift;

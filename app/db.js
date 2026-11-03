@@ -495,6 +495,9 @@ function open(file) {
   addColumns('sales', [['change_kept', 'REAL NOT NULL DEFAULT 0']]);
   // «Сдача от шефа»: сдачи в кассе нет — владелец переводит её клиенту сам, а наличные остаются в кассе.
   addColumns('sales', [['chef_change', 'REAL NOT NULL DEFAULT 0'], ['chef_change_to', "TEXT NOT NULL DEFAULT ''"]]);
+  // Продажа без интернета: номер чека с кассы (тот же чек дважды не пробьётся) и время, когда его пробили на самом деле.
+  addColumns('sales', [['client_id', 'TEXT'], ['offline_at', 'INTEGER']]);
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS sales_client_id ON sales(client_id) WHERE client_id IS NOT NULL');
   db.exec('UPDATE sale_items SET purchase = cost WHERE purchase IS NULL');
   addColumns('doc_items', [['prev_purchase', 'REAL']]);
   // Зашифрованные копии пароля и PIN, заданных владельцем или администратором (для просмотра владельцем).
@@ -2480,7 +2483,7 @@ function createStore(file) {
           INSERT INTO sales (created_at, payment, total, user_id, user_name, customer_id, bonus_spent, bonus_earned, discount, discount_reason, shift_id, method_id, method_name)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
           .run(at || Date.now(), parts.every((x) => x.method.kind === 'cash') ? 'cash' : 'card', total, user?.id ?? null, user ? user.name || user.email : '',
-            customer?.id ?? null, spent, earned, discount, reasons.join('; '), user ? this.currentShift(user.id)?.id ?? null : null, main.method.id, names);
+            customer?.id ?? null, spent, earned, discount, reasons.join('; '), user ? (at ? this.shiftAt(user.id, at) : this.currentShift(user.id))?.id ?? null : null, main.method.id, names);
         const addPart = db.prepare('INSERT INTO sale_payments (sale_id, method_id, method_name, kind, amount, commission) VALUES (?, ?, ?, ?, ?, ?)');
         for (const x of parts) if (x.amount > 0 || !cert) addPart.run(saleId, x.method.id, x.method.name, x.method.kind, x.amount, x.commission);
         if (cert) {
@@ -2757,6 +2760,12 @@ function createStore(file) {
     },
 
     /* ---------- Смены ---------- */
+
+    // Смена сотрудника, которая шла в момент t (для чеков, пробитых без интернета); если такой нет — текущая.
+    shiftAt(userId, t) {
+      return db.prepare('SELECT * FROM shifts WHERE user_id = ? AND opened_at <= ? AND (closed_at IS NULL OR closed_at >= ?) ORDER BY opened_at DESC LIMIT 1').get(Number(userId), t, t)
+        || this.currentShift(userId);
+    },
 
     currentShift(userId) {
       return db.prepare('SELECT * FROM shifts WHERE user_id = ? AND closed_at IS NULL ORDER BY opened_at DESC LIMIT 1').get(Number(userId)) || null;

@@ -1006,7 +1006,19 @@ const routes = [
   // Без права «sales» сотрудник видит только свои чеки.
   ['GET', '/api/sales', (p, url, body, user) => store.listSales({ ...range(url), userId: can(user, 'sales') ? null : user.id }), 'pos'],
   ['POST', '/api/sales', (p, url, body, user) => {
-    const sale = store.createSale(body, user);
+    // Номер чека с кассы: тот же чек (повтор после обрыва связи, очередь без интернета) второй раз не пробивается.
+    const clientId = typeof body.clientId === 'string' && /^[\w-]{8,64}$/.test(body.clientId) ? body.clientId : null;
+    if (clientId) {
+      const dup = store.db.prepare('SELECT id, total, created_at FROM sales WHERE client_id = ?').get(clientId);
+      if (dup) return { ...dup, duplicate: true, payments: [], items: [] };
+    }
+    // Время продажи задаёт только чек из очереди без интернета: не позже «сейчас» и не раньше 7 дней назад.
+    let at;
+    const off = Number(body.offlineAt);
+    if (clientId && off && off <= Date.now() + 60_000 && off > Date.now() - 7 * 864e5) at = Math.min(off, Date.now());
+    const sale = store.createSale({ ...body, at }, user);
+    if (clientId) store.db.prepare('UPDATE sales SET client_id = ?, offline_at = ? WHERE id = ?').run(clientId, at ? Math.round(off) : null, sale.id);
+    if (at) sale.offlineAt = at;
     // Сдачу не выдали — записываем в кассу (если запись не удалась, чек всё равно пробит).
     if (Number(body.changeKept) > 0) {
       try { sale.changeKept = store.keepChange(sale.id, body.changeKept, user); } catch (err) { sale.changeError = err.message; }

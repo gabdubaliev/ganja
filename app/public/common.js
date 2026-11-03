@@ -155,7 +155,10 @@ async function api(url, { method = 'GET', body } = {}) {
       body: body ? JSON.stringify(body) : undefined,
     });
   } catch {
-    throw new Error('Нет связи с программой. Проверьте, что её окно открыто.');
+    // Нет сети: касса по этому признаку сохраняет чек в очередь, чтобы пробить его, когда связь вернётся.
+    const err = new Error(navigator.onLine === false ? 'Нет интернета' : 'Нет связи с программой. Проверьте интернет.');
+    err.offline = true;
+    throw err;
   }
   if (res.status === 401) {
     location.replace('/login.html');
@@ -350,6 +353,8 @@ async function switchBranch(id) {
 }
 $('#logout').addEventListener('click', async () => {
   await fetch('/api/logout', { method: 'POST' }).catch(() => {});
+  // Сохранённые для работы без интернета данные этого сотрудника — стираются при выходе.
+  try { if (window.caches) for (const k of await caches.keys()) if (k.startsWith('kassa-')) await caches.delete(k); } catch {}
   location.replace('/login.html');
 });
 
