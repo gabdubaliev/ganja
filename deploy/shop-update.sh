@@ -8,7 +8,7 @@
 #   3. сделать копию ВСЕХ баз (shop.db и branch-*.db) и проверить её (целостность, число строк, SHA-256);
 #   4. только если копия готова и проверена — переключить версию и запустить программу.
 # Ошибка на шагах 1–3: обновление отменяется, прежняя версия остаётся и снова запускается.
-# Копии перед обновлением лежат в $BACKUP_DIR/before-update/<дата_время>_update; хранятся последние $SHOP_KEEP_UPDATES (10),
+# Копии перед обновлением лежат в $BACKUP_DIR/before-update/<дата_время>_update; хранятся последние $SHOP_KEEP_UPDATES (30),
 # более старые удаляются после успешного обновления. Ночные копии (30 дней) не трогаются.
 
 set -euo pipefail
@@ -22,7 +22,7 @@ SYSTEMCTL=${SHOP_SYSTEMCTL:-systemctl}
 # Копия делается от имени пользователя программы: так файлы копий принадлежат ему, как и сама база.
 RUN_AS=${SHOP_RUN_AS-runuser -u shop --}
 NODE=${SHOP_NODE:-/usr/bin/node}
-KEEP=${SHOP_KEEP_UPDATES:-10}
+KEEP=${SHOP_KEEP_UPDATES:-30}
 
 say() { printf '\n==> %s\n' "$*"; }
 cancel() { printf '\n\033[1;31mОБНОВЛЕНИЕ ОТМЕНЕНО: %s\033[0m\n' "$*" >&2; exit 1; }
@@ -73,6 +73,11 @@ if (( ${#old[@]} )); then
   freed=$(du -sch "${old[@]}" 2>/dev/null | tail -n 1 | cut -f1)
   for d in "${old[@]}"; do rm -rf -- "$d"; done
   echo "Удалено старых копий перед обновлениями: ${#old[@]} (освобождено $freed), оставлено последних $KEEP."
+fi
+
+# Ночные копии: хранить 90 дней (раньше 30) — правим уже установленный /usr/local/bin/shop-backup.
+if [[ -z ${SHOP_SYSTEMCTL:-} && -f /usr/local/bin/shop-backup ]] && grep -q 'tail -n +31' /usr/local/bin/shop-backup; then
+  sed -i 's/tail -n +31/tail -n +91/g' /usr/local/bin/shop-backup && echo "Ночные копии теперь хранятся 90 дней."
 fi
 
 # Сам скрипт обновления тоже обновляется: новая версия из программы ставится в /usr/local/bin/shop-update

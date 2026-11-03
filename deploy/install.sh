@@ -174,7 +174,7 @@ PrivateTmp=true
 WantedBy=multi-user.target
 EOF
 
-# Ночная копия базы: VACUUM INTO даёт целостную копию даже во время работы. Хранятся 30 последних.
+# Ночная копия базы: VACUUM INTO даёт целостную копию даже во время работы. Хранятся 90 последних (по дням).
 cat > /usr/local/bin/shop-backup <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
@@ -186,10 +186,10 @@ for db in $DATA_DIR/shop.db $DATA_DIR/branch-*.db $DATA_DIR/studio.db; do
   rm -f "\$file"
   /usr/bin/node --disable-warning=ExperimentalWarning -e "new (require('node:sqlite').DatabaseSync)('\$db', { readOnly: true }).exec(\"VACUUM INTO '\$file'\")"
 done
-ls -1t $BACKUP_DIR/shop-*.db | tail -n +31 | xargs -r rm -f
-ls -1t $BACKUP_DIR/studio-*.db 2>/dev/null | tail -n +31 | xargs -r rm -f
+ls -1t $BACKUP_DIR/shop-*.db | tail -n +91 | xargs -r rm -f
+ls -1t $BACKUP_DIR/studio-*.db 2>/dev/null | tail -n +91 | xargs -r rm -f
 for b in \$(ls $BACKUP_DIR/branch-*.db 2>/dev/null | sed -E 's/-[0-9]{4}-[0-9]{2}-[0-9]{2}\.db$//' | sort -u); do
-  ls -1t \$b-*.db | tail -n +31 | xargs -r rm -f
+  ls -1t \$b-*.db | tail -n +91 | xargs -r rm -f
 done
 EOF
 chmod 755 /usr/local/bin/shop-backup
