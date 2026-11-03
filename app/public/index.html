@@ -362,6 +362,7 @@
       <button type="button" data-owner-tab="home" aria-pressed="false">Главная</button>
       <button type="button" data-owner-tab="staff" aria-pressed="false">Сотрудники</button>
       <button type="button" data-owner-tab="look" aria-pressed="false">Оформление</button>
+      <button type="button" data-owner-tab="backup" aria-pressed="false">Копия базы</button>
     </div>
   </header>
 
@@ -395,6 +396,15 @@
       <a class="btn primary" href="#design">🎨 Открыть оформление</a>
       <a class="btn" href="#shop">🛍️ Конструктор витрины</a>
       <a class="btn" href="#settings">⚙️ Настройки и Telegram</a>
+    </div>
+  </section>
+
+  <section class="owner-pane" data-owner-pane="backup" hidden>
+    <div class="panel owner-backup">
+      <h2>Резервная копия базы</h2>
+      <p class="sub">Сервер сам делает копию каждую ночь, но хранит её у себя. Если с сервером что-то случится, пропадут и копии, поэтому раз в неделю скачивайте копию на свой компьютер или флешку. В копии все товары, продажи, клиенты и их телефоны: не пересылайте её никому и храните в надёжном месте.</p>
+      <div id="backup-list"><p class="sub">Загружаю…</p></div>
+      <p class="sub">Чтобы вернуть магазин из копии, напишите разработчику: восстановление делается на сервере командой, с проверкой копии.</p>
     </div>
   </section>
 </main>

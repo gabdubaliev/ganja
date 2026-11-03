@@ -2005,6 +2005,20 @@ async function proxyMeta(req, res, target) {
   }
 }
 
+// Базы для скачивания копии: основная, филиалы, MONT AI Studio.
+const fileSize = (f) => { try { return fs.statSync(f).size; } catch { return 0; } };
+function backupSources() {
+  const dir = path.dirname(DB_FILE);
+  const list = [{ key: 'shop', name: `Основной магазин${branchList()[0]?.name ? ` «${branchList()[0].name}»` : ''}`, db: mainStore.db, file: DB_FILE }];
+  for (const b of branchList()) {
+    if (b.main || !b.file) continue;
+    const ctx = contextOf(b.id);
+    if (ctx?.store?.db) list.push({ key: `branch-${b.id}`, name: `Филиал «${b.name}»`, db: ctx.store.db, file: path.join(dir, b.file) });
+  }
+  if (studio?.db) list.push({ key: 'studio', name: 'MONT AI Studio (фото)', db: studio.db, file: path.join(dir, 'studio.db') });
+  return list;
+}
+
 function sendBytes(res, type, data, cache = 'no-cache') {
   res.writeHead(200, { 'Content-Type': type, 'Cache-Control': cache });
   res.end(data);
@@ -2454,6 +2468,34 @@ async function handleRequest(req, res, url, user, owner) {
     const u = igPrice.storyImage(storyImg[1]);
     if (!u) return sendJson(res, 404, { error: 'Сторис нет' });
     return proxyMeta(req, res, u);
+  }
+  // Резервная копия базы — только владелец: целостный снимок (VACUUM INTO) во временный файл рядом с базой, отдаём и удаляем.
+  if (req.method === 'GET' && url.pathname === '/api/backup/list') {
+    if (auth.enabled && !isOwner(user)) return sendJson(res, 403, { error: 'Копию базы скачивает только владелец' });
+    return sendJson(res, 200, backupSources().map(({ key, name, file }) => ({ key, name, size: fileSize(file) })));
+  }
+  if (req.method === 'GET' && url.pathname === '/api/backup/download') {
+    if (auth.enabled && !isOwner(user)) return sendJson(res, 403, { error: 'Копию базы скачивает только владелец' });
+    const src = backupSources().find((x) => x.key === url.searchParams.get('db'));
+    if (!src) return sendJson(res, 404, { error: 'Такой базы нет' });
+    const tmp = path.join(path.dirname(DB_FILE), `.download-${crypto.randomBytes(6).toString('hex')}.db`);
+    try {
+      src.db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
+      // Дата в имени файла — по времени магазина (Бишкек), а не сервера.
+      const stamp = new Date().toLocaleString('sv-SE', { timeZone: process.env.SHOP_TZ || 'Asia/Bishkek' }).slice(0, 16).replace(' ', '_').replace(':', '-');
+      const size = fs.statSync(tmp).size;
+      store.audit({ kind: 'change', user, ip: clientIp(req), device: device(req), action: 'Скачал резервную копию базы', details: `${src.name}, ${(size / 1048576).toFixed(1)} МБ` });
+      res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': size, 'Cache-Control': 'no-store',
+        'Content-Disposition': `attachment; filename="${src.key}-${stamp}.db"` });
+      const rs = fs.createReadStream(tmp);
+      const done = () => fs.rm(tmp, { force: true }, () => {});
+      rs.on('close', done);
+      res.on('close', () => { rs.destroy(); done(); });
+      return rs.pipe(res);
+    } catch (err) {
+      fs.rm(tmp, { force: true }, () => {});
+      return sendJson(res, 500, { error: `Не получилось сделать копию: ${err.message}` });
+    }
   }
   // Файл MONT AI Studio — только с правом «AI Studio» и только своей съёмки текущего магазина.
   const studioFile = req.method === 'GET' && url.pathname.match(/^\/api\/studio\/assets\/(\d+)\/file$/);

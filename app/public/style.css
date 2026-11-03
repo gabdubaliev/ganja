@@ -2093,3 +2093,7 @@ body.no-mig-purchase .mig-c-purchase, body.no-mig-cost .mig-c-cost, body.no-mig-
 .cart-lock { position: absolute; inset: 0; z-index: 5; display: grid; place-content: center; justify-items: center; gap: 8px; text-align: center; padding: 24px; }
 .cart-lock::before { content: ''; position: absolute; inset: 0; background: color-mix(in srgb, var(--surface, #fff) 70%, transparent); border-radius: inherit; z-index: -1; }
 .cart-lock p { margin: 0; }
+
+.backup-list { list-style: none; margin: 12px 0; padding: 0; display: grid; gap: 8px; }
+.backup-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; }
+.owner-backup .btn { text-decoration: none; }

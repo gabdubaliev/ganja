@@ -29,7 +29,20 @@ function showOwnerTab(tab) {
   ownerView.tab = tab;
   for (const b of document.querySelectorAll('#owner-tabs [data-owner-tab]')) b.setAttribute('aria-pressed', String(b.dataset.ownerTab === tab));
   for (const p of document.querySelectorAll('[data-owner-pane]')) p.hidden = p.dataset.ownerPane !== tab;
-  ({ sections: drawOwnerSections, home: drawOwnerHome, staff: drawOwnerStaff, look: () => {} })[tab]();
+  ({ sections: drawOwnerSections, home: drawOwnerHome, staff: drawOwnerStaff, look: () => {}, backup: drawOwnerBackup })[tab]();
+}
+
+/* ---------- Копия базы ---------- */
+async function drawOwnerBackup() {
+  const box = $('#backup-list');
+  try {
+    const list = await api('/api/backup/list');
+    const mb = (b) => `${(b / 1048576).toLocaleString('ru-RU', { maximumFractionDigits: 1 })} МБ`;
+    box.innerHTML = `<ul class="backup-list">${list.map((x) => `<li><span><b>${esc(x.name)}</b><span class="sub"> · ${mb(x.size)}</span></span>
+      <a class="btn primary" href="/api/backup/download?db=${encodeURIComponent(x.key)}" download>⬇️ Скачать копию</a></li>`).join('')}</ul>`;
+  } catch (err) {
+    box.innerHTML = `<p class="form-error">${esc(err.message)}</p>`;
+  }
 }
 
 /* ---------- Разделы ---------- */
