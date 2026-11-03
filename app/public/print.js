@@ -175,7 +175,7 @@ async function printLabelSheet(items, { templateId = null, sheet = false } = {})
   const shop = session.design?.name || '';
   const products = items.flatMap(({ product, count }) => Array.from({ length: count }, () => product));
   const pages = renderLabelsForPrint(t, products, shop).map((h) => `<div class="page"><div class="lbl">${h}</div></div>`).join('');
-  printHtml(`<div class="sheet">${pages}</div>`, labelPrintCss(t, { sheet }), 'Этикетки');
+  printHtml(`<div class="sheet">${pages}</div>`, labelPrintCss(t, { sheet }), '\u00a0'); // без названия — в колонтитуле браузера пусто
 }
 
 /* ---------- Чек покупателю ---------- */

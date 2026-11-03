@@ -999,7 +999,7 @@ $('#pz-test').addEventListener('click', () => {
   if (pz.tab === 'receipt') return printHtml(receiptHtml(pz.receipt, sampleReceiptData()), receiptCss(pz.receipt), 'Пробный чек');
   const t = lt();
   const html = renderLabelsForPrint(t, [sampleProduct()], session.design?.name || '');
-  printHtml(`<div class="sheet">${html.map((h) => `<div class="page"><div class="lbl">${h}</div></div>`).join('')}</div>`, labelPrintCss(t), 'Пробная этикетка');
+  printHtml(`<div class="sheet">${html.map((h) => `<div class="page"><div class="lbl">${h}</div></div>`).join('')}</div>`, labelPrintCss(t), '\u00a0');
 });
 $('#pz-tabs').addEventListener('click', (e) => { const b = e.target.closest('[data-pz-tab]'); if (b) showPzTab(b.dataset.pzTab); });
 addEventListener('resize', () => { if (currentView === 'print' && pz.tab === 'label' && pz.labels) drawBoard(); });
