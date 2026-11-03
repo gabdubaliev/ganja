@@ -202,6 +202,17 @@ function renderLeadSide() {
   const pf = $('#lead-price-form');
   pf.hidden = !l.ig_user_id && !l.wa_id;
   if (l.id !== prevPriceLead) { pf.reset(); $('#lead-price-preview').hidden = true; prevPriceLead = l.id; }
+  // Клиент ответил на сторис — галочка «запомнить для этой сторис» (следующим бот ответит сам).
+  let sw = $('#lead-price-story');
+  if (!sw) {
+    sw = document.createElement('label');
+    sw.className = 'check price-ask-story';
+    sw.id = 'lead-price-story';
+    sw.innerHTML = '<input type="checkbox" checked> Запомнить для этой сторис — следующим, кто ответит на неё, бот пришлёт цену сам';
+    $('#lead-price-send').before(sw);
+  }
+  sw.dataset.story = leadStoryId(l);
+  sw.hidden = !sw.dataset.story;
   if ((!l.ig_user_id && crmView.kind === 'instagram') || (!l.wa_id && crmView.kind === 'whatsapp')) crmView.kind = 'note';
   renderComposeKind();
 }
@@ -222,13 +233,30 @@ function leadFiles(raw, eventId) {
       const embed = code ? `https://www.instagram.com/${code[1] === 'p' ? 'p' : 'reel'}/${code[2]}/embed/` : '';
       return `<span class="tl-file"><span class="tl-btns">${embed ? `<button type="button" class="btn tl-embed" data-embed="${esc(embed)}">▶ Смотреть ${what} здесь</button>` : ''}<a class="btn" href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">↗ Перейти в Instagram</a></span></span>`;
     }
-    if (a.type === 'story') return `<button type="button" class="tl-img tl-story" data-full="${u}" aria-label="Сторис, на которую ответил клиент"><img src="${u}" alt="Сторис" loading="lazy" referrerpolicy="no-referrer" onerror="this.closest('button').outerHTML='<span class=&quot;pcat&quot;>Сторис уже недоступна (прошли сутки или это видео)</span>'"></button>`;
+    // Сторис бывает фото или видео (репост рилса) — сначала пробуем картинкой, не вышло — плеером.
+    if (a.type === 'story') return `<span class="tl-file" data-story-file="${u}"><button type="button" class="tl-img tl-story" data-full="${u}" aria-label="Сторис, на которую ответил клиент"><img src="${u}" alt="Сторис" loading="lazy" referrerpolicy="no-referrer" onerror="storyAsVideo(this)"></button></span>`;
     if (['video', 'ig_reel', 'reel'].includes(a.type)) return `<span class="tl-file"><video src="${u}" controls preload="metadata" playsinline></video><a href="${u}" target="_blank" rel="noopener noreferrer">Не играет? Открыть видео</a></span>`;
-    if (a.type === 'audio') return `<audio src="${u}" controls preload="none"></audio>`;
+    if (a.type === 'audio') return `<audio src="${u}" controls preload="metadata"></audio>`;
     if (a.type === 'file') return `<a href="${u}" target="_blank" rel="noopener noreferrer">📄 Открыть файл</a>`;
     return `<button type="button" class="tl-img" data-full="${u}" aria-label="Открыть фото крупно"><img src="${u}" alt="Фото клиента" loading="lazy" referrerpolicy="no-referrer" onerror="this.closest('button').outerHTML='<span class=&quot;pcat&quot;>Фото не загрузилось — ссылка устарела, смотрите в Instagram</span>'"></button>`;
   };
   return `<div class="tl-files">${list.map(one).join('')}</div>`;
+}
+
+function storyAsVideo(img) {
+  const box = img.closest('[data-story-file]');
+  if (!box) return;
+  box.innerHTML = `<video src="${esc(box.dataset.storyFile)}" controls preload="metadata" playsinline></video>`;
+  box.querySelector('video').addEventListener('error', () => { box.innerHTML = '<span class="pcat">Сторис уже недоступна (прошли сутки) — смотрите в Instagram</span>'; }, { once: true });
+}
+
+// Последняя сторис, на которую ответил клиент (id из вложения), — чтобы запомнить к ней артикулы.
+function leadStoryId(l) {
+  for (const e of [...(l?.events || [])].reverse()) {
+    if (e.kind !== 'in' || !e.attach) continue;
+    try { const st = JSON.parse(e.attach).find((a) => a.type === 'story' && a.id); if (st) return st.id; } catch {}
+  }
+  return '';
 }
 
 // Просмотр фото поверх карточки сделки: нажатие — приблизить в этом месте, ещё раз — обратно;
@@ -430,11 +458,13 @@ $('#lead-price-send').addEventListener('click', async (e) => {
   btn.disabled = true;
   try {
     const channel = priceChannel();
-    const r = await api(`/api/crm/leads/${crmView.lead.id}/price-reply`, { method: 'POST', body: { articles: f.elements.articles.value, channel } });
+    const sw = $('#lead-price-story');
+    const storyId = sw && !sw.hidden && sw.querySelector('input').checked ? sw.dataset.story : '';
+    const r = await api(`/api/crm/leads/${crmView.lead.id}/price-reply`, { method: 'POST', body: { articles: f.elements.articles.value, channel, storyId } });
     crmView.lead = r.lead;
     f.reset();
     $('#lead-price-preview').hidden = true;
-    toast(`Цена отправлена в ${channel === 'whatsapp' ? 'WhatsApp' : 'Instagram'}`);
+    toast(`Цена отправлена в ${channel === 'whatsapp' ? 'WhatsApp' : 'Instagram'}${storyId ? ' · сторис запомнена' : ''}`);
     renderLeadSide();
   } catch (err) {
     toast(err.message, 'error');

@@ -1388,6 +1388,8 @@ const routes = [
     const via = body.channel === 'whatsapp' || (!lead.ig_user_id && lead.wa_id) ? 'whatsapp' : 'instagram';
     await (via === 'whatsapp' ? crm.replyWhatsapp(p.id, r.text, user) : crm.replyInstagram(p.id, r.text, user));
     if (!Number(lead.amount) && r.amount) crm.update(p.id, { amount: r.amount }, user);
+    // Клиент спросил про сторис — запоминаем артикулы для неё: следующим, кто ответит на эту сторис, бот ответит сам.
+    if (body.storyId) await igPrice.setStory(String(body.storyId).slice(0, 60), body.articles).catch(() => {});
     return { lead: crm.get(p.id), notFound: r.notFound, sent: r.products.length };
   }, 'crm'],
   ['POST', '/api/crm/leads/:id/whatsapp', (p, url, body, user) => crm.replyWhatsapp(p.id, body.text, user), 'crm'],

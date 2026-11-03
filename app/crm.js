@@ -92,7 +92,7 @@ function createCrm(store) {
 
   const who = (user) => (user ? user.name || user.email : '');
   const event = (leadId, kind, body, userName = '', extId = null, attach = []) => {
-    const files = (attach || []).filter((a) => /^https:\/\//i.test(a.url || '')).slice(0, 10).map((a) => ({ type: String(a.type || 'file').slice(0, 30), url: String(a.url).slice(0, 2000) }));
+    const files = (attach || []).filter((a) => /^https:\/\//i.test(a.url || '')).slice(0, 10).map((a) => ({ type: String(a.type || 'file').slice(0, 30), url: String(a.url).slice(0, 2000), ...(a.id ? { id: String(a.id).slice(0, 60) } : {}) }));
     db.prepare('INSERT INTO lead_events (lead_id, at, kind, text, user_name, ext_id, attach) VALUES (?, ?, ?, ?, ?, ?, ?)').run(leadId, Date.now(), kind, String(body).slice(0, 4000), userName, extId, files.length ? JSON.stringify(files) : '');
     db.prepare('UPDATE leads SET updated_at = ? WHERE id = ?').run(Date.now(), leadId);
   };
@@ -510,7 +510,7 @@ function createCrm(store) {
           const body = [story && m.message?.text ? `${story}: ${m.message.text}` : story || m.message?.text, mention, ...shared].filter(Boolean).join('\n')
             || (m.message?.attachments?.length ? `📎 ${{ image: 'Фото', video: 'Видео', audio: 'Голосовое', ig_reel: 'Рилс', reel: 'Рилс', share: 'Публикация', ig_post: 'Публикация', file: 'Файл' }[m.message.attachments[0].type] || 'Вложение'}` : '');
           const files = (m.message?.attachments || []).map((a) => ({ type: a.type, url: a.payload?.url }));
-          if (m.message?.reply_to?.story?.url) files.unshift({ type: 'story', url: m.message.reply_to.story.url });
+          if (m.message?.reply_to?.story?.url) files.unshift({ type: 'story', url: m.message.reply_to.story.url, id: m.message.reply_to.story.id });
           if (!body) continue;
           const mid = m.message?.mid ? String(m.message.mid) : null;
           if (mid && db.prepare('SELECT 1 FROM lead_events WHERE ext_id = ?').get(mid)) continue;

@@ -2086,3 +2086,4 @@ body.no-mig-purchase .mig-c-purchase, body.no-mig-cost .mig-c-cost, body.no-mig-
 .story-body .input { flex: 1; min-width: 0; }
 .story-out { margin: 0; }
 .tl-story img { max-height: 200px; }
+.price-ask-story { font-size: 13px; }
