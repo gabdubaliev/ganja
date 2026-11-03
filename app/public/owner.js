@@ -245,7 +245,7 @@ function drawOwnerStaff() {
     <td><span class="role-tag ${u.role === 'owner' ? 'owner-tag' : ''}">${esc(session.roleName(u.role))}</span>${u.disabled ? '<div class="pcat">доступ закрыт</div>' : ''}</td>
     <td class="pcat">${esc(loginText(u.lastLogin))}</td>
     <td><div class="actions">
-      ${u.role !== 'owner' ? `<button type="button" class="btn small ghost" data-secrets="${u.id}" data-user-branch="${u.branch || ''}">🔑 Пароль</button>` : ''}
+      ${u.role !== 'owner' ? `<button type="button" class="btn small ghost" data-secrets="${u.id}" data-user-branch="${u.branch || ''}">🔑 Вход</button>` : ''}
       ${u.role !== 'owner' && !u.disabled ? `<button type="button" class="btn small" data-as-user="${u.id}" data-user-branch="${u.branch || ''}">👁 Войти как</button>` : ''}
     </div></td>
   </tr>`).join('') : '<tr><td colspan="4" class="empty">Сотрудников пока нет — программа открывается без входа.</td></tr>';

@@ -123,6 +123,7 @@ function contextOf(id) {
   if (!b || b.main) return null;
   const bst = protectSettings(createStore(path.join(path.dirname(DB_FILE), b.file)), vault, path.basename(b.file, '.db'));
   bst.migrateSecrets();
+  wipePasswordCopies(bst);
   return makeContext(n, bst);
 }
 
@@ -640,6 +641,17 @@ if (ADMIN_EMAIL && ADMIN_PASSWORD) {
   store.ensureAdmin(ADMIN_EMAIL, () => hashPassword(ADMIN_PASSWORD), fingerprint);
 }
 // Владелец — отдельная роль. В базах до разделения ролей им становится первый администратор.
+// Копии паролей и PIN сотрудников больше не хранятся: стираем старые (один раз, во всех магазинах — см. contextOf).
+function wipePasswordCopies(st) {
+  if (st.setting('users_secrets_wiped', '') === '1') return;
+  const n = st.db.prepare('UPDATE users SET secret_pw = NULL, secret_pin = NULL WHERE secret_pw IS NOT NULL OR secret_pin IS NOT NULL').run().changes;
+  st.setSetting('users_secrets_wiped', '1');
+  if (n) {
+    try { st.db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); st.db.exec('VACUUM'); st.db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch { /* занято — не страшно */ }
+    console.log(`Стёрты копии паролей сотрудников: ${n}`);
+  }
+}
+wipePasswordCopies(mainStore);
 const madeOwner = mainStore.ensureOwner();
 if (madeOwner) console.log(`Владельцем назначен ${madeOwner.email}`);
 
@@ -949,16 +961,8 @@ function guardAdmin(user, target, body) {
 }
 const seesSecrets = (user) => !auth.enabled || user?.role === 'owner' || can(user, 'staff.passwords');
 
-// Актуальная копия пароля или PIN сотрудника для владельца: пишется, когда сотрудник меняет их сам
-// и при входе (так становятся видны и пароли, заданные до этой функции). Пароль владельца не хранится.
-function keepSecret(u, field, value) {
-  if (!u || u.role === 'owner' || u.owner_shadow || !value) return;
-  const st = contextOf(u.branch || 1)?.store || store;
-  const row = st.findUser(u.id);
-  if (!row) return;
-  if (decryptSecret(field === 'pin' ? row.secret_pin : row.secret_pw) === String(value)) return;
-  st.setUserSecrets(u.id, { [field]: String(value) }, encryptSecret);
-}
+// Пароли и PIN сотрудников хранятся только как хеш: прочитать их нельзя никому, даже владельцу.
+// Забыл пароль — владелец задаёт новый в карточке сотрудника. Старые копии стёрты при обновлении (users_secrets_wiped).
 
 // PIN для смены кассира: 4–6 цифр; пустой — убрать PIN.
 function pinHash(value) {
@@ -1037,16 +1041,12 @@ const routes = [
     if (!user) throw new UserError('Сначала заведите сотрудников');
     if (!checkPassword(body.current, store.findUser(user.id).password_hash)) throw new UserError('Текущий пароль указан неверно');
     store.setUserPin(user.id, pinHash(body.pin));
-    const pinText = String(body.pin ?? '').trim();
-    if (pinText) keepSecret({ ...user, branch: current().id }, 'pin', pinText); // владелец видит актуальный PIN
-    else store.setUserSecrets(user.id, { pin: null }, encryptSecret); // PIN убран
     return { ok: true };
   }, 'any'],
   ['PUT', '/api/me/password', (p, url, body, user) => {
     if (!user) throw new UserError('Сначала заведите сотрудников');
     if (!checkPassword(body.current, store.findUser(user.id).password_hash)) throw new UserError('Текущий пароль указан неверно');
     store.updateUser(user.id, {}, password(body.password));
-    keepSecret({ ...user, branch: current().id }, 'password', body.password); // владелец видит актуальный пароль
     return { ok: true };
   }, 'any'],
 
@@ -1570,13 +1570,13 @@ const routes = [
     if (url.searchParams.get('all') === '1' && (user?.owner || !auth.enabled)) return branchList().flatMap((b) => tag(withLogin(contextOf(b.id).store.listUsers(), contextOf(b.id).store), b.id));
     return inBranch(url, user, () => tag(withLogin(store.listUsers(), store), current().id));
   }, 'staff'],
-  // Пароль и PIN сотрудника — владельцу и тем, у кого галочка «Видеть пароли». Просмотр пишется в журнал.
+  // Данные для входа сотрудника: email и есть ли PIN (сами пароль и PIN не хранятся — только задать новые).
   ['GET', '/api/users/:id/secrets', (p, url, body, user) => inBranch(url, user, () => {
     if (!seesSecrets(user)) throw new UserError('Пароли сотрудников видит владелец и тот, кому он дал это право');
     const u = store.findUser(p.id);
     if (!u) throw new UserError('Сотрудник не найден');
     if (u.role === 'owner' && user?.role !== 'owner') throw new UserError('Пароль владельца не показывается');
-    return { id: u.id, name: u.name || u.email, email: u.email, password: decryptSecret(u.secret_pw), pin: decryptSecret(u.secret_pin), hasPin: Boolean(u.pin_hash) };
+    return { id: u.id, name: u.name || u.email, email: u.email, hasPin: Boolean(u.pin_hash), branch: current().id };
   }), 'staff'],
   ['POST', '/api/users/:id/branch', (p, url, body, user) => inBranch(url, user, () => setEmployeeBranch(p.id, body, user)), 'staff'],
   ['POST', '/api/users', (p, url, body, user) => inBranch(url, user, () => {
@@ -1589,7 +1589,6 @@ const routes = [
     }
     const pin = body.pin ? pinHash(body.pin) : null;
     const made = store.createUser(body, password(body.password));
-    if (made.role !== 'owner') store.setUserSecrets(made.id, { password: String(body.password), pin: body.pin ? String(body.pin).trim() : undefined }, encryptSecret);
     return pin ? store.setUserPin(made.id, pin) : made;
   }), 'staff'],
   // «Права и доступ»: все сотрудники магазина и их действующие права одной таблицей; изменения сразу многим.
@@ -1614,10 +1613,6 @@ const routes = [
     guardAdmin(user, store.findUser(p.id), body);
     const pin = body.clearPin ? null : body.pin ? pinHash(body.pin) : undefined;
     const saved = store.updateUser(p.id, body, body.password ? password(body.password) : null);
-    // Копия для просмотра: что задал владелец или администратор. Пароль владельца не хранится.
-    if (saved.role !== 'owner') {
-      store.setUserSecrets(p.id, { password: body.password ? String(body.password) : undefined, pin: body.clearPin ? null : body.pin ? String(body.pin).trim() : undefined }, encryptSecret);
-    } else store.setUserSecrets(p.id, { password: null, pin: null }, encryptSecret);
     return pin === undefined ? saved : store.setUserPin(p.id, pin);
   }), 'staff'],
   ['DELETE', '/api/users/:id', (p, url, body, user) => inBranch(url, user, () => {
@@ -1833,7 +1828,6 @@ const AUDIT_LABELS = {
   'POST /api/customers/:id/bonus': 'Изменил бонусы покупателя',
   'PUT /api/loyalty': 'Изменил правила бонусов и скидок',
   'POST /api/users': 'Добавил сотрудника',
-  'GET /api/users/:id/secrets': 'Посмотрел пароль и PIN сотрудника',
   'PUT /api/users/:id': 'Изменил сотрудника',
   'DELETE /api/users/:id': 'Удалил сотрудника',
   'PUT /api/design': 'Изменил оформление',
@@ -2000,13 +1994,12 @@ async function handleAuth(req, res, url) {
       } catch (err) {
         return sendJson(res, 503, { error: `Не получилось отправить код в Telegram: ${err.message}. ${TWOFA_OFF_HINT}` });
       }
-      pending2fa.set(token, { result, hash: codeHash(code), exp: Date.now() + 5 * 60_000, tries: 0, password: body.password });
+      pending2fa.set(token, { result, hash: codeHash(code), exp: Date.now() + 5 * 60_000, tries: 0 });
       store.audit({ ...who, kind: 'change', user: result.user, action: 'Пароль верный — код входа отправлен в Telegram' });
       return sendJson(res, 200, { ok: false, need2fa: true, token });
     }
     // Вход пишется в журнал магазина сотрудника: там и ищется его «последний вход».
     (contextOf(result.user.branch || 1)?.store || store).audit({ ...who, kind: 'login', user: result.user, action: 'Вход в программу' });
-    keepSecret(result.user, 'password', body.password);
     res.setHeader('Set-Cookie', result.cookie);
     return sendJson(res, 200, { ok: true, user: store.publicUser(result.user) });
   }
@@ -2026,7 +2019,6 @@ async function handleAuth(req, res, url) {
     pending2fa.delete(String(body.token));
     const u = p.result.user;
     (contextOf(u.branch || 1)?.store || store).audit({ ...who, kind: 'login', user: u, action: 'Вход в программу (код из Telegram)', details: body.remember ? 'устройство запомнено на 30 дней' : '' });
-    keepSecret(u, 'password', p.password);
     res.setHeader('Set-Cookie', body.remember ? [p.result.cookie, auth.trustCookie(req, u)] : p.result.cookie);
     tgSendTo(twoFa().chatId, `✅ Вход владельца в программу\n${who.device || 'устройство'} · IP ${who.ip}${body.remember ? '\nУстройство запомнено на 30 дней' : ''}`).catch(() => {});
     return sendJson(res, 200, { ok: true, user: store.publicUser(u) });
@@ -2047,7 +2039,6 @@ async function handleAuth(req, res, url) {
       return sendJson(res, result.status, { error: result.error });
     }
     store.audit({ ...who, kind: 'login', user: result.user, action: 'Смена кассира', details: `после ${onTill.name || onTill.email}` });
-    keepSecret(result.user, result.user.pin_hash ? 'pin' : 'password', String(body.code || ''));
     res.setHeader('Set-Cookie', result.cookie);
     return sendJson(res, 200, { ok: true, user: store.publicUser(result.user) });
   }

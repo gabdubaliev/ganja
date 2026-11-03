@@ -252,19 +252,25 @@ $('#users-body').addEventListener('click', (e) => {
   if (btn) openUserDialog(usersList.find((u) => u.id === Number(btn.dataset.user) && String(u.branch || '') === btn.dataset.userBranch));
 });
 
-/* ---------- Пароль и PIN сотрудника ---------- */
+/* ---------- Вход сотрудника: пароль и PIN не хранятся — только задать новые ---------- */
 async function showSecrets(id, branch) {
   let s;
   try { s = await api(`/api/users/${id}/secrets${branchQuery(branch)}`); } catch (err) { return toast(err.message, 'error'); }
-  const row = (label, value, none) => `<div class="secret-row"><span>${label}</span>${value ? `<code class="secret-value">${esc(value)}</code><button type="button" class="btn small ghost" data-copy="${esc(value)}">Копировать</button>` : `<span class="pick-meta">${none}</span>`}</div>`;
   $('#secrets-title').textContent = s.name;
-  $('#secrets-body').innerHTML = `<p class="pick-meta">Email для входа: <b>${esc(s.email)}</b></p>
-    ${row('Пароль', s.password, 'ещё не известен: появится после следующего входа сотрудника. Или задайте новый в карточке (✎) — он сразу будет виден здесь.')}
-    ${row('PIN-код кассы', s.pin, s.hasPin ? 'ещё не известен: появится, когда сотрудник войдёт по PIN через «Сменить кассира». Или задайте новый в карточке.' : 'PIN не задан')}
-    <p class="pick-meta">Просмотр записан в журнал действий.</p>`;
+  $('#secrets-body').innerHTML = `<p class="pick-meta">Email для входа: <b>${esc(s.email)}</b> <button type="button" class="btn small ghost" data-copy="${esc(s.email)}">Копировать</button></p>
+    <p class="pick-meta">PIN-код кассы: ${s.hasPin ? 'задан' : 'не задан'}.</p>
+    <p class="sub">Пароль и PIN хранятся в защищённом виде — посмотреть их нельзя никому, даже владельцу. Если сотрудник забыл пароль или PIN, задайте новый: <button type="button" class="btn small primary" data-new-pass="${s.id}" data-user-branch="${branch || ''}">✎ Задать новый пароль или PIN</button></p>`;
   $('#secrets-dialog').showModal();
 }
 $('#secrets-body').addEventListener('click', async (e) => {
+  const np = e.target.closest('[data-new-pass]');
+  if (np) {
+    $('#secrets-dialog').close();
+    const u = (typeof usersList !== 'undefined' ? usersList : []).find((x) => x.id === Number(np.dataset.newPass) && String(x.branch || '') === np.dataset.userBranch)
+      || (typeof usersList !== 'undefined' ? usersList : []).find((x) => x.id === Number(np.dataset.newPass));
+    if (u) openUserDialog(u); else location.hash = '#users';
+    return;
+  }
   const b = e.target.closest('[data-copy]');
   if (!b) return;
   try { await navigator.clipboard.writeText(b.dataset.copy); toast('Скопировано'); } catch { toast('Не получилось скопировать — выделите вручную', 'error'); }
