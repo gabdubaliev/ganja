@@ -1017,6 +1017,18 @@
       </div>
       <h3>История и переписка</h3>
       <div class="timeline" id="lead-timeline"></div>
+      <form id="lead-price-form" class="price-ask" novalidate hidden>
+        <label for="lead-price-articles">Клиент прислал фото или скриншот? Впишите артикулы — отправим цену, как в автоответе</label>
+        <div class="price-ask-row">
+          <input id="lead-price-articles" name="articles" class="input" placeholder="Например: MT-123, 69225, D-133" autocomplete="off">
+          <button type="submit" class="btn">Показать ответ</button>
+        </div>
+        <div id="lead-price-preview" class="price-ask-preview" hidden>
+          <div class="price-ask-text" id="lead-price-text"></div>
+          <p class="price-ask-miss" id="lead-price-miss" hidden></p>
+          <button type="button" class="btn primary" id="lead-price-send">Отправить клиенту</button>
+        </div>
+      </form>
       <form id="lead-note-form" class="composer" novalidate>
         <div class="seg compose-kind" id="compose-kind">
           <button type="button" data-kind="instagram" aria-pressed="false" id="compose-ig" hidden>Ответ в Instagram</button>

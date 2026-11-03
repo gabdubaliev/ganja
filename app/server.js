@@ -1377,6 +1377,17 @@ const routes = [
     }
     return { ok: true, to };
   }, 'settings'],
+  // Ответ ценой по артикулам, которые кассир увидел на фото/скриншоте клиента.
+  ['POST', '/api/crm/leads/:id/price-preview', (p, url, body) => { crm.get(p.id); return igPrice.priceFor(body.articles); }, 'crm'],
+  ['POST', '/api/crm/leads/:id/price-reply', async (p, url, body, user) => {
+    const lead = crm.get(p.id);
+    const r = igPrice.priceFor(body.articles);
+    if (!r.products.length) throw new UserError(r.notFound.length ? `Не нашёл в базе: ${r.notFound.join(', ')}` : 'Впишите артикул');
+    const via = body.channel === 'whatsapp' || (!lead.ig_user_id && lead.wa_id) ? 'whatsapp' : 'instagram';
+    await (via === 'whatsapp' ? crm.replyWhatsapp(p.id, r.text, user) : crm.replyInstagram(p.id, r.text, user));
+    if (!Number(lead.amount) && r.amount) crm.update(p.id, { amount: r.amount }, user);
+    return { lead: crm.get(p.id), notFound: r.notFound, sent: r.products.length };
+  }, 'crm'],
   ['POST', '/api/crm/leads/:id/whatsapp', (p, url, body, user) => crm.replyWhatsapp(p.id, body.text, user), 'crm'],
   ['GET', '/api/settings/whatsapp', () => whatsappPublic(crm.whatsappSettings()), 'settings'],
   ['PUT', '/api/settings/whatsapp', (p, url, body) => whatsappPublic(crm.setWhatsapp(body)), 'settings'],
@@ -1734,6 +1745,7 @@ const AUDIT_LABELS = {
   'PUT /api/settings/instagram/auto': 'Изменил автоответ ценой в Instagram',
   'POST /api/crm/leads': 'Создал сделку в CRM',
   'PUT /api/crm/leads/:id': 'Изменил сделку в CRM',
+  'POST /api/crm/leads/:id/price-reply': 'Отправил клиенту цену по артикулу',
   'PUT /api/crm/funnel': 'Изменил воронку CRM',
   'POST /api/kassa/expense': 'Расход из кассы',
   'POST /api/access': 'Изменил права сотрудников (Права и доступ)',

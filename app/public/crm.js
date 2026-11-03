@@ -131,6 +131,7 @@ async function openLead(id = null, stage = null) {
   const l = crmView.lead;
   // Открыли другую сделку — по умолчанию ответ туда, откуда писал клиент; заметку и звонок кассир выберет сам.
   if (l && l.id !== prevId) crmView.kind = defaultKind(l);
+  if (l && l.id !== prevId) prevPriceLead = null;
   const f = $('#lead-form');
   f.reset();
   $('#lead-error').hidden = true;
@@ -198,6 +199,9 @@ function renderLeadSide() {
   tl.scrollTop = tl.scrollHeight;
   $('#compose-ig').hidden = !l.ig_user_id;
   $('#compose-wa').hidden = !l.wa_id;
+  const pf = $('#lead-price-form');
+  pf.hidden = !l.ig_user_id && !l.wa_id;
+  if (l.id !== prevPriceLead) { pf.reset(); $('#lead-price-preview').hidden = true; prevPriceLead = l.id; }
   if ((!l.ig_user_id && crmView.kind === 'instagram') || (!l.wa_id && crmView.kind === 'whatsapp')) crmView.kind = 'note';
   renderComposeKind();
 }
@@ -308,6 +312,49 @@ $('#lead-note-form').addEventListener('submit', async (e) => {
       : await api(`/api/crm/leads/${id}/events`, { method: 'POST', body: { kind: crmView.kind, text } });
     f.elements.text.value = '';
     if (channel) toast(`Сообщение отправлено в ${channel === 'instagram' ? 'Instagram' : 'WhatsApp'}`);
+    renderLeadSide();
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+/* ---------- Цена по артикулам с фото клиента ---------- */
+let prevPriceLead = null;
+// Куда отправить: выбранный канал ответа, иначе — откуда писал клиент.
+const priceChannel = () => (['instagram', 'whatsapp'].includes(crmView.kind) ? crmView.kind : defaultKind(crmView.lead));
+$('#lead-price-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const articles = e.target.elements.articles.value.trim();
+  const box = $('#lead-price-preview');
+  if (!articles) return toast('Впишите артикул', 'error');
+  try {
+    const r = await api(`/api/crm/leads/${crmView.lead.id}/price-preview`, { method: 'POST', body: { articles } });
+    box.hidden = false;
+    $('#lead-price-text').textContent = r.text || 'Ни один артикул не найден в базе товаров.';
+    const miss = $('#lead-price-miss');
+    miss.hidden = !r.notFound.length;
+    miss.textContent = r.notFound.length ? `Не нашёл в базе: ${r.notFound.join(', ')} — проверьте артикул` : '';
+    const send = $('#lead-price-send');
+    send.hidden = !r.products.length;
+    send.textContent = `Отправить в ${priceChannel() === 'whatsapp' ? 'WhatsApp' : 'Instagram'}`;
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+$('#lead-price-articles').addEventListener('input', () => { $('#lead-price-preview').hidden = true; });
+$('#lead-price-send').addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  const f = $('#lead-price-form');
+  btn.disabled = true;
+  try {
+    const channel = priceChannel();
+    const r = await api(`/api/crm/leads/${crmView.lead.id}/price-reply`, { method: 'POST', body: { articles: f.elements.articles.value, channel } });
+    crmView.lead = r.lead;
+    f.reset();
+    $('#lead-price-preview').hidden = true;
+    toast(`Цена отправлена в ${channel === 'whatsapp' ? 'WhatsApp' : 'Instagram'}`);
     renderLeadSide();
   } catch (err) {
     toast(err.message, 'error');

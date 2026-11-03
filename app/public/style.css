@@ -705,6 +705,12 @@ input[type="range"] { width: 100%; accent-color: var(--series); }
 .tl-meta { font-size: 11.5px; color: var(--muted); margin-bottom: 2px; }
 .tl-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .composer { display: grid; gap: 6px; }
+.price-ask { display: grid; gap: 6px; margin: 8px 0; padding: 10px; border: 1px dashed var(--border); border-radius: 10px; }
+.price-ask label { font-size: 13px; color: var(--muted); }
+.price-ask-row { display: flex; gap: 6px; }
+.price-ask-row .input { flex: 1; min-width: 0; }
+.price-ask-preview { display: grid; gap: 6px; }
+.price-ask-text { white-space: pre-wrap; font-size: 14px; padding: 8px 10px; border-radius: 8px; background: var(--hover); max-height: 220px; overflow: auto; }
 .compose-kind { grid-template-columns: repeat(4, auto); justify-content: start; }
 .compose-kind button { padding: 6px 12px; font-size: 13px; }
 
@@ -2049,3 +2055,4 @@ body.no-cost .cost-only { display: none !important; }
 .ac-group th { background: var(--surface-2); text-transform: uppercase; font-size: 12px; letter-spacing: .04em; color: var(--muted); text-align: left; position: sticky; left: 0; }
 @media (max-width: 760px) { .ac-table .ac-right { min-width: 170px; max-width: 200px; } }
 body.no-mig-purchase .mig-c-purchase, body.no-mig-cost .mig-c-cost, body.no-mig-markup .mig-c-markup, body.no-mig-margin .mig-c-margin { display: none !important; }
+.price-ask-miss { margin: 0; font-size: 13px; color: var(--critical); }

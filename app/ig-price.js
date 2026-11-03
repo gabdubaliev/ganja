@@ -76,7 +76,7 @@ function renderPrice(template, p) {
 // (адрес, часы работы). Одно сообщение — не длиннее 1000 знаков: так требует Instagram, а ответ на комментарий
 // можно отправить только один, поэтому лишние товары сворачиваются в «и ещё N».
 const MSG_MAX = 1000;
-function renderMulti(template, products, { whole = true } = {}) {
+function renderMulti(template, products, { whole = true, title = 'Цены на вещи из этого видео:' } = {}) {
   const line = (p) => {
     const art = p.article && !String(p.name).toLowerCase().includes(String(p.article).toLowerCase()) ? ` (арт. ${p.article})` : '';
     const price = p.maxPrice > p.price ? `${money(p.price)}–${money(p.maxPrice)}` : money(p.price);
@@ -85,7 +85,7 @@ function renderMulti(template, products, { whole = true } = {}) {
   const footer = String(template || DEFAULTS.priceTemplate).split('\n').filter((l) => l.trim() && !/\{\w+\}/.test(l)).join('\n');
   const build = (list, rest) => {
     const inStock = list.filter((p) => p.inStock);
-    const out = ['Цены на вещи из этого видео:', ...list.map(line)];
+    const out = [title, ...list.map(line)];
     if (rest) out.push(`…и ещё ${rest} — напишите, какая вещь интересует, пришлём цену`);
     if (!rest && inStock.length > 1) out.push('', `${whole ? 'Весь образ' : 'Вместе'}: ${money(inStock.reduce((s, p) => s + p.price, 0))} сом`);
     if (footer) out.push('', footer);
@@ -305,6 +305,31 @@ function createIgPrice({ store, crm, notifier }) {
       const { products } = productsFrom('', article);
       if (!products.length) return { found: false };
       return { found: true, product: products[0], products, text: renderReply(template || settings().priceTemplate, products) };
+    },
+
+    // Кассир посмотрел фото/скриншот клиента и вписал артикулы (через пробел, запятую или с новой строки) —
+    // тот же ответ, что получил бы клиент, написав эти артикулы в комментарии. Возвращает текст, товары
+    // и артикулы, которых нет в базе.
+    priceFor(input, template) {
+      const raw = String(input || '').slice(0, 500);
+      const products = [];
+      const notFound = [];
+      const add = (p) => { if (p && !products.some((x) => x.id === p.id)) products.push(p); };
+      for (const chunk of raw.split(/[,;\n]+/).map((c) => c.trim()).filter(Boolean)) {
+        const whole = store.findByArticle(chunk);
+        if (whole) { add(whole); continue; }
+        const viaText = articleCandidates(chunk).map((c) => store.findByArticle(c)).filter(Boolean);
+        const tokens = chunk.split(/\s+/).filter(Boolean);
+        const viaTokens = tokens.length > 1 ? tokens.map((t) => [t, store.findByArticle(t)]) : [];
+        viaText.forEach(add);
+        viaTokens.forEach(([, p]) => add(p));
+        const hit = viaTokens.filter(([, p]) => p);
+        if (!viaText.length && !hit.length) notFound.push(chunk); // ничего не нашли — показываем как вписали
+        else if (!viaText.length) notFound.push(...viaTokens.filter(([, p]) => !p).map(([t]) => t));
+      }
+      const list = products.slice(0, 15);
+      const text = list.length ? renderReply(template || settings().priceTemplate, list, { whole: false, title: 'Цены на вещи с фото:' }) : '';
+      return { text, products: list, notFound: [...new Set(notFound)], amount: sumOf(list) };
     },
 
     log({ limit = 50 } = {}) {
