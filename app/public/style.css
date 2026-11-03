@@ -1997,3 +1997,6 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   .seg.tabs button { flex: none; }
 }
 .form-actions { flex-wrap: wrap; }
+
+.mig-art { min-width: 110px; }
+.mig-art .input { font-weight: 600; }

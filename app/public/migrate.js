@@ -61,7 +61,7 @@ const MIG_FILTERS = {
 };
 function migFiltered() {
   const q = migView.q.trim().toLowerCase();
-  return migView.items.filter(MIG_FILTERS[migView.filter][1]).filter((it) => !q || it.data.name.toLowerCase().includes(q) || String(it.data.code).toLowerCase().includes(q)
+  return migView.items.filter(MIG_FILTERS[migView.filter][1]).filter((it) => !q || it.data.name.toLowerCase().includes(q) || String(it.data.code).toLowerCase().includes(q) || String(it.data.article || '').toLowerCase().includes(q)
     || it.sources.some((s) => s.name.toLowerCase().includes(q) || s.code.toLowerCase().includes(q)));
 }
 
@@ -103,7 +103,7 @@ function migDraw() {
   $('#mig-run').textContent = `Перенести отмеченные (${selectedCount})`;
   $('#mig-all').checked = list.length > 0 && list.every((i) => i.status === 'done' || i.data.selected);
   const supOpts = (id) => `<option value="">—</option>${migView.suppliers.map((s) => `<option value="${s.id}" ${s.id === id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}`;
-  $('#mig-body').innerHTML = !has ? '<tr><td colspan="12" class="empty">Выгрузка ещё не загружена</td></tr>' : shown.length ? shown.map((it) => {
+  $('#mig-body').innerHTML = !has ? '<tr><td colspan="13" class="empty">Выгрузка ещё не загружена</td></tr>' : shown.length ? shown.map((it) => {
     const d = it.data;
     const done = it.status === 'done';
     const dis = done ? 'disabled' : '';
@@ -120,6 +120,7 @@ function migDraw() {
       <td class="mig-name"><input class="input" data-f="name" value="${esc(d.name)}" ${dis}>
         <small>${esc(d.code || '—')}${src.length > 1 ? ` · собрано из ${src.length} строк` : ''}${d.created ? ` · создан ${new Date(d.created).toLocaleDateString('ru-RU')}` : ''}${src[0].group ? ` · ${esc(src[0].group)}` : ''}</small>
         ${done ? '<small class="mig-ok">✓ перенесён</small>' : issues.length ? `<small class="mig-issue">⚠ ${esc(issues.join('; '))}</small>` : ''}</td>
+      <td class="mig-art"><input class="input" data-f="article" value="${esc(d.article || '')}" placeholder="—" title="Артикул берётся из названия; можно исправить" ${dis}></td>
       <td><input class="input" data-f="category" list="mig-cats" value="${esc(d.category || '')}" placeholder="—" ${dis}></td>
       <td><select class="input" data-f="supplier_id" ${dis}>${supOpts(d.supplier_id)}</select></td>
       <td><input class="input num" data-f="purchase" inputmode="decimal" value="${migFmt(d.purchase)}" ${dis}></td>
@@ -131,7 +132,7 @@ function migDraw() {
       <td>${d.variants?.on ? '<small>новые у каждой модификации</small>' : `<input class="input" data-f="barcode" value="${esc(d.barcode || '')}" ${dis}>`}</td>
       <td><button type="button" class="btn small ${d.variants?.on ? '' : 'ghost'}" data-mig-var ${dis}>${varLabel}</button>${src.length > 1 && !done ? '<button type="button" class="link" data-mig-split>Разделить</button>' : ''}</td>
     </tr>`;
-  }).join('') : '<tr><td colspan="12" class="empty">В этом списке пусто</td></tr>';
+  }).join('') : '<tr><td colspan="13" class="empty">В этом списке пусто</td></tr>';
   $('#mig-pager').innerHTML = pages > 1 ? `<button type="button" class="btn small" data-mig-page="-1" ${migView.page ? '' : 'disabled'}>‹ Назад</button>
     <span>Страница ${migView.page + 1} из ${pages} · ${list.length} шт</span>
     <button type="button" class="btn small" data-mig-page="1" ${migView.page < pages - 1 ? '' : 'disabled'}>Вперёд ›</button>` : list.length ? `<span>${list.length} шт</span>` : '';

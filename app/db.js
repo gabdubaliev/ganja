@@ -1391,6 +1391,23 @@ function migParse(name) {
   }
   return color || size ? { base: m[1].trim(), color, size, parsed: true } : { base: m[1].trim(), parsed: false };
 }
+// Артикул из названия: последнее «слово-артикул» — «Водолазка M-163» → M-163, «Кофта 69225» → 69225,
+// «Футболка MS 6307» → MS-6307. Цвет/размер в скобках не мешают. Нет такого слова — пусто.
+function migArticle(name) {
+  const t = String(name || '').replace(/\s*\([^()]*\)\s*$/, '').trim().split(/\s+/);
+  if (t.length < 2) return '';
+  // С конца — первое слово с цифрами: «M-163», «MS-6307», «69225», «D133». Первое слово (вид товара) не берётся.
+  for (let i = t.length - 1; i >= 1; i--) {
+    const w = t[i].replace(/[.,;:!]+$/, '');
+    if (/^[A-Za-zА-Яа-яЁё]{1,5}-?\d{1,10}[A-Za-zА-Яа-я]{0,2}$/.test(w)) return w.toUpperCase();
+    if (/^\d{3,12}$/.test(w)) {
+      // «MS 6304» — буквы отдельным словом перед числом (большими буквами, до 4) — часть артикула.
+      const prev = t[i - 1];
+      return i >= 2 && /^([A-Z]{1,4}|[А-ЯЁ]{1,3})$/.test(prev) ? `${prev}-${w}` : w;
+    }
+  }
+  return '';
+}
 // Категория по первому слову: «Фут.» → «Футболка», «СлIаксы» → «Слаксы»; бренды и числа — без категории.
 const MIG_CAT_FIX = { 'фут.': 'Футболка', 'фут': 'Футболка', 'слiаксы': 'Слаксы', 'слаксы': 'Слаксы', 'джинсовая': 'Рубашка' };
 function migCategory(name, known) {
@@ -1422,7 +1439,7 @@ function migData(list, known, split = false) {
   const stock = list.reduce((a, r) => a + r.stock, 0);
   const codeBase = many ? (f.code.match(/^(.+)-\d+$/)?.[1] && list.every((r) => r.code.startsWith(f.code.match(/^(.+)-\d+$/)[1] + '-')) ? f.code.match(/^(.+)-\d+$/)[1] : f.code) : f.code;
   return {
-    name: many && !split ? f.base : f.name, code: codeBase, barcode: many ? '' : f.barcode, unit: f.unit || 'шт',
+    name: many && !split ? f.base : f.name, article: migArticle(many && !split ? f.base : f.name), code: codeBase, barcode: many ? '' : f.barcode, unit: f.unit || 'шт',
     category: migCategory(many ? f.base : f.name, known) || '', supplier_id: null, description: '',
     price: Math.max(...list.map((r) => r.price)), purchase: f.purchase || f.cost, cost: f.cost || f.purchase, created: Math.min(...list.map((r) => r.created || Infinity).filter(Number.isFinite)) || null,
     stock, variants: { on: many, colors, sizes, qty }, ignoreMismatch: false, selected: stock > 0,
@@ -1434,7 +1451,7 @@ function migClean(d) {
   const str = (v, max = 200) => String(v ?? '').trim().slice(0, max);
   const num = (v, name) => { const n = Number(String(v ?? '').replace(/\s/g, '').replace(',', '.')); if (!Number.isFinite(n)) throw new UserError(`«${name}»: нужно число`); return n; };
   if ('name' in d) { out.name = str(d.name); if (!out.name) throw new UserError('Название не может быть пустым'); }
-  for (const k of ['code', 'barcode', 'category', 'unit']) if (k in d) out[k] = str(d[k], 64);
+  for (const k of ['code', 'barcode', 'category', 'unit', 'article']) if (k in d) out[k] = str(d[k], 64);
   if ('description' in d) out.description = str(d.description, 2000);
   if ('supplier_id' in d) out.supplier_id = d.supplier_id ? Number(d.supplier_id) : null;
   for (const [k, n] of [['price', 'Цена продажи'], ['purchase', 'Цена закупки'], ['cost', 'Себестоимость'], ['stock', 'Остаток']]) if (k in d) out[k] = Math.round(num(d[k], n) * 100) / 100;
@@ -2146,8 +2163,13 @@ function createStore(file) {
     /* ---------- Перенос из CloudShop ---------- */
     // Карточка переноса: sources — строки выгрузки (одна или несколько, собранных в один товар), data — то, что
     // перенесётся (всё редактируется), status: new | done | skip.
+    // Карточки, загруженные до появления артикула, получают артикул из названия (пока его не задали вручную).
     migrateList() {
-      return db.prepare('SELECT * FROM migrate_items ORDER BY sort, id').all().map((r) => ({ ...r, sources: JSON.parse(r.sources), data: JSON.parse(r.data) }));
+      return db.prepare('SELECT * FROM migrate_items ORDER BY sort, id').all().map((r) => {
+        const data = JSON.parse(r.data);
+        if (data.article === undefined) data.article = migArticle(data.name);
+        return { ...r, sources: JSON.parse(r.sources), data };
+      });
     },
     // rows — строки выгрузки CloudShop (разобраны в браузере). Строки одного товара (код с «-1», «-2»… или одно
     // название с цветом/размером в скобках) собираются в одну карточку с модификациями и разложенным остатком.
@@ -2192,7 +2214,11 @@ function createStore(file) {
       const cur = db.prepare('SELECT * FROM migrate_items WHERE id = ?').get(Number(id));
       if (!cur) throw new UserError('Карточка не найдена');
       if (cur.status === 'done') throw new UserError('Этот товар уже перенесён — меняйте его в «Товарах»');
-      const next = { ...JSON.parse(cur.data), ...migClean(data || {}) };
+      const prev = JSON.parse(cur.data);
+      const next = { ...prev, ...migClean(data || {}) };
+      // Название поменяли, а артикул был взят из названия, — артикул обновляется вместе с ним.
+      const prevArt = prev.article === undefined ? migArticle(prev.name) : prev.article;
+      if (data && 'name' in data && !('article' in data) && prevArt === migArticle(prev.name)) next.article = migArticle(next.name);
       db.prepare('UPDATE migrate_items SET data = ?, status = ?, error = ?, updated_at = ? WHERE id = ?')
         .run(JSON.stringify(next), data?.skip === true ? 'skip' : data?.skip === false ? 'new' : cur.status, '', Date.now(), cur.id);
       return this.migrateGet(cur.id);
@@ -2200,7 +2226,9 @@ function createStore(file) {
     migrateGet(id) {
       const r = db.prepare('SELECT * FROM migrate_items WHERE id = ?').get(Number(id));
       if (!r) throw new UserError('Карточка не найдена');
-      return { ...r, sources: JSON.parse(r.sources), data: JSON.parse(r.data) };
+      const data = JSON.parse(r.data);
+      if (data.article === undefined) data.article = migArticle(data.name);
+      return { ...r, sources: JSON.parse(r.sources), data };
     },
     // Одинаковое изменение многим карточкам (категория, поставщик, размеры, отметка «переносить»…).
     migrateBulk(ids, patch) {
@@ -2267,7 +2295,7 @@ function createStore(file) {
           const pid = withMove('import', 'cloudshop', null, () => transaction(db, () => {
             const v = d.variants || {};
             const on = v.on && ((v.colors || []).length || (v.sizes || []).length);
-            const base = { name: d.name, category: d.category, code: d.code, unit: d.unit || 'шт', price: d.price, purchase: d.purchase, cost: d.cost || d.purchase,
+            const base = { name: d.name, article: d.article === undefined ? migArticle(d.name) : d.article, category: d.category, code: d.code, unit: d.unit || 'шт', price: d.price, purchase: d.purchase, cost: d.cost || d.purchase,
               supplier_id: d.supplier_id || null, description: d.description || '', stock: 0 };
             if (d.category && !findCategory(d.category)) this.createCategory({ name: d.category });
             const setStock = db.prepare('UPDATE products SET stock = ? WHERE id = ?');
