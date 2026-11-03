@@ -220,7 +220,7 @@ function leadFiles(raw, eventId) {
       const code = a.url.match(/\/(p|reels?|tv)\/([A-Za-z0-9_-]+)/);
       const what = ['ig_reel', 'reel'].includes(a.type) || /reel/.test(a.url) ? 'рилс' : 'публикацию';
       const embed = code ? `https://www.instagram.com/${code[1] === 'p' ? 'p' : 'reel'}/${code[2]}/embed/` : '';
-      return `<span class="tl-file">${embed ? `<button type="button" class="btn tl-embed" data-embed="${esc(embed)}">▶ Смотреть ${what} здесь</button>` : ''}<a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">Открыть в Instagram</a></span>`;
+      return `<span class="tl-file"><span class="tl-btns">${embed ? `<button type="button" class="btn tl-embed" data-embed="${esc(embed)}">▶ Смотреть ${what} здесь</button>` : ''}<a class="btn" href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">↗ Перейти в Instagram</a></span></span>`;
     }
     if (['video', 'ig_reel', 'reel'].includes(a.type)) return `<span class="tl-file"><video src="${u}" controls preload="metadata" playsinline></video><a href="${u}" target="_blank" rel="noopener noreferrer">Не играет? Открыть видео</a></span>`;
     if (a.type === 'audio') return `<audio src="${u}" controls preload="none"></audio>`;
@@ -280,7 +280,8 @@ $('#lead-timeline').addEventListener('click', (e) => {
     f.title = 'Рилс из Instagram';
     f.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
     f.loading = 'lazy';
-    emb.replaceWith(f);
+    emb.closest('.tl-file').prepend(f);
+    emb.remove();
   }
 });
 

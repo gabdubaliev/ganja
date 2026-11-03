@@ -2072,3 +2072,5 @@ body.no-mig-purchase .mig-c-purchase, body.no-mig-cost .mig-c-cost, body.no-mig-
 .lightbox-stage img.zoomed { max-width: none; max-height: none; height: auto; cursor: zoom-out; }
 .lightbox-stage:has(img.zoomed) { place-items: start; }
 .lightbox-close { position: fixed; top: 12px; right: 12px; z-index: 2; width: 44px; height: 44px; border-radius: 50%; border: 0; background: rgba(255,255,255,.18); color: #fff; font-size: 28px; line-height: 1; cursor: pointer; }
+.tl-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.tl-btns .btn { text-decoration: none; }
