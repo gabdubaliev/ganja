@@ -1,0 +1,28 @@
+{
+  "appId": "kg.montshop.app",
+  "appName": "MONT",
+  "webDir": "www",
+  "server": {
+    "url": "https://montshop.kg",
+    "cleartext": false,
+    "allowNavigation": ["montshop.kg", "www.montshop.kg"],
+    "errorPath": "index.html"
+  },
+  "android": {
+    "appendUserAgent": "MontApp",
+    "backgroundColor": "#ffffff"
+  },
+  "ios": {
+    "appendUserAgent": "MontApp",
+    "backgroundColor": "#ffffff",
+    "contentInset": "never"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1200,
+      "launchAutoHide": true,
+      "backgroundColor": "#ffffff",
+      "showSpinner": false
+    }
+  }
+}

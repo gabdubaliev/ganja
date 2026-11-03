@@ -1261,3 +1261,44 @@ addEventListener('message', (e) => {
   loadMe();
   parent.postMessage({ type: 'shop-ready' }, location.origin);
 })();
+
+/* ---------- Приложение на телефоне: установка витрины на экран «Домой» ---------- */
+(() => {
+  const inApp = /MontApp/i.test(navigator.userAgent); // внутри приложения из App Store / Google Play
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  if ('serviceWorker' in navigator && !inApp) {
+    const scope = location.pathname.startsWith('/shop') ? '/shop' : '/';
+    navigator.serviceWorker.register('/shop/sw.js', { scope }).catch(() => {});
+  }
+  if (inApp || standalone) return;
+  const seen = () => { try { return Number(localStorage.getItem('shop.installHidden')) > Date.now(); } catch { return false; } };
+  const hide = (days) => { try { localStorage.setItem('shop.installHidden', String(Date.now() + days * 864e5)); } catch {} };
+  const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent) && !/crios|fxios/i.test(navigator.userAgent);
+  const isPhone = matchMedia('(max-width: 860px)').matches;
+  let deferred = null;
+  function banner(text, action) {
+    if (seen() || document.getElementById('install-bar')) return;
+    const bar = document.createElement('div');
+    bar.id = 'install-bar';
+    bar.className = 'install-bar';
+    bar.innerHTML = `<img src="/shop/favicon" alt=""><span>${text}</span>${action ? '<button type="button" class="install-go">Установить</button>' : ''}<button type="button" class="install-x" aria-label="Закрыть">×</button>`;
+    document.body.appendChild(bar);
+    bar.querySelector('.install-x').addEventListener('click', () => { hide(14); bar.remove(); });
+    bar.querySelector('.install-go')?.addEventListener('click', async () => {
+      bar.remove();
+      if (!deferred) return;
+      deferred.prompt();
+      const r = await deferred.userChoice.catch(() => null);
+      if (r?.outcome !== 'accepted') hide(14);
+      deferred = null;
+    });
+  }
+  // Android, Chrome: браузер сам умеет ставить приложение — показываем кнопку.
+  addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferred = e;
+    if (isPhone) setTimeout(() => banner('Установите наш магазин как приложение — быстрее заказывать', true), 15000);
+  });
+  // iPhone: кнопки установки нет — подсказываем, как добавить на экран «Домой».
+  if (isIos && isPhone) setTimeout(() => banner('Добавьте магазин на экран «Домой»: нажмите <b>Поделиться</b> ⬆️ и «На экран „Домой“»', false), 20000);
+})();

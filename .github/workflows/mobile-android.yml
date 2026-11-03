@@ -1,0 +1,60 @@
+# Сборка Android-приложения MONT (оболочка витрины montshop.kg).
+# Запускается вручную (Actions → «Android: сборка приложения» → Run workflow) или при изменениях в mobile/.
+# Результат — во вкладке Actions, в разделе Artifacts:
+#   mont-android-apk — файл .apk, можно сразу поставить на телефон;
+#   mont-android-aab — файл .aab для загрузки в Google Play (подписан, если заданы секреты ключа).
+name: "Android: сборка приложения"
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "mobile/**"
+      - ".github/workflows/mobile-android.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npx cap sync android
+      - name: Ключ подписи (если задан в секретах)
+        env:
+          KEYSTORE_B64: ${{ secrets.MONT_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/mont.keystore"
+            echo "MONT_KEYSTORE_PATH=$RUNNER_TEMP/mont.keystore" >> "$GITHUB_ENV"
+          fi
+      - name: Сборка
+        env:
+          MONT_VERSION_CODE: ${{ github.run_number }}
+          MONT_VERSION_NAME: "1.0.${{ github.run_number }}"
+          MONT_KEYSTORE_PASSWORD: ${{ secrets.MONT_KEYSTORE_PASSWORD }}
+          MONT_KEY_ALIAS: ${{ secrets.MONT_KEY_ALIAS }}
+          MONT_KEY_PASSWORD: ${{ secrets.MONT_KEY_PASSWORD }}
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug bundleRelease
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mont-android-apk
+          path: mobile/android/app/build/outputs/apk/debug/*.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mont-android-aab
+          path: mobile/android/app/build/outputs/bundle/release/*.aab

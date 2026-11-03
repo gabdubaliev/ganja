@@ -1986,6 +1986,23 @@ async function handlePublic(req, res, url, user) {
     if (found) return sendBytes(res, found.mime, Buffer.from(found.data), 'public, max-age=86400');
     return sendBytes(res, 'image/svg+xml', fs.readFileSync(path.join(PUBLIC, 'icon.svg')), 'public, max-age=86400');
   }
+  // Приложение витрины на телефоне: манифест (название, цвета, значок) и сервис-воркер (работа без сети).
+  if (req.method === 'GET' && pathname === '/shop/manifest.webmanifest') {
+    const iconId = shop.faviconId || shop.logoId;
+    const icon = iconId ? store.getImage(iconId) : null;
+    const start = hostOf(req) === SHOP_DOMAIN || hostOf(req) === `www.${SHOP_DOMAIN}` ? '/' : '/shop';
+    const icons = icon ? [{ src: `/shop/favicon?v=${iconId}`, sizes: '512x512', type: icon.mime, purpose: 'any' }, { src: `/shop/favicon?v=${iconId}`, sizes: '192x192', type: icon.mime, purpose: 'any' }]
+      : [{ src: '/icon.svg', sizes: 'any', type: 'image/svg+xml' }];
+    return sendBytes(res, 'application/manifest+json; charset=utf-8', JSON.stringify({
+      name: shop.title || 'Магазин', short_name: (shop.title || 'Магазин').slice(0, 12), description: shop.slogan || '',
+      id: start, start_url: `${start}?app=1`, scope: start, display: 'standalone', orientation: 'portrait',
+      background_color: shop.bg || '#ffffff', theme_color: shop.accent || '#111111', lang: 'ru', icons,
+    }), 'no-cache');
+  }
+  if (req.method === 'GET' && pathname === '/shop/sw.js') {
+    res.setHeader('Service-Worker-Allowed', '/');
+    return sendBytes(res, 'text/javascript; charset=utf-8', fs.readFileSync(path.join(PUBLIC, 'shop-sw.js')), 'no-cache');
+  }
   if (req.method === 'GET' && pathname === '/shop/theme.css') return sendBytes(res, 'text/css; charset=utf-8', shopCss(shop, mainStore.listFonts()));
   if (req.method === 'GET' && pathname === '/shop/data') {
     if (!open) return sendJson(res, 404, { error: 'Витрина закрыта' });
