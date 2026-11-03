@@ -481,7 +481,10 @@ function createCrm(store) {
           // Пересланный рилс/публикация — ссылка и подпись видны в переписке, кассир откроет и впишет артикулы.
           const shared = (m.message?.attachments || []).map((a) => a.payload || {}).filter((p) => p.url && /instagram\.com|reel|\/p\//i.test(p.url) || p.title)
             .map((p) => `🔗 Переслал публикацию${p.title ? `: «${String(p.title).slice(0, 300)}»` : ''}${p.url && /instagram\.com/i.test(p.url) ? `\n${p.url}` : ''}`);
-          const body = [m.message?.text, ...shared].filter(Boolean).join('\n')
+          // Ответ на сторис магазина и отметка магазина в сторис клиента — чтобы кассир понимал, о чём речь.
+          const story = m.message?.reply_to?.story ? '↩️ Ответ на вашу сторис' : '';
+          const mention = (m.message?.attachments || []).some((a) => a.type === 'story_mention') ? '📣 Отметил магазин в своей сторис (откройте в Instagram)' : '';
+          const body = [story && m.message?.text ? `${story}: ${m.message.text}` : story || m.message?.text, mention, ...shared].filter(Boolean).join('\n')
             || (m.message?.attachments?.length ? '📎 Вложение (фото, видео или голосовое — откройте в Instagram)' : '');
           if (!body) continue;
           const mid = m.message?.mid ? String(m.message.mid) : null;
