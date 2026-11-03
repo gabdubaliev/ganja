@@ -1378,10 +1378,10 @@ const routes = [
     return { ok: true, to };
   }, 'settings'],
   // Ответ ценой по артикулам, которые кассир увидел на фото/скриншоте клиента.
-  ['POST', '/api/crm/leads/:id/price-preview', (p, url, body) => { crm.get(p.id); return igPrice.priceFor(body.articles); }, 'crm'],
+  ['POST', '/api/crm/leads/:id/price-preview', (p, url, body) => { crm.get(p.id); return igPrice.priceForLinks(body.articles); }, 'crm'],
   ['POST', '/api/crm/leads/:id/price-reply', async (p, url, body, user) => {
     const lead = crm.get(p.id);
-    const r = igPrice.priceFor(body.articles);
+    const r = await igPrice.priceForLinks(body.articles);
     if (!r.products.length) throw new UserError(r.notFound.length ? `Не нашёл в базе: ${r.notFound.join(', ')}` : 'Впишите артикул');
     const via = body.channel === 'whatsapp' || (!lead.ig_user_id && lead.wa_id) ? 'whatsapp' : 'instagram';
     await (via === 'whatsapp' ? crm.replyWhatsapp(p.id, r.text, user) : crm.replyInstagram(p.id, r.text, user));

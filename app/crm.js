@@ -478,7 +478,11 @@ function createCrm(store) {
           const senderId = String(m.sender?.id || '');
           // Эхо — наши же ответы; сообщения от самого аккаунта не считаем входящими.
           if (!senderId || m.message?.is_echo || senderId === String(entry.id)) continue;
-          const body = m.message?.text || (m.message?.attachments?.length ? '📎 Вложение (фото, видео или голосовое — откройте в Instagram)' : '');
+          // Пересланный рилс/публикация — ссылка и подпись видны в переписке, кассир откроет и впишет артикулы.
+          const shared = (m.message?.attachments || []).map((a) => a.payload || {}).filter((p) => p.url && /instagram\.com|reel|\/p\//i.test(p.url) || p.title)
+            .map((p) => `🔗 Переслал публикацию${p.title ? `: «${String(p.title).slice(0, 300)}»` : ''}${p.url && /instagram\.com/i.test(p.url) ? `\n${p.url}` : ''}`);
+          const body = [m.message?.text, ...shared].filter(Boolean).join('\n')
+            || (m.message?.attachments?.length ? '📎 Вложение (фото, видео или голосовое — откройте в Instagram)' : '');
           if (!body) continue;
           const mid = m.message?.mid ? String(m.message.mid) : null;
           if (mid && db.prepare('SELECT 1 FROM lead_events WHERE ext_id = ?').get(mid)) continue;
@@ -516,7 +520,7 @@ function createCrm(store) {
         if (!s.igId && mode === 'unified') throw new UserError('Укажите «ID аккаунта Instagram» (например, 17841464829611662) — без него маркер единого входа не знает, от чьего имени писать');
         if (mode === 'page') token = s.pageToken;
         // «/me/messages» — от имени страницы (или аккаунта Instagram); «/me?fields» — сведения об аккаунте Instagram.
-        path = path.replace(/^\/me\/messages/, `/${self}/messages`).replace(/^\/me(?=\?|$)/, `/${s.igId}`);
+        path = path.replace(/^\/me\/messages/, `/${self}/messages`).replace(/^\/me\/media/, `/${s.igId || self}/media`).replace(/^\/me(?=\?|$)/, `/${s.igId}`);
       }
       const base = mode === 'instagram' ? INSTAGRAM_API : fbBase();
       let res, data;

@@ -161,6 +161,30 @@ function createIgPrice({ store, crm, notifier }) {
     return found;
   }
 
+  // Ссылки на публикации и рилсы: instagram.com/p/КОД, /reel/КОД, /reels/КОД, /tv/КОД.
+  const shortcodes = (t) => [...String(t || '').matchAll(/instagram\.com\/(?:[\w.]+\/)?(?:p|reels?|tv)\/([A-Za-z0-9_-]{5,})/gi)].map((m) => m[1]);
+  const noLinks = (t) => String(t || '').replace(/https?:\/\/\S+/gi, ' ');
+  // Подпись своей публикации по коду из ссылки: Instagram не отдаёт пост по коду напрямую, поэтому
+  // берём список публикаций аккаунта (до 500 последних) и запоминаем коды на 10 минут.
+  const byCode = new Map(); // shortcode -> { id, caption }
+  let scannedAt = 0;
+  async function mediaByCode(code, token) {
+    if (!byCode.has(code) && Date.now() - scannedAt > 2 * 60_000) {
+      scannedAt = Date.now();
+      let after = '';
+      for (let page = 0; page < 5; page++) {
+        const r = await call('GET', `/me/media?fields=id,shortcode,caption,permalink&limit=100${after ? `&after=${encodeURIComponent(after)}` : ''}`, token);
+        for (const m of r.data || []) {
+          const c = m.shortcode || String(m.permalink || '').match(/\/(?:p|reels?|tv)\/([A-Za-z0-9_-]+)/)?.[1];
+          if (c) byCode.set(c, { id: String(m.id), caption: m.caption || '' });
+        }
+        after = r.paging?.next ? r.paging?.cursors?.after : '';
+        if (!after || byCode.has(code)) break;
+      }
+    }
+    return byCode.get(code) || null;
+  }
+
   // Все товары из подписи рилса (образ: кардиган, джинсы, кепка…), которые есть в базе.
   // Если клиент сам назвал артикул или вещь («сколько джинсы?») — только эти товары.
   function productsFrom(clientText, ...context) {
@@ -254,16 +278,25 @@ function createIgPrice({ store, crm, notifier }) {
     const m = msg.message;
     if (!m || m.is_echo || !fromId || fromId === String(ownId) || !m.mid) return;
     // Что прислали: текст и подписи пересланных рилсов/постов (если Instagram их передал).
-    const texts = [m.text || ''];
+    const texts = [noLinks(m.text)];
     const mediaIds = [];
+    const codes = shortcodes(m.text);
     for (const a of m.attachments || []) {
       const p = a.payload || {};
       if (p.title) texts.push(p.title);
+      codes.push(...shortcodes(p.url));
       if (p.reel_video_id) mediaIds.push(String(p.reel_video_id));
       else if (p.id && /reel|share|post|media/i.test(a.type || '')) mediaIds.push(String(p.id));
     }
     for (const id of mediaIds) {
       try { texts.push((await media(id, s.accessToken)).caption); } catch {} // чужой рилс или удалён — пропускаем
+    }
+    // Клиент вставил ссылку на наш рилс/пост — подпись берём по коду из ссылки (чужая ссылка не найдётся).
+    for (const code of [...new Set(codes)].slice(0, 5)) {
+      try {
+        const found = await mediaByCode(code, s.accessToken);
+        if (found) { texts.push(found.caption); if (!mediaIds.length) mediaIds.push(found.id); }
+      } catch {}
     }
     const { products, whole } = productsFrom(texts[0], ...texts.slice(1));
     const product = products[0];
@@ -330,6 +363,29 @@ function createIgPrice({ store, crm, notifier }) {
       const list = products.slice(0, 15);
       const text = list.length ? renderReply(template || settings().priceTemplate, list, { whole: false, title: 'Цены на вещи с фото:' }) : '';
       return { text, products: list, notFound: [...new Set(notFound)], amount: sumOf(list) };
+    },
+
+    // То же, но кассир может вставить и ссылку на наш рилс/пост — товары возьмутся из его подписи.
+    async priceForLinks(input, template) {
+      const raw = String(input || '').slice(0, 1000);
+      const codes = [...new Set(shortcodes(raw))].slice(0, 5);
+      const rest = noLinks(raw).trim();
+      const base = rest ? this.priceFor(rest, template) : { products: [], notFound: [] };
+      if (!codes.length) return base;
+      const products = [...base.products];
+      const notFound = [...base.notFound];
+      const s = settings();
+      for (const code of codes) {
+        let found = null;
+        try { found = s.accessToken ? await mediaByCode(code, s.accessToken) : null; } catch {}
+        const list = found ? productsFrom('', found.caption).products : [];
+        if (!found) notFound.push(`ссылка …/${code} — не нашёл среди публикаций магазина`);
+        else if (!list.length) notFound.push(`ссылка …/${code} — в подписи нет артикулов`);
+        for (const p of list) if (!products.some((x) => x.id === p.id)) products.push(p);
+      }
+      const top = products.slice(0, 15);
+      const text = top.length ? renderReply(template || s.priceTemplate, top, { whole: !rest && codes.length === 1, title: codes.length && !rest ? 'Цены на вещи из этого видео:' : 'Цены на вещи с фото:' }) : '';
+      return { text, products: top, notFound, amount: sumOf(top) };
     },
 
     log({ limit = 50 } = {}) {
