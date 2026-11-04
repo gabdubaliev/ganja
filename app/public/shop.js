@@ -1104,6 +1104,13 @@ function renderProfile() {
   const me = state.me;
   $('#profile-name').textContent = me.name;
   $('#profile-bonus').textContent = `${new Intl.NumberFormat('ru-RU').format(me.bonus)} бонусов`;
+  // Бонусы со сроком: сколько и когда сгорит (ближайшее), под суммой.
+  const exp = (me.bonusExpiring || []).filter((x) => x.amount > 0);
+  let burn = $('#profile-bonus-burn');
+  if (!burn) { burn = document.createElement('span'); burn.id = 'profile-bonus-burn'; burn.className = 'bonus-burn'; $('#profile-bonus').after(burn); }
+  const daysLeft = (t) => Math.max(0, Math.ceil((t - Date.now()) / 864e5));
+  burn.innerHTML = exp.length ? exp.slice(0, 2).map((x) => `⏳ ${new Intl.NumberFormat('ru-RU').format(Math.min(x.amount, me.bonus))} сгорят ${dayText(x.expires_at)}${daysLeft(x.expires_at) <= 7 ? ` · осталось ${daysLeft(x.expires_at)} дн.` : ''}`).join('<br>') : '';
+  burn.hidden = !exp.length;
   $('#profile-phone').textContent = phoneText(me.phone);
   $('#profile-card').textContent = me.card || '—';
   $('#profile-bday').hidden = !me.birthdayDiscount;
@@ -1165,12 +1172,13 @@ function renderBonusLog() {
   // Общая история: бонусы и сертификаты вместе, новые сверху.
   const CERT_OP = { sale: 'Куплен сертификат', redeem: 'Оплата сертификатом', refund: 'Возврат на сертификат' };
   const rows = [
-    ...(state.bonusLog || []).map((b) => ({ at: b.created_at, title: b.reason || (b.delta > 0 ? 'Начислено' : 'Списано'), store: b.store, value: b.delta, unit: 'bonus' })),
+    ...(state.bonusLog || []).map((b) => ({ at: b.created_at, title: b.reason || (b.delta > 0 ? 'Начислено' : 'Списано'), store: b.store, value: b.delta, unit: 'bonus',
+      until: b.delta > 0 && b.expires_at ? (b.burn_left > 0 ? `действуют до ${dayText(b.expires_at)}` : b.expires_at < Date.now() ? 'срок истёк' : '') : '' })),
     ...(state.certificateOps || []).map((o) => ({ at: o.at, title: `${CERT_OP[o.kind]}${o.sale_id ? ` · чек №${o.sale_id}` : ''}`, store: o.store, value: o.amount, unit: 'cert', number: o.number })),
   ].sort((a, b) => b.at - a.at);
   $('#profile-bonus-log').innerHTML = rows.length ? rows.map((r) => `
     <div class="profile-order"><div class="row">
-      <span>${r.unit === 'cert' ? '🎁 ' : ''}${esc(r.title)}<br><span class="bonus-tag">${dayText(r.at)}${state.manyStores && r.store ? ` · ${esc(r.store)}` : ''}${r.unit === 'cert' ? ` · №${esc(r.number)}` : ''}</span></span>
+      <span>${r.unit === 'cert' ? '🎁 ' : ''}${esc(r.title)}<br><span class="bonus-tag">${dayText(r.at)}${state.manyStores && r.store ? ` · ${esc(r.store)}` : ''}${r.unit === 'cert' ? ` · №${esc(r.number)}` : ''}${r.until ? ` · ⏳ ${r.until}` : ''}</span></span>
       <span class="${r.value > 0 ? 'bonus-plus' : 'bonus-minus'}">${r.value > 0 ? '+' : '−'}${r.unit === 'cert' ? rub(Math.abs(r.value)) : bonusFmt(Math.abs(r.value)) + ' Б'}</span>
     </div></div>`).join('') : '<p class="small left">Начислений и списаний пока не было.</p>';
 }

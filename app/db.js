@@ -577,6 +577,8 @@ function open(file) {
   addColumns('bonus_log', [['store_id', 'INTEGER'], ['hidden', 'INTEGER NOT NULL DEFAULT 0']]);
   // shown — ручную правку бонусов показать покупателю в истории на витрине (галочка при начислении/списании).
   addColumns('bonus_log', [['shown', 'INTEGER NOT NULL DEFAULT 0']]);
+  // Срок действия начисления: expires_at — когда сгорит, burn_left — сколько из него ещё не потрачено (сгорит только это).
+  addColumns('bonus_log', [['expires_at', 'INTEGER'], ['burn_left', 'REAL NOT NULL DEFAULT 0']]);
   addColumns('certificate_ops', [['store_id', 'INTEGER']]);
   // Деньги за сертификат остаются в магазине, где его продали: когда, в какую смену и кто — в самой оплате.
   addColumns('certificate_payments', [['at', 'INTEGER'], ['shift_id', 'INTEGER'], ['user_id', 'INTEGER']]);
@@ -1664,8 +1666,45 @@ function createStore(file) {
     walletBonus(c, delta, reason, userName, saleId, fromStore, hidden) {
       const m = this.walletCustomer(c);
       db.prepare('UPDATE customers SET bonus = ROUND(bonus + ?, 2) WHERE id = ?').run(delta, m.id);
-      return Number(db.prepare('INSERT INTO bonus_log (customer_id, created_at, delta, reason, sale_id, user_name, store_id, hidden) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      const id = Number(db.prepare('INSERT INTO bonus_log (customer_id, created_at, delta, reason, sale_id, user_name, store_id, hidden) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
         .run(m.id, Date.now(), delta, reason, saleId, userName, fromStore, hidden ? 1 : 0).lastInsertRowid);
+      // Покупатель тратит бонусы — сначала те, что сгорят раньше (ему выгоднее).
+      if (delta < 0) {
+        let left = -delta;
+        for (const g of db.prepare('SELECT id, burn_left FROM bonus_log WHERE customer_id = ? AND burn_left > 0 ORDER BY expires_at, id').all(m.id)) {
+          if (left <= 0) break;
+          const take = Math.min(left, g.burn_left);
+          db.prepare('UPDATE bonus_log SET burn_left = ROUND(burn_left - ?, 2) WHERE id = ?').run(take, g.id);
+          left = round2(left - take);
+        }
+      }
+      return id;
+    },
+    // Срок у начисления: через days дней непотраченное сгорит.
+    walletBonusExpire(logId, days) {
+      const row = db.prepare('SELECT delta FROM bonus_log WHERE id = ?').get(Number(logId));
+      if (!row || row.delta <= 0) return;
+      db.prepare('UPDATE bonus_log SET expires_at = ?, burn_left = ? WHERE id = ?').run(Date.now() + days * 864e5, row.delta, Number(logId));
+    },
+    // Сгорание: у каждого истёкшего начисления списываем то, что от него осталось (но не больше баланса).
+    walletBurnExpired() {
+      let burned = 0;
+      for (const g of db.prepare('SELECT id, customer_id, burn_left, shown, hidden, expires_at, reason FROM bonus_log WHERE burn_left > 0 AND expires_at IS NOT NULL AND expires_at <= ?').all(Date.now())) {
+        const c = db.prepare('SELECT bonus FROM customers WHERE id = ?').get(g.customer_id);
+        const amount = round2(Math.min(g.burn_left, Math.max(0, c?.bonus || 0)));
+        db.prepare('UPDATE bonus_log SET burn_left = 0 WHERE id = ?').run(g.id);
+        if (amount <= 0) continue;
+        db.prepare('UPDATE customers SET bonus = ROUND(bonus - ?, 2) WHERE id = ?').run(amount, g.customer_id);
+        db.prepare('INSERT INTO bonus_log (customer_id, created_at, delta, reason, sale_id, user_name, store_id, hidden, shown) VALUES (?, ?, ?, ?, NULL, ?, NULL, ?, ?)')
+          .run(g.customer_id, Date.now(), -amount, `Сгорели бонусы: закончился срок (${g.reason})`.slice(0, 200), 'Автоматика', g.hidden, g.shown);
+        burned++;
+      }
+      return burned;
+    },
+    // Что и когда сгорит — для покупателя на витрине и в карточке.
+    walletBonusExpiring(customerId) {
+      return db.prepare('SELECT burn_left AS amount, expires_at FROM bonus_log WHERE customer_id = ? AND burn_left > 0 AND expires_at > ? ORDER BY expires_at').all(Number(customerId), Date.now())
+        .map((r) => ({ amount: round2(r.amount), expires_at: r.expires_at }));
     },
     // Ручная правка бонусов: показать покупателю на витрине или скрыть (только записи без чека).
     walletBonusShow(logId, show) {
@@ -3650,7 +3689,9 @@ function createStore(file) {
 
     // Ручное изменение бонусов: delta — сколько добавить (или списать, если меньше нуля).
     bonusShow(logId, show) { return wallet().walletBonusShow(logId, show); },
-    adjustBonus(id, { delta, reason, visible = false }, user = null) {
+    burnExpiredBonuses() { return bank ? 0 : this.walletBurnExpired(); },
+    bonusExpiring(customerId) { return wallet().walletBonusExpiring(wallet().walletCustomer(getCustomer(customerId)).id); },
+    adjustBonus(id, { delta, reason, visible = false, days = 0 }, user = null) {
       const c = this.findCustomer(id);
       if (!c) throw new UserError('Покупатель не найден');
       const d = round2(number(delta, 'Бонусы', { min: -Infinity }));
@@ -3660,6 +3701,9 @@ function createStore(file) {
       bankTx(() => {
         const logId = changeBonus(c.id, d, text(reason, 'Причина', { max: 200 }) || (d > 0 ? 'Начислено магазином' : 'Списано магазином'), user ? user.name || user.email : '', null, !visible);
         if (visible && logId) wallet().walletBonusShow(logId, true);
+        // Срок действия (только для начисления): через N дней непотраченное сгорит само.
+        const life = Math.round(Number(days) || 0);
+        if (d > 0 && life > 0 && logId) wallet().walletBonusExpire(logId, Math.min(3650, life));
       });
       return this.findCustomer(c.id);
     },

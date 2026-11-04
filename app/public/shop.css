@@ -633,3 +633,4 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .tg-code { display: grid; gap: 6px; margin: 4px 0 8px; }
 .tg-code .tg-btn { width: 100%; }
 .tg-code[hidden] { display: none; }
+.bonus-burn { display: block; margin-top: 4px; font-size: 12px; font-weight: 600; color: #b45309; line-height: 1.35; }

@@ -287,7 +287,7 @@ function createShopAuth(store, { onCodeRequested, telegramCodes = () => false } 
     // (начислено, оплачено, возврат) — без имён сотрудников.
     // Ручные изменения администратора и следы удалённых чеков покупатель не видит (решение владельца).
     myBonusLog(c) {
-      return db.prepare(`SELECT b.id, b.created_at, b.delta, b.reason, b.sale_id, b.store_id FROM bonus_log b
+      return db.prepare(`SELECT b.id, b.created_at, b.delta, b.reason, b.sale_id, b.store_id, b.expires_at, b.burn_left FROM bonus_log b
         WHERE b.customer_id = ? AND b.hidden = 0 AND (b.sale_id IS NOT NULL OR b.shown = 1)
         ORDER BY b.created_at DESC, b.id DESC LIMIT 200`).all(c.id);
     },

@@ -567,6 +567,8 @@ async function sizesDigest(ctx) {
 // Раз в 5 минут: что пора сделать в каждом магазине. Последний запуск — в настройках магазина (auto_last_*).
 async function automationTick() {
   const now = new Date();
+  // Бонусы с истёкшим сроком сгорают (общая касса бонусов — в основной базе).
+  try { const n = mainStore.burnExpiredBonuses(); if (n) console.log(`Сгорели бонусы с истёкшим сроком: ${n}`); } catch (err) { console.error('Сгорание бонусов:', err.message); }
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   for (const b of branchList()) {
     const ctx = contextOf(b.id);
@@ -2326,7 +2328,7 @@ async function shopAccount(req, res, url) {
       const certificates = mainStore.customerCertificates(c.id, { all: true })
         .map(({ number, amount, balance, sold_at, expires_at, state }) => ({ number, amount, balance, sold_at, expires_at, state }));
       return sendJson(res, 200, {
-        customer: { ...shopAuth.publicCustomer(c), birthdayDiscount: full.birthdayDiscount },
+        customer: { ...shopAuth.publicCustomer(c), birthdayDiscount: full.birthdayDiscount, bonusExpiring: store.bonusExpiring(c.id) },
         orders: shopAuth.myOrders(c), purchases: purchases.sort((a, b) => b.created_at - a.created_at).slice(0, 100),
         bonusLog: named(shopAuth.myBonusLog(c)), certificates, certificateOps: named(mainStore.customerCertificateOps(c.id)),
         stores: branchList().length, loyalty: { enabled, percent, maxPay },

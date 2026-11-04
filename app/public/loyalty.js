@@ -228,6 +228,7 @@ async function openCustomer(customer) {
       <div class="history-row">
         <span>${dateTime(h.created_at)}</span>
         <span>${esc(h.reason)}${h.store ? `<span class="pcat"> · ${esc(h.store)}</span>` : ''}${h.user_name ? `<span class="pcat"> · ${esc(h.user_name)}</span>` : ''}${!h.sale_id && session.can('loyalty') ? ` <button type="button" class="btn small ghost" data-bonus-show="${h.id}" data-show="${h.hidden ? 1 : 0}" title="Показать или скрыть эту запись в истории на сайте">${h.hidden ? '🙈 не видит · показать' : '👁 видит · скрыть'}</button>` : h.hidden ? '<span class="pcat"> · покупатель не видит</span>' : ''}</span>
+        ${h.expires_at && h.delta > 0 ? `<span class="pcat">${h.burn_left > 0 ? `⏳ сгорит ${new Date(h.expires_at).toLocaleDateString('ru-RU')}${h.burn_left < h.delta ? ` (осталось ${int(h.burn_left)})` : ''}` : h.expires_at < Date.now() ? 'срок истёк' : 'потрачено'}</span>` : ''}
         <b class="num ${h.delta < 0 ? 'neg' : 'good'}">${h.delta > 0 ? '+' : ''}${int(h.delta)}</b>
       </div>`).join('') : '<p class="empty">Бонусов ещё не было</p>';
   } catch (err) {
@@ -269,7 +270,8 @@ $('#bonus-apply').addEventListener('click', async () => {
   // Минус можно ввести и как длинное тире: так его подставляют некоторые клавиатуры.
   const delta = parseNum(f.elements.delta.value.replace(/[−–—]/g, '-'));
   try {
-    const saved = await api(`/api/customers/${loyaltyView.customer.id}/bonus`, { method: 'POST', body: { delta, reason: f.elements.reason.value, visible: $('#cf-visible').checked } });
+    const saved = await api(`/api/customers/${loyaltyView.customer.id}/bonus`, { method: 'POST', body: { delta, reason: f.elements.reason.value, visible: $('#cf-visible').checked, days: parseNum($('#cf-days').value) || 0 } });
+    $('#cf-days').value = '';
     toast(`Бонусы изменены: теперь ${int(saved.bonus)}`);
     renderCustomers();
     openCustomer(saved);
