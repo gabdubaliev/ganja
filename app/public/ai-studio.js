@@ -279,7 +279,7 @@ function renderSession() {
 
     <section class="panel">
       <h2>2. Задание для ChatGPT</h2>
-      <div class="st-ops" role="radiogroup">${Object.entries(m.operations).map(([k, v]) => `<button type="button" class="st-op" role="radio" data-st-op="${k}" aria-checked="${st.op === k}"><span>${{ background: '🧼', catalog: '🗂', model: '🧍', ad: '📣', details: '🔍', refine: '✨' }[k]}</span>${v}</button>`).join('')}</div>
+      <div class="st-ops" role="radiogroup">${Object.entries(m.operations).map(([k, v]) => `<button type="button" class="st-op" role="radio" data-st-op="${k}" aria-checked="${st.op === k}"><span>${{ background: '🧼', catalog: '🗂', model: '🧍', ad: '📣', details: '🔍' }[k]}</span>${v}</button>`).join('')}</div>
       <div id="st-op-form"></div>
       <div class="field"><label>Фото для задания (прикладываете их в ChatGPT)</label>
         <div class="st-src-pick">${pickable.map((a) => `<label class="st-src"><input type="checkbox" value="${a.id}" ${a.kind === 'source' ? 'checked' : ''}><img src="${studioFileUrl(a.id)}" alt=""><small>№${a.id} ${a.kind === 'edit' ? 'обработка' : esc(m.roles[a.role] || '')}</small></label>`).join('') || '<span class="sub">Сначала загрузите фото.</span>'}</div></div>
@@ -356,7 +356,6 @@ function renderOpForm() {
       <div class="field"><label>Заголовок на картинке</label><input class="input" name="headline" maxlength="60" placeholder="Пусто — без текста"></div>
       <div class="field"><label>Цена на картинке</label><input class="input" name="price" maxlength="30" placeholder="${st.session.product.price ? `${st.session.product.price} сом` : 'Пусто — без цены'}"></div>
       <label class="check"><input type="checkbox" name="withModel"> На модели</label>${bg('light')}${note}`,
-    refine: `<p class="st-tip">Для фото вещи на вешалке в магазине: фон, вешалка, рука и кадр остаются как есть, а сама вещь становится как на каталожном фото бренда — ровная, отпаренная, симметричная, с ровной стёжкой и студийным светом. Приложите одно фото: то, которое надо улучшить.</p>${note}`,
     details: `<p class="st-tip">Самое честное детальное фото — крупный план, вырезанный из оригинала: «✂ Обработать» → увеличьте и сдвиньте кадр на деталь. Ничего не дорисовывается. ChatGPT нужен, только если надо улучшить свет и чёткость — промпт запрещает менять и придумывать детали.</p>
       <div class="field"><label>Что показать крупно</label><select class="input" name="detail">${opt(m.details, 'fabric')}</select></div>${bg('white')}${aspect('1:1')}${note}`,
   }[st.op];
