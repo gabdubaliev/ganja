@@ -2423,7 +2423,7 @@ async function handlePublic(req, res, url, user) {
     }
     // Значок вкладки с номером картинки в адресе — после замены браузер возьмёт новый, а не старый из памяти.
     const iconId = shop.faviconId || shop.logoId;
-    return serveStatic(res, '/shop.html', (html) => html.replaceAll('href="/shop/favicon"', `href="/shop/favicon?v=${iconId || 0}"`));
+    return serveStatic(res, '/shop.html', (html) => seoHead(html.replaceAll('href="/shop/favicon"', `href="/shop/favicon?v=${iconId || 0}"`), shop, req));
   }
   // Значок вкладки: своя картинка из конструктора, иначе логотип, иначе стандартный значок.
   if (req.method === 'GET' && pathname === '/shop/favicon') {
@@ -2546,6 +2546,45 @@ async function handlePublic(req, res, url, user) {
 
 // Каждый запрос выполняется в контексте магазина: сотрудник филиала — в своём, владелец — в выбранном.
 // Интернет-витрина и вебхуки Instagram/WhatsApp — у основного магазина.
+/* ---------- SEO витрины: заголовок, описание, canonical, Open Graph, разметка магазина, robots.txt, sitemap.xml ---------- */
+const htmlAttr = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const shopOrigin = (req) => (SHOP_DOMAIN ? `https://${SHOP_DOMAIN}` : `https://${hostOf(req)}`);
+function seoHead(html, shop, req) {
+  const name = shop.title || mainStore.design().name || 'Магазин';
+  const desc = [shop.slogan, shop.about].filter(Boolean).join('. ').replace(/\s+/g, ' ').slice(0, 300)
+    || `${name} — интернет-магазин: каталог, цены и наличие, доставка и самовывоз.`;
+  // Один «главный» адрес витрины: без www, без /shop и параметров — поисковики не считают копии разными страницами.
+  const canonical = `${shopOrigin(req)}/`;
+  const imgId = shop.logoId || shop.faviconId;
+  const image = imgId ? `${shopOrigin(req)}/img/${imgId}` : '';
+  const ld = { '@context': 'https://schema.org', '@type': 'ClothingStore', name, url: canonical, description: desc,
+    ...(image && { image, logo: image }), ...(shop.phone && { telephone: shop.phone }),
+    ...(shop.address && { address: { '@type': 'PostalAddress', streetAddress: shop.address, addressCountry: 'KG' } }),
+    ...(shop.hours && { openingHours: shop.hours }) };
+  const head = [
+    `<title>${htmlAttr(name)}${shop.slogan ? ' — ' + htmlAttr(shop.slogan) : ''}</title>`,
+    `<meta name="description" content="${htmlAttr(desc)}">`,
+    '<meta name="robots" content="index, follow">',
+    `<link rel="canonical" href="${htmlAttr(canonical)}">`,
+    '<meta property="og:type" content="website">',
+    `<meta property="og:site_name" content="${htmlAttr(name)}">`,
+    `<meta property="og:title" content="${htmlAttr(name)}">`,
+    `<meta property="og:description" content="${htmlAttr(desc)}">`,
+    `<meta property="og:url" content="${htmlAttr(canonical)}">`,
+    '<meta property="og:locale" content="ru_RU">',
+    image ? `<meta property="og:image" content="${htmlAttr(image)}">` : '',
+    `<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>`,
+  ].filter(Boolean).join('\n');
+  return html.replace(/<title>[^<]*<\/title>/, head);
+}
+// Программа (адрес сотрудников) поисковикам не показывается: запрет индексации на всё.
+function robotsTxt(req) {
+  const h = hostOf(req);
+  const isShop = SHOP_DOMAIN ? h === SHOP_DOMAIN || h === `www.${SHOP_DOMAIN}` : false;
+  if (!isShop) return 'User-agent: *\nDisallow: /\n';
+  return `User-agent: *\nAllow: /\nDisallow: /shop/account/\nDisallow: /shop/data\nDisallow: /webhooks/\n\nSitemap: ${shopOrigin(req)}/sitemap.xml\n`;
+}
+
 // Два адреса на одном сервере: SHOP_DOMAIN (montshop.kg) — витрина для покупателей, ADMIN_DOMAIN
 // (например, baza.montshop.kg) — программа для владельца и сотрудников. На адресе витрины программы не видно.
 const SHOP_DOMAIN = String(process.env.SHOP_DOMAIN || '').toLowerCase().trim();
@@ -2555,6 +2594,21 @@ const hostOf = (req) => String(req.headers.host || '').toLowerCase().replace(/:\
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
+  if (req.method === 'GET' && url.pathname === '/robots.txt') {
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+    return res.end(robotsTxt(req));
+  }
+  if (req.method === 'GET' && url.pathname === '/sitemap.xml' && SHOP_DOMAIN && (hostOf(req) === SHOP_DOMAIN || hostOf(req) === `www.${SHOP_DOMAIN}`)) {
+    res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+    return res.end(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://${SHOP_DOMAIN}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url></urlset>\n`);
+  }
+  // www.montshop.kg → montshop.kg: один адрес для поисковиков (канонический).
+  if (SHOP_DOMAIN && hostOf(req) === `www.${SHOP_DOMAIN}`) {
+    res.writeHead(301, { Location: `https://${SHOP_DOMAIN}${req.url}` });
+    return res.end();
+  }
+  // Адрес программы не индексируется поисковиками.
+  if (!SHOP_DOMAIN || hostOf(req) !== SHOP_DOMAIN) res.setHeader('X-Robots-Tag', 'noindex, nofollow');
   if (SHOP_DOMAIN && (hostOf(req) === SHOP_DOMAIN || hostOf(req) === `www.${SHOP_DOMAIN}`)) {
     if (url.pathname === '/') url.pathname = '/shop';
     const ok = SHOP_PATHS.has(url.pathname) || url.pathname.startsWith('/shop/') || url.pathname.startsWith('/img/') || url.pathname.startsWith('/fonts/') || url.pathname.startsWith('/webhooks/');
