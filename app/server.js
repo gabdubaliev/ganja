@@ -1558,6 +1558,7 @@ const routes = [
   ['GET', '/api/customers/:id/certificates', (p) => store.customerCertificates(p.id), ['pos', 'certificates.accept', 'customers']],
   ['PUT', '/api/customers/:id', (p, url, body) => store.updateCustomer(p.id, body), 'loyalty'],
   ['POST', '/api/customers/:id/bonus', (p, url, body, user) => store.adjustBonus(p.id, body, user), 'loyalty'],
+  ['POST', '/api/customers/:id/bonus/:log/visible', (p, url, body) => store.bonusShow(p.log, Boolean(body.visible)), 'loyalty'],
   ['PUT', '/api/loyalty', (p, url, body) => store.setLoyalty(body), 'loyalty'],
 
   // Сотрудники: владелец может смотреть все магазины сразу (all=1) или любой магазин (?branch=N).

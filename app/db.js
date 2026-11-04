@@ -575,6 +575,8 @@ function open(file) {
   // (NULL — основной), sale_id — чек в том магазине. hidden — ручные правки администратора и удалённые чеки:
   // покупатель на витрине их не видит.
   addColumns('bonus_log', [['store_id', 'INTEGER'], ['hidden', 'INTEGER NOT NULL DEFAULT 0']]);
+  // shown — ручную правку бонусов показать покупателю в истории на витрине (галочка при начислении/списании).
+  addColumns('bonus_log', [['shown', 'INTEGER NOT NULL DEFAULT 0']]);
   addColumns('certificate_ops', [['store_id', 'INTEGER']]);
   // Деньги за сертификат остаются в магазине, где его продали: когда, в какую смену и кто — в самой оплате.
   addColumns('certificate_payments', [['at', 'INTEGER'], ['shift_id', 'INTEGER'], ['user_id', 'INTEGER']]);
@@ -1586,7 +1588,7 @@ function createStore(file) {
   // Бонусы меняются в общей базе (основной магазин) — покупатель там ищется по телефону.
   // hidden — правка администратора: на витрине покупатель её не видит.
   function changeBonus(customerId, delta, reason, userName, saleId = null, hidden = false) {
-    wallet().walletBonus(getCustomer(customerId), delta, reason, userName, saleId, bank ? storeId : null, hidden);
+    return wallet().walletBonus(getCustomer(customerId), delta, reason, userName, saleId, bank ? storeId : null, hidden);
   }
 
   // Внутренний штрихкод EAN-13. Префикс 20–29 оставлен стандартом для товаров самого магазина,
@@ -1662,8 +1664,14 @@ function createStore(file) {
     walletBonus(c, delta, reason, userName, saleId, fromStore, hidden) {
       const m = this.walletCustomer(c);
       db.prepare('UPDATE customers SET bonus = ROUND(bonus + ?, 2) WHERE id = ?').run(delta, m.id);
-      db.prepare('INSERT INTO bonus_log (customer_id, created_at, delta, reason, sale_id, user_name, store_id, hidden) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(m.id, Date.now(), delta, reason, saleId, userName, fromStore, hidden ? 1 : 0);
+      return Number(db.prepare('INSERT INTO bonus_log (customer_id, created_at, delta, reason, sale_id, user_name, store_id, hidden) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(m.id, Date.now(), delta, reason, saleId, userName, fromStore, hidden ? 1 : 0).lastInsertRowid);
+    },
+    // Ручная правка бонусов: показать покупателю на витрине или скрыть (только записи без чека).
+    walletBonusShow(logId, show) {
+      const r = db.prepare('UPDATE bonus_log SET shown = ?, hidden = ? WHERE id = ? AND sale_id IS NULL').run(show ? 1 : 0, show ? 0 : 1, Number(logId));
+      if (!r.changes) throw new UserError('Эту запись нельзя показать или скрыть: она относится к чеку');
+      return { id: Number(logId), shown: Boolean(show) };
     },
     // Чек удалён — его бонусы покупатель больше не видит.
     walletHideSale(fromStore, saleId) {
@@ -3641,13 +3649,18 @@ function createStore(file) {
     },
 
     // Ручное изменение бонусов: delta — сколько добавить (или списать, если меньше нуля).
-    adjustBonus(id, { delta, reason }, user = null) {
+    bonusShow(logId, show) { return wallet().walletBonusShow(logId, show); },
+    adjustBonus(id, { delta, reason, visible = false }, user = null) {
       const c = this.findCustomer(id);
       if (!c) throw new UserError('Покупатель не найден');
       const d = round2(number(delta, 'Бонусы', { min: -Infinity }));
       if (!d) throw new UserError('Укажите, сколько бонусов добавить или списать');
       if (c.bonus + d < 0) throw new UserError(`Нельзя списать больше, чем есть: ${c.bonus}`);
-      bankTx(() => changeBonus(c.id, d, text(reason, 'Причина', { max: 200 }) || 'Изменено вручную', user ? user.name || user.email : '', null, true));
+      // visible — покупатель увидит эту правку в истории бонусов на витрине (с причиной).
+      bankTx(() => {
+        const logId = changeBonus(c.id, d, text(reason, 'Причина', { max: 200 }) || (d > 0 ? 'Начислено магазином' : 'Списано магазином'), user ? user.name || user.email : '', null, !visible);
+        if (visible && logId) wallet().walletBonusShow(logId, true);
+      });
       return this.findCustomer(c.id);
     },
 

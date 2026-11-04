@@ -227,7 +227,7 @@ async function openCustomer(customer) {
     $('#customer-history').innerHTML = history.length ? history.map((h) => `
       <div class="history-row">
         <span>${dateTime(h.created_at)}</span>
-        <span>${esc(h.reason)}${h.store ? `<span class="pcat"> · ${esc(h.store)}</span>` : ''}${h.user_name ? `<span class="pcat"> · ${esc(h.user_name)}</span>` : ''}${h.hidden ? '<span class="pcat"> · покупатель не видит</span>' : ''}</span>
+        <span>${esc(h.reason)}${h.store ? `<span class="pcat"> · ${esc(h.store)}</span>` : ''}${h.user_name ? `<span class="pcat"> · ${esc(h.user_name)}</span>` : ''}${!h.sale_id && session.can('loyalty') ? ` <button type="button" class="btn small ghost" data-bonus-show="${h.id}" data-show="${h.hidden ? 1 : 0}" title="Показать или скрыть эту запись в истории на сайте">${h.hidden ? '🙈 не видит · показать' : '👁 видит · скрыть'}</button>` : h.hidden ? '<span class="pcat"> · покупатель не видит</span>' : ''}</span>
         <b class="num ${h.delta < 0 ? 'neg' : 'good'}">${h.delta > 0 ? '+' : ''}${int(h.delta)}</b>
       </div>`).join('') : '<p class="empty">Бонусов ещё не было</p>';
   } catch (err) {
@@ -269,7 +269,7 @@ $('#bonus-apply').addEventListener('click', async () => {
   // Минус можно ввести и как длинное тире: так его подставляют некоторые клавиатуры.
   const delta = parseNum(f.elements.delta.value.replace(/[−–—]/g, '-'));
   try {
-    const saved = await api(`/api/customers/${loyaltyView.customer.id}/bonus`, { method: 'POST', body: { delta, reason: f.elements.reason.value } });
+    const saved = await api(`/api/customers/${loyaltyView.customer.id}/bonus`, { method: 'POST', body: { delta, reason: f.elements.reason.value, visible: $('#cf-visible').checked } });
     toast(`Бонусы изменены: теперь ${int(saved.bonus)}`);
     renderCustomers();
     openCustomer(saved);
@@ -293,3 +293,14 @@ $('#customers-search').addEventListener('input', (e) => {
 });
 
 views.loyalty = { show: () => { renderLoyalty(); renderCodes(); }, right: 'customers' };
+
+// Ручная правка бонусов: показать покупателю в истории на сайте или скрыть.
+$('#customer-history').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-bonus-show]');
+  if (!b) return;
+  try {
+    await api(`/api/customers/${loyaltyView.customer.id}/bonus/${b.dataset.bonusShow}/visible`, { method: 'POST', body: { visible: b.dataset.show === '1' } });
+    toast(b.dataset.show === '1' ? 'Покупатель теперь видит эту запись' : 'Запись скрыта от покупателя');
+    openCustomer(loyaltyView.customer);
+  } catch (err) { toast(err.message, 'error'); }
+});
