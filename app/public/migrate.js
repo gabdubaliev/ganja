@@ -32,21 +32,26 @@ function migIssues(it) {
     if (!cells) out.push('не выбраны цвета или размеры');
     else if (Math.abs(total - Number(d.stock)) > 1e-9 && !d.ignoreMismatch) out.push(`распределено ${migFmt(total)} из ${migFmt(d.stock)}`);
   } else if (d.barcode && migView.dupBarcodes?.has(d.barcode)) out.push('штрихкод повторяется у других товаров');
-  if (migView.dupNames?.has(`${d.name}\u0001${d.category}`.toLowerCase())) out.push('такое же название в той же категории');
+  if (migView.dupNames?.has(migNameKey(d.name))) out.push('такое же название уже есть — второй такой товар не перенесётся');
   return out;
 }
+// Ключ названия как на сервере: регистр, пробелы, дефисы и похожие русские буквы не важны, категория — тоже.
+const MIG_LOOK = { а: 'a', в: 'b', е: 'e', к: 'k', м: 'm', н: 'h', о: 'o', р: 'p', с: 'c', т: 't', у: 'y', х: 'x', ё: 'e' };
+const migNameKey = (name) => String(name || '').toLowerCase().replace(/[авекмнорстухё]/g, (ch) => MIG_LOOK[ch]).replace(/[^a-zа-я0-9]+/g, '');
 function migIndex() {
   const bc = new Map(), nm = new Map();
   for (const it of migView.items) {
     if (it.status === 'skip') continue;
     const d = it.data;
     if (d.barcode && !d.variants?.on) bc.set(d.barcode, (bc.get(d.barcode) || 0) + 1);
-    const k = `${d.name}\u0001${d.category}`.toLowerCase();
+    const k = migNameKey(d.name);
     nm.set(k, (nm.get(k) || 0) + 1);
   }
   // Названия, которые уже есть в программе (не из этого переноса).
   const doneIds = new Set(migView.items.map((i) => i.product_id).filter(Boolean));
-  for (const p of catalog.list) if (!p.parent_id && !doneIds.has(p.id)) { const k = `${p.name}\u0001${p.category}`.toLowerCase(); nm.set(k, (nm.get(k) || 0) + 1); }
+  for (const p of catalog.list) if (!p.parent_id && !doneIds.has(p.id)) { const k = migNameKey(p.name); nm.set(k, (nm.get(k) || 0) + 1); }
+  // Штрихкоды, которые уже есть в программе, тоже считаются повтором.
+  for (const p of catalog.list) if (p.barcode && !doneIds.has(p.id) && bc.has(p.barcode)) bc.set(p.barcode, bc.get(p.barcode) + 1);
   migView.dupBarcodes = new Set([...bc].filter(([, n]) => n > 1).map(([k]) => k));
   migView.dupNames = new Set([...nm].filter(([, n]) => n > 1).map(([k]) => k));
 }

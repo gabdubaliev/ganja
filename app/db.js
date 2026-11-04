@@ -898,6 +898,13 @@ const salePrice = (p) => (p.discount > 0 ? Math.round(p.price * (1 - p.discount 
 const LOOKALIKE = { А: 'A', В: 'B', Е: 'E', К: 'K', М: 'M', Н: 'H', О: 'O', Р: 'P', С: 'C', Т: 'T', У: 'Y', Х: 'X' };
 const SOUND = { А: 'A', Б: 'B', В: 'V', Г: 'G', Д: 'D', Е: 'E', Ё: 'E', Ж: 'ZH', З: 'Z', И: 'I', Й: 'Y', К: 'K', Л: 'L', М: 'M', Н: 'N', О: 'O',
   П: 'P', Р: 'R', С: 'S', Т: 'T', У: 'U', Ф: 'F', Х: 'H', Ц: 'TS', Ч: 'CH', Ш: 'SH', Щ: 'SCH', Ы: 'Y', Э: 'E', Ю: 'YU', Я: 'YA', Ь: '', Ъ: '' };
+// Ключ названия для поиска дублей: «Кофта МС-6366» = «кофта ms 6366» = «КОФТА MS.6366».
+const TWIN_LOOK = { а: 'a', в: 'b', е: 'e', к: 'k', м: 'm', н: 'h', о: 'o', р: 'p', с: 'c', т: 't', у: 'y', х: 'x', ё: 'e' };
+const twinKey = (name) => String(name || '').toLowerCase().replace(/[авекмнорстухё]/g, (ch) => TWIN_LOOK[ch]).replace(/[^a-zа-я0-9]+/g, '');
+// Второй ключ — «по звучанию»: артикул набран русскими буквами (мс 6366 = MS 6366).
+const TWIN_SOUND = { а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'h', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'sch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya' };
+const twinSound = (name) => String(name || '').toLowerCase().replace(/[а-яё]/g, (ch) => TWIN_SOUND[ch] ?? ch).replace(/[^a-z0-9]+/g, '');
+const sameName = (a, b) => { const x = twinKey(a); return (x && x === twinKey(b)) || (twinSound(a) && twinSound(a) === twinSound(b)); };
 const articleKeys = (v) => {
   const s = String(v ?? '').toUpperCase().replace(/[^A-Z0-9А-ЯЁ]/g, '');
   if (!s) return [];
@@ -1895,10 +1902,31 @@ function createStore(file) {
     // запрос ушёл ещё раз) возвращает уже созданный товар; 2) товар с тем же названием в той же категории
     // (без учёта регистра, пробелов и ё/е) — ошибка с подсказкой открыть существующий.
     // Товар с тем же названием и категорией (основной, не удалённый) или null.
-    findTwinProduct(name, category) {
-      const norm = (s) => String(s || '').toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
-      return db.prepare('SELECT id, code, archived, name, category FROM products WHERE parent_id IS NULL AND deleted = 0').all()
-        .find((p) => norm(p.name) === norm(name) && norm(p.category) === norm(category)) || null;
+    // Такой же товар уже есть? Одно название — один товар во всей базе (в любой категории). «Похожие» названия
+    // тоже считаются одинаковыми: регистр, ё/е, пробелы, дефисы и точки, русские буквы, похожие на латинские
+    // (МС-6366 = MS 6366). И тот же артикул — тот же товар. exceptId — сам товар при изменении.
+    findTwinProduct(name, category, { article = '', exceptId = null } = {}) {
+      const key = twinKey(name) || twinSound(name);
+      const arts = new Set(article ? articleKeys(article) : []);
+      for (const p of db.prepare('SELECT id, code, archived, name, category, article FROM products WHERE parent_id IS NULL AND deleted = 0').all()) {
+        if (exceptId && p.id === Number(exceptId)) continue;
+        if (key && sameName(p.name, name)) return { ...p, why: 'name' };
+        if (arts.size && p.article && articleKeys(p.article).some((k) => arts.has(k))) return { ...p, why: 'article' };
+      }
+      return null;
+    },
+    // Штрихкод занят другим товаром или модификацией? (на кассе сканер нашёл бы только один из них)
+    barcodeOwner(barcode, exceptId = null) {
+      const b = String(barcode || '').trim();
+      if (!b) return null;
+      return db.prepare('SELECT id, name, code FROM products WHERE barcode = ? AND deleted = 0 AND id <> ? LIMIT 1').get(b, Number(exceptId) || 0) || null;
+    },
+    assertUniqueBarcode(barcode, exceptId = null) {
+      const o = this.barcodeOwner(barcode, exceptId);
+      if (o) throw new UserError(`Штрихкод ${barcode} уже есть у товара «${o.name}»${o.code ? ` (код ${o.code})` : ''}. У каждого товара свой штрихкод: сотрите поле — программа выдаст новый, или впишите штрихкод с бирки.`);
+    },
+    twinError(twin) {
+      return new UserError(`${twin.why === 'article' ? `Товар с артикулом ${twin.article} уже есть` : 'Такой товар уже есть'}: «${twin.name}»${twin.category ? ` в категории «${twin.category}»` : ''}${twin.code ? `, код ${twin.code}` : ''}${twin.archived ? ' (он в архиве — верните его из «Архива»)' : ''}. Второй такой товар не создаётся: откройте существующий${twin.why === 'name' ? ' или измените название (например, добавьте цвет или артикул)' : ''}.`);
     },
     // Для прихода и перемещения: уже существующий такой же товар (без модификаций) вместо копии.
     twinToReuse(name, category) {
@@ -1911,8 +1939,9 @@ function createStore(file) {
       const reqId = String(input.requestId || '').slice(0, 64);
       const prev = reqId && recentCreates.get('p:' + reqId);
       if (prev) { const p = db.prepare('SELECT id FROM products WHERE id = ? AND deleted = 0').get(prev); if (p) return getProduct(p.id); }
-      const twin = allowTwin ? null : this.findTwinProduct(f.name, f.category);
-      if (twin) throw new UserError(`Товар «${twin.name}»${twin.category ? ` в категории «${twin.category}»` : ''} уже есть${twin.code ? ` (код ${twin.code})` : ''}${twin.archived ? ', он убран из продажи — найдите его в «Архиве»' : ''}. Копии не создаются: откройте существующий товар или измените название.`);
+      const twin = allowTwin ? null : this.findTwinProduct(f.name, f.category, { article: f.article });
+      if (twin) throw this.twinError(twin);
+      if (!allowTwin) this.assertUniqueBarcode(f.barcode);
       const stock = number(input.stock ?? 0, 'Остаток');
       const { lastInsertRowid } = db.prepare(`
         INSERT INTO products (name, category, barcode, code, unit, price, cost, stock, description, created_at, purchase, article, supplier_id, discount)
@@ -2216,6 +2245,12 @@ function createStore(file) {
       const current = getProduct(id);
       if (current.parent_id) return this.updateVariant(current, input);
       const f = productFields(input, current);
+      // Переименовать в название, которое уже есть, или дать чужой артикул/штрихкод — нельзя.
+      if (!sameName(f.name, current.name) || twinKey(f.name) !== twinKey(current.name) || articleKeys(f.article || '').join() !== articleKeys(current.article || '').join()) {
+        const twin = this.findTwinProduct(f.name, f.category, { article: f.article !== current.article ? f.article : '', exceptId: current.id });
+        if (twin) throw this.twinError(twin);
+      }
+      if (f.barcode && f.barcode !== current.barcode) this.assertUniqueBarcode(f.barcode, current.id);
       const archived = input.archived === undefined ? current.archived : input.archived ? 1 : 0;
       db.prepare(`UPDATE products SET name = ?, category = ?, barcode = ?, code = ?, unit = ?, price = ?, cost = ?, description = ?, archived = ?,
         purchase = ?, article = ?, supplier_id = ?, discount = ? WHERE id = ?`)
@@ -2238,6 +2273,7 @@ function createStore(file) {
       const clash = childrenOf(base.id).find((k) => k.id !== current.id && optionsKey(JSON.parse(k.options || '{}')) === optionsKey(opts));
       if (clash) throw new UserError(`Такая модификация уже есть: ${clash.name}`);
       const f = productFields({ ...input, name: variantName(base, opts), category: base.category, unit: base.unit, description: base.description }, current);
+      if (f.barcode && f.barcode !== current.barcode) this.assertUniqueBarcode(f.barcode, current.id);
       const archived = input.archived === undefined ? current.archived : input.archived ? 1 : 0;
       db.prepare('UPDATE products SET name = ?, barcode = ?, code = ?, price = ?, cost = ?, options = ?, archived = ?, purchase = ?, article = ?, supplier_id = ?, discount = ? WHERE id = ?')
         .run(f.name, f.barcode, f.code || current.code || nextCode(db), f.price, f.cost, JSON.stringify(opts), archived, f.purchase, f.article, f.supplier_id, f.discount, current.id);
@@ -2271,7 +2307,9 @@ function createStore(file) {
           const price = round2(number(v.price ?? base.price, 'Цена продажи'));
           const cost = round2(number(v.cost ?? base.cost, 'Себестоимость'));
           const purchase = round2(number(v.purchase ?? base.purchase ?? cost, 'Цена закупки'));
-          const barcode = text(v.barcode, 'Штрихкод', { max: 64 }) || (barcodes ? newBarcode() : '');
+          const typed = text(v.barcode, 'Штрихкод', { max: 64 });
+          if (typed) this.assertUniqueBarcode(typed);
+          const barcode = typed || (barcodes ? newBarcode() : '');
           const { lastInsertRowid } = insert.run(variantName(base, opts), base.category, barcode, text(v.code, 'Код товара', { max: 64 }) || nextCode(db), base.unit,
             price, cost, number(v.stock ?? 0, 'Остаток'), base.description, base.id, JSON.stringify(opts), base.archived, Date.now(), purchase, base.supplier_id, base.discount || 0);
           created.push(getProduct(lastInsertRowid));
@@ -2507,6 +2545,10 @@ function createStore(file) {
               remember(next);
               result.updated++;
             } else {
+              // Новый товар из файла — те же правила: одно название — один товар, штрихкод не повторяется.
+              const twin = this.findTwinProduct(f.name, f.category, { article: f.article });
+              if (twin) return result.skipped.push({ line, name: f.name, reason: this.twinError(twin).message });
+              this.assertUniqueBarcode(f.barcode);
               const code = f.code || nextCode(db);
               const { lastInsertRowid } = insert.run(f.name, f.category, f.barcode, code, f.unit, f.price, f.cost, stock ?? 0, Date.now(), f.purchase);
               remember({ ...f, code, id: Number(lastInsertRowid), stock: stock ?? 0 });
@@ -4672,7 +4714,7 @@ function createStore(file) {
           const twin = this.twinToReuse(name, x.l.category || '');
           if (twin) { x.p = twin; continue; }
           x.p = this.createProduct({ name, category: x.l.category || '', unit: x.l.unit || 'шт', barcode: String(x.l.barcode || '').replace(/\D/g, '').slice(0, 64),
-            article: x.l.article || '', purchase: x.purchase, cost: round2(x.purchase + x.extra), price: x.sale, supplier_id: supplierId, stock: 0 }, { allowTwin: true });
+            article: x.l.article || '', purchase: x.purchase, cost: round2(x.purchase + x.extra), price: x.sale, supplier_id: supplierId, stock: 0 });
           x.isNew = true;
           created++;
         }
