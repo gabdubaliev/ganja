@@ -220,6 +220,8 @@ async function openCustomer(customer) {
     $('#customer-balance').textContent = int(customer.bonus);
     $('#customer-history').innerHTML = '<p class="empty">Загрузка…</p>';
   }
+  // Удалить покупателя — только владелец.
+  $('#customer-delete').hidden = !customer || session.user?.role !== 'owner';
   $('#customer-dialog').showModal();
   if (!customer) return;
   try {
@@ -304,5 +306,21 @@ $('#customer-history').addEventListener('click', async (e) => {
     await api(`/api/customers/${loyaltyView.customer.id}/bonus/${b.dataset.bonusShow}/visible`, { method: 'POST', body: { visible: b.dataset.show === '1' } });
     toast(b.dataset.show === '1' ? 'Покупатель теперь видит эту запись' : 'Запись скрыта от покупателя');
     openCustomer(loyaltyView.customer);
+  } catch (err) { toast(err.message, 'error'); }
+});
+
+$('#customer-delete').addEventListener('click', async () => {
+  const c = loyaltyView.customer;
+  if (!c) return;
+  const who = `${c.name || 'Без имени'}, +${c.phone}`;
+  if (!confirm(`Удалить покупателя «${who}» из базы?\n\nУдалятся: карточка, бонусы (${int(c.bonus || 0)}), история бонусов и вход на сайт — во всех магазинах. Покупки и заказы останутся в отчётах, но без имени.\n\nВернуть нельзя.`)) return;
+  const typed = prompt(`Для подтверждения введите последние 4 цифры номера: …${String(c.phone).slice(-4)}`);
+  if (typed === null) return;
+  if (typed.trim() !== String(c.phone).slice(-4)) return toast('Цифры не совпали — покупатель не удалён', 'error');
+  try {
+    await api(`/api/customers/${c.id}`, { method: 'DELETE' });
+    $('#customer-dialog').close();
+    toast(`Покупатель «${who}» удалён`);
+    renderCustomers();
   } catch (err) { toast(err.message, 'error'); }
 });

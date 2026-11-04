@@ -3689,6 +3689,20 @@ function createStore(file) {
 
     // Ручное изменение бонусов: delta — сколько добавить (или списать, если меньше нуля).
     bonusShow(logId, show) { return wallet().walletBonusShow(logId, show); },
+    // Удалить покупателя из базы этого магазина (только владелец, см. server.js). Продажи, заказы, документы,
+    // сертификаты и сделки остаются — без привязки к покупателю. История бонусов и коды входа удаляются.
+    deleteCustomerByPhone(phoneValue) {
+      const c = db.prepare('SELECT * FROM customers WHERE phone = ?').get(String(phoneValue));
+      if (!c) return null;
+      const has = (t, col = 'customer_id') => db.prepare(`SELECT 1 FROM pragma_table_info('${t}') WHERE name = ?`).get(col) && db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(t);
+      transaction(db, () => {
+        for (const t of ['sales', 'orders', 'docs', 'leads', 'certificates']) if (has(t)) db.prepare(`UPDATE ${t} SET customer_id = NULL WHERE customer_id = ?`).run(c.id);
+        if (has('bonus_log')) db.prepare('DELETE FROM bonus_log WHERE customer_id = ?').run(c.id);
+        if (has('phone_codes', 'phone')) db.prepare('DELETE FROM phone_codes WHERE phone = ?').run(c.phone);
+        db.prepare('DELETE FROM customers WHERE id = ?').run(c.id);
+      });
+      return { id: c.id, name: c.name, phone: c.phone, bonus: c.bonus };
+    },
     burnExpiredBonuses() { return bank ? 0 : this.walletBurnExpired(); },
     bonusExpiring(customerId) { return wallet().walletBonusExpiring(wallet().walletCustomer(getCustomer(customerId)).id); },
     adjustBonus(id, { delta, reason, visible = false, days = 0 }, user = null) {

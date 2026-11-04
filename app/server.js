@@ -1559,6 +1559,18 @@ const routes = [
   // Действующие сертификаты покупателя — на кассе предлагаются вместе с бонусами.
   ['GET', '/api/customers/:id/certificates', (p) => store.customerCertificates(p.id), ['pos', 'certificates.accept', 'customers']],
   ['PUT', '/api/customers/:id', (p, url, body) => store.updateCustomer(p.id, body), 'loyalty'],
+  // Удалить покупателя — только владелец: из всех магазинов сразу (общие бонусы, карта, покупки без имени).
+  ['DELETE', '/api/customers/:id', (p, url, body, user) => {
+    if (auth.enabled && !isOwner(user)) throw new UserError('Удалить покупателя может только владелец');
+    const c = store.findCustomer(p.id);
+    if (!c) throw new UserError('Покупатель не найден');
+    const done = [];
+    for (const b of branchList()) {
+      const r = contextOf(b.id)?.store.deleteCustomerByPhone(c.phone);
+      if (r) done.push(b.name);
+    }
+    return { ok: true, name: c.name, phone: c.phone, bonus: c.bonus, stores: done };
+  }, 'loyalty'],
   ['POST', '/api/customers/:id/bonus', (p, url, body, user) => store.adjustBonus(p.id, body, user), 'loyalty'],
   ['POST', '/api/customers/:id/bonus/:log/visible', (p, url, body) => store.bonusShow(p.log, Boolean(body.visible)), 'loyalty'],
   ['PUT', '/api/loyalty', (p, url, body) => store.setLoyalty(body), 'loyalty'],
@@ -1830,6 +1842,7 @@ const AUDIT_LABELS = {
   'DELETE /api/tasks/:id': 'Удалил задание',
   'DELETE /api/fines/:id': 'Отменил штраф',
   'POST /api/customers': 'Добавил покупателя',
+  'DELETE /api/customers/:id': 'Удалил покупателя из базы',
   'PUT /api/customers/:id': 'Изменил покупателя',
   'POST /api/customers/:id/bonus': 'Изменил бонусы покупателя',
   'PUT /api/loyalty': 'Изменил правила бонусов и скидок',
@@ -1952,6 +1965,7 @@ function auditDetails(key, params, body, result) {
     case 'PUT /api/pay-override': return `${r.user}, ${({ rate: 'ставка за выход', salary: 'за смены и оклад', bonus: '% от продаж', pay: 'к выплате' })[r.field]}: ${r.amount === null ? 'возвращён расчёт' : `${r.amount} сом${r.reason ? ` — ${r.reason}` : ''}`}, период ${new Date(body.from).toLocaleDateString('ru-RU')}—${new Date(body.to - 1).toLocaleDateString('ru-RU')}`;
     case 'POST /api/users/:id/branch': return `${r.name || r.email}: ${branchList().find((b) => b.id === Number(body.home))?.name || ''}${(body.stores || []).length ? `, также ${(body.stores || []).map((id) => branchList().find((b) => b.id === Number(id))?.name).filter(Boolean).join(', ')}` : ''}`;
     case 'PUT /api/users/:id/pay': return `${r.name || r.email}: за смену ${r.shift_rate}, оклад ${r.salary}, ${r.percent}%, план ${r.plan}, бонус за план ${r.plan_bonus}`;
+    case 'DELETE /api/customers/:id': return `${r.name || 'без имени'}, +${r.phone}${r.bonus ? `, бонусов было ${r.bonus}` : ''}`;
     case 'POST /api/customers/:id/bonus': return `${r.name || '+' + r.phone}: ${body.delta > 0 ? '+' : ''}${body.delta}${body.reason ? ` (${body.reason})` : ''}`;
     case 'PUT /api/orders/:id': return `Заказ №${params.id} ${ORDER_NAMES[body.status] || body.status}`;
     case 'GET /api/users/:id/secrets': return `${r.name}${r.email ? ` (${r.email})` : ''}`;
