@@ -321,6 +321,11 @@ function createShopAuth(store, { onCodeRequested, telegramCodes = () => false } 
       return db.prepare("SELECT id, phone, purpose, code FROM phone_codes WHERE phone = ? AND purpose = ? AND channel = 'telegram' AND used_at IS NULL AND expires_at > ? AND code IS NOT NULL ORDER BY created_at DESC LIMIT 1")
         .get(phone(p), purpose, Date.now()) || null;
     },
+    // Есть ли у номера аккаунт на витрине (говорим это только владельцу номера — после «Поделиться номером»).
+    accountState(p) {
+      const c = findByPhone(phone(p));
+      return !c ? 'none' : c.login_disabled ? 'disabled' : c.password_hash ? 'active' : 'noaccount';
+    },
     hasActiveCode(p, purpose) {
       return Boolean(db.prepare('SELECT 1 FROM phone_codes WHERE phone = ? AND purpose = ? AND used_at IS NULL AND expires_at > ?').get(phone(p), purpose, Date.now()));
     },

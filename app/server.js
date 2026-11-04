@@ -2267,7 +2267,15 @@ const shopBot = createTgBot({
         return shopBot.send(m.chat.id, `Номер вашего Telegram (+${digits}) не совпадает с номером на сайте. Проверьте номер на сайте или выберите там «Нет Telegram — код сообщит магазин».`, done);
       }
       const row = ctx?.shopAuth.telegramCode(link.phone, link.purpose);
-      if (!row) return shopBot.send(m.chat.id, 'Код устарел. Вернитесь на сайт и запросите новый.', done);
+      if (!row) {
+        // Номер подтверждён Telegram — владельцу номера можно сказать, почему кода нет.
+        const state = ctx?.shopAuth.accountState(link.phone);
+        const site = shopOrigin({ headers: { host: SHOP_DOMAIN || 'montshop.kg' } }).replace('https://', '');
+        const why = link.purpose === 'reset' && state !== 'active'
+          ? (state === 'disabled' ? 'Вход для этого номера закрыт. Позвоните в магазин.' : `На номер +${link.phone} ещё нет аккаунта на сайте. Зарегистрируйтесь на ${site}: «Войти» → «Регистрация».`)
+          : 'Код устарел. Вернитесь на сайт и запросите новый: «Не пришёл код?» → «Отправить код ещё раз».';
+        return shopBot.send(m.chat.id, why, done);
+      }
       tgLinks.delete(token);
       tgChats.delete(m.chat.id);
       ctx.shopAuth.markCodeSent(row.id, { name: 'Telegram-бот' });
@@ -2359,7 +2367,6 @@ async function shopAccount(req, res, url) {
       case 'tg-link': {
         const purpose = body.purpose === 'register' ? 'register' : 'reset';
         const p = normalizePhone(body.phone);
-        if (!shopAuth.hasActiveCode(p, purpose)) throw new UserError('Сначала запросите код ещё раз');
         const name = await botName();
         if (!name) throw new UserError('Бот магазина сейчас недоступен — выберите «Нет Telegram — код сообщит магазин»');
         const token = crypto.randomBytes(12).toString('base64url');
