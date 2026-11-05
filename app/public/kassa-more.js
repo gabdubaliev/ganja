@@ -49,3 +49,63 @@ $('#kx-form').addEventListener('submit', async (e) => {
 });
 
 views.more = { show: renderKassaMore, right: null };
+
+/* ---------- Кнопка «+» внизу кассы: товар в чек камерой или поиском ---------- */
+const KASSA_PLUS = [
+  ['scan', 'pos', '📷', 'Сканировать камерой', 'Наведите камеру на штрихкод — товар сразу в чек'],
+  ['search', 'pos', '🔍', 'Найти товар', 'По названию, коду или штрихкоду'],
+  ['sales', 'pos', '🧾', 'История продаж', 'Чеки за смену, возврат'],
+  ['cert', 'certificates.sell', '🎁', 'Продать сертификат', 'Подарочный сертификат покупателю'],
+];
+function kassaPlus() {
+  let sheet = document.getElementById('plus-sheet');
+  if (!sheet) {
+    sheet = document.createElement('div');
+    sheet.id = 'plus-sheet';
+    sheet.className = 'plus-sheet';
+    sheet.hidden = true;
+    sheet.innerHTML = '<div class="plus-backdrop" data-plus-close></div><div class="plus-panel" role="dialog" aria-modal="true" aria-label="Добавить товар"><div class="plus-grip" data-plus-close></div><div class="plus-body"></div></div>';
+    document.body.append(sheet);
+    sheet.addEventListener('click', (e) => {
+      if (e.target.closest('[data-plus-close]')) return closeKassaPlus();
+      const b = e.target.closest('[data-plus]');
+      if (b) { closeKassaPlus(); kassaPlusPick(b.dataset.plus); }
+    });
+    let y0 = null;
+    const panel = sheet.querySelector('.plus-panel');
+    panel.addEventListener('touchstart', (e) => { y0 = panel.scrollTop <= 0 ? e.touches[0].clientY : null; }, { passive: true });
+    panel.addEventListener('touchmove', (e) => { if (y0 !== null) { const d = Math.max(0, e.touches[0].clientY - y0); panel.style.transform = d ? `translateY(${d}px)` : ''; } }, { passive: true });
+    panel.addEventListener('touchend', (e) => { if (y0 === null) return; const d = e.changedTouches[0].clientY - y0; y0 = null; panel.style.transform = ''; if (d > 90) closeKassaPlus(); }, { passive: true });
+  }
+  const list = KASSA_PLUS.filter(([, right]) => session.can(right));
+  sheet.querySelector('.plus-body').innerHTML = `<section><h3>Добавить товар в чек</h3><div class="plus-list">${list.map(([k, , icon, title, about]) => `
+    <button type="button" class="plus-item plus-wide" data-plus="${k}"><span class="plus-icon" aria-hidden="true">${icon}</span><span><b>${esc(title)}</b><small>${esc(about)}</small></span></button>`).join('')}</div></section>`;
+  sheet.hidden = false;
+  requestAnimationFrame(() => sheet.classList.add('open'));
+}
+function closeKassaPlus() {
+  const sheet = document.getElementById('plus-sheet');
+  if (!sheet || sheet.hidden) return;
+  sheet.classList.remove('open');
+  setTimeout(() => { sheet.hidden = true; }, 220);
+}
+// Код с камеры — как со сканера: в поиск и Enter (товар в чек, модификации — выбор размера).
+function kassaScanCode(code) {
+  const input = $('#pos-search');
+  input.value = code;
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  const found = catalog.search(code, 2);
+  if (found.length === 1) return `✅ В чеке: ${found[0].name}`;
+  return found.length ? 'Выберите модификацию на экране' : `Не найден товар с кодом ${code}`;
+}
+function kassaPlusPick(k) {
+  const toPos = () => { if (location.hash !== '#pos') location.hash = 'pos'; };
+  if (k === 'scan') { toPos(); return openScanner({ onCode: kassaScanCode }); }
+  if (k === 'search') { toPos(); return setTimeout(() => { $('#pos-search').focus(); $('#pos-search').select(); }, 150); }
+  if (k === 'sales') { location.hash = 'sales'; return undefined; }
+  if (k === 'cert') { toPos(); return setTimeout(() => $('#cert-sell-open')?.click(), 150); }
+  return undefined;
+}
+$('#nav-plus')?.addEventListener('click', () => (document.getElementById('plus-sheet')?.hidden === false ? closeKassaPlus() : kassaPlus()));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeKassaPlus(); });
+window.addEventListener('hashchange', closeKassaPlus);
