@@ -186,7 +186,10 @@ function renderCats() {
   const meta = new Map(state.categories.map((c) => [c.name, c]));
   const cats = [...state.categories.filter((c) => !c.parent).map((c) => c.name).filter((n) => used.includes(n)), ...used.filter((n) => !meta.has(n))];
   const withImages = cats.some((c) => meta.get(c)?.image);
-  $('#cats').hidden = cats.length < 2;
+  const s = state.settings || {};
+  // Владелец выбирает, где показывать категории: в шапке, над каталогом или и там, и там.
+  $('#cats').hidden = cats.length < 2 || s.catalogCats === false;
+  $('#head-nav').hidden = s.headCats === false;
   $('#cats').classList.toggle('with-images', withImages);
   // Категории текстом в шапке (на компьютере).
   $('#head-nav').innerHTML = cats.length > 1 ? ['', ...cats].map((c) => `<button type="button" data-cat="${esc(c)}" aria-pressed="${state.cat === c}">${c ? esc(c) : 'Все'}</button>`).join('') : '';

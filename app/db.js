@@ -1126,6 +1126,8 @@ const SHOP_DEFAULTS = {
   headingFont: 'Manrope',
   bodyFont: 'Inter',
   sectionFonts: {},
+  headCats: true,
+  catalogCats: true,
   buttonStyle: 'pill',
   cardRatio: '4:5',
   cardShadow: 'soft',
@@ -5637,6 +5639,8 @@ function createStore(file) {
         headingFont: SHOP_FONTS.includes(v.headingFont) || customFamilies().includes(v.headingFont) ? v.headingFont : 'Manrope',
         bodyFont: SHOP_FONTS.includes(v.bodyFont) || customFamilies().includes(v.bodyFont) ? v.bodyFont : 'Inter',
         // Шрифт отдельных разделов витрины (шапка, баннер, карточки, цены, кнопки…). Пусто — общий шрифт.
+        headCats: v.headCats !== false,
+        catalogCats: v.catalogCats !== false,
         sectionFonts: Object.fromEntries(Object.entries(v.sectionFonts && typeof v.sectionFonts === 'object' ? v.sectionFonts : {})
           .filter(([k, f]) => SHOP_SECTIONS.includes(k) && (SHOP_FONTS.includes(f) || customFamilies().includes(f)))),
         buttonStyle: ['pill', 'rounded', 'square'].includes(v.buttonStyle) ? v.buttonStyle : 'pill',
