@@ -756,6 +756,8 @@ $('#checkout').addEventListener('click', async () => {
       resetCheck();
     } else {
       toast(err.message, 'error');
+      // Смену закрыли (например, автоматически в 00:00) — обновить кассу: «Чек» закроется до новой смены.
+      if (/откройте смену/i.test(err.message)) { pos.shift = null; loadShift(); }
     }
   } finally {
     pos.busy = false;
@@ -808,6 +810,9 @@ function shiftGuard() {
   openShiftCashDialog();
   return true;
 }
+
+// Касса открыта всю ночь: раз в минуту сверяем смену (в 00:00 программа закрывает незакрытые) — «Чек» закроется сам.
+setInterval(() => { if (pos.shift && !document.hidden) loadShift(); }, 60_000);
 
 async function loadShift() {
   if (!session.user) return;

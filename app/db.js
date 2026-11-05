@@ -500,6 +500,8 @@ function open(file) {
   // Колонки таблиц, которые создаются выше в этой же функции: на новой базе их добавляем после создания таблиц.
   addColumns('fines', [['kind', "TEXT NOT NULL DEFAULT 'fine'"]]);
   addColumns('shifts', [['register_id', 'INTEGER']]);
+  // Смену не закрыли до полуночи — программа закрыла её сама (деньги никто не пересчитывал).
+  addColumns('shifts', [['auto_closed', 'INTEGER NOT NULL DEFAULT 0']]);
   // Деньги в кассе по смене. Открытие: сколько насчитали (open_cash), сколько должно было быть (open_expected —
   // оставили при прошлом закрытии), разница и причина. Закрытие: насчитали, должно быть, разница, причина,
   // сколько сдали на счёт (deposited → deposit_method_id) и сколько оставили в кассе на завтра (left_cash).
@@ -3115,6 +3117,39 @@ function createStore(file) {
       });
     },
 
+    // В 00:00 открытые со вчера смены закрываются сами: закрыта в 23:59:59 того дня, деньги не пересчитаны.
+    // В кассе по программе остаётся то, что должно быть (left_cash = ожидаемое) — утром при открытии
+    // кассир пересчитает, и расхождение (если есть) будет видно. Возвращает закрытые смены.
+    autoCloseShifts(cutoff) {
+      const open = db.prepare('SELECT * FROM shifts WHERE closed_at IS NULL AND opened_at < ? ORDER BY opened_at').all(Number(cutoff));
+      if (!open.length) return [];
+      const at = Number(cutoff) - 1000;
+      const note = 'Смену не закрыли — закрыта автоматически в 00:00, деньги не пересчитаны';
+      // Один денежный ящик — одна группа; деньги «оставляет» последний открывший.
+      const groups = new Map();
+      for (const sh of open) {
+        const key = sh.register_id ? (this.oneDrawer() ? 'all' : `r${sh.register_id}`) : `s${sh.id}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(sh);
+      }
+      return transaction(db, () => {
+        const out = [];
+        for (const list of groups.values()) {
+          const last = list[list.length - 1];
+          const expected = last.register_id ? this.expectedDrawerCash(last) : null;
+          for (const sh of list) {
+            if (sh === last && expected !== null) {
+              db.prepare('UPDATE shifts SET closed_at = ?, auto_closed = 1, close_expected = ?, left_cash = ?, close_note = ? WHERE id = ?').run(at, expected, expected, note, sh.id);
+            } else {
+              db.prepare('UPDATE shifts SET closed_at = ?, auto_closed = 1, close_note = ? WHERE id = ?').run(at, note, sh.id);
+            }
+            out.push({ ...this.getShift(sh.id), expected: sh === last ? expected : null });
+          }
+        }
+        return out;
+      });
+    },
+
     // Для окна кассы: куда можно сдать деньги, куда сдавали в прошлый раз, занята ли касса другим сотрудником.
     shiftInfo(user) {
       const sh = user && this.currentShift(user.id);
@@ -3380,7 +3415,7 @@ function createStore(file) {
       return {
         id: start.id, prevId: prev?.id ?? null, nextId: next?.id ?? null, open, from, to,
         staff: list.map((x) => ({ id: x.id, user: x.user_name, register: x.register_name || '', opened: x.opened_at, closed: x.closed_at, receipts: x.receipts, revenue: x.revenue,
-          cash: x.cash, card: x.card, byMethod: x.byMethod })),
+          cash: x.cash, card: x.card, byMethod: x.byMethod, auto: Boolean(x.auto_closed) })),
         people: new Set(list.map((x) => x.user_id)).size,
         cash: {
           open: start.open_cash ?? null, openExpected: start.open_expected ?? null, openDiff: start.open_diff ?? null,

@@ -283,7 +283,7 @@ function shiftReportText(r, title = '📊 Отчёт по смене') {
   const shop = store.design?.()?.name || '';
   L.push(`${title}${shop ? ` · ${shop}` : ''}`, `${tgTime(r.from)} — ${r.open ? 'смена ещё идёт' : tgTime(r.to)}`, '');
   L.push(`👥 Сотрудников на смене: ${r.people}`);
-  for (const x of r.staff) L.push(`• ${x.user}${x.register ? ` (${x.register})` : ''}: открыл ${tgHm(x.opened)}, ${x.closed ? `закрыл ${tgHm(x.closed)}` : 'ещё на смене'} · ${x.receipts} чек. на ${tgMoney(x.revenue)}`);
+  for (const x of r.staff) L.push(`• ${x.user}${x.register ? ` (${x.register})` : ''}: открыл ${tgHm(x.opened)}, ${x.auto ? '⚠️ НЕ ЗАКРЫЛ — закрыто автоматически в 00:00' : x.closed ? `закрыл ${tgHm(x.closed)}` : 'ещё на смене'} · ${x.receipts} чек. на ${tgMoney(x.revenue)}`);
   L.push('', '💵 Деньги в кассе (наличные)');
   L.push(`На начало смены: ${r.cash.open === null ? '—' : tgMoney(r.cash.open)}${r.cash.openDiff ? ` (расхождение ${tgMoney(r.cash.openDiff)})` : ''}`);
   L.push(`+ продажи наличными: ${tgMoney(r.cash.sales)}`);
@@ -293,6 +293,7 @@ function shiftReportText(r, title = '📊 Отчёт по смене') {
   for (const e of r.cashExpenses) L.push(`   · ${e.category}: ${tgMoney(e.amount)}${e.note ? ` — ${e.note}` : ''}${e.user_name ? ` (${e.user_name})` : ''}`);
   if (r.cash.ops) L.push(`± внесения/изъятия: ${tgMoney(r.cash.ops)}`);
   L.push(`= должно быть в кассе: ${tgMoney(r.cash.expected)}`);
+  if (r.cash.counted === null && r.staff.some((x) => x.auto)) L.push('Насчитано при закрытии: никто не пересчитал (смена закрыта автоматически)');
   if (r.cash.counted !== null) {
     L.push(`Насчитано при закрытии: ${tgMoney(r.cash.counted)}${r.cash.closeDiff ? ` (${r.cash.closeDiff < 0 ? 'недостача' : 'излишек'} ${tgMoney(Math.abs(r.cash.closeDiff))})` : ' — сходится'}`);
     if (r.cash.deposited) L.push(`Сдано на счёт: ${tgMoney(r.cash.deposited)}`);
@@ -565,6 +566,41 @@ async function sizesDigest(ctx) {
 }
 
 // Раз в 5 минут: что пора сделать в каждом магазине. Последний запуск — в настройках магазина (auto_last_*).
+// В 00:00 (время магазина) — закрыть смены, которые не закрыли вчера, и прислать отчёт владельцу.
+async function autoCloseShiftsTick() {
+  const now = new Date();
+  const cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  for (const b of branchList()) {
+    const ctx = contextOf(b.id);
+    if (!ctx) continue;
+    let closed = [];
+    try { closed = ctx.store.autoCloseShifts(cutoff); } catch (err) { console.error(`Автозакрытие смен (${b.name}):`, err.message); continue; }
+    if (!closed.length) continue;
+    ctx.store.audit({ kind: 'change', userName: 'Автоматика', action: 'Смена закрыта автоматически в 00:00', details: closed.map((x) => `${x.user_name}${x.register_name ? ` (${x.register_name})` : ''}, с ${new Date(x.opened_at).toLocaleString('ru-RU')}`).join('; ').slice(0, 500) });
+    const tg = ctx.notifier.tgFor('shift_auto');
+    if (!tg) continue;
+    await als.run(ctx, async () => {
+      try {
+        const r = ctx.store.shiftSession();
+        const cash = closed.find((x) => x.expected !== null && x.expected !== undefined);
+        const head = [
+          '⚠️ СМЕНУ НЕ ЗАКРЫЛИ',
+          `${branchList().length > 1 ? `Магазин «${b.name}». ` : ''}Программа закрыла её сама в 00:00 — пробивать чеки без новой смены больше нельзя.`,
+          `Не закрыли: ${closed.map((x) => `${x.user_name}${x.register_name ? ` (${x.register_name})` : ''}, на смене с ${tgTime(x.opened_at)}`).join('; ')}.`,
+          cash ? `Деньги в кассе никто не пересчитал. По программе там должно быть ${tgMoney(cash.expected)} — утром при открытии смены кассир пересчитает; если не сойдётся, вы увидите расхождение.` : '',
+          '',
+        ].filter((x) => x !== '').join('\n');
+        const text = `${head}\n\n${r ? shiftReportText(r, '📊 Отчёт дня') : ''}`;
+        await ctx.notifier.sendTelegram(text.slice(0, 4000), tg);
+      } catch (err) {
+        console.error('Отчёт об автозакрытии смены не отправлен:', err.message);
+      }
+    });
+  }
+}
+setInterval(() => autoCloseShiftsTick().catch((e) => console.error('Автозакрытие смен:', e.message)), 60_000).unref?.();
+setTimeout(() => autoCloseShiftsTick().catch((e) => console.error('Автозакрытие смен:', e.message)), 20_000).unref?.();
+
 async function automationTick() {
   const now = new Date();
   // Бонусы с истёкшим сроком сгорают (общая касса бонусов — в основной базе).
