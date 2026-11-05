@@ -231,6 +231,8 @@ a { color: var(--series); }
   padding-right: max(16px, env(safe-area-inset-right, 0px));
 }
 .logo { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; font-size: 16px; letter-spacing: -0.02em; margin-right: 18px; white-space: nowrap; }
+/* Надпись рядом с картинкой — точно по центру: без запаса под хвосты букв (у, р, д), середина заглавных — на середине картинки. */
+.logo-text { display: block; line-height: 1; text-box: trim-both cap alphabetic; }
 /* Значок магазина: первая буква названия на градиенте. */
 .logo::before {
   content: attr(data-initial); display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px;
