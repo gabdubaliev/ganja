@@ -2136,3 +2136,7 @@ body.no-mig-purchase .mig-c-purchase, body.no-mig-cost .mig-c-cost, body.no-mig-
 @media (max-width: 640px) { .ac-table th.ac-right { min-width: 180px; max-width: 230px; } }
 .ac-table .ac-hint { max-width: 340px; }
 @media (max-width: 640px) { .ac-table .ac-hint, .ac-table .ac-right b { max-width: 210px; } }
+
+a.logo { color: inherit; text-decoration: none; cursor: pointer; }
+.profile-logout { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; justify-content: center; }
+.profile-logout .btn { width: 100%; }

@@ -1084,6 +1084,13 @@ const routes = [
     store.setUserPin(user.id, pinHash(body.pin));
     return { ok: true };
   }, 'any'],
+  // Свой профиль: имя и email (для входа). Нужен текущий пароль.
+  ['PUT', '/api/me/profile', (p, url, body, user) => {
+    if (!user) throw new UserError('Сначала заведите сотрудников');
+    if (!checkPassword(body.current, store.findUser(user.id).password_hash)) throw new UserError('Текущий пароль указан неверно');
+    const saved = store.updateUser(user.id, { name: body.name, email: body.email });
+    return { name: saved.name, email: saved.email };
+  }, 'any'],
   ['PUT', '/api/me/password', (p, url, body, user) => {
     if (!user) throw new UserError('Сначала заведите сотрудников');
     if (!checkPassword(body.current, store.findUser(user.id).password_hash)) throw new UserError('Текущий пароль указан неверно');
@@ -1795,6 +1802,7 @@ function device(req) {
 // Что записать в журнал о каждом изменении. Ключ — «метод путь» маршрута.
 const AUDIT_LABELS = {
   'POST /api/users/:id/branch': 'Изменил магазин сотрудника',
+  'PUT /api/me/profile': 'Изменил свой профиль',
   'PUT /api/me/password': 'Сменил свой пароль',
   'PUT /api/me/pin': 'Сменил свой PIN-код для кассы',
   'POST /api/products': 'Добавил товар',

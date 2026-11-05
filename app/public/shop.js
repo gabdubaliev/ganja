@@ -885,7 +885,8 @@ document.addEventListener('mouseover', (e) => {
 // Клик по затемнению закрывает окно.
 for (const d of document.querySelectorAll('dialog')) d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
 $('#cart-open').addEventListener('click', () => { renderCart(); $('#cart').showModal(); });
-$('#brand').addEventListener('click', (e) => { e.preventDefault(); scrollTo({ top: 0 }); });
+// Логотип витрины: на главную страницу витрины и обновить её.
+$('#brand').addEventListener('click', (e) => { e.preventDefault(); location.href = location.pathname.startsWith('/shop') ? '/shop' : '/'; });
 $('#search').addEventListener('input', (e) => { state.query = e.target.value; renderGrid(); });
 $('#sort').addEventListener('change', (e) => { state.sort = e.target.value; renderGrid(); });
 // Категория из шапки — сразу к каталогу.

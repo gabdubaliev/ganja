@@ -13,7 +13,7 @@
 <body>
 <nav class="nav" aria-label="Разделы">
   <div class="nav-inner">
-    <span class="logo" data-initial="М">Мой магазин</span>
+    <a class="logo" href="#home" id="logo-home" data-initial="М" title="На главную (обновить страницу)">Мой магазин</a>
     <div class="nav-main">
       <a href="#home" data-can="dashboard" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg><span>Главная</span></a>
       <a href="#products" data-can="products" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg><span>Товары</span></a>
@@ -26,8 +26,7 @@
       <button type="button" class="btn small ghost" id="bell" hidden aria-pressed="false"></button>
     </span>
     <span class="nav-user" id="nav-user" hidden>
-      <button type="button" class="btn small ghost" id="me-password" title="Сменить пароль"></button>
-      <button type="button" class="btn small ghost" id="logout">Выйти</button>
+      <button type="button" class="btn small ghost" id="me-password" title="Профиль"></button>
     </span>
   </div>
 </nav>
@@ -1931,18 +1930,21 @@
 
 <dialog id="password-dialog" aria-labelledby="password-dialog-title">
   <form id="password-form" novalidate>
-    <h2 id="password-dialog-title">Пароль и PIN-код</h2>
+    <h2 id="password-dialog-title">Профиль</h2>
+    <p class="pick-meta" id="pf-role"></p>
     <div class="form-grid">
-      <div class="field wide"><label for="pw-current">Текущий пароль</label><input id="pw-current" name="current" type="password" class="input" autocomplete="current-password" required></div>
+      <div class="field wide"><label for="pf-name">Имя</label><input id="pf-name" name="name" class="input" autocomplete="name" maxlength="80"></div>
+      <div class="field wide"><label for="pf-email">Email (для входа)</label><input id="pf-email" name="email" type="email" class="input" autocomplete="email"></div>
       <div class="field wide"><label for="pw-new">Новый пароль, не короче 8 символов (пусто — не менять)</label><input id="pw-new" name="password" type="password" class="input" autocomplete="new-password" minlength="8"></div>
       <div class="field wide"><label for="pw-pin">PIN для быстрой смены кассира, 4–6 цифр (пусто — не менять)</label><input id="pw-pin" name="pin" type="password" class="input num" inputmode="numeric" autocomplete="off" maxlength="6"></div>
+      <div class="field wide"><label for="pw-current">Текущий пароль — чтобы сохранить изменения</label><input id="pw-current" name="current" type="password" class="input" autocomplete="current-password" required></div>
     </div>
-    <p class="pick-meta">Новый пароль и PIN-код видит владелец магазина.</p>
     <p class="form-error" id="password-error" role="alert" hidden></p>
     <div class="form-actions">
-      <button type="button" class="btn ghost" id="password-cancel">Отмена</button>
+      <button type="button" class="btn ghost" id="password-cancel">Закрыть</button>
       <button type="submit" class="btn primary">Сохранить</button>
     </div>
+    <div class="profile-logout"><button type="button" class="btn danger-text" id="logout">Выйти из программы</button></div>
   </form>
 </dialog>
 

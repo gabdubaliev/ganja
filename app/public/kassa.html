@@ -15,18 +15,18 @@
 <body class="kassa">
 <nav class="nav" aria-label="Разделы кассы">
   <div class="nav-inner">
-    <span class="logo" data-initial="К">Касса</span>
+    <a class="logo" href="#pos" id="logo-home" data-initial="К" title="К продаже (обновить страницу)">Касса</a>
     <div class="nav-main">
       <a href="#pos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h2l2.4 10.2a1 1 0 0 0 1 .8h8.9a1 1 0 0 0 1-.8L20 7H6.2"/><circle cx="9" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/></svg><span>Продажа</span></a>
       <a href="#orders" data-can="orders" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h11v9H3z"/><path d="M14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/></svg><span>Доставка</span> <span class="badge" id="orders-badge" hidden></span></a>
       <a href="#crm" data-can="crm" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13l2.5 2.5a1.8 1.8 0 0 0 2.5 0l4-4"/><path d="M2 11l4-4 3 1 3-2 3 2 3-1 4 4-4 5-2-1"/><path d="M6 16l3 3"/></svg><span>Сделки</span> <span class="badge" id="crm-badge" hidden></span></a>
       <a href="#tasks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l2 2 4-4"/><rect x="4" y="4" width="16" height="16" rx="3"/></svg><span>Задания</span> <span class="badge" data-task-badge hidden></span></a>
+      <a href="/" class="nav-base" data-can-any="dashboard products sales" hidden title="Открыть базу (админ-панель)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg><span>База</span></a>
       <a href="#more"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg><span>Ещё</span></a>
     </div>
     <span class="nav-user" id="nav-user" hidden>
       <button type="button" class="btn small switch-btn" id="switch-user" title="Сменить кассира"><span aria-hidden="true">⇄</span><span class="switch-label">Сменить кассира</span></button>
-      <button type="button" class="btn small ghost" id="me-password" title="Сменить пароль"></button>
-      <button type="button" class="btn small ghost" id="logout">Выйти</button>
+      <button type="button" class="btn small ghost" id="me-password" title="Профиль"></button>
     </span>
   </div>
 </nav>
@@ -504,18 +504,21 @@
 
 <dialog id="password-dialog" aria-labelledby="password-dialog-title">
   <form id="password-form" novalidate>
-    <h2 id="password-dialog-title">Пароль и PIN-код</h2>
+    <h2 id="password-dialog-title">Профиль</h2>
+    <p class="pick-meta" id="pf-role"></p>
     <div class="form-grid">
-      <div class="field wide"><label for="pw-current">Текущий пароль</label><input id="pw-current" name="current" type="password" class="input" autocomplete="current-password" required></div>
+      <div class="field wide"><label for="pf-name">Имя</label><input id="pf-name" name="name" class="input" autocomplete="name" maxlength="80"></div>
+      <div class="field wide"><label for="pf-email">Email (для входа)</label><input id="pf-email" name="email" type="email" class="input" autocomplete="email"></div>
       <div class="field wide"><label for="pw-new">Новый пароль, не короче 8 символов (пусто — не менять)</label><input id="pw-new" name="password" type="password" class="input" autocomplete="new-password" minlength="8"></div>
       <div class="field wide"><label for="pw-pin">PIN для быстрой смены кассира, 4–6 цифр (пусто — не менять)</label><input id="pw-pin" name="pin" type="password" class="input num" inputmode="numeric" autocomplete="off" maxlength="6"></div>
+      <div class="field wide"><label for="pw-current">Текущий пароль — чтобы сохранить изменения</label><input id="pw-current" name="current" type="password" class="input" autocomplete="current-password" required></div>
     </div>
-    <p class="pick-meta">Новый пароль и PIN-код видит владелец магазина.</p>
     <p class="form-error" id="password-error" role="alert" hidden></p>
     <div class="form-actions">
-      <button type="button" class="btn ghost" id="password-cancel">Отмена</button>
+      <button type="button" class="btn ghost" id="password-cancel">Закрыть</button>
       <button type="submit" class="btn primary">Сохранить</button>
     </div>
+    <div class="profile-logout"><button type="button" class="btn danger-text" id="logout">Выйти из программы</button></div>
   </form>
 </dialog>
 

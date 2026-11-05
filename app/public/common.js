@@ -324,7 +324,7 @@ session.ready = api('/api/status').then((s) => {
   $('#nav-user').hidden = !s.user;
   if (s.user) {
     $('#me-password').textContent = s.user.name || s.user.email;
-    $('#me-password').title = `${session.roleName(s.user.role)} · сменить пароль или PIN`;
+    $('#me-password').title = `${session.roleName(s.user.role)} · профиль: имя, email, пароль, PIN, выход`;
   }
   if (['notify', 'orders', 'crm', 'customers.accounts'].some((r) => session.can(r))) listenSales();
   renderBranchSwitch();
@@ -568,28 +568,49 @@ async function removePhoto(productId) {
   }
 }
 
-/* ---------- Свой пароль ---------- */
+/* ---------- Профиль: имя, email, пароль, PIN и выход ---------- */
 $('#me-password').addEventListener('click', () => {
-  $('#password-form').reset();
+  const f = $('#password-form');
+  f.reset();
   $('#password-error').hidden = true;
+  const u = session.user || {};
+  f.elements.name.value = u.name || '';
+  f.elements.email.value = u.email || '';
+  $('#pf-role').textContent = [session.roleName ? session.roleName(u.role) : u.role, session.branch?.name].filter(Boolean).join(' · ');
   $('#password-dialog').showModal();
 });
 $('#password-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   try {
     const f = e.target.elements;
-    if (!f.password.value && !f.pin.value) throw new Error('Введите новый пароль или PIN-код');
-    if (f.pin.value) await api('/api/me/pin', { method: 'PUT', body: { current: f.current.value, pin: f.pin.value } });
-    if (!f.password.value) {
-      $('#password-dialog').close();
-      return toast('PIN-код сохранён. Им можно быстро войти через «Сменить кассира»');
+    const u = session.user || {};
+    const profileChanged = f.name.value.trim() !== (u.name || '') || f.email.value.trim().toLowerCase() !== String(u.email || '').toLowerCase();
+    if (!profileChanged && !f.password.value && !f.pin.value) throw new Error('Ничего не изменено');
+    if (!f.current.value) throw new Error('Введите текущий пароль — без него изменения не сохраняются');
+    if (profileChanged) {
+      const saved = await api('/api/me/profile', { method: 'PUT', body: { current: f.current.value, name: f.name.value, email: f.email.value } });
+      Object.assign(session.user, { name: saved.name, email: saved.email });
+      $('#me-password').textContent = saved.name || saved.email;
     }
-    await api('/api/me/password', { method: 'PUT', body: { current: f.current.value, password: f.password.value } });
-    // Сессия подписана старым паролем и закончилась — входим заново.
-    location.replace('/login.html');
+    if (f.pin.value) await api('/api/me/pin', { method: 'PUT', body: { current: f.current.value, pin: f.pin.value } });
+    if (f.password.value) {
+      await api('/api/me/password', { method: 'PUT', body: { current: f.current.value, password: f.password.value } });
+      // Сессия подписана старым паролем и закончилась — входим заново.
+      return location.replace('/login.html');
+    }
+    $('#password-dialog').close();
+    toast(['Профиль сохранён', f.pin.value ? 'PIN-код сохранён — им можно быстро войти через «Сменить кассира»' : ''].filter(Boolean).join('. '));
   } catch (err) {
     showFormError('#password-error', err);
   }
+});
+// Логотип: на главную (в кассе — к продаже) и обновить страницу.
+$('#logo-home')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  const home = document.body.classList.contains('kassa') ? '#pos' : session.can?.('dashboard') ? '#home' : '';
+  if (location.hash === home || (!home && !location.hash)) return location.reload();
+  location.hash = home;
+  location.reload();
 });
 $('#password-cancel').addEventListener('click', () => $('#password-dialog').close());
 
