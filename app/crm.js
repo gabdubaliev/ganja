@@ -244,6 +244,7 @@ function createCrm(store) {
         if (best === l.user_id) continue;
         db.prepare('UPDATE leads SET user_id = ?, updated_at = ? WHERE id = ?').run(best, Date.now(), l.id);
         event(l.id, 'system', l.user_id ? `Передана поровну между сменой: ${nameOf(l.user_id)} → ${nameOf(best)}` : `Ответственный по очереди (на смене): ${nameOf(best)}`, who(user));
+        crm.onAssigned?.(crm.get(l.id), best, user, 'shift');
         if (l.user_id) moved++; else assigned++;
       }
       return { assigned, moved };
@@ -340,7 +341,10 @@ function createCrm(store) {
           customer?.id ?? null, input.order_id || null, input.unread ? 1 : 0, now, now, CLOSED.has(stage) ? now : null);
       if (!quiet) event(lastInsertRowid, 'system', `Сделка создана${user ? '' : ` (${f.source})`}`, who(user));
       if (auto) event(lastInsertRowid, 'system', `Ответственный по очереди (на смене): ${auto.name || auto.email}`);
-      return crm.get(lastInsertRowid);
+      const created = crm.get(lastInsertRowid);
+      // Сделку дали другому сотруднику (сама пришла или назначил коллега) — ему лично в Telegram.
+      if (created.user_id && created.user_id !== user?.id) crm.onAssigned?.(created, created.user_id, user, 'new');
+      return created;
     },
 
     update(id, input, user) {
@@ -356,7 +360,9 @@ function createCrm(store) {
         const name = stageNames();
         if (stage !== cur.stage) event(cur.id, 'stage', `${name[cur.stage] || cur.stage} → ${name[stage]}${stage === 'lost' && f.lost_reason ? `: ${f.lost_reason}` : ''}`, who(user));
         if (f.user_id !== cur.user_id) event(cur.id, 'system', `Ответственный: ${userName(f.user_id) || 'никто'}`, who(user));
-        return crm.get(cur.id);
+        const saved = crm.get(cur.id);
+        if (f.user_id && f.user_id !== cur.user_id && f.user_id !== user?.id) crm.onAssigned?.(saved, f.user_id, user, 'reassign');
+        return saved;
       });
     },
 

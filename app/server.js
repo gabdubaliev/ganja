@@ -91,6 +91,14 @@ function makeContext(id, st) {
   const ctx = { id, store: st };
   ctx.notifier = createNotifier(st);
   ctx.crm = createCrm(st);
+  // Сделку назначили сотруднику — ему лично в Telegram (если он подключил свой Telegram в «Профиле»).
+  ctx.crm.onAssigned = (lead, userId, by, why) => {
+    const who = lead.name || lead.instagram || lead.phone || lead.title || `сделка №${lead.id}`;
+    const from = by ? ` (назначил: ${by.name || by.email})` : '';
+    const head = why === 'new' ? (by ? `🤝 Вам назначена сделка${from}` : `🤝 Новая сделка — вы ответственный (${lead.source})`)
+      : why === 'shift' ? '🤝 Вам передана сделка (распределение по смене)' : `🤝 Вам передана сделка${from}`;
+    tgToUser(ctx, userId, `${head}:\n• ${who}${lead.title && lead.title !== who ? ` — ${lead.title}` : ''}\nОтветьте в «Сделках».`);
+  };
   ctx.igPrice = createIgPrice({ store: st, crm: ctx.crm, notifier: ctx.notifier });
   // Код подтверждения, который сотрудник передаёт покупателю сам: уведомление в программу и в Telegram.
   ctx.shopAuth = createShopAuth(st, {
@@ -1525,9 +1533,27 @@ const routes = [
     const all = url.searchParams.get('all') === '1' && can(user, 'tasks');
     return { tasks: store.listTasks({ user: user || { id: 0 }, all, status: url.searchParams.get('status') || 'active' }), counts: store.taskCounts(user || { id: 0 }, can(user, 'tasks')) };
   }, 'any'],
-  ['POST', '/api/tasks', (p, url, body, user) => store.createTasks(body, user), 'tasks'],
+  ['POST', '/api/tasks', (p, url, body, user) => {
+    const list = store.createTasks(body, user);
+    // Каждому исполнителю — лично в Telegram.
+    // Срок в полночь — «до конца дня 6 ноября», иначе дата и время.
+    const due = (t) => { const d = new Date(t); return d.getHours() === 0 && d.getMinutes() === 0 ? `конца дня ${new Date(t - 1).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}` : d.toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }); };
+    for (const t of list) {
+      const task = store.getTask(t.id);
+      if (task.assignee_id !== user?.id) tgToUser(current(), task.assignee_id, `✅ Вам новое задание${user ? ` (поставил: ${user.name || user.email})` : ''}:\n«${task.title}»${task.description ? `\n${task.description.slice(0, 500)}` : ''}\nСрок: до ${due(task.due_at)}\nОтметьте «Выполнено» в разделе «Задания».`);
+    }
+    return list;
+  }, 'tasks'],
   ['PUT', '/api/tasks/:id/done', (p, url, body, user) => store.markTask(p.id, body, user || { id: 0 }, can(user, 'tasks')), 'any'],
-  ['PUT', '/api/tasks/:id/review', (p, url, body, user) => store.reviewTask(p.id, body, user), 'tasks'],
+  ['PUT', '/api/tasks/:id/review', (p, url, body, user) => {
+    const r = store.reviewTask(p.id, body, user);
+    // Вернули на доработку — исполнителю лично.
+    if (!body?.approve) {
+      const t = store.getTask(p.id);
+      tgToUser(current(), t.assignee_id, `↩️ Задание вернули на доработку: «${t.title}»${body?.comment ? `\nКомментарий: ${String(body.comment).slice(0, 500)}` : ''}`);
+    }
+    return r;
+  }, 'tasks'],
   ['DELETE', '/api/tasks/:id', (p) => store.deleteTask(p.id), 'tasks'],
   ['PUT', '/api/pay-override', (p, url, body, user) => store.setPayOverride(body, user), 'salary'],
   ['PUT', '/api/users/:id/pay', (p, url, body, user) => {
