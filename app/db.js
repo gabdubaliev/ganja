@@ -630,6 +630,8 @@ function open(file) {
       created_at INTEGER NOT NULL
     );
   `);
+  // «Действует по» — последний день постоянного расхода (пусто — бессрочно).
+  addColumns('recurring_expenses', [['until', 'INTEGER']]);
   // Код товара программа присваивает сама — и товарам, заведённым до этого (или загруженным без кода).
   fillCodes(db);
   // Новые права (галочки): тем, у кого права настроены вручную, добавляем их по смыслу — один раз,
@@ -1391,12 +1393,13 @@ const TS_COLORS = ['', 'green', 'yellow', 'red', 'blue', 'purple', 'gray'];
 
 // Доля месяцев по календарным дням: каждый день, который задевает период, — 1/(дней в его месяце).
 // Сегодняшний день считается целиком: аренда за сегодня — полная дневная доля.
-function dayShare(from, to, since = null) {
+function dayShare(from, to, since = null, until = null) {
   let share = 0, days = 0;
   const d = new Date(from);
   d.setHours(0, 0, 0, 0);
   for (; d.getTime() < to; d.setDate(d.getDate() + 1)) {
     if (since && d.getTime() + 864e5 <= since) continue;
+    if (until && d.getTime() > until) break; // после последнего дня — не считается
     share += 1 / new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
     days++;
   }
@@ -4540,7 +4543,7 @@ function createStore(file) {
         // Без даты «с какого дня» — с начала месяца, когда расход завели: в прошлые месяцы он не уходит.
         const created = r.created_at ? new Date(r.created_at) : null;
         const since = r.since || (created ? new Date(created.getFullYear(), created.getMonth(), 1).getTime() : null);
-        const { share, days } = dayShare(from, to, since);
+        const { share, days } = dayShare(from, to, since, r.until || null);
         return { id: r.id, name: r.name, monthly: r.amount, amount: round2(r.amount * share), days };
       }).filter((r) => r.amount > 0);
       const expenses = db.prepare('SELECT category, SUM(amount) AS amount, COUNT(*) AS n FROM expenses WHERE at >= ? AND at < ? GROUP BY category ORDER BY amount DESC')
@@ -4803,17 +4806,19 @@ function createStore(file) {
       const name = text(input.name, 'Название расхода', { required: true, max: 60 });
       const amount = round2(number(input.amount, 'Сумма в месяц', { positive: true }));
       const since = input.since ? number(input.since, 'Действует с', { positive: true }) : null;
+      const until = input.until ? number(input.until, 'Действует по', { positive: true }) : null;
+      if (since && until && until < since) throw new UserError('«Действует по» не может быть раньше, чем «Действует с»');
       const clash = this.listRecurring().find((r) => r.id !== Number(id) && r.name.toLowerCase() === name.toLowerCase());
       if (clash) throw new UserError(`Расход «${clash.name}» уже есть — измените его`);
       if (id) {
         const cur = db.prepare('SELECT * FROM recurring_expenses WHERE id = ?').get(Number(id));
         if (!cur) throw new UserError('Расход не найден');
         const active = input.active === undefined ? cur.active : input.active ? 1 : 0;
-        db.prepare('UPDATE recurring_expenses SET name = ?, amount = ?, since = ?, active = ? WHERE id = ?').run(name, amount, since, active, cur.id);
+        db.prepare('UPDATE recurring_expenses SET name = ?, amount = ?, since = ?, until = ?, active = ? WHERE id = ?').run(name, amount, since, until, active, cur.id);
         return db.prepare('SELECT * FROM recurring_expenses WHERE id = ?').get(cur.id);
       }
       const sort = (db.prepare('SELECT MAX(sort) AS m FROM recurring_expenses').get().m || 0) + 1;
-      const { lastInsertRowid } = db.prepare('INSERT INTO recurring_expenses (name, amount, since, sort, created_at) VALUES (?, ?, ?, ?, ?)').run(name, amount, since, sort, Date.now());
+      const { lastInsertRowid } = db.prepare('INSERT INTO recurring_expenses (name, amount, since, until, sort, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(name, amount, since, until, sort, Date.now());
       return db.prepare('SELECT * FROM recurring_expenses WHERE id = ?').get(lastInsertRowid);
     },
 

@@ -2046,6 +2046,7 @@
       <div class="field wide"><label for="fixexp-name">Название</label><input id="fixexp-name" name="name" class="input" list="ex-categories" required autocomplete="off" placeholder="Например, Аренда или Таргет"></div>
       <div class="field"><label for="fixexp-amount">Сумма в месяц, сом</label><input id="fixexp-amount" name="amount" class="input num" inputmode="decimal" required autocomplete="off"></div>
       <div class="field"><label for="fixexp-since">Действует с</label><input id="fixexp-since" name="since" type="date" class="input"></div>
+      <div class="field"><label for="fixexp-until">Действует по</label><input id="fixexp-until" name="until" type="date" class="input"><small class="muted">Пусто — бессрочно. Последний день включительно; после него расход не считается, в прошлых месяцах остаётся.</small></div>
       <label class="check wide"><input type="checkbox" name="active" checked> Учитывать (снимите, чтобы временно не считать)</label>
       <p class="pick-meta wide" id="fixexp-per-day"></p>
     </div>

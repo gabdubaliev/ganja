@@ -752,7 +752,7 @@ function renderNetProfit(v) {
   const fixed = state.recurring || [];
   $('#np-fixed').innerHTML = `<h3>Постоянные расходы в месяц</h3>${fixed.length ? `<ul class="np-items">${fixed.map((r) => {
     const dim = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
-    return `<li class="${r.active ? '' : 'np-off'}"><span class="np-date">${r.active ? '' : 'выкл.'}</span><span><b>${esc(r.name)}</b><small>${money(r.amount / dim)} в день в этом месяце${r.since ? ` · с ${dateOnly(r.since)}` : ''}</small></span>
+    return `<li class="${r.active ? '' : 'np-off'}"><span class="np-date">${r.active ? '' : 'выкл.'}</span><span><b>${esc(r.name)}</b><small>${money(r.amount / dim)} в день в этом месяце${r.since ? ` · с ${dateOnly(r.since)}` : ''}${r.until ? ` · по ${dateOnly(r.until)}${r.until < Date.now() ? ' (закончился)' : ''}` : ''}</small></span>
       <b class="num">${money(r.amount)}</b>${canEdit ? `<button type="button" class="icon-btn" data-fixed-edit="${r.id}" aria-label="Изменить" title="Изменить">✎</button>` : ''}</li>`;
   }).join('')}</ul>` : `<p class="pick-meta">${canEdit ? 'Нажмите «+ Постоянный расход» и заведите аренду, таргет и другие ежемесячные расходы — они разделятся по дням.' : 'Постоянных расходов нет.'}</p>`}`;
   const list = state.expenses?.list || [];
@@ -780,6 +780,7 @@ function openFixedDialog(r = null) {
   f.elements.name.value = r?.name || '';
   f.elements.amount.value = r ? String(r.amount).replace('.', ',') : '';
   f.elements.since.value = r?.since ? dateInput(r.since) : '';
+  f.elements.until.value = r?.until ? dateInput(r.until) : '';
   f.elements.active.checked = r ? r.active : true;
   $('#fixed-delete').hidden = !r;
   $('#fixed-delete').classList.remove('danger');
@@ -806,7 +807,8 @@ $('#fixed-cancel').addEventListener('click', () => $('#fixed-dialog').close());
 $('#fixed-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
-  const body = { name: f.elements.name.value, amount: f.elements.amount.value, since: f.elements.since.value ? fromDateInput(f.elements.since.value) : null, active: f.elements.active.checked };
+  const body = { name: f.elements.name.value, amount: f.elements.amount.value, since: f.elements.since.value ? fromDateInput(f.elements.since.value) : null,
+    until: f.elements.until.value ? fromDateInput(f.elements.until.value) : null, active: f.elements.active.checked };
   try {
     await api(fixedEditing ? `/api/recurring-expenses/${fixedEditing.id}` : '/api/recurring-expenses', { method: fixedEditing ? 'PUT' : 'POST', body });
     $('#fixed-dialog').close();
