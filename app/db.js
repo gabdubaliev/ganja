@@ -1118,6 +1118,8 @@ const SHOP_DEFAULTS = {
   payments: [],
   categories: [],
   bannerId: null,
+  bannerMobileId: null,
+  heroMobile: 'auto',
   logoId: null,
   // Значок вкладки браузера (квадратная картинка); пусто — берётся логотип.
   faviconId: null,
@@ -5636,6 +5638,8 @@ function createStore(file) {
         }),
         categories: Array.isArray(v.categories) ? v.categories.map((c) => String(c).slice(0, 200)).slice(0, 500) : [],
         bannerId: imageId(v.bannerId),
+        bannerMobileId: imageId(v.bannerMobileId),
+        heroMobile: ['auto', 'fit', 'small', 'medium', 'large'].includes(v.heroMobile) ? v.heroMobile : 'auto',
         logoId: imageId(v.logoId),
         faviconId: imageId(v.faviconId),
         css: css(v.css),

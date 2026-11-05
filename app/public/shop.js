@@ -141,8 +141,19 @@ function renderFrame() {
   if (s.heroStyle === 'split' ? media.parentElement !== inner : media.parentElement !== $('#hero')) {
     if (s.heroStyle === 'split') inner.append(media); else $('#hero').prepend(media);
   }
-  $('#hero').classList.toggle('has-image', Boolean(s.bannerId));
-  $('#hero').style.setProperty('--banner', s.bannerId ? `url(/img/${s.bannerId})` : 'none');
+  // На телефоне — своя картинка баннера, если загружена; иначе общая.
+  const mobile = matchMedia('(max-width: 640px)').matches;
+  const bannerId = (mobile && s.bannerMobileId) || s.bannerId;
+  $('#hero').classList.toggle('has-image', Boolean(bannerId));
+  $('#hero').style.setProperty('--banner', bannerId ? `url(/img/${bannerId})` : 'none');
+  b.herom = s.heroMobile || 'auto';
+  // «Вся картинка целиком»: высота баннера — по пропорциям картинки.
+  if (bannerId && $('#hero').dataset.ratioFor !== String(bannerId)) {
+    $('#hero').dataset.ratioFor = String(bannerId);
+    const img = new Image();
+    img.onload = () => { if (img.naturalHeight) $('#hero').style.setProperty('--banner-ratio', String(img.naturalWidth / img.naturalHeight)); };
+    img.src = `/img/${bannerId}`;
+  }
   $('#hero-btn').textContent = s.heroButton || 'Смотреть каталог';
   $('#hero-btn').hidden = !s.heroButton;
   const phone = s.phone.replace(/[^\d+]/g, '');
@@ -1385,3 +1396,6 @@ addEventListener('message', (e) => {
   // iPhone: кнопки установки нет — подсказываем, как добавить на экран «Домой».
   if (isIos && isPhone) setTimeout(() => banner('Добавьте магазин на экран «Домой»: нажмите <b>Поделиться</b> ⬆️ и «На экран „Домой“»', false), 20000);
 })();
+
+// Поворот телефона / смена ширины окна: баннер для телефона или для компьютера.
+matchMedia('(max-width: 640px)').addEventListener?.('change', () => { if (state.settings) renderFrame(); });

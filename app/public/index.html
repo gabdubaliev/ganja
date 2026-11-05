@@ -1704,6 +1704,7 @@
           <div class="field"><label>Логотип</label><div class="image-pick" data-image="logoId"></div></div>
           <div class="field"><label>Значок вкладки</label><div class="image-pick" data-image="faviconId"></div><small class="muted">Квадрат. Нет — берётся логотип.</small></div>
           <div class="field"><label>Баннер</label><div class="image-pick wide" data-image="bannerId"></div></div>
+          <div class="field"><label>Баннер для телефона</label><div class="image-pick" data-image="bannerMobileId"></div><small class="muted">Необязательно. Вертикальная или квадратная картинка — на телефоне вместо общего баннера.</small></div>
         </div>
       </details>
       <details><summary>Цвета и шрифт</summary>
@@ -1734,6 +1735,7 @@
         <div class="field"><label>Высота</label><select name="heroHeight" class="input"><option value="small">Низкий</option><option value="medium">Средний</option><option value="large">Высокий</option><option value="full">На весь экран</option></select></div>
         <div class="field"><label>Текст</label><select name="heroAlign" class="input"><option value="left">Слева</option><option value="center">По центру</option></select></div>
         <div class="field"><label>Надпись на кнопке (пусто — без кнопки)</label><input name="heroButton" class="input" maxlength="40" placeholder="Смотреть каталог"></div>
+        <div class="field"><label>Высота баннера на телефоне</label><select name="heroMobile" class="input"><option value="auto">По тексту на баннере</option><option value="fit">Вся картинка целиком, без обрезки</option><option value="small">Низкий</option><option value="medium">Средний</option><option value="large">Высокий — почти весь экран</option></select><small class="muted">Если на картинке баннера есть надписи (как логотип MONT), выберите «Вся картинка целиком» или загрузите отдельный «Баннер для телефона» в разделе «Основное».</small></div>
         <div class="field"><label>Кнопка баннера на телефоне</label><select name="heroBtnMobile" class="input"><option value="small">Маленькая</option><option value="medium">Средняя — по длине надписи</option><option value="wide">Во всю ширину экрана</option></select></div>
         <div class="field"><label>Текст и кнопки баннера на телефоне</label><select name="heroScaleMobile" class="input"><option value="100">Обычный размер</option><option value="90">Меньше на 10%</option><option value="80">Меньше на 20%</option><option value="70">Меньше на 30%</option><option value="60">Меньше на 40%</option></select><small class="muted">Заголовок, подпись и кнопки на баннере — вместе.</small></div>
       </details>
