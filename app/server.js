@@ -24,6 +24,7 @@ const { createShopAuth } = require('./shop-auth');
 const { createIgPrice } = require('./ig-price');
 const { sendSms, PROVIDERS: SMS_PROVIDERS } = require('./sms');
 const captcha = require('./captcha');
+const offsite = require('./offsite');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -2192,6 +2193,72 @@ async function proxyMeta(req, res, target) {
 
 // Базы для скачивания копии: основная, филиалы, MONT AI Studio.
 const fileSize = (f) => { try { return fs.statSync(f).size; } catch { return 0; } };
+/* ---------- Копия базы в Telegram (вне сервера) ---------- */
+// Настройка offsite_backup: { enabled, password (в secrets.json), studio, lastAt, lastOk, lastMsg, lastSize, lastDay }.
+const offsiteCfg = () => { try { return JSON.parse(mainStore.setting('offsite_backup', '{}')) || {}; } catch { return {}; } };
+function offsiteStatus() {
+  const c = offsiteCfg();
+  const fa = twoFa();
+  return { enabled: Boolean(c.enabled), hasPassword: Boolean(c.password), studio: Boolean(c.studio), linked: Boolean(fa.chatId), who: fa.who || '',
+    bot: Boolean(tgBot().token), lastAt: c.lastAt || null, lastOk: c.lastOk ?? null, lastMsg: c.lastMsg || '', lastSize: c.lastSize || 0, running: offsiteRunning };
+}
+let offsiteRunning = false;
+async function runOffsite(why) {
+  if (offsiteRunning) throw new UserError('Копия уже делается — подождите пару минут');
+  const cfg = offsiteCfg();
+  const chatId = twoFa().chatId;
+  const token = tgBot().token;
+  if (!cfg.password) throw new UserError('Не задан пароль для копий');
+  if (!chatId) throw new UserError('Не подключён ваш Telegram (вкладка «Безопасность»)');
+  if (!token) throw new UserError('Не указан токен бота в «Настройки → Telegram»');
+  offsiteRunning = true;
+  const dir = fs.mkdtempSync(path.join(path.dirname(DB_FILE), '.offsite-'));
+  const save = (patch) => mainStore.setSetting('offsite_backup', JSON.stringify({ ...offsiteCfg(), ...patch }));
+  try {
+    const files = [];
+    for (const src of backupSources()) {
+      if (src.key === 'studio' && !cfg.studio) continue;
+      const file = path.join(dir, `${src.key}.db`);
+      src.db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
+      files.push({ name: src.key === 'shop' ? 'shop.db' : `${src.key}.db`, file });
+    }
+    const stamp = new Date().toLocaleString('sv-SE').slice(0, 16).replace(' ', '_').replace(':', '-');
+    const name = `MONT-${stamp}.montbk`;
+    const out = path.join(dir, name);
+    const size = await offsite.pack(files, out, cfg.password);
+    for (const f of files) fs.rmSync(f.file, { force: true });
+    const list = offsite.parts(size);
+    const mb = (b) => (b / 1048576).toFixed(1).replace('.', ',');
+    for (const [i, p] of list.entries()) {
+      const partName = list.length > 1 ? name.replace('.montbk', `.part${i + 1}.montbk`) : name;
+      const caption = i === 0
+        ? `🗄 Копия базы ${new Date().toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })} (${why})\n${files.map((f) => f.name).join(', ')} · ${mb(size)} МБ${list.length > 1 ? ` · часть 1 из ${list.length}` : ''}\nЗашифрована вашим паролем для копий. Не удаляйте — это страховка, если с сервером что-то случится.`
+        : `🗄 Часть ${i + 1} из ${list.length}`;
+      await offsite.sendDocument(token, chatId, out, { ...p, name: partName, caption });
+    }
+    save({ lastAt: Date.now(), lastOk: true, lastMsg: `${mb(size)} МБ${list.length > 1 ? `, ${list.length} части` : ''}`, lastSize: size, lastDay: new Date().toLocaleDateString('sv-SE') });
+    return { size, parts: list.length };
+  } catch (err) {
+    // Ночью — до 3 попыток с перерывом в час; сообщение об ошибке — после последней.
+    const day = new Date().toLocaleDateString('sv-SE');
+    const tries = (cfg.failDay === day ? cfg.fails || 0 : 0) + (why === 'каждую ночь' ? 1 : 0);
+    save({ lastAt: Date.now(), lastOk: false, lastMsg: err.message, failDay: day, fails: tries, ...(tries >= 3 && { lastDay: day }) });
+    console.error('Копия базы в Telegram не отправлена:', err.message);
+    if (why !== 'каждую ночь' || tries >= 3) tgSendTo(chatId, `⚠️ Копия базы не отправлена: ${err.message}`).catch(() => {});
+    throw err;
+  } finally {
+    offsiteRunning = false;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+// Каждую ночь после 04:00 по времени магазина — один раз в сутки.
+setInterval(() => {
+  const c = offsiteCfg();
+  if (!c.enabled || offsiteRunning || new Date().getHours() < 4 || c.lastDay === new Date().toLocaleDateString('sv-SE')) return;
+  if (c.lastOk === false && Date.now() - (c.lastAt || 0) < 3600e3) return; // после ошибки — через час
+  runOffsite('каждую ночь').catch(() => {});
+}, 10 * 60_000).unref?.();
+
 function backupSources() {
   const dir = path.dirname(DB_FILE);
   const list = [{ key: 'shop', name: `Основной магазин${branchList()[0]?.name ? ` «${branchList()[0].name}»` : ''}`, db: mainStore.db, file: DB_FILE }];
@@ -2883,6 +2950,35 @@ async function handleRequest(req, res, url, user, owner) {
       return sendJson(res, 404, { error: 'Не найдено' });
     } catch (err) {
       return sendJson(res, err instanceof UserError ? 400 : 500, { error: err instanceof UserError ? err.message : 'Что-то пошло не так' });
+    }
+  }
+  // Копия базы в Telegram каждую ночь — настройка владельца.
+  if (url.pathname.startsWith('/api/offsite')) {
+    if (auth.enabled && !isOwner(user)) return sendJson(res, 403, { error: 'Это настройка владельца' });
+    try {
+      if (req.method === 'GET' && url.pathname === '/api/offsite') return sendJson(res, 200, offsiteStatus());
+      const body = await readBody(req, 16_384);
+      if (req.method === 'PUT' && url.pathname === '/api/offsite') {
+        const cfg = offsiteCfg();
+        const next = { ...cfg, studio: Boolean(body.studio) };
+        if (typeof body.password === 'string' && body.password) {
+          if (body.password.length < 10) throw new UserError('Пароль для копий — не короче 10 символов');
+          next.password = body.password;
+        }
+        if (body.enabled !== undefined) next.enabled = Boolean(body.enabled);
+        if (next.enabled && !next.password) throw new UserError('Сначала придумайте пароль для копий');
+        if (next.enabled && !twoFa().chatId) throw new UserError('Сначала подключите свой Telegram во вкладке «Безопасность» — копии приходят в ваш личный чат с ботом');
+        mainStore.setSetting('offsite_backup', JSON.stringify(next));
+        store.audit({ kind: 'change', user, ip: clientIp(req), device: device(req), action: next.enabled ? 'Включил копию базы в Telegram' : 'Выключил копию базы в Telegram', details: body.password ? 'пароль для копий изменён' : '' });
+        return sendJson(res, 200, offsiteStatus());
+      }
+      if (req.method === 'POST' && url.pathname === '/api/offsite/run') {
+        const r = await runOffsite('вручную');
+        return sendJson(res, 200, { ...offsiteStatus(), sent: r });
+      }
+      return sendJson(res, 404, { error: 'Не найдено' });
+    } catch (err) {
+      return sendJson(res, err instanceof UserError ? 400 : 500, { error: err instanceof UserError ? err.message : `Не получилось: ${err.message}` });
     }
   }
   // Резервная копия базы — только владелец: целостный снимок (VACUUM INTO) во временный файл рядом с базой, отдаём и удаляем.

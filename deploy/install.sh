@@ -74,7 +74,7 @@ fi
 say "Обновляю список пакетов и ставлю нужные программы"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
-apt-get install -yq ca-certificates curl gnupg git ufw debian-keyring debian-archive-keyring apt-transport-https
+apt-get install -yq ca-certificates curl gnupg git ufw debian-keyring debian-archive-keyring apt-transport-https unattended-upgrades
 
 if ! command -v node >/dev/null || ! node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>22||(a===22&&b>=13)?0:1)'; then
   say "Ставлю Node.js 22"

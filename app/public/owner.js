@@ -91,6 +91,45 @@ async function drawOwnerBackup() {
   } catch (err) {
     box.innerHTML = `<p class="form-error">${esc(err.message)}</p>`;
   }
+  drawOffsite();
+}
+
+/* ---------- Копия в Telegram ---------- */
+async function drawOffsite() {
+  const box = $('#offsite-box');
+  if (!box) return;
+  let st;
+  try { st = await api('/api/offsite'); } catch (err) { box.innerHTML = `<p class="form-error">${esc(err.message)}</p>`; return; }
+  const last = st.lastAt ? `${new Date(st.lastAt).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })} — ${st.lastOk ? `✅ отправлена (${esc(st.lastMsg)})` : `❌ ${esc(st.lastMsg)}`}` : 'ещё не отправлялась';
+  box.innerHTML = `
+    ${!st.bot ? '<p class="form-error">Сначала подключите бота: «Настройки → Telegram».</p>' : ''}
+    ${!st.linked ? '<p class="form-error">Подключите свой Telegram во вкладке «Безопасность» (кнопка «Подключить Telegram») — копии приходят в ваш личный чат с ботом, а не в общий чат магазина.</p>' : `<p class="sub">Куда: ваш личный чат с ботом${st.who ? ` — <b>${esc(st.who)}</b>` : ''}.</p>`}
+    <label class="check"><input type="checkbox" id="offsite-on" ${st.enabled ? 'checked' : ''}> Присылать копию каждую ночь</label>
+    <label class="check"><input type="checkbox" id="offsite-studio" ${st.studio ? 'checked' : ''}> Вместе с фото AI Studio (копия будет намного больше)</label>
+    <div class="field"><label>${st.hasPassword ? 'Новый пароль для копий (пусто — оставить прежний)' : 'Придумайте пароль для копий'}</label>
+      <input type="password" class="input" id="offsite-pass" autocomplete="new-password" minlength="10" placeholder="не короче 10 символов"></div>
+    <p class="sub">⚠️ Запишите этот пароль на бумаге и храните отдельно. Без него копию не восстановить — ни вы, ни разработчик его не узнаем: на сервере он хранится отдельно от базы, а в копиях его нет.</p>
+    <div class="row"><button type="button" class="btn primary" id="offsite-save">Сохранить</button>
+      <button type="button" class="btn" id="offsite-run" ${st.enabled && st.hasPassword && st.linked ? '' : 'disabled'}>📤 Отправить копию сейчас</button></div>
+    <p class="sub">Последняя копия: ${last}</p>`;
+  $('#offsite-save').addEventListener('click', async () => {
+    const password = $('#offsite-pass').value;
+    if (password && password.length < 10) return toast('Пароль для копий — не короче 10 символов', 'error');
+    try {
+      await api('/api/offsite', { method: 'PUT', body: { enabled: $('#offsite-on').checked, studio: $('#offsite-studio').checked, password } });
+      toast(password ? 'Сохранено. Пароль для копий изменён — запишите его' : 'Сохранено');
+      drawOffsite();
+    } catch (err) { toast(err.message, 'error'); }
+  });
+  $('#offsite-run').addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    e.target.textContent = '⏳ Делаю копию…';
+    try {
+      const r = await api('/api/offsite/run', { method: 'POST', body: {} });
+      toast(`Копия отправлена в Telegram${r.sent?.parts > 1 ? ` (${r.sent.parts} части)` : ''}`);
+    } catch (err) { toast(err.message, 'error'); }
+    drawOffsite();
+  });
 }
 
 /* ---------- Разделы ---------- */

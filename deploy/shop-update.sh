@@ -80,6 +80,21 @@ if [[ -z ${SHOP_SYSTEMCTL:-} && -f /usr/local/bin/shop-backup ]] && grep -q 'tai
   sed -i 's/tail -n +31/tail -n +91/g' /usr/local/bin/shop-backup && echo "Ночные копии теперь хранятся 90 дней."
 fi
 
+# Автоматические обновления безопасности системы (Ubuntu/Debian): ставятся сами каждый день, только исправления
+# безопасности, без перезагрузки. Включается один раз; если apt занят — попробуем при следующем обновлении.
+if [[ -z ${SHOP_SYSTEMCTL:-} ]] && command -v apt-get >/dev/null && [[ ! -f /var/lib/shop-auto-upgrades ]]; then
+  echo "Включаю автоматические обновления безопасности системы…"
+  if apt-get update -q >/dev/null 2>&1; DEBIAN_FRONTEND=noninteractive apt-get install -yq unattended-upgrades >/dev/null 2>&1; then
+    printf 'APT::Periodic::Update-Package-Lists "1";\nAPT::Periodic::Unattended-Upgrade "1";\nAPT::Periodic::AutocleanInterval "7";\n' > /etc/apt/apt.conf.d/20auto-upgrades
+    printf 'Unattended-Upgrade::Automatic-Reboot "false";\n' > /etc/apt/apt.conf.d/52shop-no-reboot
+    : > /var/lib/shop-auto-upgrades
+    systemctl enable --now unattended-upgrades >/dev/null 2>&1 || true
+    echo "Автоматические обновления безопасности включены (без перезагрузки сервера)."
+  else
+    echo "Не удалось включить автообновления системы сейчас (apt занят?) — попробую при следующем shop-update."
+  fi
+fi
+
 # Сам скрипт обновления тоже обновляется: новая версия из программы ставится в /usr/local/bin/shop-update
 # с теми же папками, что сейчас (как делает install.sh).
 self=$(readlink -f "$0" 2>/dev/null || echo "$0")

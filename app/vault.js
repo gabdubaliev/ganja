@@ -20,6 +20,7 @@ const SECRET_FIELDS = {
   anthropic_api_key: true,
   session_secret: true,
   secrets_key: true,
+  offsite_backup: ['password'],
 };
 
 function createVault(file) {
