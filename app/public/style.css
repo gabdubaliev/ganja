@@ -932,6 +932,10 @@ tr.audit-login_failed, tr.audit-denied { background: rgba(208, 59, 59, 0.06); }
 .plus-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .plus-item { display: flex; align-items: center; gap: 8px; min-height: 54px; padding: 10px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface-2); color: var(--ink); font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
 .plus-list { display: grid; gap: 10px; }
+.search-scan { display: flex; gap: 8px; align-items: stretch; flex: 1 1 260px; min-width: 0; }
+.search-scan .input { flex: 1; min-width: 0; width: auto; }
+.scan-btn { flex: none; min-width: 48px; font-size: 20px; padding-inline: 10px; }
+.doc-add .scan-btn { align-self: stretch; }
 .plus-wide { min-height: 64px; }
 .plus-wide span:last-child { display: grid; gap: 2px; }
 .plus-wide small { font-weight: 400; font-size: 13px; color: var(--muted); }

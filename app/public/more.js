@@ -144,6 +144,7 @@ const PLUS_GROUPS = [
   ]],
   ['Товары', [
     ['new-product', 'products', '🏷️', 'Новый товар'], ['products', 'products', '📦', 'Все товары'],
+    ['scan-product', 'products', '📷', 'Найти камерой'],
   ]],
   ['Прочее', [
     ['loyalty', 'customers', '⭐', 'Клиенты'], ['certificates', 'certificates', '🎁', 'Сертификаты'],
@@ -198,6 +199,7 @@ function onPlusClick(e) {
   const k = b.dataset.plus;
   closePlus();
   if (k.startsWith('doc:')) return newDoc(k.slice(4)); // сразу новый документ
+  if (k === 'scan-product') return openScanner({ onCode: async (code, close) => { if (!catalog.list.length) await catalog.load(); return productByScan(code, close); } });
   if (k === 'new-product') {
     if (currentView !== 'products') location.hash = 'products';
     return setTimeout(() => openProductDialog(null, typeof renderProducts === 'function' ? renderProducts : () => {}), currentView === 'products' ? 0 : 400);

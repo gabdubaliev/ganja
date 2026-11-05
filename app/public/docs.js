@@ -669,3 +669,23 @@ const DOC_RIGHTS = Object.values(DOC_KIND).map((k) => k.right);
 views.docs = { show: renderDocs, right: DOC_RIGHTS };
 views.doc = { show: showDoc, right: DOC_RIGHTS };
 views.suppliers = { show: renderSuppliers, right: ['arrivals', 'transfer', 'stock', 'writeoff'] };
+
+// Камера в документе: каждый код — как скан сканером (+1 к товару; нового товара нет — создать).
+$('#doc-search').closest('.suggest-wrap').after(scanButton((code, close) => {
+  const exact = catalog.sellable().find((p) => p.barcode === code || p.code === code);
+  const input = $('#doc-search');
+  if (!exact) {
+    const found = catalog.search(code, 2).filter((p) => !catalog.isGroup(p));
+    if (found.length !== 1) {
+      close();
+      input.value = code;
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      return '';
+    }
+  }
+  input.value = code;
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  const p = exact || catalog.search(code, 2).find((x) => !catalog.isGroup(x));
+  const l = doc.data?.items.find((x) => x.productId === p?.id);
+  return p ? `✅ ${p.name}${l ? ` — ${doc.data.kind === 'inventory' ? 'факт' : 'кол-во'} ${l[doc.data.kind === 'inventory' ? 'actual' : 'qty'] ?? 0}` : ''}` : '';
+}, 'Сканировать товар камерой (каждый скан +1)'));

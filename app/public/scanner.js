@@ -32,7 +32,7 @@ function scanBeep() {
 }
 
 async function openScanner({ onCode, title = 'Наведите камеру на штрихкод' } = {}) {
-  if (!navigator.mediaDevices?.getUserMedia) return toast('Камера недоступна в этом браузере. Откройте сайт в Safari или Chrome', 'error');
+  if (!navigator.mediaDevices?.getUserMedia) { toast('Камера недоступна в этом браузере. Откройте сайт в Safari или Chrome', 'error'); return { close() {} }; }
   const box = document.createElement('div');
   box.className = 'scan-overlay';
   box.innerHTML = `<video playsinline muted autoplay></video>
@@ -64,7 +64,7 @@ async function openScanner({ onCode, title = 'Наведите камеру на
     box.classList.add('hit');
     setTimeout(() => box.classList.remove('hit'), 250);
     try {
-      const r = await onCode?.(code);
+      const r = await onCode?.(code, stop);
       msg(r || `Код ${code}`);
     } catch (err) { msg(err.message, true); }
   };
@@ -93,9 +93,22 @@ async function openScanner({ onCode, title = 'Наведите камеру на
       await reader.decodeFromConstraints(constraints, video, (result) => { if (result) found(result.getText()); });
       stream = video.srcObject;
     }
+    return { close: stop };
   } catch (err) {
     const denied = err?.name === 'NotAllowedError' || err?.name === 'SecurityError';
     msg(denied ? 'Нет доступа к камере. Разрешите камеру для этого сайта в настройках телефона (Safari → Камера → Разрешить) и попробуйте снова.'
       : err?.name === 'NotFoundError' ? 'Камера не найдена' : `Камера не запустилась: ${err?.message || err}`, true);
+    return { close: stop };
   }
+}
+// Кнопка «📷» рядом с полем поиска: scanButton(onCode, подсказка) → HTML-элемент.
+function scanButton(onCode, title = 'Сканировать штрихкод камерой') {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'btn scan-btn';
+  b.title = title;
+  b.setAttribute('aria-label', title);
+  b.innerHTML = '<span aria-hidden="true">📷</span>';
+  b.addEventListener('click', () => openScanner({ onCode }));
+  return b;
 }

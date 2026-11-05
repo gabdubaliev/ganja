@@ -1231,3 +1231,22 @@ $('#cat-list').addEventListener('click', async (e) => {
 $('#products-archived').addEventListener('change', (e) => { productsView.archived = e.target.checked; productsView.selected.clear(); renderProducts(); });
 
 views.products = { show: renderProducts, right: 'products' };
+
+// Камера в списке товаров: нашли по штрихкоду — открываем карточку товара; нет — ищем по коду.
+function productByScan(code, close) {
+  const p = catalog.list.find((x) => x.barcode === code || x.code === code);
+  close?.();
+  if (p) { openProductCard(p.id); return ''; }
+  if (location.hash !== '#products') location.hash = 'products';
+  setTimeout(() => { $('#products-search').value = code; productsView.query = code; renderProducts(); }, 150);
+  toast(`Товара со штрихкодом ${code} нет — можно создать новый`, 'error');
+  return '';
+}
+// Поиск и камера — в одной строке.
+{
+  const input = $('#products-search');
+  const row = document.createElement('div');
+  row.className = 'search-scan';
+  input.before(row);
+  row.append(input, scanButton((code, close) => productByScan(code, close), 'Найти товар камерой по штрихкоду'));
+}
