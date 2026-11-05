@@ -40,9 +40,12 @@ function renderDayNav() {
     nav = document.createElement('div');
     nav.id = 'day-nav';
     nav.className = 'day-nav';
-    $('#periods').before(nav);
+    $('#periods').after(nav);
     nav.addEventListener('click', (e) => {
-      if (e.target.closest('[data-today]')) return setDay(0);
+      if (e.target.closest('[data-today]')) {
+        if (state.period !== 'day') { state.period = 'day'; state.dayOffset = 0; renderPeriods(); renderDayNav(); load(); return undefined; }
+        return setDay(0);
+      }
       const b = e.target.closest('[data-day]');
       if (b) shiftDay(Number(b.dataset.day));
     });
@@ -54,6 +57,14 @@ function renderDayNav() {
     });
   }
   nav.hidden = false;
+  if (state.period !== 'day') {
+    // 7 или 30 дней: какие дни входят — до сегодня включительно.
+    const r = periodRange(state.period, Date.now());
+    const f = (t) => new Date(t).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+    nav.innerHTML = `<span class="day-pick"><b>${HOME_PERIODS[state.period]}</b>: ${f(r.start)} — ${f(r.end)}</span>
+      <button type="button" class="btn small ghost" data-today>Сегодня</button>`;
+    return;
+  }
   const d = new Date(viewNow());
   const wd = d.toLocaleDateString('ru-RU', { weekday: 'short' });
   const name = state.dayOffset === 0 ? 'Сегодня' : state.dayOffset === -1 ? 'Вчера' : wd[0].toUpperCase() + wd.slice(1);
@@ -182,9 +193,12 @@ function compute(data, key, now) {
 }
 
 /* ---------- Отрисовка ---------- */
+// На главной — «День», «7 дней», «30 дней» над строкой с календарём (открывается всегда на «День»).
+const HOME_PERIODS = { day: 'День', week: '7 дней', month: '30 дней' };
 function renderPeriods() {
-  $('#periods').innerHTML = Object.entries(PERIODS).map(([key, p]) =>
-    `<button type="button" data-period="${key}" aria-pressed="${key === state.period}">${p.label}</button>`).join('');
+  $('#periods').hidden = false;
+  $('#periods').innerHTML = Object.entries(HOME_PERIODS).map(([key, label]) =>
+    `<button type="button" data-period="${key}" aria-pressed="${key === state.period}">${label}</button>`).join('');
 }
 
 // inverse — рост показателя — это плохо (себестоимость): стрелка вверх красная.

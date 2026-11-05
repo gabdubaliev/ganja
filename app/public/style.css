@@ -368,6 +368,10 @@ select.input { text-align: left; }
 /* Фон строки — на всю ширину экрана (тень + обрезка по бокам), без сдвига вёрстки. */
 .home-top { position: sticky; top: var(--nav-h, 60px); z-index: 6; flex-wrap: nowrap; gap: 8px; margin-top: -8px; padding: 8px 0; background: var(--bg); box-shadow: 0 0 0 100vmax var(--bg), 0 1px 0 100vmax color-mix(in srgb, var(--ink, #000) 6%, transparent); clip-path: inset(0 -100vmax -1px); }
 .home-top .source { flex: none; font-size: 12px; }
+/* Сверху «День / 7 дней / 30 дней», под ними — строка с днём (или диапазоном) и «Обновлено». */
+.home-top { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; row-gap: 8px; }
+.home-top #periods { grid-column: 1 / -1; justify-self: start; }
+.home-top .day-nav { min-width: 0; }
 @media (max-width: 640px) { .home-top .source #source-text { display: none; } }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .day-nav[hidden] { display: none; }
