@@ -1251,3 +1251,26 @@ async function productByScan(code, close) {
   input.before(row);
   row.append(input, scanButton((code, close) => productByScan(code, close), 'Найти товар камерой по штрихкоду'));
 }
+
+// Артикул из названия — как на сервере: «Пуховик MS-25037» → MS-25037, «Куртка 235Q» → 235Q.
+function articleFromName(name) {
+  const t = String(name || '').replace(/\s*\([^()]*\)\s*$/, '').trim().split(/\s+/);
+  if (t.length < 2) return '';
+  for (let i = t.length - 1; i >= 1; i--) {
+    const w = t[i].replace(/[.,;:!]+$/, '');
+    if (/^[A-Za-zА-Яа-яЁё]{1,5}-?\d{1,10}[A-Za-zА-Яа-я]{0,3}(-\d{1,4})?$/.test(w)) return w.toUpperCase();
+    if (/^\d{2,10}[A-Za-zА-Яа-я]{1,3}(-\d{1,4})?$/.test(w) && !/^\d+(мл|л|г|кг|мг|шт|см|мм|м|xl|xxl|xs|s|m|l)$/i.test(w)) return w.toUpperCase();
+    if (/^\d{3,12}$/.test(w)) {
+      const prev = t[i - 1];
+      return i >= 2 && /^([A-Z]{1,4}|[А-ЯЁ]{1,3})$/.test(prev) ? `${prev}-${w}` : w;
+    }
+  }
+  return '';
+}
+// Пока пишут название, в пустом «Артикуле» серым видно, какой будет; не вписали сами — сохранится этот.
+$('#product-form').addEventListener('input', (e) => {
+  if (e.target.name !== 'name') return;
+  const art = e.target.form.elements.article;
+  const guess = articleFromName(e.target.value);
+  art.placeholder = guess ? `Будет: ${guess} (из названия)` : 'Артикул производителя';
+});

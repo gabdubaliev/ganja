@@ -1458,7 +1458,10 @@ function migArticle(name) {
   // С конца — первое слово с цифрами: «M-163», «MS-6307», «69225», «D133». Первое слово (вид товара) не берётся.
   for (let i = t.length - 1; i >= 1; i--) {
     const w = t[i].replace(/[.,;:!]+$/, '');
-    if (/^[A-Za-zА-Яа-яЁё]{1,5}-?\d{1,10}[A-Za-zА-Яа-я]{0,2}$/.test(w)) return w.toUpperCase();
+    // «M-163», «D133», «A26690-2», «MS-6307B» — буквы, цифры, хвост из букв или «-2».
+    if (/^[A-Za-zА-Яа-яЁё]{1,5}-?\d{1,10}[A-Za-zА-Яа-я]{0,3}(-\d{1,4})?$/.test(w)) return w.toUpperCase();
+    // «235Q», «7712AB» — цифры с буквами на конце (но не «100мл», «500г», «10XL»).
+    if (/^\d{2,10}[A-Za-zА-Яа-я]{1,3}(-\d{1,4})?$/.test(w) && !/^\d+(мл|л|г|кг|мг|шт|см|мм|м|xl|xxl|xs|s|m|l)$/i.test(w)) return w.toUpperCase();
     if (/^\d{3,12}$/.test(w)) {
       // «MS 6304» — буквы отдельным словом перед числом (большими буквами, до 4) — часть артикула.
       const prev = t[i - 1];
@@ -1947,6 +1950,8 @@ function createStore(file) {
 
     createProduct(input, { allowTwin = false } = {}) {
       const f = productFields(input);
+      // Артикул не вписали — берём из названия, как при переносе из CloudShop: «Пуховик MS-25037» → MS-25037.
+      if (!f.article) f.article = migArticle(f.name);
       const reqId = String(input.requestId || '').slice(0, 64);
       const prev = reqId && recentCreates.get('p:' + reqId);
       if (prev) { const p = db.prepare('SELECT id FROM products WHERE id = ? AND deleted = 0').get(prev); if (p) return getProduct(p.id); }
@@ -2256,6 +2261,8 @@ function createStore(file) {
       const current = getProduct(id);
       if (current.parent_id) return this.updateVariant(current, input);
       const f = productFields(input, current);
+      // Артикула не было и не вписали — берём из названия (в форме он показан серым «Будет: …»).
+      if (!f.article && !current.article && 'article' in input) f.article = migArticle(f.name);
       // Переименовать в название, которое уже есть, или дать чужой артикул/штрихкод — нельзя.
       if (!sameName(f.name, current.name) || twinKey(f.name) !== twinKey(current.name) || articleKeys(f.article || '').join() !== articleKeys(current.article || '').join()) {
         const twin = this.findTwinProduct(f.name, f.category, { article: f.article !== current.article ? f.article : '', exceptId: current.id });
