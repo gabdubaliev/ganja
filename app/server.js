@@ -2203,10 +2203,18 @@ const offsiteCfg = () => { try { return JSON.parse(mainStore.setting('offsite_ba
 function offsiteStatus() {
   const c = offsiteCfg();
   const fa = twoFa();
-  return { enabled: Boolean(c.enabled), hasPassword: Boolean(c.password), studio: Boolean(c.studio), linked: Boolean(fa.chatId), who: fa.who || '',
+  return { enabled: Boolean(c.enabled), hasPassword: Boolean(c.password), studio: Boolean(c.studio), everyDays: c.everyDays || 1, nextDay: offsiteNextDay(c), linked: Boolean(fa.chatId), who: fa.who || '',
     bot: Boolean(tgBot().token), lastAt: c.lastAt || null, lastOk: c.lastOk ?? null, lastMsg: c.lastMsg || '', lastSize: c.lastSize || 0, running: offsiteRunning };
 }
 let offsiteRunning = false;
+// День следующей копии (ГГГГ-ММ-ДД) — через everyDays дней после последней удачной. Нет удачных — сегодня (null).
+function offsiteNextDay(c) {
+  const last = c.lastOkDay || (c.lastOk && c.lastAt ? new Date(c.lastAt).toLocaleDateString('sv-SE') : '');
+  if (!last) return null;
+  const d = new Date(`${last}T12:00:00`);
+  d.setDate(d.getDate() + (c.everyDays || 1));
+  return d.toLocaleDateString('sv-SE');
+}
 async function runOffsite(why) {
   if (offsiteRunning) throw new UserError('Копия уже делается — подождите пару минут');
   const cfg = offsiteCfg();
@@ -2240,7 +2248,7 @@ async function runOffsite(why) {
         : `🗄 Часть ${i + 1} из ${list.length}`;
       await offsite.sendDocument(token, chatId, out, { ...p, name: partName, caption });
     }
-    save({ lastAt: Date.now(), lastOk: true, lastMsg: `${mb(size)} МБ${list.length > 1 ? `, ${list.length} части` : ''}`, lastSize: size, lastDay: new Date().toLocaleDateString('sv-SE') });
+    save({ lastOkDay: new Date().toLocaleDateString('sv-SE'), lastAt: Date.now(), lastOk: true, lastMsg: `${mb(size)} МБ${list.length > 1 ? `, ${list.length} части` : ''}`, lastSize: size, lastDay: new Date().toLocaleDateString('sv-SE') });
     return { size, parts: list.length };
   } catch (err) {
     // Ночью — до 3 попыток с перерывом в час; сообщение об ошибке — после последней.
@@ -2260,6 +2268,8 @@ setInterval(() => {
   const c = offsiteCfg();
   if (!c.enabled || offsiteRunning || new Date().getHours() < 4 || c.lastDay === new Date().toLocaleDateString('sv-SE')) return;
   if (c.lastOk === false && Date.now() - (c.lastAt || 0) < 3600e3) return; // после ошибки — через час
+  const next = offsiteNextDay(c);
+  if (next && new Date().toLocaleDateString('sv-SE') < next) return; // раз в N дней
   runOffsite('каждую ночь').catch(() => {});
 }, 10 * 60_000).unref?.();
 
@@ -2975,6 +2985,11 @@ async function handleRequest(req, res, url, user, owner) {
       if (req.method === 'PUT' && url.pathname === '/api/offsite') {
         const cfg = offsiteCfg();
         const next = { ...cfg, studio: Boolean(body.studio) };
+        if (body.everyDays !== undefined) {
+          const n = Math.round(Number(body.everyDays));
+          if (!(n >= 1 && n <= 365)) throw new UserError('Как часто присылать копию: от 1 до 365 дней');
+          next.everyDays = n;
+        }
         if (typeof body.password === 'string' && body.password) {
           if (body.password.length < 10) throw new UserError('Пароль для копий — не короче 10 символов');
           next.password = body.password;

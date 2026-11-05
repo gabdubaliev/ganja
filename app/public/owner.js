@@ -104,7 +104,10 @@ async function drawOffsite() {
   box.innerHTML = `
     ${!st.bot ? '<p class="form-error">Сначала подключите бота: «Настройки → Telegram».</p>' : ''}
     ${!st.linked ? '<p class="form-error">Подключите свой Telegram во вкладке «Безопасность» (кнопка «Подключить Telegram») — копии приходят в ваш личный чат с ботом, а не в общий чат магазина.</p>' : `<p class="sub">Куда: ваш личный чат с ботом${st.who ? ` — <b>${esc(st.who)}</b>` : ''}.</p>`}
-    <label class="check"><input type="checkbox" id="offsite-on" ${st.enabled ? 'checked' : ''}> Присылать копию каждую ночь</label>
+    <label class="check"><input type="checkbox" id="offsite-on" ${st.enabled ? 'checked' : ''}> Присылать копию автоматически</label>
+    <div class="field"><label>Как часто присылать — раз в сколько дней</label>
+      <div class="row"><input type="number" class="input" id="offsite-days" min="1" max="365" step="1" value="${st.everyDays}" style="max-width:120px"> <span class="sub">1 — каждую ночь, 7 — раз в неделю, 30 — раз в месяц</span></div></div>
+    ${st.enabled && st.nextDay ? `<p class="sub">Следующая копия: ${new Date(st.nextDay + 'T12:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}, ночью после 04:00.</p>` : ''}
     <label class="check"><input type="checkbox" id="offsite-studio" ${st.studio ? 'checked' : ''}> Вместе с фото AI Studio (копия будет намного больше)</label>
     <div class="field"><label>${st.hasPassword ? 'Новый пароль для копий (пусто — оставить прежний)' : 'Придумайте пароль для копий'}</label>
       <input type="password" class="input" id="offsite-pass" autocomplete="new-password" minlength="10" placeholder="не короче 10 символов"></div>
@@ -116,7 +119,7 @@ async function drawOffsite() {
     const password = $('#offsite-pass').value;
     if (password && password.length < 10) return toast('Пароль для копий — не короче 10 символов', 'error');
     try {
-      await api('/api/offsite', { method: 'PUT', body: { enabled: $('#offsite-on').checked, studio: $('#offsite-studio').checked, password } });
+      await api('/api/offsite', { method: 'PUT', body: { enabled: $('#offsite-on').checked, studio: $('#offsite-studio').checked, everyDays: Number($('#offsite-days').value), password } });
       toast(password ? 'Сохранено. Пароль для копий изменён — запишите его' : 'Сохранено');
       drawOffsite();
     } catch (err) { toast(err.message, 'error'); }
