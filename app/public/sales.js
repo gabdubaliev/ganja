@@ -42,8 +42,10 @@ async function renderSales() {
   // Смешанный чек делится по частям оплаты; комиссия банков — отдельно.
   const byMethod = new Map();
   let fees = 0;
+  let cash = 0, cashless = 0; // выручка справа: наличными и безналом (без возвратов и бонусов)
   for (const x of done) {
-    for (const p of x.payments?.length ? x.payments : [{ name: methodName(x), amount: x.total - x.bonus_spent, commission: 0 }]) {
+    for (const p of x.payments?.length ? x.payments : [{ name: methodName(x), kind: x.payment === 'cash' ? 'cash' : 'card', amount: x.total - x.bonus_spent, commission: 0 }]) {
+      if (p.kind === 'cash') cash += p.amount; else cashless += p.amount;
       byMethod.set(p.name, (byMethod.get(p.name) || 0) + p.amount);
       fees += p.commission;
     }
@@ -53,7 +55,12 @@ async function renderSales() {
     <span>на <b class="num">${money2(sum)}</b></span>
     <span class="pay-split">${[...byMethod].sort((a, b) => b[1] - a[1]).map(([n, v]) => `<span class="pay-chip">${esc(n)} <b class="num">${money2(v)}</b></span>`).join('')}</span>
     ${fees ? `<span class="pick-meta">комиссия банков −${money2(fees)} · к зачислению ${money2(sum - fees)}</span>` : ''}
-    ${list.length >= 200 ? '<span class="pick-meta">показаны последние 200</span>' : ''}`;
+    ${list.length >= 200 ? '<span class="pick-meta">показаны последние 200</span>' : ''}
+    <span class="sales-totals">
+      <span>Наличными: <b class="num">${money2(cash)}</b></span>
+      <span>Безнал: <b class="num">${money2(cashless)}</b></span>
+      <span class="sales-total">Общее: <b class="num">${money2(cash + cashless)}</b></span>
+    </span>`;
   $('#sales-list').innerHTML = list.length ? list.map((s) => `
     <div class="sale-row ${del ? 'with-select' : ''} ${salesView.selected.has(s.id) ? 'selected' : ''}">
     ${del ? `<input type="checkbox" class="sale-check" data-sale-select="${s.id}" ${salesView.selected.has(s.id) ? 'checked' : ''} aria-label="Выбрать чек №${s.id}">` : ''}
