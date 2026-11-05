@@ -393,6 +393,9 @@ dialog[open].side { animation: slide .35s var(--ease); }
   body[data-herobtn="wide"] .hero-cta .btn { flex: 1 1 auto; }
   body[data-herobtn="medium"] .hero-cta .btn { padding: 12px 22px; font-size: 14px; }
   body[data-herobtn="small"] .hero-cta .btn { padding: 9px 16px; font-size: 13px; }
+  /* Масштаб на телефоне (конструктор): вся витрина и отдельно текст и кнопки баннера. */
+  body { zoom: var(--mzoom, 1); }
+  .hero-text { zoom: var(--hzoom, 1); }
   .catalog { padding-top: 26px; }
   .cats.with-images button { width: 92px; font-size: 13px; }
   .cats.with-images .cat-pic { width: 92px; }

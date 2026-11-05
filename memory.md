@@ -958,3 +958,4 @@
 134. Логотип в шапке (база/касса): надпись обёрнута в <span class=logo-text> (line-height 1, text-box: trim-both cap alphabetic) — по центру картинки; applyBrand пишет в span.
 135. Логотип: запасное выравнивание alignLogoText() в common.js для браузеров без text-box (старый Chrome/Samsung Internet/DeX) — меряет базовую линию и высоту заглавных, сдвигает .logo-text translateY к центру картинки; пересчёт при загрузке шрифтов, resize и смене стиля #logo-home.
 136. Витрина: «Кнопка баннера на телефоне» (shop.heroBtnMobile small|medium|wide, по умолчанию medium — по длине надписи; раньше была во всю ширину). body[data-herobtn] в shop.css @media 640px.
+137. Витрина на телефоне: «Размер всей витрины на телефоне» (shop.mobileScale 80–100 → --mzoom, zoom на body) и «Текст и кнопки баннера на телефоне» (shop.heroScaleMobile 60–100 → --hzoom на .hero-text). Только @media 640px.

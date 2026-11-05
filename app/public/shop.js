@@ -122,6 +122,8 @@ function renderFrame() {
   b.heroh = s.heroHeight || 'large'; b.align = s.heroAlign || 'left'; b.head = s.headerStyle || 'left';
   b.look = s.look || 'modern';
   b.herobtn = s.heroBtnMobile || 'medium';
+  document.documentElement.style.setProperty('--mzoom', String((s.mobileScale || 100) / 100));
+  document.documentElement.style.setProperty('--hzoom', String((s.heroScaleMobile || 100) / 100));
   $('#preview-note').hidden = !s.preview;
   $('#title').textContent = s.title;
   $('#logo').hidden = !s.logoId;
