@@ -699,6 +699,12 @@ $('#logo-home')?.addEventListener('click', (e) => {
   location.hash = home;
   location.reload();
 });
+// Кнопка «Главная» в меню (и в нижней панели на телефоне) — как логотип: на главную и обновить страницу.
+document.querySelector('.nav-main a[href="#home"]')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  if (location.hash !== '#home') location.hash = 'home';
+  location.reload();
+});
 $('#password-cancel').addEventListener('click', () => $('#password-dialog').close());
 
 
