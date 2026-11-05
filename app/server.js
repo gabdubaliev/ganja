@@ -1421,6 +1421,7 @@ const routes = [
     const sh = cashAlert(store.openShift(user, body.register_id, { cash: body.cash, note: body.note }), 'открытии');
     shiftTelegram(sh, 'open', user);
     // Сотрудник вышел на смену — сделки без ответственного раздаются по очереди (если так настроено в воронке).
+    try { crm.clearBusy(user?.id); } catch { /* нет CRM */ }
     try { crm.autoAssignFree(); } catch (err) { console.error('CRM: раздача сделок не удалась:', err.message); }
     return sh;
   }, 'pos'],
@@ -1524,6 +1525,12 @@ const routes = [
   ['GET', '/api/crm/funnel', () => crm.funnel(), 'crm'],
   ['PUT', '/api/crm/funnel', (p, url, body, user) => crm.setFunnel(body, user), 'crm.settings'],
   ['POST', '/api/crm/assign-free', (p, url, body, user) => crm.assignFree(user), 'crm.settings'],
+  ['GET', '/api/crm/busy', (p, url, body, user) => ({ busy: crm.busyOf(user?.id) }), 'crm'],
+  ['POST', '/api/crm/busy', (p, url, body, user) => {
+    const r = crm.setBusy(user, Boolean(body?.busy));
+    if (r.moved) current().notifier.broadcast('lead', { text: `${user.name || user.email} занят — передано чатов: ${r.moved}` }, 'crm');
+    return r;
+  }, 'crm'],
   ['GET', '/api/crm/tasks', (p, url, body, user) => crm.tasks({ userId: url.searchParams.get('mine') === '1' && user ? user.id : null }), 'crm'],
   ['POST', '/api/crm/leads', (p, url, body, user) => crm.create(body, user), 'crm'],
   ['GET', '/api/crm/leads/:id', (p) => crm.get(p.id), 'crm'],

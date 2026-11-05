@@ -40,6 +40,9 @@ async function renderCrm() {
   } catch (err) {
     return toast(err.message, 'error');
   }
+  crmView.busy = (funnel.busy || []).some((u) => u.id === session.user?.id);
+  crmView.busyList = funnel.busy || [];
+  renderBusyBtn();
   const open = crmView.list.filter((l) => !['won', 'lost'].includes(l.stage));
   const inWork = open.reduce((s, l) => s + l.amount, 0);
   updateCrmBadge();
@@ -770,3 +773,33 @@ $('#crm-funnel-form').addEventListener('submit', async (e) => {
 });
 
 views.crm = { show: renderCrm, right: 'crm' };
+
+/* ---------- «Занят»: обслуживаю покупателя — мои чаты другим на смене, новые мне не идут ---------- */
+{
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn';
+  btn.id = 'crm-busy';
+  $('#crm-add').before(btn);
+  btn.addEventListener('click', async () => {
+    const going = !crmView.busy;
+    if (going && !confirm('Вы заняты? Все ваши открытые чаты перейдут к тем, кто на смене и свободен, а новые сделки вам приходить не будут, пока не нажмёте «Свободен».')) return;
+    btn.disabled = true;
+    try {
+      const r = await api('/api/crm/busy', { method: 'POST', body: { busy: going } });
+      crmView.busy = r.busy;
+      toast(r.busy ? (r.moved ? `Передано чатов: ${r.moved} → ${r.to.join(', ')}` : 'Вы отмечены «Занят» — новые сделки пойдут другим') : 'Вы свободны — новые сделки снова будут приходить вам');
+      renderCrm();
+    } catch (err) { toast(err.message, 'error'); }
+    btn.disabled = false;
+  });
+}
+function renderBusyBtn() {
+  const btn = document.getElementById('crm-busy');
+  if (!btn) return;
+  btn.textContent = crmView.busy ? '✅ Свободен' : '🙋 Занят';
+  btn.classList.toggle('primary', Boolean(crmView.busy));
+  const others = (crmView.busyList || []).filter((u) => u.id !== session.user?.id).map((u) => u.name);
+  btn.title = crmView.busy ? 'Нажмите, когда освободитесь — новые сделки снова будут приходить вам'
+    : `Обслуживаете покупателя? Ваши чаты перейдут к свободному сотруднику на смене${others.length ? ` (сейчас заняты: ${others.join(', ')})` : ''}`;
+}

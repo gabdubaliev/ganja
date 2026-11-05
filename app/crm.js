@@ -119,10 +119,20 @@ function createCrm(store) {
   const stageNames = () => Object.fromEntries(funnel().stages.map((x) => [x.key, x.name]));
 
   // Кто сейчас на смене и может вести сделки: открытая смена (не старше суток), сотрудник не отключён, есть право «CRM».
-  function onShift() {
+  function onShiftAll() {
     const rows = db.prepare(`SELECT DISTINCT u.* FROM shifts s JOIN users u ON u.id = s.user_id
       WHERE s.closed_at IS NULL AND s.opened_at > ? AND COALESCE(u.disabled, 0) = 0 AND u.moved_to IS NULL ORDER BY u.id`).all(Date.now() - 864e5);
     return rows.filter((u) => can(u, 'crm'));
+  }
+  // «Занят»: сотрудник обслуживает покупателя в зале — новые сделки ему не приходят, его чаты переданы другим.
+  // { id сотрудника: с какого времени }. Сбрасывается кнопкой «Свободен» и при открытии новой смены.
+  const busyMap = () => { try { return JSON.parse(store.setting('crm_busy', '{}')) || {}; } catch { return {}; } };
+  const setBusyMap = (m) => store.setSetting('crm_busy', JSON.stringify(m));
+  const isBusy = (id) => Boolean(busyMap()[id]);
+  // Кто на смене и свободен — только им раздаются сделки.
+  function onShift() {
+    const busy = busyMap();
+    return onShiftAll().filter((u) => !busy[u.id]);
   }
   // Нагрузка сотрудника — сколько у него открытых сделок на первом этапе («Новое обращение»).
   const loadOf = (id) => db.prepare("SELECT COUNT(*) AS n FROM leads WHERE user_id = ? AND closed_at IS NULL AND stage = 'new'").get(id).n;
@@ -165,7 +175,9 @@ function createCrm(store) {
     funnel() {
       const f = funnel();
       const counts = Object.fromEntries(db.prepare('SELECT stage, COUNT(*) AS n FROM leads WHERE closed_at IS NULL OR closed_at > ? GROUP BY stage').all(Date.now() - 30 * 864e5).map((r) => [r.stage, r.n]));
+      const busy = busyMap();
       return { ...f, counts, onShift: onShift().map((u) => ({ id: u.id, name: u.name || u.email })),
+        busy: Object.keys(busy).map((id) => { const u = store.findUser(Number(id)); return u ? { id: u.id, name: u.name || u.email, since: busy[id] } : null; }).filter(Boolean),
         free: db.prepare('SELECT COUNT(*) AS n FROM leads WHERE user_id IS NULL AND closed_at IS NULL').get().n };
     },
 
@@ -236,6 +248,42 @@ function createCrm(store) {
       }
       return { assigned, moved };
     },
+    // Кнопка «Занят»: все открытые чаты сотрудника — поровну тем, кто на смене и свободен; новые ему не идут.
+    // «Свободен» — снова получает новые сделки (переданные остаются у тех, кто их принял).
+    setBusy(user, busy) {
+      if (!user) throw new UserError('Сначала войдите');
+      const m = busyMap();
+      if (!busy) {
+        delete m[user.id];
+        setBusyMap(m);
+        return { busy: false, moved: 0 };
+      }
+      const others = onShift().filter((u) => u.id !== user.id);
+      const mine = db.prepare('SELECT id FROM leads WHERE user_id = ? AND closed_at IS NULL ORDER BY updated_at DESC, id DESC').all(user.id);
+      if (mine.length && !others.length) {
+        const busyOthers = onShiftAll().filter((u) => u.id !== user.id);
+        throw new UserError(busyOthers.length
+          ? `Остальные на смене тоже заняты (${busyOthers.map((u) => u.name || u.email).join(', ')}) — некому передать чаты. Подождите, пока кто-то освободится.`
+          : 'Кроме вас на смене никого нет — некому передать чаты. Откройте смену второму сотруднику или ответьте позже.');
+      }
+      m[user.id] = Date.now();
+      setBusyMap(m);
+      const load = new Map(others.map((u) => [u.id, db.prepare('SELECT COUNT(*) AS n FROM leads WHERE user_id = ? AND closed_at IS NULL').get(u.id).n]));
+      const moved = [];
+      for (const l of mine) {
+        let best = null;
+        for (const u of others) if (best === null || load.get(u.id) < load.get(best)) best = u.id;
+        load.set(best, load.get(best) + 1);
+        db.prepare('UPDATE leads SET user_id = ?, updated_at = ? WHERE id = ?').run(best, Date.now(), l.id);
+        const to = others.find((u) => u.id === best);
+        event(l.id, 'system', `${user.name || user.email} занят — чат передан: ${to.name || to.email}`, who(user));
+        moved.push({ lead: l.id, to: best });
+      }
+      const names = [...new Set(moved.map((x) => x.to))].map((id) => { const u = others.find((o) => o.id === id); return u.name || u.email; });
+      return { busy: true, moved: moved.length, to: names };
+    },
+    busyOf: (id) => isBusy(id),
+    clearBusy(id) { const m = busyMap(); if (m[id]) { delete m[id]; setBusyMap(m); } },
     autoAssignFree() {
       return funnel().assignFree ? crm.assignFree() : { assigned: 0 };
     },
