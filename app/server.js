@@ -1098,6 +1098,27 @@ const routes = [
     const saved = store.updateUser(user.id, { name: body.name, email: body.email });
     return { name: saved.name, email: saved.email };
   }, 'any'],
+  // Личный Telegram сотрудника: ссылка на бота с кодом → сотрудник жмёт «Start» → чат привязан.
+  ['GET', '/api/me/telegram', (p, url, body, user) => {
+    if (!user) return { linked: false, bot: false };
+    const u = store.findUser(user.id);
+    return { linked: Boolean(u?.tg_chat), who: u?.tg_who || '', bot: Boolean(tgBot().token) };
+  }, 'any'],
+  ['POST', '/api/me/telegram/link', async (p, url, body, user) => {
+    if (!user) throw new UserError('Сначала войдите');
+    const tg = tgBot();
+    if (!tg.token) throw new UserError('Бот магазина не подключён — попросите владельца: «Настройки → Telegram»');
+    const me = await fetch(`https://api.telegram.org/bot${tg.token}/getMe`, { signal: AbortSignal.timeout(10_000) }).then((r) => r.json()).catch(() => ({}));
+    if (!me.ok) throw new UserError('Telegram не узнал бота — попросите владельца проверить токен');
+    const token = crypto.randomBytes(9).toString('base64url');
+    staffLinks.set(token, { ctxId: current().id, userId: user.id, exp: Date.now() + 30 * 60_000 });
+    return { link: `https://t.me/${me.result.username}?start=emp_${token}`, bot: me.result.username };
+  }, 'any'],
+  ['DELETE', '/api/me/telegram', (p, url, body, user) => {
+    if (!user) throw new UserError('Сначала войдите');
+    store.db.prepare("UPDATE users SET tg_chat = NULL, tg_who = '' WHERE id = ?").run(user.id);
+    return { linked: false };
+  }, 'any'],
   ['PUT', '/api/me/password', (p, url, body, user) => {
     if (!user) throw new UserError('Сначала заведите сотрудников');
     if (!checkPassword(body.current, store.findUser(user.id).password_hash)) throw new UserError('Текущий пароль указан неверно');
@@ -1530,6 +1551,8 @@ const routes = [
     const r = crm.setBusy(user, Boolean(body?.busy));
     const me = user.name || user.email;
     if (r.moved) current().notifier.broadcast('lead', { text: `${me} занят — передано чатов: ${r.moved}` }, 'crm');
+    // Лично каждому, кому передали чаты (если подключил свой Telegram в «Профиле»).
+    for (const x of r.byTo || []) tgToUser(current(), x.id, `🔁 Вам переданы чаты: у сотрудника «${me}» сейчас покупатель.\n${x.leads.slice(0, 15).map((n) => `• ${n}`).join('\n')}${x.leads.length > 15 ? `\n…и ещё ${x.leads.length - 15}` : ''}\nОтветьте им в «Сделках».`);
     // Telegram (событие «Сделки: сотрудник занят»): кому и какие чаты переданы.
     const tg = current().notifier.tgFor('crm_handover');
     if (tg) {
@@ -2435,12 +2458,35 @@ const { createTgBot } = require('./tgbot');
 const tgLinks = new Map(); // токен ссылки -> { ctxId, phone, purpose, exp }
 const tgChats = new Map(); // chat id -> токен ссылки
 let tgBotName = '';
+// Привязка личного Telegram сотрудника: код → { ctxId, userId, exp } (30 минут).
+const staffLinks = new Map();
+setInterval(() => { const now = Date.now(); for (const [k, v] of staffLinks) if (v.exp < now) staffLinks.delete(k); }, 10 * 60_000).unref?.();
+// Личное сообщение сотруднику (если он подключил Telegram). Тихо, без ошибок.
+function tgToUser(ctx, userId, text) {
+  const u = ctx?.store.findUser(userId);
+  if (!u?.tg_chat || !shopBot) return;
+  shopBot.send(u.tg_chat, text).catch((err) => console.error('Telegram сотруднику:', err.message));
+}
 const shopBot = createTgBot({
   token: () => contextOf(1)?.notifier.telegramSettings().token || '',
   async onMessage(m) {
     if (m.chat?.type !== 'private') return;
     const text = String(m.text || '').trim();
     const shopTitle = mainStore.shop().title || mainStore.design().name || 'магазина'; // название витрины, иначе — магазина
+    // Сотрудник привязывает личный Telegram (кнопка в «Профиле»).
+    const emp = text.match(/^\/start\s+emp_([\w-]{8,40})$/);
+    if (emp) {
+      const link = staffLinks.get(emp[1]);
+      if (!link || link.exp < Date.now()) return shopBot.send(m.chat.id, 'Ссылка устарела. Откройте в программе «Настройки → Профиль» и нажмите «Подключить мой Telegram» ещё раз.');
+      staffLinks.delete(emp[1]);
+      const ctx = contextOf(link.ctxId);
+      const u = ctx?.store.findUser(link.userId);
+      if (!u) return shopBot.send(m.chat.id, 'Сотрудник не найден.');
+      const who = [m.from?.first_name, m.from?.last_name].filter(Boolean).join(' ') + (m.from?.username ? ` (@${m.from.username})` : '');
+      ctx.store.db.prepare('UPDATE users SET tg_chat = ?, tg_who = ? WHERE id = ?').run(String(m.chat.id), who.slice(0, 120), u.id);
+      ctx.store.audit({ kind: 'change', userName: u.name || u.email, action: 'Подключил личный Telegram', details: who });
+      return shopBot.send(m.chat.id, `✅ Готово, ${u.name || u.email}! Теперь сюда будут приходить ваши уведомления из программы ${shopTitle}: например, когда вам передали чаты с клиентами.`);
+    }
     const start = text.match(/^\/start\s+sc_([\w-]{10,40})$/);
     if (start) {
       const link = tgLinks.get(start[1]);

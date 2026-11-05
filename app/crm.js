@@ -281,7 +281,7 @@ function createCrm(store) {
       }
       const names = [...new Set(moved.map((x) => x.to))].map((id) => { const u = others.find((o) => o.id === id); return u.name || u.email; });
       // Кому что досталось — для уведомления: [{ name, leads: ['Айгерим', '@mont_client', …] }].
-      const byTo = [...new Set(moved.map((x) => x.to))].map((id) => { const u = others.find((o) => o.id === id); return { name: u.name || u.email, leads: moved.filter((x) => x.to === id).map((x) => x.who) }; });
+      const byTo = [...new Set(moved.map((x) => x.to))].map((id) => { const u = others.find((o) => o.id === id); return { id, name: u.name || u.email, leads: moved.filter((x) => x.to === id).map((x) => x.who) }; });
       return { busy: true, moved: moved.length, to: names, byTo };
     },
     busyOf: (id) => isBusy(id),

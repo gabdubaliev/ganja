@@ -665,7 +665,47 @@ function openProfile() {
   f.elements.name.value = u.name || '';
   f.elements.email.value = u.email || '';
   $('#pf-role').textContent = [session.roleName ? session.roleName(u.role) : u.role, session.branch?.name].filter(Boolean).join(' · ');
+  renderProfileTelegram();
   $('#password-dialog').showModal();
+}
+// «Мой Telegram»: личные уведомления сотруднику (переданные чаты и т.п.) — через бота магазина.
+async function renderProfileTelegram() {
+  let box = document.getElementById('pf-tg');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'pf-tg';
+    box.className = 'pf-tg';
+    $('#pf-role').after(box);
+    box.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-tg]');
+      if (!b) return;
+      try {
+        if (b.dataset.tg === 'link') {
+          const r = await api('/api/me/telegram/link', { method: 'POST', body: {} });
+          window.open(r.link, '_blank');
+          box.innerHTML = `<p class="sub">Откроется Telegram с ботом <b>@${esc(r.bot)}</b> — нажмите там «Start» (или «Запустить»). Потом нажмите «Проверить».</p>
+            <div class="row"><a class="btn small" href="${esc(r.link)}" target="_blank" rel="noopener">Открыть Telegram ещё раз</a><button type="button" class="btn small primary" data-tg="check">Проверить</button></div>`;
+        } else if (b.dataset.tg === 'check') {
+          const st = await api('/api/me/telegram');
+          if (!st.linked) return toast('Бот ещё не получил «Start». Откройте ссылку и нажмите «Start», потом «Проверить».', 'error');
+          toast('Telegram подключён');
+          renderProfileTelegram();
+        } else if (b.dataset.tg === 'off') {
+          if (!confirm('Отключить личные уведомления в Telegram?')) return;
+          await api('/api/me/telegram', { method: 'DELETE' });
+          renderProfileTelegram();
+        }
+      } catch (err) { toast(err.message, 'error'); }
+    });
+  }
+  box.innerHTML = '<p class="sub">Telegram: проверяю…</p>';
+  try {
+    const st = await api('/api/me/telegram');
+    box.innerHTML = st.linked
+      ? `<p class="sub">📱 Мой Telegram: <b>${esc(st.who || 'подключён')}</b> — сюда приходят личные уведомления (например, когда вам передали чаты). <button type="button" class="link" data-tg="off">Отключить</button></p>`
+      : st.bot ? `<p class="sub">📱 Подключите свой Telegram — будут приходить личные уведомления (например, когда вам передали чаты с клиентами).</p><button type="button" class="btn small" data-tg="link">Подключить мой Telegram</button>`
+        : '<p class="sub">📱 Личные уведомления в Telegram станут доступны, когда владелец подключит бота магазина.</p>';
+  } catch { box.innerHTML = ''; }
 }
 $('#password-form').addEventListener('submit', async (e) => {
   e.preventDefault();

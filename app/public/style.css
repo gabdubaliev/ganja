@@ -418,6 +418,8 @@ body.screen-guard main.page { -webkit-user-select: none; user-select: none; -web
 body.screen-guard main.page input, body.screen-guard main.page textarea { -webkit-user-select: text; user-select: text; }
 body.guard-hide main.page { filter: blur(22px); }
 @media print { body.screen-guard main.page { display: none !important; } }
+.pf-tg { display: grid; gap: 6px; padding: 10px 12px; margin: 6px 0 4px; border-radius: 12px; background: var(--surface-2); }
+.pf-tg .sub { margin: 0; }
 .sales-summary { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; margin-bottom: 8px; font-size: 15px; }
 /* Итоги журнала продаж: карточки «Итого», «Наличными», «Безнал». */
 .sales-summary:has(.ss-tiles) { display: block; margin-bottom: 14px; }

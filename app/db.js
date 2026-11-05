@@ -228,6 +228,8 @@ function open(file) {
   // Личный список способов оплаты сотрудника (JSON id) или NULL — все включённые.
   // max_discount — сколько процентов скидки на чек может дать сотрудник (NULL — без ограничения).
   addColumns('users', [['payment_methods', 'TEXT'], ['max_discount', 'REAL']]);
+  // Личный Telegram сотрудника (чат с ботом магазина): ему лично приходят переданные чаты и т.п.
+  addColumns('users', [['tg_chat', 'TEXT'], ['tg_who', "TEXT NOT NULL DEFAULT ''"]]);
   // plan_bonus — премия в сомах за выполнение месячного плана продаж.
   addColumns('users', [['plan_bonus', 'REAL NOT NULL DEFAULT 0']]);
   // PIN-код для быстрой смены кассира на кассе (scrypt-хеш, как пароль).
