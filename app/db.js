@@ -5660,7 +5660,7 @@ function createStore(file) {
         heroButton: t('heroButton', 'Кнопка на баннере', 40),
         mobileScale: [80, 85, 90, 95, 100].includes(Number(v.mobileScale)) ? Number(v.mobileScale) : 100,
         heroScaleMobile: [60, 70, 80, 90, 100].includes(Number(v.heroScaleMobile)) ? Number(v.heroScaleMobile) : 100,
-        heroBtnMobile: ['small', 'medium', 'wide'].includes(v.heroBtnMobile) ? v.heroBtnMobile : 'medium',
+        heroBtnMobile: ['small', 'medium', 'wide', 'none'].includes(v.heroBtnMobile) ? v.heroBtnMobile : 'medium',
         headerStyle: v.headerStyle === 'center' ? 'center' : 'left',
         look: v.look === 'minimal' ? 'minimal' : 'modern',
         mobileColumns: Number(v.mobileColumns) === 1 ? 1 : 2,
