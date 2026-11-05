@@ -259,7 +259,7 @@ function createCrm(store) {
         return { busy: false, moved: 0 };
       }
       const others = onShift().filter((u) => u.id !== user.id);
-      const mine = db.prepare('SELECT id FROM leads WHERE user_id = ? AND closed_at IS NULL ORDER BY updated_at DESC, id DESC').all(user.id);
+      const mine = db.prepare("SELECT id, COALESCE(NULLIF(name, ''), NULLIF(instagram, ''), NULLIF(phone, ''), title) AS who FROM leads WHERE user_id = ? AND closed_at IS NULL ORDER BY updated_at DESC, id DESC").all(user.id);
       if (mine.length && !others.length) {
         const busyOthers = onShiftAll().filter((u) => u.id !== user.id);
         throw new UserError(busyOthers.length
@@ -277,10 +277,12 @@ function createCrm(store) {
         db.prepare('UPDATE leads SET user_id = ?, updated_at = ? WHERE id = ?').run(best, Date.now(), l.id);
         const to = others.find((u) => u.id === best);
         event(l.id, 'system', `${user.name || user.email} занят — чат передан: ${to.name || to.email}`, who(user));
-        moved.push({ lead: l.id, to: best });
+        moved.push({ lead: l.id, to: best, who: l.who || `сделка №${l.id}` });
       }
       const names = [...new Set(moved.map((x) => x.to))].map((id) => { const u = others.find((o) => o.id === id); return u.name || u.email; });
-      return { busy: true, moved: moved.length, to: names };
+      // Кому что досталось — для уведомления: [{ name, leads: ['Айгерим', '@mont_client', …] }].
+      const byTo = [...new Set(moved.map((x) => x.to))].map((id) => { const u = others.find((o) => o.id === id); return { name: u.name || u.email, leads: moved.filter((x) => x.to === id).map((x) => x.who) }; });
+      return { busy: true, moved: moved.length, to: names, byTo };
     },
     busyOf: (id) => isBusy(id),
     clearBusy(id) { const m = busyMap(); if (m[id]) { delete m[id]; setBusyMap(m); } },

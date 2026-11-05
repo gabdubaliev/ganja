@@ -1528,7 +1528,18 @@ const routes = [
   ['GET', '/api/crm/busy', (p, url, body, user) => ({ busy: crm.busyOf(user?.id) }), 'crm'],
   ['POST', '/api/crm/busy', (p, url, body, user) => {
     const r = crm.setBusy(user, Boolean(body?.busy));
-    if (r.moved) current().notifier.broadcast('lead', { text: `${user.name || user.email} занят — передано чатов: ${r.moved}` }, 'crm');
+    const me = user.name || user.email;
+    if (r.moved) current().notifier.broadcast('lead', { text: `${me} занят — передано чатов: ${r.moved}` }, 'crm');
+    // Telegram (событие «Сделки: сотрудник занят»): кому и какие чаты переданы.
+    const tg = current().notifier.tgFor('crm_handover');
+    if (tg) {
+      const list = (names) => names.slice(0, 8).join(', ') + (names.length > 8 ? ` и ещё ${names.length - 8}` : '');
+      const text = r.busy
+        ? (r.moved ? `🔁 ${me} — «Занят»: обслуживает покупателя. Чаты переданы:\n${r.byTo.map((x) => `→ ${x.name}: ${x.leads.length} — ${list(x.leads)}`).join('\n')}\nОтветьте клиентам в «Сделках».`
+          : `🙋 ${me} — «Занят»: новые сделки пойдут другим сотрудникам на смене.`)
+        : `✅ ${me} — «Свободен»: новые сделки снова приходят и этому сотруднику.`;
+      current().notifier.sendTelegram(text, tg).catch((err) => console.error('Telegram (передача чатов):', err.message));
+    }
     return r;
   }, 'crm'],
   ['GET', '/api/crm/tasks', (p, url, body, user) => crm.tasks({ userId: url.searchParams.get('mine') === '1' && user ? user.id : null }), 'crm'],
