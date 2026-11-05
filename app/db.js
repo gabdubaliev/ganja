@@ -1393,13 +1393,20 @@ const TS_COLORS = ['', 'green', 'yellow', 'red', 'blue', 'purple', 'gray'];
 
 // Доля месяцев по календарным дням: каждый день, который задевает период, — 1/(дней в его месяце).
 // Сегодняшний день считается целиком: аренда за сегодня — полная дневная доля.
+// Дней в сроке [since, until): «с 6-го до 27-го» — 21 день.
+const dayStartOf = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
+function termDays(since, until) {
+  let n = 0;
+  for (const d = new Date(dayStartOf(since)); d.getTime() < until; d.setDate(d.getDate() + 1)) n++;
+  return n;
+}
 function dayShare(from, to, since = null, until = null) {
   let share = 0, days = 0;
   const d = new Date(from);
   d.setHours(0, 0, 0, 0);
   for (; d.getTime() < to; d.setDate(d.getDate() + 1)) {
     if (since && d.getTime() + 864e5 <= since) continue;
-    if (until && d.getTime() > until) break; // после последнего дня — не считается
+    if (until && d.getTime() >= until) break; // «до» — этот день уже не считается
     share += 1 / new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
     days++;
   }
@@ -4543,7 +4550,13 @@ function createStore(file) {
         // Без даты «с какого дня» — с начала месяца, когда расход завели: в прошлые месяцы он не уходит.
         const created = r.created_at ? new Date(r.created_at) : null;
         const since = r.since || (created ? new Date(created.getFullYear(), created.getMonth(), 1).getTime() : null);
-        const { share, days } = dayShare(from, to, since, r.until || null);
+        // Есть «Действует до» — сумма на весь срок, делится поровну на его дни (100 000 с 6-го до 27-го = 21 день → 4 762 в день).
+        if (r.until) {
+          const total = termDays(since || dayStartOf(r.created_at || Date.now()), r.until);
+          const { days } = dayShare(from, to, since, r.until);
+          return { id: r.id, name: r.name, monthly: r.amount, term: total, amount: round2(total ? (r.amount * days) / total : 0), days };
+        }
+        const { share, days } = dayShare(from, to, since, null);
         return { id: r.id, name: r.name, monthly: r.amount, amount: round2(r.amount * share), days };
       }).filter((r) => r.amount > 0);
       const expenses = db.prepare('SELECT category, SUM(amount) AS amount, COUNT(*) AS n FROM expenses WHERE at >= ? AND at < ? GROUP BY category ORDER BY amount DESC')
@@ -4806,8 +4819,8 @@ function createStore(file) {
       const name = text(input.name, 'Название расхода', { required: true, max: 60 });
       const amount = round2(number(input.amount, 'Сумма в месяц', { positive: true }));
       const since = input.since ? number(input.since, 'Действует с', { positive: true }) : null;
-      const until = input.until ? number(input.until, 'Действует по', { positive: true }) : null;
-      if (since && until && until < since) throw new UserError('«Действует по» не может быть раньше, чем «Действует с»');
+      const until = input.until ? number(input.until, 'Действует до', { positive: true }) : null;
+      if (since && until && until <= since) throw new UserError('«Действует до» должна быть позже, чем «Действует с»');
       const clash = this.listRecurring().find((r) => r.id !== Number(id) && r.name.toLowerCase() === name.toLowerCase());
       if (clash) throw new UserError(`Расход «${clash.name}» уже есть — измените его`);
       if (id) {

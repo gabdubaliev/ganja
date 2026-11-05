@@ -2041,12 +2041,12 @@
 <dialog id="fixed-dialog" aria-labelledby="fixed-title">
   <form id="fixed-form" novalidate>
     <h2 id="fixed-title">Постоянный расход</h2>
-    <p class="sub">Аренда, таргет, интернет — то, что платите каждый месяц. Сумма в месяц делится на число дней месяца: аренда 100 000 сом в октябре (31 день) — 3 226 сом в день, и каждый день периода на главной несёт свою долю.</p>
+    <p class="sub">Аренда, таргет, интернет — то, что платите каждый месяц. Сумма в месяц делится на число дней месяца: аренда 100 000 сом в октябре (31 день) — 3 226 сом в день, и каждый день периода на главной несёт свою долю. Если расход на определённый срок (ремонт, рекламная кампания) — укажите «Действует до»: тогда сумма делится на дни этого срока.</p>
     <div class="form-grid">
       <div class="field wide"><label for="fixexp-name">Название</label><input id="fixexp-name" name="name" class="input" list="ex-categories" required autocomplete="off" placeholder="Например, Аренда или Таргет"></div>
-      <div class="field"><label for="fixexp-amount">Сумма в месяц, сом</label><input id="fixexp-amount" name="amount" class="input num" inputmode="decimal" required autocomplete="off"></div>
+      <div class="field"><label for="fixexp-amount" id="fixexp-amount-label">Сумма в месяц, сом</label><input id="fixexp-amount" name="amount" class="input num" inputmode="decimal" required autocomplete="off"></div>
       <div class="field"><label for="fixexp-since">Действует с</label><input id="fixexp-since" name="since" type="date" class="input"></div>
-      <div class="field"><label for="fixexp-until">Действует по</label><input id="fixexp-until" name="until" type="date" class="input"><small class="muted">Пусто — бессрочно. Последний день включительно; после него расход не считается, в прошлых месяцах остаётся.</small></div>
+      <div class="field"><label for="fixexp-until">Действует до</label><input id="fixexp-until" name="until" type="date" class="input"><small class="muted">Пусто — бессрочно: сумма в месяц делится на дни месяца. Указана дата — сумма на весь срок делится на его дни (этот день уже не считается).</small></div>
       <label class="check wide"><input type="checkbox" name="active" checked> Учитывать (снимите, чтобы временно не считать)</label>
       <p class="pick-meta wide" id="fixexp-per-day"></p>
     </div>

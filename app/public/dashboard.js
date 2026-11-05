@@ -750,10 +750,12 @@ function renderNetProfit(v) {
   ].join('');
   const canEdit = session.can('expenses');
   const fixed = state.recurring || [];
-  $('#np-fixed').innerHTML = `<h3>Постоянные расходы в месяц</h3>${fixed.length ? `<ul class="np-items">${fixed.map((r) => {
+  $('#np-fixed').innerHTML = `<h3>Постоянные расходы</h3>${fixed.length ? `<ul class="np-items">${fixed.map((r) => {
     const dim = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
-    return `<li class="${r.active ? '' : 'np-off'}"><span class="np-date">${r.active ? '' : 'выкл.'}</span><span><b>${esc(r.name)}</b><small>${money(r.amount / dim)} в день в этом месяце${r.since ? ` · с ${dateOnly(r.since)}` : ''}${r.until ? ` · по ${dateOnly(r.until)}${r.until < Date.now() ? ' (закончился)' : ''}` : ''}</small></span>
-      <b class="num">${money(r.amount)}</b>${canEdit ? `<button type="button" class="icon-btn" data-fixed-edit="${r.id}" aria-label="Изменить" title="Изменить">✎</button>` : ''}</li>`;
+    const term = r.until ? fixedTermDays(r.since || r.created_at || Date.now(), r.until) : 0;
+    const perDay = r.until ? (term ? r.amount / term : 0) : r.amount / dim;
+    return `<li class="${r.active ? '' : 'np-off'}"><span class="np-date">${r.active ? '' : 'выкл.'}</span><span><b>${esc(r.name)}</b><small>${money(perDay)} в день${r.until ? '' : ' в этом месяце'}${r.since ? ` · с ${dateOnly(r.since)}` : ''}${r.until ? ` · до ${dateOnly(r.until)}${r.until <= Date.now() ? ' (закончился)' : ''}` : ''}</small></span>
+      <b class="num">${money(r.amount)}${r.until ? '<small class="pcat"> за срок</small>' : ''}</b>${canEdit ? `<button type="button" class="icon-btn" data-fixed-edit="${r.id}" aria-label="Изменить" title="Изменить">✎</button>` : ''}</li>`;
   }).join('')}</ul>` : `<p class="pick-meta">${canEdit ? 'Нажмите «+ Постоянный расход» и заведите аренду, таргет и другие ежемесячные расходы — они разделятся по дням.' : 'Постоянных расходов нет.'}</p>`}`;
   const list = state.expenses?.list || [];
   $('#np-list').innerHTML = `<h3>Разовые расходы за период</h3>${list.length ? `<ul class="np-items">${list.slice(0, 30).map((e) => `
@@ -791,13 +793,30 @@ function openFixedDialog(r = null) {
   $('#fixed-dialog').showModal();
   f.elements.name.focus();
 }
+// Дней в сроке «с … до …» (последний день не считается).
+function fixedTermDays(since, until) {
+  let n = 0;
+  for (const d = new Date(dayStart(since)); d.getTime() < until; d.setDate(d.getDate() + 1)) n++;
+  return n;
+}
 function fixedPerDay() {
-  const n = parseNum($('#fixed-form').elements.amount.value);
+  const f = $('#fixed-form');
+  const n = parseNum(f.elements.amount.value);
+  const until = f.elements.until.value ? fromDateInput(f.elements.until.value) : null;
+  const since = f.elements.since.value ? fromDateInput(f.elements.since.value) : dayStart(Date.now()).getTime();
+  $('#fixexp-amount-label').textContent = until ? 'Сумма за весь срок, сом' : 'Сумма в месяц, сом';
+  if (!(n > 0)) { $('#fixexp-per-day').textContent = ''; return; }
+  if (until) {
+    const days = fixedTermDays(since, until);
+    $('#fixexp-per-day').textContent = days > 0 ? `Срок ${days} ${plural(days, ['день', 'дня', 'дней'])}: ${money2(n / days)} в день, за неделю ≈ ${money(n / days * 7)}.` : 'Дата «до» должна быть позже даты «с».';
+    return;
+  }
   const d = new Date();
   const dim = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-  $('#fixexp-per-day').textContent = n > 0 ? `В этом месяце ${dim} ${plural(dim, ['день', 'дня', 'дней'])}: ${money2(n / dim)} в день, за неделю ≈ ${money(n / dim * 7)}.` : '';
+  $('#fixexp-per-day').textContent = `В этом месяце ${dim} ${plural(dim, ['день', 'дня', 'дней'])}: ${money2(n / dim)} в день, за неделю ≈ ${money(n / dim * 7)}.`;
 }
 $('#fixed-form').addEventListener('input', fixedPerDay);
+$('#fixed-form').addEventListener('change', fixedPerDay);
 $('#np-fixed-add').addEventListener('click', () => openFixedDialog());
 $('#np-fixed').addEventListener('click', (e) => {
   const b = e.target.closest('[data-fixed-edit]');
