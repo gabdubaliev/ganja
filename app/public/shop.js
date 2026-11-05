@@ -80,8 +80,25 @@ function applyVars(s) {
 // Шрифты Google — из списка конструктора; свои (загруженные) описаны в theme.css.
 const GOOGLE_FONTS = ['Inter', 'Manrope', 'Montserrat', 'Rubik', 'Nunito', 'Raleway', 'Open Sans', 'Roboto', 'Unbounded', 'Comfortaa',
   'Playfair Display', 'Cormorant Garamond', 'Lora', 'PT Serif', 'Oswald', 'Roboto Condensed', 'Prata', 'Jost'];
+// Разделы витрины, которым можно задать свой шрифт (порядок важен: нижние перекрывают верхние).
+const SECTION_SEL = {
+  announce: '.announce', header: '.site-head', menu: '.head-nav, .cats', brand: '.brand',
+  hero: '.hero h1', heroText: '.hero p, .hero-cta', catTitle: '.cat-title', cardName: '.card .name, .card .meta',
+  product: '.pd-info', perks: '.perk, .pd-perks', footer: '.site-foot', price: '.price, .old-price, .pd-price', buttons: '.btn, .btn-main, .primary, .card .add, .hero-cta',
+};
+function sectionFontsCss(s) {
+  const sf = s.sectionFonts || {};
+  return Object.entries(SECTION_SEL).filter(([k]) => sf[k]).map(([k, sel]) => {
+    const all = sel.split(',').map((x) => x.trim()).flatMap((x) => [x, `${x} *`]).join(', ');
+    return `${all} { font-family: "${String(sf[k]).replace(/["\\<>{}]/g, '')}", ${FONTS.system} !important; }`;
+  }).join('\n');
+}
 function loadFonts(s) {
-  const fams = [...new Set([s.headingFont, s.bodyFont].filter((f) => GOOGLE_FONTS.includes(f)))];
+  let st = $('#section-fonts');
+  if (!st) { st = document.createElement('style'); st.id = 'section-fonts'; document.head.append(st); }
+  const css = sectionFontsCss(s);
+  if (st.textContent !== css) st.textContent = css;
+  const fams = [...new Set([s.headingFont, s.bodyFont, ...Object.values(s.sectionFonts || {})].filter((f) => GOOGLE_FONTS.includes(f)))];
   if (!fams.length) return;
   const href = `https://fonts.googleapis.com/css2?${fams.map((f) => `family=${encodeURIComponent(f).replace(/%20/g, '+')}:wght@400;500;600;700;800`).join('&')}&display=swap`;
   if ($('#shop-fonts').getAttribute('href') !== href) $('#shop-fonts').setAttribute('href', href);

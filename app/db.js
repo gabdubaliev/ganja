@@ -1125,6 +1125,7 @@ const SHOP_DEFAULTS = {
   // Дизайн (вторая версия конструктора): шрифты из Google Fonts с кириллицей, стиль баннера, кнопок и карточек.
   headingFont: 'Manrope',
   bodyFont: 'Inter',
+  sectionFonts: {},
   buttonStyle: 'pill',
   cardRatio: '4:5',
   cardShadow: 'soft',
@@ -1215,6 +1216,7 @@ function imageMime(bytes) {
   if (bytes.length >= 20 && bytes.subarray(0, 4).toString('latin1') === 'RIFF' && bytes.subarray(8, 12).toString('latin1') === 'WEBP') return webpOk(bytes) ? 'image/webp' : null;
   return null;
 }
+const SHOP_SECTIONS = ['announce', 'header', 'menu', 'brand', 'hero', 'heroText', 'catTitle', 'cardName', 'product', 'perks', 'footer', 'price', 'buttons'];
 const SHOP_FONTS = ['Inter', 'Manrope', 'Montserrat', 'Rubik', 'Nunito', 'Raleway', 'Open Sans', 'Roboto', 'Unbounded', 'Comfortaa',
   'Playfair Display', 'Cormorant Garamond', 'Lora', 'PT Serif', 'Oswald', 'Roboto Condensed', 'Prata', 'Jost'];
 
@@ -5634,6 +5636,9 @@ function createStore(file) {
         css: css(v.css),
         headingFont: SHOP_FONTS.includes(v.headingFont) || customFamilies().includes(v.headingFont) ? v.headingFont : 'Manrope',
         bodyFont: SHOP_FONTS.includes(v.bodyFont) || customFamilies().includes(v.bodyFont) ? v.bodyFont : 'Inter',
+        // Шрифт отдельных разделов витрины (шапка, баннер, карточки, цены, кнопки…). Пусто — общий шрифт.
+        sectionFonts: Object.fromEntries(Object.entries(v.sectionFonts && typeof v.sectionFonts === 'object' ? v.sectionFonts : {})
+          .filter(([k, f]) => SHOP_SECTIONS.includes(k) && (SHOP_FONTS.includes(f) || customFamilies().includes(f)))),
         buttonStyle: ['pill', 'rounded', 'square'].includes(v.buttonStyle) ? v.buttonStyle : 'pill',
         cardRatio: ['1:1', '3:4', '4:5', '4:3'].includes(v.cardRatio) ? v.cardRatio : '4:5',
         cardShadow: ['none', 'soft', 'strong', 'outline'].includes(v.cardShadow) ? v.cardShadow : 'soft',

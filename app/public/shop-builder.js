@@ -79,6 +79,7 @@ function fillShopForm() {
     const fams = customFamilyList();
     if (fams.length) sel.insertAdjacentHTML('afterbegin', `<optgroup class="custom" label="Мои шрифты">${fams.map((x) => `<option value="${esc(x)}" style="font-family:'${esc(x)}'">${esc(x)}</option>`).join('')}</optgroup>`);
   }
+  renderSectionFonts();
   for (const sel of f.querySelectorAll('select.fonts')) sel.innerHTML = Object.entries(FONT_NAMES).map(([k, n]) => `<option value="${k}">${n}</option>`).join('');
   for (const el of f.elements) {
     if (!el.name || !(el.name in d)) continue;
@@ -232,6 +233,24 @@ function markDirty() {
   $('#shop-dirty').textContent = dirty ? 'Есть несохранённые изменения' : 'Всё сохранено';
 }
 
+// Свой шрифт для отдельных разделов витрины (порядок — как на странице сверху вниз).
+const SHOP_SECTIONS = [
+  ['announce', 'Бегущая строка'], ['header', 'Шапка целиком'], ['brand', 'Название магазина в шапке'], ['menu', 'Меню и категории'],
+  ['hero', 'Заголовок баннера'], ['heroText', 'Текст и кнопка баннера'], ['catTitle', 'Заголовки разделов каталога'],
+  ['cardName', 'Названия товаров в карточках'], ['price', 'Цены'], ['buttons', 'Кнопки'], ['product', 'Страница товара'],
+  ['perks', 'Преимущества (доставка, оплата…)'], ['footer', 'Подвал сайта'],
+];
+function renderSectionFonts() {
+  const box = $('#shop-section-fonts');
+  if (!box) return;
+  const sf = builder.draft.sectionFonts || {};
+  const options = $('#shop-form select[name="bodyFont"]').innerHTML;
+  box.innerHTML = SHOP_SECTIONS.map(([k, n]) => `<div class="field"><label>${n}</label><select class="input" data-sf="${k}"><option value="">Общий шрифт</option>${options}</select></div>`).join('');
+  for (const sel of box.querySelectorAll('select')) {
+    sel.querySelectorAll('option').forEach((o) => o.removeAttribute('selected'));
+    sel.value = sf[sel.dataset.sf] || '';
+  }
+}
 function readShopForm() {
   const f = $('#shop-form');
   const d = builder.draft;
@@ -247,6 +266,7 @@ function readShopForm() {
   const map = { ...(d.colorMap || {}) };
   for (const inp of document.querySelectorAll('#color-map input[data-cm]')) if (inp.dataset.own === '1') map[inp.dataset.cm] = inp.value;
   d.colorMap = map;
+  d.sectionFonts = Object.fromEntries([...document.querySelectorAll('#shop-section-fonts select[data-sf]')].filter((s) => s.value).map((s) => [s.dataset.sf, s.value]));
 }
 
 /* ---------- Цвета кружков расцветок ---------- */
