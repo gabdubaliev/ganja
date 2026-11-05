@@ -2147,3 +2147,5 @@ a.logo { color: inherit; text-decoration: none; cursor: pointer; }
 .me-menu button { text-align: left; padding: 10px; border: 0; background: none; border-radius: 10px; font: inherit; font-size: 15px; cursor: pointer; color: inherit; }
 .me-menu button:hover { background: var(--hover); }
 .profile-logout { display: none !important; } /* выход — в меню «Настройки» */
+/* Админ-панель — в меню «⚙️ Настройки», не в верхнем меню */
+.nav .nav-owner { display: none !important; }

@@ -31,7 +31,7 @@ const DB_FILE = path.resolve(__dirname, process.env.DB_FILE || 'data/shop.db');
 const PUBLIC = path.join(__dirname, 'public');
 const MAX_RANGE = 800 * 864e5;
 // Без входа можно открыть только страницу входа и её стили.
-const PUBLIC_PATHS = new Set(['/login.html', '/style.css', '/manifest.webmanifest', '/icon.svg', '/shop.css', '/shop.js', '/colors.js']);
+const PUBLIC_PATHS = new Set(['/login.html', '/style.css', '/manifest.webmanifest', '/icon.svg', '/shop.css', '/shop.js', '/colors.js', '/ui-edit.js']);
 const ORDER_LIMIT = 5; // заказов с одного адреса за 10 минут — защита от спама
 const orderLog = new Map(); // ip -> [время заказа]
 
@@ -1084,7 +1084,13 @@ const routes = [
     store.setUserPin(user.id, pinHash(body.pin));
     return { ok: true };
   }, 'any'],
-  // Свой профиль: имя и email (для входа). Нужен текущий пароль.
+  // Изменения интерфейса владельцем (ui-edit.js): по странице — база, касса, витрина.
+// Свой профиль: имя и email (для входа). Нужен текущий пароль.
+  ['GET', '/api/ui', (p, url) => uiGet(url.searchParams.get('page')), 'any'],
+  ['PUT', '/api/ui', (p, url, body, user) => {
+    if (auth.enabled && !isOwner(user)) throw new UserError('Менять интерфейс может только владелец');
+    return uiSet(url.searchParams.get('page'), body);
+  }, 'any'],
   ['PUT', '/api/me/profile', (p, url, body, user) => {
     if (!user) throw new UserError('Сначала заведите сотрудников');
     if (!checkPassword(body.current, store.findUser(user.id).password_hash)) throw new UserError('Текущий пароль указан неверно');
@@ -1803,6 +1809,7 @@ function device(req) {
 const AUDIT_LABELS = {
   'POST /api/users/:id/branch': 'Изменил магазин сотрудника',
   'PUT /api/me/profile': 'Изменил свой профиль',
+  'PUT /api/ui': 'Изменил интерфейс программы',
   'PUT /api/me/password': 'Сменил свой пароль',
   'PUT /api/me/pin': 'Сменил свой PIN-код для кассы',
   'POST /api/products': 'Добавил товар',
@@ -2516,6 +2523,7 @@ async function handlePublic(req, res, url, user) {
     res.setHeader('Service-Worker-Allowed', '/');
     return sendBytes(res, 'text/javascript; charset=utf-8', fs.readFileSync(path.join(PUBLIC, 'shop-sw.js')), 'no-cache');
   }
+  if (req.method === 'GET' && pathname === '/shop/ui') return sendJson(res, 200, uiGet('shop'));
   if (req.method === 'GET' && pathname === '/shop/theme.css') return sendBytes(res, 'text/css; charset=utf-8', shopCss(shop, mainStore.listFonts()));
   if (req.method === 'GET' && pathname === '/shop/data') {
     if (!open) return sendJson(res, 404, { error: 'Витрина закрыта' });
@@ -2614,6 +2622,37 @@ async function handlePublic(req, res, url, user) {
 
 // Каждый запрос выполняется в контексте магазина: сотрудник филиала — в своём, владелец — в выбранном.
 // Интернет-витрина и вебхуки Instagram/WhatsApp — у основного магазина.
+const UI_PAGES = new Set(['admin', 'kassa', 'shop']);
+function uiGet(page) {
+  if (!UI_PAGES.has(page)) throw new UserError('Неизвестная страница');
+  try { return JSON.parse(mainStore.setting(`ui_${page}`, '{}')) || {}; } catch { return {}; }
+}
+function uiSet(page, body) {
+  if (!UI_PAGES.has(page)) throw new UserError('Неизвестная страница');
+  const hex = (v) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v) : undefined);
+  const items = {};
+  for (const [k, o] of Object.entries(body?.items || {}).slice(0, 800)) {
+    if (!o || typeof o !== 'object' || String(k).length > 300) continue;
+    const x = {};
+    if (typeof o.text === 'string') x.text = o.text.slice(0, 200);
+    if (o.icon === null) x.icon = null;
+    else if (o.icon?.img && /^\d+$/.test(String(o.icon.img))) x.icon = { img: Number(o.icon.img) };
+    else if (typeof o.icon?.emoji === 'string' && o.icon.emoji.trim()) x.icon = { emoji: o.icon.emoji.trim().slice(0, 8) };
+    if (hex(o.color)) x.color = hex(o.color);
+    if (hex(o.bg)) x.bg = hex(o.bg);
+    if (Number(o.size) >= 50 && Number(o.size) <= 300) x.size = Math.round(Number(o.size));
+    if (o.bold) x.bold = true;
+    if (o.hide) x.hide = true;
+    if (o.move && typeof o.move.ref === 'string' && o.move.ref.length <= 300) x.move = { ref: o.move.ref, pos: o.move.pos === 'before' ? 'before' : 'after' };
+    if (Object.keys(x).length) items[String(k)] = x;
+  }
+  const out = { items, favicon: /^\d+$/.test(String(body?.favicon || '')) ? Number(body.favicon) : null };
+  const json = JSON.stringify(out);
+  if (json.length > 300_000) throw new UserError('Слишком много изменений на одной странице');
+  mainStore.setSetting(`ui_${page}`, json);
+  return out;
+}
+
 /* ---------- SEO витрины: заголовок, описание, canonical, Open Graph, разметка магазина, robots.txt, sitemap.xml ---------- */
 const htmlAttr = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const shopOrigin = (req) => (SHOP_DOMAIN ? `https://${SHOP_DOMAIN}` : `https://${hostOf(req)}`);
@@ -2657,7 +2696,7 @@ function robotsTxt(req) {
 // (например, baza.montshop.kg) — программа для владельца и сотрудников. На адресе витрины программы не видно.
 const SHOP_DOMAIN = String(process.env.SHOP_DOMAIN || '').toLowerCase().trim();
 const ADMIN_DOMAIN = String(process.env.ADMIN_DOMAIN || '').toLowerCase().trim();
-const SHOP_PATHS = new Set(['/shop', '/shop.js', '/shop.css', '/colors.js', '/icon.svg', '/favicon.ico']);
+const SHOP_PATHS = new Set(['/shop', '/shop.js', '/shop.css', '/colors.js', '/icon.svg', '/favicon.ico', '/ui-edit.js']);
 const hostOf = (req) => String(req.headers.host || '').toLowerCase().replace(/:\d+$/, '');
 
 const server = http.createServer((req, res) => {

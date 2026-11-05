@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="/shop.css">
 <link rel="stylesheet" href="/shop/theme.css" id="shop-theme">
 </head>
-<body>
+<body data-ui-page="shop">
 <div class="preview-note" id="preview-note" hidden>Предпросмотр: витрина ещё не открыта для покупателей</div>
 <div class="announce" id="announce" hidden><div class="announce-track"><span id="announce-text"></span><span aria-hidden="true" id="announce-text2"></span></div></div>
 
@@ -243,6 +243,7 @@ window.shopError = function (where, e) {
 window.addEventListener('error', function (ev) { window.shopError('страница', ev.error || (ev.message + ' @ ' + ev.filename + ':' + ev.lineno)); });
 window.addEventListener('unhandledrejection', function (ev) { window.shopError('промис', ev.reason); });
 </script>
+<script src="/ui-edit.js"></script>
 <script src="/colors.js"></script>
 <script src="/shop.js"></script>
 </body>

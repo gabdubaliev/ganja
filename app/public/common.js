@@ -578,13 +578,17 @@ $('#me-password').addEventListener('click', (e) => {
     m.id = 'me-menu';
     m.className = 'me-menu';
     m.setAttribute('role', 'menu');
-    m.innerHTML = '<div class="me-menu-who"></div><button type="button" role="menuitem" data-me="profile">👤 Профиль</button><button type="button" role="menuitem" data-me="logout" class="danger-text">🚪 Выход</button>';
+    m.innerHTML = '<div class="me-menu-who"></div><button type="button" role="menuitem" data-me="profile">👤 Профиль</button>'
+      + (session.isOwner ? '<button type="button" role="menuitem" data-me="owner">⚙️ Админ-панель</button><button type="button" role="menuitem" data-me="ui">✏️ Изменить интерфейс</button>' : '')
+      + '<button type="button" role="menuitem" data-me="logout" class="danger-text">🚪 Выход</button>';
     document.body.append(m);
     m.addEventListener('click', (ev) => {
       const b = ev.target.closest('[data-me]');
       if (!b) return;
       m.hidden = true;
       if (b.dataset.me === 'profile') openProfile();
+      else if (b.dataset.me === 'owner') { if (document.body.classList.contains('kassa')) location.href = '/#owner'; else location.hash = '#owner'; }
+      else if (b.dataset.me === 'ui') window.uiEditStart?.();
       else $('#logout').click();
     });
     document.addEventListener('click', (ev) => { if (!ev.target.closest('#me-menu')) m.hidden = true; });
