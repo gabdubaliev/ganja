@@ -1316,7 +1316,11 @@ const routes = [
     return sale;
   }, 'pos'],
   ['POST', '/api/sales/:id/refund', (p, url, body, user) => store.refundSale(p.id, user), 'refund'],
-  ['POST', '/api/sales/delete', (p, url, body, user) => store.deleteSales(body, user), 'sales.delete'],
+  // Удалять продажи может только владелец (право сотрудникам больше не выдаётся).
+  ['POST', '/api/sales/delete', (p, url, body, user) => {
+    if (auth.enabled && !isOwner(user)) throw new UserError('Удалять продажи может только владелец');
+    return store.deleteSales(body, user);
+  }, 'pos'],
   // Документы: право на вид документа проверяется внутри — у каждого вида своё.
   ['GET', '/api/docs', (p, url, body, user) => {
     const kind = url.searchParams.get('kind') || '';

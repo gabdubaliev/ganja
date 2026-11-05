@@ -10,7 +10,8 @@ const SALES_RANGES = {
 };
 const salesView = { range: 'today', confirm: null, list: [], selected: new Set(), deleting: null };
 // Удалять можно в основной программе, если есть право; в окне кассы — нет.
-const canDeleteSales = () => !IS_KASSA && session.can('sales.delete');
+// Удалять продажи — только владелец и только в админ-панели (не в кассе).
+const canDeleteSales = () => !IS_KASSA && (session.isOwner || !session.auth);
 
 function salesPeriod() {
   const [, fromDays, toDays] = SALES_RANGES[salesView.range];
