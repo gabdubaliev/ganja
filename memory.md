@@ -970,3 +970,4 @@
 146. Автообновления безопасности системы: shop-update.sh один раз ставит unattended-upgrades (apt-get update + install), 20auto-upgrades, без автоперезагрузки; метка /var/lib/shop-auto-upgrades. install.sh ставит пакет.
 147. Журнал продаж: кнопка «Удалить все продажи…» убрана по просьбе владельца (остались выбор чеков и «Удалить выбранные»; обработчик в sales.js с ?. — без кнопки не срабатывает).
 148. Удаление продаж — только владелец: право sales.delete убрано из roles.js (выданное раньше не действует), POST /api/sales/delete проверяет isOwner, в интерфейсе canDeleteSales = владелец и не касса.
+149. Ошибка «views may not be indexed» при копии филиала: в рабочем подключении филиала TEMP VIEW customers (общие покупатели) ломает VACUUM INTO. snapshotDb(src, out) в server.js: для филиалов/студии — отдельное подключение readOnly. Используется в копии в Telegram и «Скачать копию».

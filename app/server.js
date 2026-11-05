@@ -2223,7 +2223,7 @@ async function runOffsite(why) {
     for (const src of backupSources()) {
       if (src.key === 'studio' && !cfg.studio) continue;
       const file = path.join(dir, `${src.key}.db`);
-      src.db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
+      snapshotDb(src, file);
       files.push({ name: src.key === 'shop' ? 'shop.db' : `${src.key}.db`, file });
     }
     const stamp = new Date().toLocaleString('sv-SE').slice(0, 16).replace(' ', '_').replace(':', '-');
@@ -2263,6 +2263,16 @@ setInterval(() => {
   runOffsite('каждую ночь').catch(() => {});
 }, 10 * 60_000).unref?.();
 
+// Целостный снимок базы в файл. У филиала в рабочем подключении таблица покупателей подменена общей
+// (TEMP VIEW customers из основной базы) — VACUUM INTO там падает с «views may not be indexed».
+// Поэтому снимок делается через отдельное подключение только для чтения, без подмен.
+function snapshotDb(src, out) {
+  const q = `VACUUM INTO '${out.replace(/'/g, "''")}'`;
+  if (src.key === 'shop') return src.db.exec(q);
+  const { DatabaseSync } = require('node:sqlite');
+  const conn = new DatabaseSync(src.file, { readOnly: true });
+  try { conn.exec('PRAGMA busy_timeout = 10000'); conn.exec(q); } finally { conn.close(); }
+}
 function backupSources() {
   const dir = path.dirname(DB_FILE);
   const list = [{ key: 'shop', name: `Основной магазин${branchList()[0]?.name ? ` «${branchList()[0].name}»` : ''}`, db: mainStore.db, file: DB_FILE }];
@@ -2996,7 +3006,7 @@ async function handleRequest(req, res, url, user, owner) {
     if (!src) return sendJson(res, 404, { error: 'Такой базы нет' });
     const tmp = path.join(path.dirname(DB_FILE), `.download-${crypto.randomBytes(6).toString('hex')}.db`);
     try {
-      src.db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
+      snapshotDb(src, tmp);
       // Дата в имени файла — по времени магазина (Бишкек), а не сервера.
       const stamp = new Date().toLocaleString('sv-SE', { timeZone: process.env.SHOP_TZ || 'Asia/Bishkek' }).slice(0, 16).replace(' ', '_').replace(':', '-');
       const size = fs.statSync(tmp).size;
