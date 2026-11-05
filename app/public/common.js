@@ -323,8 +323,8 @@ session.ready = api('/api/status').then((s) => {
   for (const el of document.querySelectorAll('[data-can-any]')) el.hidden = !el.dataset.canAny.split(' ').some((r) => session.can(r));
   $('#nav-user').hidden = !s.user;
   if (s.user) {
-    $('#me-password').textContent = s.user.name || s.user.email;
-    $('#me-password').title = `${session.roleName(s.user.role)} · профиль: имя, email, пароль, PIN, выход`;
+    $('#me-password').textContent = '⚙️ Настройки';
+    $('#me-password').title = `${s.user.name || s.user.email} · ${session.roleName(s.user.role)}`;
   }
   if (['notify', 'orders', 'crm', 'customers.accounts'].some((r) => session.can(r))) listenSales();
   renderBranchSwitch();
@@ -569,7 +569,37 @@ async function removePhoto(productId) {
 }
 
 /* ---------- Профиль: имя, email, пароль, PIN и выход ---------- */
-$('#me-password').addEventListener('click', () => {
+// «⚙️ Настройки» в шапке: маленькое меню — «Профиль» и «Выход».
+$('#me-password').addEventListener('click', (e) => {
+  e.stopPropagation();
+  let m = document.getElementById('me-menu');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'me-menu';
+    m.className = 'me-menu';
+    m.setAttribute('role', 'menu');
+    m.innerHTML = '<div class="me-menu-who"></div><button type="button" role="menuitem" data-me="profile">👤 Профиль</button><button type="button" role="menuitem" data-me="logout" class="danger-text">🚪 Выход</button>';
+    document.body.append(m);
+    m.addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-me]');
+      if (!b) return;
+      m.hidden = true;
+      if (b.dataset.me === 'profile') openProfile();
+      else $('#logout').click();
+    });
+    document.addEventListener('click', (ev) => { if (!ev.target.closest('#me-menu')) m.hidden = true; });
+    document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') m.hidden = true; });
+  }
+  if (!m.hidden && m.dataset.open === '1') { m.hidden = true; m.dataset.open = ''; return; }
+  const u = session.user || {};
+  m.querySelector('.me-menu-who').textContent = `${u.name || u.email || ''}${session.roleName ? ' · ' + session.roleName(u.role) : ''}`;
+  const r = e.currentTarget.getBoundingClientRect();
+  m.style.top = `${Math.round(r.bottom + 6)}px`;
+  m.style.right = `${Math.max(8, Math.round(window.innerWidth - r.right))}px`;
+  m.hidden = false;
+  m.dataset.open = '1';
+});
+function openProfile() {
   const f = $('#password-form');
   f.reset();
   $('#password-error').hidden = true;
@@ -578,7 +608,7 @@ $('#me-password').addEventListener('click', () => {
   f.elements.email.value = u.email || '';
   $('#pf-role').textContent = [session.roleName ? session.roleName(u.role) : u.role, session.branch?.name].filter(Boolean).join(' · ');
   $('#password-dialog').showModal();
-});
+}
 $('#password-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   try {
