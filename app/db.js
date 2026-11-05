@@ -5655,7 +5655,7 @@ function createStore(file) {
         cardShadow: ['none', 'soft', 'strong', 'outline'].includes(v.cardShadow) ? v.cardShadow : 'soft',
         imageFit: v.imageFit === 'contain' ? 'contain' : 'cover',
         heroStyle: ['image', 'split', 'gradient', 'minimal', 'none'].includes(v.heroStyle) ? v.heroStyle : 'image',
-        heroHeight: ['small', 'medium', 'large', 'full'].includes(v.heroHeight) ? v.heroHeight : 'large',
+        heroHeight: ['small', 'medium', 'large', 'full', 'fit'].includes(v.heroHeight) ? v.heroHeight : 'large',
         heroAlign: v.heroAlign === 'center' ? 'center' : 'left',
         heroButton: t('heroButton', 'Кнопка на баннере', 40),
         mobileScale: [80, 85, 90, 95, 100].includes(Number(v.mobileScale)) ? Number(v.mobileScale) : 100,

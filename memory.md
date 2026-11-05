@@ -960,3 +960,4 @@
 136. Витрина: «Кнопка баннера на телефоне» (shop.heroBtnMobile small|medium|wide, по умолчанию medium — по длине надписи; раньше была во всю ширину). body[data-herobtn] в shop.css @media 640px.
 137. Витрина на телефоне: «Размер всей витрины на телефоне» (shop.mobileScale 80–100 → --mzoom, zoom на body) и «Текст и кнопки баннера на телефоне» (shop.heroScaleMobile 60–100 → --hzoom на .hero-text). Только @media 640px.
 138. Баннер на телефоне: shop.heroMobile auto|fit|small|medium|large (body[data-herom]); fit — картинка целиком по пропорциям (--banner-ratio из naturalWidth/Height), текст/кнопки под ней, без текста блок текста скрыт (:has). shop.bannerMobileId — отдельная картинка для телефона (matchMedia 640px, перерисовка при смене).
+139. Баннер на компьютере: shop.heroHeight 'fit' («Вся картинка целиком, без обрезки и затемнения») — @media min-width 641px, те же правила, что fit на телефоне (aspect-ratio --banner-ratio, без градиента, текст под картинкой).

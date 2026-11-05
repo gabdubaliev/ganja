@@ -378,6 +378,14 @@ dialog[open].side { animation: slide .35s var(--ease); }
   body[data-hero="split"] .hero-media { order: 0; min-height: 260px; }
   .foot-grid { grid-template-columns: 1fr 1fr; } .foot-brand { grid-column: 1 / -1; }
 }
+/* Компьютер, «Вся картинка целиком»: картинка по своим пропорциям, без обрезки и затемнения; текст и кнопки — под ней. */
+@media (min-width: 641px) {
+  body[data-heroh="fit"] .hero.has-image { color: var(--ink); background: var(--bg); }
+  body[data-heroh="fit"] .hero.has-image .hero-media { position: relative; inset: auto; z-index: 0; width: 100%; aspect-ratio: var(--banner-ratio, 3); background-image: var(--banner) !important; background-size: cover; border-radius: 0; box-shadow: none; min-height: 0; }
+  body[data-heroh="fit"] .hero.has-image .hero-inner { display: block; min-height: 0 !important; padding-top: 28px; padding-bottom: 8px; }
+  body[data-heroh="fit"] .hero.has-image .hero-text { background: none; padding: 0; }
+  body[data-heroh="fit"] .hero.has-image:not(:has(.hero-text > :is(h1, p, .hero-cta > a):not([hidden]):not(.ui-hidden):not(:empty))) .hero-inner { display: none; }
+}
 @media (max-width: 640px) {
   body { font-size: 14px; }
   .head-row { min-height: 62px; gap: 12px; }
