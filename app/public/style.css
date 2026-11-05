@@ -380,6 +380,31 @@ select.input { text-align: left; }
 .day-nav [data-today] { margin-left: auto; flex: none; }
 .day-pick input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
 .sales-summary { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; margin-bottom: 8px; font-size: 15px; }
+/* Итоги журнала продаж: карточки «Итого», «Наличными», «Безнал». */
+.sales-summary:has(.ss-tiles) { display: block; margin-bottom: 14px; }
+.ss-tiles { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 12px; }
+.ss-tile { display: grid; align-content: start; gap: 6px; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface-2); min-width: 0; }
+.ss-tile b { font-size: 24px; letter-spacing: -0.02em; line-height: 1.1; }
+.ss-label { font-size: 13px; font-weight: 600; color: var(--ink-2); display: flex; justify-content: space-between; gap: 6px; white-space: nowrap; }
+.ss-label i { flex: none; }
+.ss-label i { font-style: normal; font-weight: 600; color: var(--muted); }
+.ss-meta { font-size: 12px; color: var(--muted); }
+.ss-tile ul { list-style: none; margin: 2px 0 0; padding: 8px 0 0; border-top: 1px dashed var(--border); display: grid; gap: 4px; }
+.ss-tile li { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.ss-tile li b { font-size: 13px; color: var(--ink); letter-spacing: 0; }
+.ss-total { background: var(--grad, var(--series)); border-color: transparent; color: #fff; box-shadow: 0 8px 24px color-mix(in srgb, var(--series) 30%, transparent); }
+.ss-total .ss-label, .ss-total .ss-meta { color: rgba(255, 255, 255, .85); }
+.ss-total .ss-sum { font-size: 30px; }
+.ss-cash { background: color-mix(in srgb, #1a9d55 10%, var(--surface)); border-color: color-mix(in srgb, #1a9d55 30%, var(--border)); }
+.ss-cashless { background: color-mix(in srgb, var(--series) 8%, var(--surface)); border-color: color-mix(in srgb, var(--series) 30%, var(--border)); }
+.ss-note { margin: 8px 2px 0; }
+@media (max-width: 760px) {
+  .ss-tiles { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .ss-total { grid-column: 1 / -1; }
+  .ss-tile { padding: 12px 14px; }
+  .ss-tile b { font-size: 20px; }
+  .ss-total .ss-sum { font-size: 28px; }
+}
 /* Итог справа: наличными, безнал, общее. */
 .sales-totals { margin-left: auto; display: grid; gap: 2px; justify-items: end; text-align: right; font-size: 14px; color: var(--ink-2); }
 .sales-totals b { color: var(--ink); }
