@@ -370,6 +370,35 @@ function applyBrand(name) {
   document.title = IS_KASSA ? `Касса — ${name}` : name;
 }
 
+// Надпись логотипа — по центру картинки и в браузерах, которые не умеют text-box (старый Chrome, Samsung Internet, DeX):
+// меряем высоту заглавных букв шрифта и сдвигаем надпись так, чтобы их середина совпала с серединой картинки.
+function alignLogoText() {
+  if (window.CSS?.supports?.('text-box', 'trim-both cap alphabetic')) return;
+  const ctx = document.createElement('canvas').getContext('2d');
+  for (const t of document.querySelectorAll('.logo .logo-text')) {
+    const cs = getComputedStyle(t);
+    if (!parseFloat(cs.fontSize) || !t.offsetParent) continue;
+    t.style.transform = '';
+    ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    const cap = ctx.measureText('НКМ').actualBoundingBoxAscent;
+    if (!cap) continue;
+    // Где у надписи базовая линия: невидимая точка на ней.
+    const mark = document.createElement('i');
+    mark.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline';
+    t.append(mark);
+    const baseline = mark.getBoundingClientRect().top;
+    mark.remove();
+    const pic = t.parentElement.querySelector(':scope > .ui-icon') || t.parentElement;
+    const r = pic.getBoundingClientRect();
+    const shift = (r.top + r.bottom) / 2 - (baseline - cap / 2);
+    if (Math.abs(shift) > 0.2 && Math.abs(shift) < 20) t.style.transform = `translateY(${shift.toFixed(2)}px)`;
+  }
+}
+alignLogoText();
+document.fonts?.ready.then(alignLogoText);
+window.addEventListener('resize', alignLogoText);
+new MutationObserver(() => alignLogoText()).observe(document.getElementById('logo-home') || document.createElement('i'), { attributes: true, attributeFilter: ['style', 'class'] });
+
 function setOrdersBadge(n) {
   session.newOrders = n;
   for (const badge of document.querySelectorAll('#orders-badge, [data-orders-badge]')) {

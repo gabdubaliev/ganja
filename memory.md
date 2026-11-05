@@ -956,3 +956,4 @@
 132. Витрина: галочки «Категории в шапке» (shop.headCats → #head-nav) и «Категории над товарами» (shop.catalogCats → #cats), по умолчанию обе включены — чтобы убрать повтор.
 133. Главная → «Товары и остатки»: галочка «Показать основной товар» (#stock-mains, localStorage dash.stockMains). compute() отдаёт mains — модификации сложены в основной товар (продажи, закупка, остатки, статус заново), в строке «N модификаций».
 134. Логотип в шапке (база/касса): надпись обёрнута в <span class=logo-text> (line-height 1, text-box: trim-both cap alphabetic) — по центру картинки; applyBrand пишет в span.
+135. Логотип: запасное выравнивание alignLogoText() в common.js для браузеров без text-box (старый Chrome/Samsung Internet/DeX) — меряет базовую линию и высоту заглавных, сдвигает .logo-text translateY к центру картинки; пересчёт при загрузке шрифтов, resize и смене стиля #logo-home.
