@@ -710,3 +710,64 @@ $('#password-cancel').addEventListener('click', () => $('#password-dialog').clos
 
 // Поля количества, которые уже есть на странице: «Сейчас на складе» в карточке товара и «Сколько на самом деле».
 for (const id of ['pf-stock', 'sf-stock']) wrapQstep(document.getElementById(id));
+
+/* ---------- USB-сканер штрихкодов: находит товар, куда бы ни стоял курсор ---------- */
+// Сканер — это «клавиатура», которая очень быстро печатает код и жмёт Enter туда, где курсор.
+// Отличаем его от человека по скорости: символы идут чаще, чем раз в 50 мс. Тогда код отправляется
+// туда, где он нужен на этой странице (касса — в чек, документ — в документ, товары — карточка),
+// а из случайного поля, куда сканер успел напечатать, напечатанное убирается.
+// Поля в открытых окнах (сертификат, карта клиента, оплата) не трогаем: туда сканируют нарочно.
+const SCAN_GAP = 50;
+let scanBuf = { chars: '', first: 0, last: 0, target: null, before: null };
+function barcodeRoute() {
+  const kassa = document.body.classList.contains('kassa');
+  if (kassa) return { input: 'pos-search', view: 'pos' };
+  if (currentView === 'doc') return { input: 'doc-search', view: 'doc' };
+  if (currentView === 'products' || currentView === 'home') return { products: true };
+  return null;
+}
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const now = performance.now();
+  const t = e.target;
+  if (e.key.length === 1) {
+    if (now - scanBuf.last > SCAN_GAP) {
+      // Новая серия символов: запоминаем, где был курсор и что было в поле.
+      scanBuf = { chars: '', first: now, last: now, target: t, before: t && 'value' in t ? t.value : null };
+    }
+    scanBuf.chars += e.key;
+    scanBuf.last = now;
+    return;
+  }
+  if (e.key !== 'Enter') return;
+  const b = scanBuf;
+  scanBuf = { chars: '', first: 0, last: 0, target: null, before: null };
+  const fast = b.chars.length >= 4 && now - b.last < SCAN_GAP * 2 && (b.last - b.first) / Math.max(1, b.chars.length - 1) < SCAN_GAP;
+  if (!fast) return;
+  if (t?.closest?.('dialog[open], .scan-overlay, #ui-pane')) return; // окно ждёт этот код само
+  const route = barcodeRoute();
+  if (!route) return;
+  const code = b.chars.trim();
+  // Уже в нужном поле — пусть работает как обычно (Enter в поиске).
+  if (route.input && t?.id === route.input) return;
+  e.preventDefault();
+  e.stopPropagation();
+  // Сканер напечатал код в другое поле — возвращаем то, что там было.
+  if (b.target && b.before !== null && b.target.value !== b.before && b.target.id !== route.input) {
+    b.target.value = b.before;
+    b.target.dispatchEvent(new Event('input', { bubbles: true }));
+    // «change» — чтобы программа запомнила то, что человек вписал в это поле до скана (комментарий и т.п.).
+    b.target.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  if (route.products) {
+    if (typeof productByScan === 'function') productByScan(code);
+    return;
+  }
+  const go = () => {
+    const input = document.getElementById(route.input);
+    if (!input) return;
+    input.value = code;
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  };
+  if (currentView !== route.view) { location.hash = route.view; setTimeout(go, 300); } else go();
+}, true);

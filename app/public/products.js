@@ -1233,7 +1233,8 @@ $('#products-archived').addEventListener('change', (e) => { productsView.archive
 views.products = { show: renderProducts, right: 'products' };
 
 // Камера в списке товаров: нашли по штрихкоду — открываем карточку товара; нет — ищем по коду.
-function productByScan(code, close) {
+async function productByScan(code, close) {
+  if (!catalog.list.length) await catalog.load().catch(() => {});
   const p = catalog.list.find((x) => x.barcode === code || x.code === code);
   close?.();
   if (p) { openProductCard(p.id); return ''; }
