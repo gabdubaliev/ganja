@@ -2625,8 +2625,13 @@ async function handlePublic(req, res, url, user) {
 const UI_PAGES = new Set(['admin', 'kassa', 'shop']);
 function uiGet(page) {
   if (!UI_PAGES.has(page)) throw new UserError('Неизвестная страница');
-  try { return JSON.parse(mainStore.setting(`ui_${page}`, '{}')) || {}; } catch { return {}; }
+  let ui = {};
+  try { ui = JSON.parse(mainStore.setting(`ui_${page}`, '{}')) || {}; } catch { /* пусто */ }
+  // Свои загруженные шрифты (только описание, без файлов) — чтобы редактор мог их предложить и подключить.
+  ui.fontFiles = mainStore.listFonts().map((f) => ({ id: f.id, family: f.family, weight: f.weight, style: f.style }));
+  return ui;
 }
+const uiFont = (v) => { const s = String(v || '').trim(); return /^[\p{L}\p{N} _.-]{1,60}$/u.test(s) ? s : undefined; };
 function uiSet(page, body) {
   if (!UI_PAGES.has(page)) throw new UserError('Неизвестная страница');
   const hex = (v) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v) : undefined);
@@ -2642,15 +2647,16 @@ function uiSet(page, body) {
     if (hex(o.bg)) x.bg = hex(o.bg);
     if (Number(o.size) >= 50 && Number(o.size) <= 300) x.size = Math.round(Number(o.size));
     if (o.bold) x.bold = true;
+    if (uiFont(o.font)) x.font = uiFont(o.font);
     if (o.hide) x.hide = true;
     if (o.move && typeof o.move.ref === 'string' && o.move.ref.length <= 300) x.move = { ref: o.move.ref, pos: o.move.pos === 'before' ? 'before' : 'after' };
     if (Object.keys(x).length) items[String(k)] = x;
   }
-  const out = { items, favicon: /^\d+$/.test(String(body?.favicon || '')) ? Number(body.favicon) : null };
+  const out = { items, favicon: /^\d+$/.test(String(body?.favicon || '')) ? Number(body.favicon) : null, font: uiFont(body?.font) || null };
   const json = JSON.stringify(out);
   if (json.length > 300_000) throw new UserError('Слишком много изменений на одной странице');
   mainStore.setSetting(`ui_${page}`, json);
-  return out;
+  return { ...out, fontFiles: uiGet(page).fontFiles };
 }
 
 /* ---------- SEO витрины: заголовок, описание, canonical, Open Graph, разметка магазина, robots.txt, sitemap.xml ---------- */

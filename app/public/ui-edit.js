@@ -29,7 +29,7 @@ img.ui-icon { width: 1.25em; height: 1.25em; object-fit: contain; vertical-align
 #ui-pane button { background: #eef0f4; color: #111; }
 #ui-pane .ui-done { color: #fff; }
 #ui-pane label { display: grid; gap: 4px; font-size: 12px; color: #555; flex: 1; }
-#ui-pane input:not([type=checkbox]):not([type=color]):not([type=range]) { padding: 8px 10px; border: 1px solid #d0d4da; border-radius: 10px; font: inherit; color: #111; }
+#ui-pane select, #ui-pane input:not([type=checkbox]):not([type=color]):not([type=range]) { padding: 8px 10px; border: 1px solid #d0d4da; border-radius: 10px; font: inherit; color: #111; }
 #ui-pane .ui-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: end; }
 #ui-pane .ui-check { display: flex; align-items: center; gap: 6px; flex: 0; white-space: nowrap; }
 .ui-pane-head { display: flex; justify-content: space-between; align-items: center; }
@@ -62,7 +62,73 @@ img.ui-icon { width: 1.25em; height: 1.25em; object-fit: contain; vertical-align
     keyed.set(k, el);
   }
 
-  let data = { items: {}, favicon: null };
+  let data = { items: {}, favicon: null, font: null };
+  let fontFiles = []; // свои загруженные шрифты: { id, family, weight, style }
+
+  // Шрифты: системные наборы, современные (Google Fonts) и свои загруженные.
+  const SYS = {
+    system: ['Обычный', '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'],
+    serif: ['С засечками', 'Georgia, "Times New Roman", "Noto Serif", serif'],
+    rounded: ['Округлый', 'ui-rounded, "SF Pro Rounded", "Nunito", "Segoe UI", system-ui, sans-serif'],
+    mono: ['Моноширинный', 'ui-monospace, "SF Mono", Menlo, Consolas, "Roboto Mono", monospace'],
+    condensed: ['Узкий', '"Roboto Condensed", "Arial Narrow", "Segoe UI", system-ui, sans-serif'],
+  };
+  const GOOGLE = ['Inter', 'Manrope', 'Montserrat', 'Rubik', 'Nunito', 'Roboto', 'Open Sans', 'Jost', 'PT Sans', 'PT Serif', 'IBM Plex Sans', 'Fira Sans', 'Raleway', 'Oswald', 'Playfair Display', 'Lora', 'Comfortaa', 'Unbounded', 'Roboto Condensed', 'Exo 2'];
+  const loaded = new Set();
+  function fontStack(name) {
+    if (!name) return '';
+    if (SYS[name]) return SYS[name][1];
+    const own = fontFiles.filter((f) => f.family === name);
+    if (own.length && !loaded.has(name)) {
+      loaded.add(name);
+      const st = document.createElement('style');
+      st.textContent = own.map((f) => `@font-face { font-family: "${f.family}"; src: url("/fonts/${f.id}"); font-weight: ${f.weight}; font-style: ${f.style}; font-display: swap; }`).join('\n');
+      document.head.append(st);
+    } else if (!own.length && !loaded.has(name)) {
+      loaded.add(name);
+      const l = document.createElement('link');
+      l.rel = 'stylesheet';
+      l.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(name).replace(/%20/g, '+')}:wght@400;500;600;700;800&display=swap`;
+      document.head.append(l);
+    }
+    return `"${name}", ${SYS.system[1]}`;
+  }
+  function fontOptions(cur, emptyLabel) {
+    const fams = [...new Set(fontFiles.map((f) => f.family))];
+    const opt = (v, t) => `<option value="${esc2(v)}" ${v === (cur || '') ? 'selected' : ''}>${esc2(t)}</option>`;
+    return opt('', emptyLabel)
+      + (fams.length ? `<optgroup label="Мои шрифты">${fams.map((f) => opt(f, f)).join('')}</optgroup>` : '')
+      + `<optgroup label="Современные">${GOOGLE.map((f) => opt(f, f)).join('')}</optgroup>`
+      + `<optgroup label="Системные">${Object.entries(SYS).map(([k, [t]]) => opt(k, t)).join('')}</optgroup>`
+      + (cur && !fams.includes(cur) && !GOOGLE.includes(cur) && !SYS[cur] ? opt(cur, cur) : '');
+  }
+  // Загрузить свой файл шрифта (TTF, OTF, WOFF, WOFF2) — появится в списке «Мои шрифты».
+  function uploadFont(done) {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = '.ttf,.otf,.woff,.woff2';
+    inp.addEventListener('change', () => {
+      const f = inp.files[0];
+      if (!f) return;
+      const guess = f.name.replace(/\.[^.]+$/, '').replace(/[-_ ]?(regular|bold|medium|light|semibold|black|italic|thin|extrabold|book|normal)$/i, '').replace(/[-_]+/g, ' ').trim();
+      const family = prompt('Название шрифта (как он будет называться в списке):', guess);
+      if (!family) return;
+      const r = new FileReader();
+      r.onload = async () => {
+        try {
+          const res = await fetch('/api/fonts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ family, weight: 400, style: 'normal', fileName: f.name, data: String(r.result).split(',')[1] }) });
+          const d = await res.json();
+          if (!res.ok) throw new Error(d.error || 'Шрифт не загрузился');
+          fontFiles = fontFiles.filter((x) => !(x.family === d.family && x.weight === d.weight && x.style === d.style)).concat([d]);
+          loaded.delete(d.family);
+          document.querySelectorAll('style').forEach((st) => { if (st.textContent.includes(`font-family: "${d.family}"`) && st.textContent.startsWith('@font-face')) st.remove(); });
+          done(d.family);
+        } catch (err) { msg(err.message, true); }
+      };
+      r.readAsDataURL(f);
+    });
+    inp.click();
+  }
   let editing = false;
   let picked = null;
   let moveFrom = null;
@@ -131,6 +197,14 @@ img.ui-icon { width: 1.25em; height: 1.25em; object-fit: contain; vertical-align
       el.style.background = o.bg || '';
       el.style.fontSize = o.size ? `${o.size}%` : '';
       el.style.fontWeight = o.bold ? '700' : '';
+      el.style.fontFamily = o.font ? fontStack(o.font) : '';
+    }
+    // Шрифт всей страницы — поверх шрифта из «Дизайна».
+    const root = document.documentElement.style;
+    const pf = data.font ? fontStack(data.font) : '';
+    if (root.getPropertyValue('--font') !== pf) {
+      if (pf) { root.setProperty('--font', pf, 'important'); root.setProperty('--font-head', pf, 'important'); }
+      else { root.removeProperty('--font'); root.removeProperty('--font-head'); }
     }
     // Перемещения — после всего остального (опора должна быть на месте).
     for (const [k, o] of Object.entries(items)) {
@@ -160,13 +234,14 @@ img.ui-icon { width: 1.25em; height: 1.25em; object-fit: contain; vertical-align
   }).observe(document.body, { childList: true, subtree: true, characterData: true });
 
   const loadUrl = PAGE === 'shop' ? '/shop/ui' : `/api/ui?page=${PAGE}`;
-  fetch(loadUrl).then((r) => (r.ok ? r.json() : null)).then((d) => { if (d) { data = { items: d.items || {}, favicon: d.favicon || null }; apply(); } }).catch(() => {});
+  fetch(loadUrl).then((r) => (r.ok ? r.json() : null)).then((d) => { if (d) { fontFiles = d.fontFiles || []; data = { items: d.items || {}, favicon: d.favicon || null, font: d.font || null }; apply(); } }).catch(() => {});
 
   async function save() {
     const r = await fetch(`/api/ui?page=${PAGE}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || 'Не сохранилось');
-    data = { items: d.items || {}, favicon: d.favicon || null };
+    if (d.fontFiles) fontFiles = d.fontFiles;
+    data = { items: d.items || {}, favicon: d.favicon || null, font: d.font || null };
   }
   const item = (k) => (data.items[k] ||= {});
   const msg = (t, bad) => (typeof toast === 'function' ? toast(t, bad ? 'error' : undefined) : alert(t));
@@ -184,6 +259,7 @@ img.ui-icon { width: 1.25em; height: 1.25em; object-fit: contain; vertical-align
     const html = moveFrom
       ? `<b>Куда поставить?</b> Нажмите на элемент — «${esc2(label(keyed.get(moveFrom)))}» встанет рядом с ним. <button type="button" data-ui="cancel-move">Отмена</button>`
       : `<b>✏️ Изменение интерфейса</b> <span>Нажмите на любую кнопку, надпись или блок</span>
+        <button type="button" data-ui="page-font">Шрифт страницы</button>
         <button type="button" data-ui="favicon">Иконка вкладки</button>
         <button type="button" data-ui="hidden">Скрытые (${hidden})</button>
         <button type="button" data-ui="reset-all">Сбросить всё</button>
@@ -252,6 +328,7 @@ img.ui-icon { width: 1.25em; height: 1.25em; object-fit: contain; vertical-align
     el.classList.add('ui-picked');
     const o = data.items[el.dataset.uiKey] || {};
     let pane = document.getElementById('ui-pane');
+    if (pane && pane.dataset.kind === 'page') { pane.remove(); pane = null; } // было открыто окно «Шрифт страницы»
     if (!pane) {
       pane = document.createElement('div');
       pane.id = 'ui-pane';
@@ -266,6 +343,7 @@ img.ui-icon { width: 1.25em; height: 1.25em; object-fit: contain; vertical-align
         <button type="button" data-ui="icon-img">🖼 Картинка</button><button type="button" data-ui="icon-none">Убрать</button></div>
       <div class="ui-row"><label>Цвет текста<input type="color" data-uf="color" value="${o.color || '#111111'}"></label><label>Фон<input type="color" data-uf="bg" value="${o.bg || '#ffffff'}"></label>
         <button type="button" data-ui="no-color">Без цвета</button></div>
+      <div class="ui-row"><label>Шрифт<select data-uf="font">${fontOptions(o.font, 'Как на всей странице')}</select></label><button type="button" data-ui="font-upload">⬆ Свой шрифт</button></div>
       <div class="ui-row"><label>Размер, %<input type="range" min="60" max="220" step="10" data-uf="size" value="${o.size || 100}"></label><label class="ui-check"><input type="checkbox" data-uf="bold" ${o.bold ? 'checked' : ''}> Жирный</label></div>
       <div class="ui-row">
         <button type="button" data-ui="up">↑ Выше</button><button type="button" data-ui="down">↓ Ниже</button>
@@ -295,9 +373,11 @@ img.ui-icon { width: 1.25em; height: 1.25em; object-fit: contain; vertical-align
     const size = Number(v('size').value);
     if (size !== 100) o.size = size; else delete o.size;
     o.bold = v('bold').checked || undefined;
+    o.font = v('font').value || undefined;
   }
   function onPaneChange(e) {
     if (e.target.matches('[data-uf="color"], [data-uf="bg"]')) e.target.dataset.touched = '1';
+    if (e.target.matches('[data-uf="font"]') && picked) picked.style.fontFamily = fontStack(e.target.value); // сразу видно, как выглядит
   }
   async function onPane(e) {
     const b = e.target.closest('[data-ui]');
@@ -310,6 +390,7 @@ img.ui-icon { width: 1.25em; height: 1.25em; object-fit: contain; vertical-align
       if (act === 'move') { moveFrom = k; renderBar(); closePane(); return msg('Теперь нажмите на элемент, рядом с которым поставить'); }
       if (act === 'icon-img') return pickImage((id) => { item(k).icon = { img: id }; picked.dataset.uiIconDone = ''; save().then(() => { location.reload(); }); });
       if (act === 'icon-none') { item(k).icon = null; await save(); location.reload(); return; }
+      if (act === 'font-upload') return uploadFont((fam) => { item(k).font = fam; save().then(() => { apply(); pick(picked); msg(`Шрифт «${fam}» загружен и применён`); }).catch((err) => msg(err.message, true)); });
       if (act === 'no-color') { delete item(k).color; delete item(k).bg; }
       if (act === 'hide') { item(k).hide = !item(k).hide; }
       if (act === 'up' || act === 'down') {
@@ -331,6 +412,7 @@ img.ui-icon { width: 1.25em; height: 1.25em; object-fit: contain; vertical-align
     try {
       if (b.dataset.ui === 'done') return stop();
       if (b.dataset.ui === 'cancel-move') { moveFrom = null; return renderBar(); }
+      if (b.dataset.ui === 'page-font') return pageFontPane();
       if (b.dataset.ui === 'favicon') return pickImage((id) => { data.favicon = id; save().then(() => { apply(); msg('Иконка вкладки сохранена — браузер может показать её не сразу, обновите страницу'); }).catch((err) => msg(err.message, true)); });
       if (b.dataset.ui === 'hidden') {
         const list = Object.entries(data.items).filter(([, o]) => o.hide);
@@ -343,10 +425,42 @@ img.ui-icon { width: 1.25em; height: 1.25em; object-fit: contain; vertical-align
       }
       if (b.dataset.ui === 'reset-all') {
         if (!confirm('Вернуть весь интерфейс этой страницы как было? Все ваши переименования, иконки, цвета, перемещения и скрытия здесь пропадут.')) return;
-        data = { items: {}, favicon: null };
+        data = { items: {}, favicon: null, font: null };
         await save(); location.reload();
       }
     } catch (err) { msg(err.message, true); }
+  }
+  // Шрифт всей страницы: выбрать из списка или загрузить свой.
+  function pageFontPane() {
+    closePane();
+    const pane = document.createElement('div');
+    pane.id = 'ui-pane';
+    pane.dataset.kind = 'page';
+    document.body.append(pane);
+    const draw = () => {
+      pane.innerHTML = `<div class="ui-pane-head"><b>Шрифт страницы</b><button type="button" data-pf="close" aria-label="Закрыть">×</button></div>
+        <label>Шрифт всей страницы (${PAGE === 'shop' ? 'витрина' : PAGE === 'kassa' ? 'касса' : 'база'})<select data-pf="font">${fontOptions(data.font, 'Как в «Дизайне»')}</select></label>
+        <p style="margin:0;font-size:12px;color:#666">Выбранный шрифт сразу видно на странице. Отдельной кнопке или надписи можно задать свой — нажмите на неё.</p>
+        <div class="ui-row"><button type="button" data-pf="upload">⬆ Загрузить свой шрифт (TTF, OTF, WOFF)</button></div>
+        <div class="ui-row"><button type="button" data-pf="reset">↺ Как в «Дизайне»</button><button type="button" data-pf="save" class="ui-done">Сохранить</button></div>`;
+    };
+    draw();
+    const was = data.font;
+    const preview = (v) => { data.font = v || null; apply(); };
+    pane.addEventListener('change', (e) => { if (e.target.matches('[data-pf="font"]')) preview(e.target.value); });
+    pane.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-pf]');
+      if (!b) return;
+      try {
+        if (b.dataset.pf === 'close') { preview(was); return pane.remove(); }
+        if (b.dataset.pf === 'upload') return uploadFont((fam) => { preview(fam); draw(); msg(`Шрифт «${fam}» загружен — нажмите «Сохранить»`); });
+        if (b.dataset.pf === 'reset') preview(null);
+        await save();
+        apply();
+        pane.remove();
+        msg(data.font ? `Шрифт страницы: ${SYS[data.font]?.[0] || data.font}` : 'Шрифт — как в «Дизайне»');
+      } catch (err) { msg(err.message, true); }
+    });
   }
   // Своя картинка (иконка): загрузка на сервер, дальше — /img/<id>.
   function pickImage(done) {
