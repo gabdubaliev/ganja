@@ -121,6 +121,7 @@ function renderFrame() {
   b.btn = s.buttonStyle || 'pill'; b.shadow = s.cardShadow || 'soft'; b.hero = s.heroStyle || 'image';
   b.heroh = s.heroHeight || 'large'; b.align = s.heroAlign || 'left'; b.head = s.headerStyle || 'left';
   b.look = s.look || 'modern';
+  b.herobtn = s.heroBtnMobile || 'medium';
   $('#preview-note').hidden = !s.preview;
   $('#title').textContent = s.title;
   $('#logo').hidden = !s.logoId;

@@ -389,7 +389,10 @@ dialog[open].side { animation: slide .35s var(--ease); }
   .hero-inner { min-height: 0 !important; padding-top: 44px; padding-bottom: 44px; }
   body[data-heroh="large"] .hero-inner, body[data-heroh="full"] .hero-inner { min-height: 72svh !important; align-items: flex-end; }
   .hero h1 { font-size: clamp(34px, 11vw, 48px); }
-  .hero-cta .btn { flex: 1 1 auto; }
+  /* Кнопки баннера на телефоне: размер выбирается в конструкторе («Кнопка баннера на телефоне»). */
+  body[data-herobtn="wide"] .hero-cta .btn { flex: 1 1 auto; }
+  body[data-herobtn="medium"] .hero-cta .btn { padding: 12px 22px; font-size: 14px; }
+  body[data-herobtn="small"] .hero-cta .btn { padding: 9px 16px; font-size: 13px; }
   .catalog { padding-top: 26px; }
   .cats.with-images button { width: 92px; font-size: 13px; }
   .cats.with-images .cat-pic { width: 92px; }

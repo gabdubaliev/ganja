@@ -957,3 +957,4 @@
 133. Главная → «Товары и остатки»: галочка «Показать основной товар» (#stock-mains, localStorage dash.stockMains). compute() отдаёт mains — модификации сложены в основной товар (продажи, закупка, остатки, статус заново), в строке «N модификаций».
 134. Логотип в шапке (база/касса): надпись обёрнута в <span class=logo-text> (line-height 1, text-box: trim-both cap alphabetic) — по центру картинки; applyBrand пишет в span.
 135. Логотип: запасное выравнивание alignLogoText() в common.js для браузеров без text-box (старый Chrome/Samsung Internet/DeX) — меряет базовую линию и высоту заглавных, сдвигает .logo-text translateY к центру картинки; пересчёт при загрузке шрифтов, resize и смене стиля #logo-home.
+136. Витрина: «Кнопка баннера на телефоне» (shop.heroBtnMobile small|medium|wide, по умолчанию medium — по длине надписи; раньше была во всю ширину). body[data-herobtn] в shop.css @media 640px.
