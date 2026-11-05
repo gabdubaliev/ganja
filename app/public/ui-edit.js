@@ -468,7 +468,7 @@ img.ui-icon { width: 1.25em; height: 1.25em; object-fit: contain; vertical-align
   function pickImage(done) {
     const inp = document.createElement('input');
     inp.type = 'file';
-    inp.accept = 'image/png,image/jpeg,image/webp,image/svg+xml';
+    inp.accept = 'image/png,image/jpeg,image/webp';
     inp.addEventListener('change', () => {
       const f = inp.files[0];
       if (!f) return;
