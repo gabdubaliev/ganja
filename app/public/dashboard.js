@@ -20,6 +20,7 @@ const state = {
   sort: { key: 'profit', dir: -1 },
   query: '',
   limit: 50,
+  mains: store('stockMains') === '1', // «Показать основной товар»: модификации складываются в свой товар
   data: null,
   view: null,
 };
@@ -101,6 +102,30 @@ function compute(data, key, now) {
     for (const k of ['qty', 'revenue', 'cost', 'profit', 'prevQty', 'prevRevenue', 'prevCost', 'prevProfit']) t[k] += p[k] || 0;
     if (par) t.variants++;
   }
+  // Основные товары для таблицы «Товары и остатки»: продажи, закупка и остатки модификаций — суммой.
+  const mainsMap = new Map();
+  for (const p of products) {
+    const meta = info.get(p.id);
+    const par = meta?.parent ? { id: meta.parent, name: meta.parentName } : data.parents?.[p.id];
+    const key = par ? par.id : p.id;
+    let m = mainsMap.get(key);
+    if (!m) { m = { id: key, name: par ? par.name || p.name.split(' · ')[0] : p.name, category: meta?.parentCategory || p.category, stock: null, qty: 0, revenue: 0, cost: 0, prevQty: 0, prevRevenue: 0, prevCost: 0, sold30: 0, variants: 0 }; mainsMap.set(key, m); }
+    for (const k of ['qty', 'revenue', 'cost', 'prevQty', 'prevRevenue', 'prevCost', 'sold30']) m[k] += p[k] || 0;
+    if (p.stock !== null) m.stock = (m.stock || 0) + Math.max(0, p.stock);
+    if (!m.category) m.category = p.category;
+    if (par) m.variants++;
+  }
+  const mains = [...mainsMap.values()].map((p) => {
+    const profit = p.revenue - p.cost;
+    const perDay = p.sold30 / STOCK_WINDOW_DAYS;
+    const daysLeft = p.stock === null ? null : perDay > 0 ? p.stock / perDay : Infinity;
+    let status = 'ok';
+    if (p.stock !== null && p.stock <= 0) status = 'out';
+    else if (daysLeft !== null && daysLeft < LOW_STOCK_DAYS) status = 'low';
+    else if (p.sold30 <= 0 && p.stock > 0) status = 'idle';
+    return { ...p, profit, prevProfit: p.prevRevenue - p.prevCost, margin: p.revenue > 0 ? profit / p.revenue : null, daysLeft, status };
+  });
+
   const top = [...tops.values()].map((t) => ({ ...t, margin: t.revenue > 0 ? t.profit / t.revenue : null }));
 
   const staff = [...staffById.values()].map((s) => ({
@@ -108,7 +133,7 @@ function compute(data, key, now) {
     checks: s.receipts.size, prevChecks: s.prevReceipts.size,
     avg: s.receipts.size ? s.revenue / s.receipts.size : 0, prevAvg: s.prevReceipts.size ? s.prevRevenue / s.prevReceipts.size : 0,
   }));
-  return { range, buckets, cur, prev, products, top, staff };
+  return { range, buckets, cur, prev, products, mains, top, staff };
 }
 
 /* ---------- Отрисовка ---------- */
@@ -328,7 +353,8 @@ const FILTERS = [
 ];
 
 function renderTable(v) {
-  const counts = Object.fromEntries(FILTERS.map(([key, , fn]) => [key, v.products.filter(fn).length]));
+  const list = state.mains ? v.mains : v.products;
+  const counts = Object.fromEntries(FILTERS.map(([key, , fn]) => [key, list.filter(fn).length]));
   $('#filters').innerHTML = FILTERS.map(([key, label]) =>
     `<button type="button" class="chip" data-filter="${key}" aria-pressed="${state.filter === key}">${label}<span class="count num">${counts[key]}</span></button>`).join('');
 
@@ -342,7 +368,7 @@ function renderTable(v) {
   const q = state.query.trim().toLowerCase();
   const filterFn = FILTERS.find(([k]) => k === state.filter)[2];
   const val = (p) => (key === 'status' ? STATUS[p.status].rank : p[key]);
-  const rows = v.products
+  const rows = list
     .filter(filterFn)
     .filter((p) => !q || p.name.toLowerCase().includes(q) || (p.category || '').toLowerCase().includes(q))
     .sort((a, b) => {
@@ -357,7 +383,7 @@ function renderTable(v) {
   $('#stock-totals').innerHTML = typeof stockTotalsHtml === 'function' ? stockTotalsHtml(state.data.products) : '';
   $('#tbody').innerHTML = shown.length ? shown.map((p) => `
     <tr class="clickable" data-card="${p.id}" title="Открыть карточку товара">
-      <td><div class="pname"><button type="button" class="link-name">${esc(p.name)}</button></div>${p.category ? `<div class="pcat">${esc(p.category)}</div>` : ''}</td>
+      <td><div class="pname"><button type="button" class="link-name">${esc(p.name)}</button></div>${p.category || p.variants ? `<div class="pcat">${esc(p.category || '')}${p.variants ? `${p.category ? ' · ' : ''}${int(p.variants)} ${plural(p.variants, ['модификация', 'модификации', 'модификаций'])}` : ''}</div>` : ''}</td>
       <td>${int(p.qty)}</td>
       <td>${money(p.revenue)}</td>
       <td>${money(p.cost)}</td>
@@ -455,6 +481,8 @@ $('#thead').addEventListener('click', (e) => {
   state.sort = state.sort.key === col.key ? { key: col.key, dir: -state.sort.dir } : { key: col.key, dir: col.dir || -1 };
   renderTable(state.view);
 });
+$('#stock-mains').checked = state.mains;
+$('#stock-mains').addEventListener('change', (e) => { state.mains = e.target.checked; store('stockMains', state.mains ? '1' : '0'); state.limit = 50; renderTable(state.view); });
 $('#search').addEventListener('input', (e) => { state.query = e.target.value; state.limit = 50; renderTable(state.view); });
 $('#more-btn').addEventListener('click', () => { state.limit += 50; renderTable(state.view); });
 
@@ -777,7 +805,7 @@ setInterval(() => { if (currentView === 'home' && !document.hidden) loadCashDesk
 $('#tbody').addEventListener('click', (e) => {
   const tr = e.target.closest('[data-card]');
   if (!tr) return;
-  const stats = state.view.products.find((p) => String(p.id) === tr.dataset.card);
+  const stats = (state.mains ? state.view.mains : state.view.products).find((p) => String(p.id) === tr.dataset.card);
   openProductCard(Number(tr.dataset.card), stats);
 });
 
