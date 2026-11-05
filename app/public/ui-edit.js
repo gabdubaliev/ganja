@@ -217,9 +217,11 @@ img.ui-icon { width: 1.25em; height: 1.25em; object-fit: contain; vertical-align
       }
     }
     if (data.favicon) {
-      let l = document.querySelector('link[rel="icon"]');
-      if (!l) { l = document.createElement('link'); l.rel = 'icon'; document.head.append(l); }
-      if (!l.href.endsWith(`/img/${data.favicon}`)) l.href = `/img/${data.favicon}`;
+      // Все значки страницы (вкладка и значок на экране телефона) — на свою картинку; ?v= — чтобы браузер не взял старую.
+      const href = `/img/${data.favicon}?v=${data.favicon}`;
+      const links = [...document.querySelectorAll('link[rel~="icon"], link[rel="apple-touch-icon"]')];
+      if (!links.some((l) => l.rel.split(' ').includes('icon'))) { const l = document.createElement('link'); l.rel = 'icon'; document.head.append(l); links.push(l); }
+      for (const l of links) if (l.getAttribute('href') !== href) l.setAttribute('href', href);
     }
     if (editing) renderBar();
   }

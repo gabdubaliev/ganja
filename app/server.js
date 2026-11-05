@@ -2476,6 +2476,13 @@ async function handlePublic(req, res, url, user) {
     if (!found) return sendJson(res, 404, { error: 'Шрифта нет' });
     return sendBytes(res, found.mime, Buffer.from(found.data), 'public, max-age=31536000, immutable');
   }
+  // Значок вкладки базы, если браузер просит его сам (/favicon.ico): своя картинка из «Изменить интерфейс».
+  if (req.method === 'GET' && pathname === '/favicon.ico') {
+    const id = uiFavicon('admin');
+    const found = id ? mainStore.getImage(id) : null;
+    if (found) return sendBytes(res, found.mime, Buffer.from(found.data), 'no-cache');
+    return sendBytes(res, 'image/svg+xml', fs.readFileSync(path.join(PUBLIC, 'icon.svg')), 'no-cache');
+  }
   if (req.method === 'GET' && pathname === '/api/brand') return sendJson(res, 200, { name: store.design().name });
   const image = req.method === 'GET' && pathname.match(/^\/img\/(\d+)$/);
   if (image) {
@@ -2497,18 +2504,19 @@ async function handlePublic(req, res, url, user) {
       return res.end('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Магазин закрыт</title><p style="font:16px system-ui;text-align:center;margin-top:20vh">Интернет-магазин пока закрыт.</p>');
     }
     // Значок вкладки с номером картинки в адресе — после замены браузер возьмёт новый, а не старый из памяти.
-    const iconId = shop.faviconId || shop.logoId;
+    const iconId = uiFavicon('shop') || shop.faviconId || shop.logoId;
     return serveStatic(res, '/shop.html', (html) => seoHead(html.replaceAll('href="/shop/favicon"', `href="/shop/favicon?v=${iconId || 0}"`), shop, req));
   }
   // Значок вкладки: своя картинка из конструктора, иначе логотип, иначе стандартный значок.
   if (req.method === 'GET' && pathname === '/shop/favicon') {
-    const found = open && (shop.faviconId || shop.logoId) ? store.getImage(shop.faviconId || shop.logoId) : null;
+    const iconId = uiFavicon('shop') || shop.faviconId || shop.logoId;
+    const found = open && iconId ? store.getImage(iconId) : null;
     if (found) return sendBytes(res, found.mime, Buffer.from(found.data), 'public, max-age=86400');
     return sendBytes(res, 'image/svg+xml', fs.readFileSync(path.join(PUBLIC, 'icon.svg')), 'public, max-age=86400');
   }
   // Приложение витрины на телефоне: манифест (название, цвета, значок) и сервис-воркер (работа без сети).
   if (req.method === 'GET' && pathname === '/shop/manifest.webmanifest') {
-    const iconId = shop.faviconId || shop.logoId;
+    const iconId = uiFavicon('shop') || shop.faviconId || shop.logoId;
     const icon = iconId ? store.getImage(iconId) : null;
     const start = hostOf(req) === SHOP_DOMAIN || hostOf(req) === `www.${SHOP_DOMAIN}` ? '/' : '/shop';
     const icons = icon ? [{ src: `/shop/favicon?v=${iconId}`, sizes: '512x512', type: icon.mime, purpose: 'any' }, { src: `/shop/favicon?v=${iconId}`, sizes: '192x192', type: icon.mime, purpose: 'any' }]
@@ -2631,6 +2639,7 @@ function uiGet(page) {
   ui.fontFiles = mainStore.listFonts().map((f) => ({ id: f.id, family: f.family, weight: f.weight, style: f.style }));
   return ui;
 }
+const uiFavicon = (page) => { try { return Number(JSON.parse(mainStore.setting(`ui_${page}`, '{}'))?.favicon) || null; } catch { return null; } };
 const uiFont = (v) => { const s = String(v || '').trim(); return /^[\p{L}\p{N} _.-]{1,60}$/u.test(s) ? s : undefined; };
 function uiSet(page, body) {
   if (!UI_PAGES.has(page)) throw new UserError('Неизвестная страница');
@@ -2801,6 +2810,10 @@ async function handleRequest(req, res, url, user, owner) {
     } catch {
       return sendJson(res, 400, { error: 'Неверный адрес' });
     }
+    // База и касса: значок вкладки вписываем прямо в страницу — он виден сразу и не сбрасывается на стандартный.
+    const uiPage = pathname === '/' || pathname === '/index.html' ? 'admin' : pathname === '/kassa.html' ? 'kassa' : null;
+    const fav = uiPage && uiFavicon(uiPage);
+    if (fav) return serveStatic(res, pathname, (html) => html.replace('</head>', `<link rel="icon" href="/img/${fav}?v=${fav}">\n<link rel="apple-touch-icon" href="/img/${fav}?v=${fav}">\n</head>`));
     return serveStatic(res, pathname);
   }
   // Вложение клиента из Instagram/WhatsApp через наш сервер: телефон (Safari) не всегда играет видео
