@@ -22,16 +22,24 @@ function openKassaExpense() {
   f.reset();
   $('#kx-error').hidden = true;
   f.elements.category.innerHTML = KX_CATEGORIES.map((c) => `<option>${c}</option>`).join('');
+  kxNoteHint();
   $('#kx-dlg').showModal();
   f.elements.amount.focus();
 }
+// Подсказка в «Причине»: при «Обеде» можно не писать.
+function kxNoteHint() {
+  const f = $('#kx-form');
+  f.elements.note.placeholder = f.elements.category.value === 'Обед' ? 'Обед — можно не писать' : 'Например, вода и пакеты для покупателей';
+}
+$('#kx-form').elements.category.addEventListener('change', kxNoteHint);
 $('#kx-open')?.addEventListener('click', openKassaExpense);
 $('#kx-cancel').addEventListener('click', () => $('#kx-dlg').close());
 $('#kx-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
   const amount = parseNum(f.elements.amount.value);
-  const note = f.elements.note.value.trim();
+  // Статья «Обед», а причину не написали — причина «Обед».
+  const note = f.elements.note.value.trim() || (f.elements.category.value === 'Обед' ? 'Обед' : '');
   if (!(amount > 0)) return showFormError('#kx-error', new Error('Укажите, сколько денег взяли из кассы'));
   if (note.replace(/[^A-Za-zА-Яа-яЁё0-9]/g, '').length < 3) return showFormError('#kx-error', new Error('Напишите причину: на что взяли деньги'));
   const btn = f.querySelector('button[type=submit]');

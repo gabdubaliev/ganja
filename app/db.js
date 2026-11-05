@@ -4519,7 +4519,8 @@ function createStore(file) {
       const raw = String(input.amount ?? '').trim();
       if (!raw) throw new UserError('Укажите, сколько денег взяли из кассы');
       const amount = round2(number(raw, 'Сумма', { positive: true }));
-      const note = text(input.note, 'Причина', { max: 300 });
+      // Статья «Обед» и причину не написали — причина «Обед».
+      const note = text(input.note, 'Причина', { max: 300 }) || (input.category === 'Обед' ? 'Обед' : '');
       if (note.replace(/[^A-Za-zА-Яа-яЁё0-9]/g, '').length < 3) throw new UserError('Напишите причину: на что взяли деньги (например, «вода и пакеты»)');
       const acc = this.cashAccount();
       if (!acc) throw new UserError('В способах оплаты нет «Наличных» — расход из кассы оформить нельзя');
