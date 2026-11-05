@@ -1377,6 +1377,19 @@ const routes = [
   ['POST', '/api/invoice/match', (p, url, body) => store.matchInvoiceLines(Array.isArray(body.lines) ? body.lines : []), 'receive.photo'],
   ['POST', '/api/invoice/receive', (p, url, body, user) => store.receiveInvoice(body, user), 'receive.photo'],
   ['GET', '/api/finance', (p, url) => store.finance(range(url)), 'finance'],
+  // Расходы по столбикам графика главной: b — границы (начало каждого дня/месяца и конец), до 40 столбиков.
+  // Зарплата — по сменам и продажам именно этого дня, постоянные — их доля за день, разовые — в свой день.
+  ['GET', '/api/finance/series', (p, url) => {
+    const b = String(url.searchParams.get('b') || '').split(',').map(Number).filter((x) => Number.isFinite(x) && x > 0);
+    if (b.length < 2 || b.length > 41) throw new UserError('Неверные границы');
+    const out = [];
+    for (let i = 0; i < b.length - 1; i++) {
+      if (!(b[i + 1] > b[i])) throw new UserError('Неверные границы');
+      const f = store.finance({ from: b[i], to: b[i + 1] });
+      out.push({ total: f.total, salary: f.salary, fixed: f.fixed, other: f.other, writeoffs: f.writeoffs });
+    }
+    return out;
+  }, 'finance'],
   ['GET', '/api/expenses', (p, url) => ({ list: store.listExpenses(range(url)), categories: store.expenseCategories }), ['expenses', 'finance']],
   ['POST', '/api/expenses', (p, url, body, user) => store.addExpense(body, user), 'expenses'],
   ['DELETE', '/api/expenses/:id', (p) => store.deleteExpense(p.id), 'expenses'],

@@ -265,13 +265,20 @@ function boardData(v) {
   const exp = f?.cur.total || 0, prevExp = f?.prev.total || 0;
   // Расходы по столбикам: разовые — в свой час/день, зарплата и постоянные — поровну по прошедшим столбикам.
   const list = state.expenses?.list || [];
-  const oneOff = list.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-  const rest = Math.max(0, exp - oneOff);
   const r = homeRange();
-  const passed = v.buckets.filter((b) => b.from < r.end);
   for (const b of v.buckets) b.exp = 0;
-  for (const e of list) { const k = v.buckets.findLastIndex((b) => b.from <= e.at); if (k >= 0) v.buckets[k].exp += Number(e.amount) || 0; }
-  for (const b of passed) b.exp += rest / Math.max(1, passed.length);
+  if (state.finSeries && state.period !== 'day') {
+    // Неделя, месяц, год: настоящие расходы каждого дня/месяца с сервера.
+    state.finSeries.forEach((x, i) => { if (v.buckets[i]) v.buckets[i].exp = x.total || 0; });
+  } else {
+    // День по часам: разовые — в свой час, зарплата и постоянные — поровну по часам, когда были продажи.
+    const oneOff = list.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+    const rest = Math.max(0, exp - oneOff);
+    for (const e of list) { const k = v.buckets.findLastIndex((b) => b.from <= e.at); if (k >= 0) v.buckets[k].exp += Number(e.amount) || 0; }
+    const work = v.buckets.filter((b) => b.from < r.end && b.receipts.size);
+    const spread = work.length ? work : v.buckets.filter((b) => b.from < r.end);
+    for (const b of spread) b.exp += rest / Math.max(1, spread.length);
+  }
   const checks = c.receipts.size, prevChecks = pr.receipts.size;
   const totals = {
     revenue: [c.revenue, pr.revenue], cost: [c.cost, pr.cost], expenses: [exp, prevExp],
@@ -630,6 +637,16 @@ async function load() {
       f ? api(`/api/expenses?from=${Math.floor(r.start)}&to=${Math.ceil(now)}`).catch(() => null) : null,
       f ? api('/api/recurring-expenses').catch(() => []) : []]);
     if (ticket !== loading) return;
+    // Расходы по дням (неделя, месяц) и по месяцам (год) — каждый столбик считает сервер: зарплата по сменам этого дня.
+    state.finSeries = null;
+    if (f && state.period !== 'day') {
+      const starts = homeBuckets(state.period, r).map((x) => x.from).filter((t) => t < r.end);
+      if (starts.length) {
+        const bounds = [...starts, r.end].map((t) => Math.round(t)).join(',');
+        state.finSeries = await api(`/api/finance/series?b=${bounds}`).catch(() => null);
+        if (ticket !== loading) return;
+      }
+    }
     state.finance = cur && prev ? { cur, prev } : null;
     state.expenses = expenses;
     state.recurring = recurring;
