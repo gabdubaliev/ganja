@@ -26,14 +26,63 @@ const state = {
   view: null,
 };
 if (!PERIODS[state.period]) state.period = 'week';
-// «Сегодня» можно листать по дням: 0 — сегодня, −1 — вчера и т.д. (стрелки, свайп, календарь).
+// Главная — календарные периоды: день (по часам), неделя пн–вс, месяц (все дни), год (12 месяцев).
+// dayOffset — сдвиг на целый период назад: −1 — вчера / прошлая неделя / прошлый месяц / прошлый год.
 state.dayOffset = 0;
-// Конец просматриваемого периода: для прошлого дня — 23:59:59 того дня, иначе — сейчас.
-function viewNow() {
-  if (state.period !== 'day' || !state.dayOffset) return Date.now();
-  return addDays(dayStart(Date.now()), state.dayOffset + 1) - 1;
+state.metric = 'revenue';
+function homeRange(period = state.period, off = state.dayOffset) {
+  const now = Date.now();
+  const d = new Date(now);
+  let start, full, prevStart;
+  if (period === 'week') {
+    const ds = dayStart(now);
+    start = addDays(ds, -((ds.getDay() + 6) % 7) + 7 * off);
+    full = addDays(start, 7); prevStart = addDays(start, -7);
+  } else if (period === 'month') {
+    start = new Date(d.getFullYear(), d.getMonth() + off, 1).getTime();
+    full = new Date(d.getFullYear(), d.getMonth() + off + 1, 1).getTime();
+    prevStart = new Date(d.getFullYear(), d.getMonth() + off - 1, 1).getTime();
+  } else if (period === 'year') {
+    start = new Date(d.getFullYear() + off, 0, 1).getTime();
+    full = new Date(d.getFullYear() + off + 1, 0, 1).getTime();
+    prevStart = new Date(d.getFullYear() + off - 1, 0, 1).getTime();
+  } else {
+    start = addDays(dayStart(now), off);
+    full = addDays(start, 1); prevStart = addDays(start, -1);
+  }
+  const end = Math.min(now, full);
+  // Сравнение — с прошлым таким же периодом на тот же момент (сегодня к этому часу — со вчера к этому часу).
+  return { start, end, full, prevStart, prevEnd: Math.min(prevStart + (end - start), start) };
 }
-const vsLabel = () => (state.period === 'day' && state.dayOffset ? 'предыдущий день' : PERIODS[state.period].vs);
+// Столбики графика: часы, дни недели, дни месяца, месяцы.
+function homeBuckets(period, r) {
+  const out = [];
+  const add = (label, title, from) => out.push({ label, title, from, revenue: 0, cost: 0, receipts: new Set() });
+  if (period === 'day') for (let h = 0; h < 24; h++) add(String(h), `${h}:00–${h + 1}:00`, r.start + h * 36e5);
+  else if (period === 'week') for (let i = 0; i < 7; i++) { const t = addDays(r.start, i); add(['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'][i], new Date(t).toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' }), t); }
+  else if (period === 'month') for (let t = r.start; t < r.full; t = addDays(t, 1)) add(String(new Date(t).getDate()), new Date(t).toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'long' }), t);
+  else for (let m = 0; m < 12; m++) { const y = new Date(r.start).getFullYear(); add(String(m + 1), new Date(y, m, 1).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' }).replace(' г.', ''), new Date(y, m, 1).getTime()); }
+  return out;
+}
+const viewNow = () => homeRange().end;
+const VS = { day: ['вчера к этому часу', 'предыдущий день'], week: ['прошлая неделя к этому дню', 'предыдущая неделя'], month: ['прошлый месяц к этому дню', 'предыдущий месяц'], year: ['прошлый год к этому дню', 'предыдущий год'] };
+const vsLabel = () => VS[state.period][state.dayOffset ? 1 : 0];
+const capital = (t) => t[0].toUpperCase() + t.slice(1);
+function periodTitle(period = state.period, off = state.dayOffset) {
+  const r = homeRange(period, off);
+  const d = new Date(r.start);
+  const thisYear = d.getFullYear() === new Date().getFullYear();
+  if (period === 'week') {
+    const last = new Date(addDays(r.start, 6));
+    const f = (x, withMonth) => x.toLocaleDateString('ru-RU', { day: 'numeric', ...(withMonth && { month: 'long' }) });
+    return `${f(d, d.getMonth() !== last.getMonth())} — ${f(last, true)}${thisYear ? '' : ` ${last.getFullYear()}`}`;
+  }
+  if (period === 'month') return capital(d.toLocaleDateString('ru-RU', { month: 'long', ...(!thisYear && { year: 'numeric' }) }).replace(' г.', ''));
+  if (period === 'year') return String(d.getFullYear());
+  const name = off === 0 ? 'Сегодня' : off === -1 ? 'Вчера' : capital(d.toLocaleDateString('ru-RU', { weekday: 'short' }));
+  return `${name}, ${d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', ...(!thisYear && { year: 'numeric' }) })}`;
+}
+const STEP_NAMES = { day: ['Предыдущий день', 'Следующий день'], week: ['Предыдущая неделя', 'Следующая неделя'], month: ['Предыдущий месяц', 'Следующий месяц'], year: ['Предыдущий год', 'Следующий год'] };
 function renderDayNav() {
   let nav = document.getElementById('day-nav');
   if (!nav) {
@@ -42,44 +91,37 @@ function renderDayNav() {
     nav.className = 'day-nav';
     $('#periods').after(nav);
     nav.addEventListener('click', (e) => {
-      if (e.target.closest('[data-today]')) {
-        if (state.period !== 'day') { state.period = 'day'; state.dayOffset = 0; renderPeriods(); renderDayNav(); load(); return undefined; }
-        return setDay(0);
-      }
+      if (e.target.closest('[data-today]')) return setDay(0);
       const b = e.target.closest('[data-day]');
       if (b) shiftDay(Number(b.dataset.day));
+      return undefined;
     });
     nav.addEventListener('change', (e) => {
       if (!e.target.matches('input[type=date]') || !e.target.value) return;
-      const picked = fromDateInput(e.target.value);
-      const off = Math.round((dayStart(picked) - dayStart(Date.now())) / 864e5);
+      // Выбранный день → тот период (день, неделя, месяц, год), в который он входит.
+      const picked = new Date(fromDateInput(e.target.value)), now = new Date();
+      const off = state.period === 'year' ? picked.getFullYear() - now.getFullYear()
+        : state.period === 'month' ? (picked.getFullYear() - now.getFullYear()) * 12 + picked.getMonth() - now.getMonth()
+          : state.period === 'week' ? Math.round((homeRange('week', 0).start - dayStart(picked) + ((picked.getDay() + 6) % 7) * 864e5) / -6048e5)
+            : Math.round((dayStart(picked) - dayStart(Date.now())) / 864e5);
       setDay(Math.min(0, off));
     });
   }
   nav.hidden = false;
-  if (state.period !== 'day') {
-    // 7 или 30 дней: какие дни входят — до сегодня включительно.
-    const r = periodRange(state.period, Date.now());
-    const twoYears = new Date(r.start).getFullYear() !== new Date(r.end).getFullYear();
-    const f = (t) => new Date(t).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', ...(twoYears && { year: 'numeric' }) }).replace(' г.', '');
-    nav.innerHTML = `<span class="day-pick"><b>${HOME_PERIODS[state.period]}</b>: ${f(r.start)} — ${f(r.end)}</span>
-      <button type="button" class="btn small ghost" data-today>Сегодня</button>`;
-    return;
-  }
-  const d = new Date(viewNow());
-  const wd = d.toLocaleDateString('ru-RU', { weekday: 'short' });
-  const name = state.dayOffset === 0 ? 'Сегодня' : state.dayOffset === -1 ? 'Вчера' : wd[0].toUpperCase() + wd.slice(1);
-  nav.innerHTML = `<button type="button" class="btn small ghost" data-day="-1" aria-label="Предыдущий день">‹</button>
-    <label class="day-pick" title="Выбрать день"><b>${name}</b>, ${d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', ...(d.getFullYear() !== new Date().getFullYear() && { year: 'numeric' }) })} 📅
-      <input type="date" max="${dateInput(Date.now())}" value="${dateInput(d.getTime())}" aria-label="Выбрать день"></label>
-    <button type="button" class="btn small ghost" data-day="1" aria-label="Следующий день" ${state.dayOffset >= 0 ? 'disabled' : ''}>›</button>
+  const [prevName, nextName] = STEP_NAMES[state.period];
+  nav.innerHTML = `<button type="button" class="btn small ghost" data-day="-1" aria-label="${prevName}" title="${prevName}">‹</button>
+    <label class="day-pick" title="Выбрать дату"><b>${esc(periodTitle())}</b> 📅
+      <input type="date" max="${dateInput(Date.now())}" value="${dateInput(homeRange().start)}" aria-label="Выбрать дату"></label>
+    <button type="button" class="btn small ghost" data-day="1" aria-label="${nextName}" title="${nextName}" ${state.dayOffset >= 0 ? 'disabled' : ''}>›</button>
     ${state.dayOffset < 0 ? '<button type="button" class="btn small ghost" data-today>Сегодня</button>' : ''}`;
 }
 function setDay(off) {
   if (off > 0 || off === state.dayOffset) return undefined;
   state.dayOffset = off;
+  state.tip = null;
   renderDayNav();
   load();
+  return undefined;
 }
 const shiftDay = (n) => setDay(state.dayOffset + n);
 
@@ -88,10 +130,8 @@ function fetchData(from, to) {
   return api(`/api/analytics?from=${Math.floor(from)}&to=${Math.ceil(to)}`);
 }
 
-function compute(data, key, now) {
-  const range = periodRange(key, now);
+function compute(data, key, now, range = periodRange(key, now), buckets = buildBuckets(key, range)) {
   const stockFrom = addDays(dayStart(now), -(STOCK_WINDOW_DAYS - 1));
-  const buckets = buildBuckets(key, range);
   const cur = { revenue: 0, cost: 0, fee: 0, items: 0, receipts: new Set() };
   const prev = { revenue: 0, cost: 0, items: 0, receipts: new Set() };
   const byId = new Map();
@@ -195,7 +235,7 @@ function compute(data, key, now) {
 
 /* ---------- Отрисовка ---------- */
 // На главной — «День», «7 дней», «30 дней» над строкой с календарём (открывается всегда на «День»).
-const HOME_PERIODS = { day: 'День', week: '7 дней', month: '30 дней', year: 'Год' };
+const HOME_PERIODS = { day: 'День', week: 'Неделя', month: 'Месяц', year: 'Год' };
 function renderPeriods() {
   $('#periods').hidden = false;
   $('#periods').innerHTML = Object.entries(HOME_PERIODS).map(([key, label]) =>
@@ -215,33 +255,115 @@ function deltaHtml(cur, prev, label, points, inverse = false) {
   return `<span class="chg ${dir} ${inverse ? 'inverse' : ''}">${ICONS[dir]}${ch >= 0 ? '+' : '−'}${pct(Math.abs(ch))}</span><span>к ${esc(label)}</span>`;
 }
 
-function renderKpis(v) {
-  const p = PERIODS[state.period];
-  const c = v.cur, pr = v.prev;
+// Табло главной: сверху выбранный показатель за период, под ним график, внизу — показатели (нажать — график по нему).
+const METRICS = [
+  ['revenue', 'Выручка'], ['cost', 'Цена закупки'], ['expenses', 'Расходы'], ['net', 'Чистая прибыль'], ['avg', 'Средний чек'],
+];
+function boardData(v) {
   const f = state.finance;
-  const net = (x, fin) => x.revenue - x.cost - (fin?.total || 0);
+  const c = v.cur, pr = v.prev;
+  const exp = f?.cur.total || 0, prevExp = f?.prev.total || 0;
+  // Расходы по столбикам: разовые — в свой час/день, зарплата и постоянные — поровну по прошедшим столбикам.
+  const list = state.expenses?.list || [];
+  const oneOff = list.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  const rest = Math.max(0, exp - oneOff);
+  const r = homeRange();
+  const passed = v.buckets.filter((b) => b.from < r.end);
+  for (const b of v.buckets) b.exp = 0;
+  for (const e of list) { const k = v.buckets.findLastIndex((b) => b.from <= e.at); if (k >= 0) v.buckets[k].exp += Number(e.amount) || 0; }
+  for (const b of passed) b.exp += rest / Math.max(1, passed.length);
   const checks = c.receipts.size, prevChecks = pr.receipts.size;
-  const depth = checks ? c.items / checks : 0, prevDepth = prevChecks ? pr.items / prevChecks : 0;
-  const expNote = f ? [f.cur.salary ? `ЗП ${moneyShort(f.cur.salary)}` : '', f.cur.fixed ? `постоянные ${moneyShort(f.cur.fixed)}` : '', f.cur.other ? `разовые ${moneyShort(f.cur.other)}` : ''].filter(Boolean).join(' · ') || 'зарплата и расходы' : '';
-  // inverse — рост плохо (расходы, закупка): стрелка вверх красная.
-  const tiles = [
-    // Выручка уже за вычетом комиссии банков (М-Банк и т.п.).
-    [c.fee >= 0.5 ? `Выручка <small class="kpi-note">без комиссии банков −${money(c.fee)}</small>` : 'Выручка', money(c.revenue), c.revenue, pr.revenue],
-    ...(f ? [[`Расходы <small class="kpi-note">${expNote}</small>`, money(f.cur.total), f.cur.total, f.prev.total, false, true]] : []),
-    ['Цена закупки <small class="kpi-note">проданного товара</small>', money(c.cost), c.cost, pr.cost, false, true],
-    f ? [`Чистая прибыль <small class="kpi-note">${c.revenue ? `${pct(net(c, f.cur) / c.revenue)} от выручки` : 'выручка − закупка − расходы'}</small>`, `<span class="${net(c, f.cur) < 0 ? 'neg' : ''}">${money(net(c, f.cur))}</span>`, net(c, f.cur), net(pr, f.prev)]
-      : ['Прибыль <small class="kpi-note">выручка − закупка</small>', money(c.revenue - c.cost), c.revenue - c.cost, pr.revenue - pr.cost],
-    ['Средний чек', checks ? money(c.revenue / checks) : '—', checks ? c.revenue / checks : 0, prevChecks ? pr.revenue / prevChecks : 0],
-    ['Чеки', int(checks), checks, prevChecks],
-    ['Глубина чека <small class="kpi-note">товаров в среднем в чеке</small>', checks ? depth.toLocaleString('ru-RU', { maximumFractionDigits: 2 }) : '—', depth, prevDepth],
-  ];
-  $('#kpis').innerHTML = tiles.map(([label, value, cur, prev, points, inverse]) => `
-    <div class="kpi">
-      <div class="label">${label}</div>
-      <div class="value">${value}</div>
-      <div class="delta">${deltaHtml(cur, prev, vsLabel(), points, inverse)}</div>
-    </div>`).join('');
+  const totals = {
+    revenue: [c.revenue, pr.revenue], cost: [c.cost, pr.cost], expenses: [exp, prevExp],
+    net: [c.revenue - c.cost - exp, pr.revenue - pr.cost - prevExp], avg: [checks ? c.revenue / checks : 0, prevChecks ? pr.revenue / prevChecks : 0],
+  };
+  const bar = {
+    revenue: (b) => b.revenue, cost: (b) => b.cost, expenses: (b) => b.exp, net: (b) => b.revenue - b.cost - b.exp,
+    avg: (b) => (b.receipts.size ? b.revenue / b.receipts.size : 0),
+  };
+  return { totals, bar, checks, items: c.items, hasFinance: Boolean(f) };
 }
+const moneyCompact = (v) => {
+  const a = Math.abs(v);
+  if (a >= 1e6) return `${(v / 1e6).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} млн`;
+  return int(Math.round(v));
+};
+function renderKpis(v) {
+  const el = $('#kpis');
+  el.className = 'panel rev-board';
+  const d = boardData(v);
+  const metrics = METRICS.filter(([k]) => d.hasFinance || (k !== 'expenses' && k !== 'net'));
+  if (!metrics.some(([k]) => k === state.metric)) state.metric = 'revenue';
+  const [cur, prev] = d.totals[state.metric];
+  const inverse = state.metric === 'cost' || state.metric === 'expenses';
+  let delta = '';
+  if (prev) {
+    const ch = (cur - prev) / Math.abs(prev);
+    const up = ch >= 0;
+    delta = `<span class="rb-delta ${(up !== inverse) ? 'good' : 'bad'}" title="к: ${esc(vsLabel())}">${up ? '▲' : '▼'} ${pct(Math.abs(ch))}</span>`;
+  }
+  const name = METRICS.find(([k]) => k === state.metric)[1];
+  const tip = state.tip != null && v.buckets[state.tip] ? v.buckets[state.tip] : null;
+  const head = tip ? `${esc(capital(tip.title))}: <b class="num">${money(d.bar[state.metric](tip))}</b>` : `${esc(name)} · ${esc(periodTitle())}`;
+  el.innerHTML = `
+    <div class="rb-head"><span class="rb-label">${head}</span>${tip ? '' : delta}</div>
+    <div class="rb-total num ${cur < 0 ? 'neg' : ''}">${money(cur)}</div>
+    <div class="rb-chart" id="rb-chart"></div>
+    <div class="rb-meta">${int(d.checks)} ${plural(d.checks, ['чек', 'чека', 'чеков'])}${d.checks ? ` · в среднем ${(d.items / d.checks).toLocaleString('ru-RU', { maximumFractionDigits: 1 })} товара в чеке` : ''}${prev ? ` · сравнение: ${esc(vsLabel())}` : ''}</div>
+    <div class="rb-tabs" role="tablist">${metrics.map(([k, label]) => {
+      const val = d.totals[k][0];
+      return `<button type="button" role="tab" data-metric="${k}" aria-selected="${k === state.metric}"><b class="num ${val < 0 ? 'neg' : ''}">${moneyCompact(val)}</b><span>${label}</span></button>`;
+    }).join('')}</div>`;
+  renderBoardChart(v, d);
+}
+function renderBoardChart(v, d) {
+  const el = $('#rb-chart');
+  if (!el) return;
+  let buckets = v.buckets.map((b, i) => ({ ...b, i, val: d.bar[state.metric](b) }));
+  // День: только рабочие часы — от первой до последней продажи (не меньше 9:00–21:00).
+  if (state.period === 'day') {
+    const active = buckets.filter((b) => b.receipts.size || b.exp > 0.5);
+    let lo = 9, hi = 20;
+    if (active.length) { lo = Math.min(lo, Number(active[0].label)); hi = Math.max(hi, Number(active[active.length - 1].label)); }
+    buckets = buckets.filter((b) => Number(b.label) >= lo && Number(b.label) <= hi);
+  }
+  const W = el.clientWidth || 600, H = el.clientHeight || 220;
+  const m = { t: 8, r: 46, b: 22, l: 2 };
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const peak = Math.max(...buckets.map((b) => b.val), 1);
+  const low = Math.min(0, ...buckets.map((b) => b.val));
+  const step = niceStep(peak - low || 1, 4);
+  const max = step * Math.ceil(peak / step), min = low < 0 ? -step * Math.ceil(-low / step) : 0;
+  const y = (val) => m.t + ih - ((val - min) / (max - min || 1)) * ih;
+  const band = iw / buckets.length;
+  const bw = Math.max(3, Math.min(34, band * 0.62));
+  const now = homeRange().end;
+  const parts = [];
+  for (let val = min; val <= max + 1e-6; val += step) {
+    if (val === min && min === 0) continue;
+    parts.push(`<text x="${W - 2}" y="${Math.round(y(val)) + 4}" text-anchor="end" class="rb-axis">${moneyShort(val)}</text>`);
+  }
+  const labelEvery = Math.max(1, Math.ceil(buckets.length / Math.max(1, Math.floor(iw / 26))));
+  buckets.forEach((b, k) => {
+    const x = m.l + k * band + (band - bw) / 2;
+    const r = bw / 2;
+    // Дорожка на всю высоту (как пустой столбик), поверх — значение.
+    parts.push(`<rect x="${x}" y="${m.t}" width="${bw}" height="${ih}" rx="${r}" class="rb-track ${b.from >= now ? 'future' : ''}"/>`);
+    const y0 = y(0), y1 = y(b.val);
+    const h = Math.abs(y1 - y0);
+    if (h > 0.5) parts.push(`<rect x="${x}" y="${Math.min(y0, y1)}" width="${bw}" height="${Math.max(h, Math.min(bw, 6))}" rx="${Math.min(r, h / 2 + 2)}" class="rb-bar ${b.val < 0 ? 'neg' : ''} ${state.tip === b.i ? 'on' : ''}"/>`);
+    if (k % labelEvery === 0) parts.push(`<text x="${x + bw / 2}" y="${H - 4}" text-anchor="middle" class="rb-axis">${esc(b.label)}</text>`);
+    parts.push(`<rect x="${m.l + k * band}" y="0" width="${band}" height="${H}" fill="transparent" class="rb-hit" data-i="${b.i}"/>`);
+  });
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="График: ${esc(METRICS.find(([k]) => k === state.metric)[1])}">${parts.join('')}</svg>`;
+}
+// Нажатие на вкладку — график по этому показателю; на столбик — его значение сверху (ещё раз — убрать).
+$('#kpis').addEventListener('click', (e) => {
+  const tab = e.target.closest('[data-metric]');
+  if (tab) { state.metric = tab.dataset.metric; state.tip = null; renderKpis(state.view); return; }
+  const hit = e.target.closest('.rb-hit');
+  if (hit) { const i = Number(hit.dataset.i); state.tip = state.tip === i ? null : i; renderKpis(state.view); }
+});
 
 function niceStep(max, count) {
   const raw = max / count;
@@ -372,7 +494,7 @@ function renderTops() {
   $('#top-products-sub').textContent = ps;
   renderTop($('#top-products'), state.view.top, state.topProducts, pk, pf, pu);
   const [, sk, sf, su, ss] = TOP_STAFF[state.topStaff];
-  $('#top-staff-sub').textContent = `${ss} · ${PERIODS[state.period].label.toLowerCase()}`;
+  $('#top-staff-sub').textContent = `${ss} · ${periodTitle().toLowerCase()}`;
   // Рейтинг — только сотрудники; чеки, пробитые без входа, показываем отдельной строкой.
   const people = state.view.staff.filter((w) => w.id !== 'none');
   const nobody = state.view.staff.find((w) => w.id === 'none' && w.checks);
@@ -481,7 +603,8 @@ function renderSource(error) {
 
 function renderAll() {
   if (!state.data) return;
-  state.view = compute(state.data, state.period, viewNow());
+  const r = homeRange();
+  state.view = compute(state.data, state.period, r.end, r, homeBuckets(state.period, r));
   renderPeriods();
   renderDayNav();
   renderKpis(state.view);
@@ -494,8 +617,8 @@ function renderAll() {
 let loading = 0;
 async function load() {
   const ticket = ++loading;
-  const now = viewNow();
-  const r = periodRange(state.period, now);
+  const r = homeRange();
+  const now = r.end;
   const from = Math.min(r.prevStart, addDays(dayStart(now), -(STOCK_WINDOW_DAYS - 1)));
   try {
     // Зарплата и расходы — за текущий и прошлый такой же период (для сравнения чистой прибыли).
@@ -525,6 +648,7 @@ $('#periods').addEventListener('click', (e) => {
   if (!btn || btn.dataset.period === state.period) return;
   state.period = btn.dataset.period;
   state.dayOffset = 0;
+  state.tip = null;
   store('period', state.period);
   renderPeriods();
   load();
@@ -559,7 +683,7 @@ chartEl.addEventListener('mousemove', (e) => {
 chartEl.addEventListener('mouseleave', () => { $('#tip').hidden = true; tipIndex = -1; });
 
 let resizeTimer;
-addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => state.view && renderChart(state.view), 120); });
+addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (state.view) { renderChart(state.view); renderKpis(state.view); } }, 120); });
 
 $('#notice').addEventListener('click', async (e) => {
   if (!e.target.closest('#load-demo')) return;
@@ -586,7 +710,7 @@ function renderNetProfit(v) {
   const line = (label, value, cls = '', note = '', extra = '') => `<div class="np-line ${cls}"><span>${label}${note ? `<small>${note}</small>` : ''}</span><b class="num">${value}</b></div>${extra}`;
   const minus = (n) => (n ? `−${money(n)}` : money(0));
   const days = (d) => `${d} ${plural(d, ['день', 'дня', 'дней'])}`;
-  $('#np-sub').textContent = `${PERIODS[state.period].label}: выручка минус цена закупки, зарплата и расходы`;
+  $('#np-sub').textContent = `${periodTitle()}: выручка минус цена закупки, зарплата и расходы`;
   const staffOpen = npOpen.has('staff');
   const staffRows = f.staff.length ? `<div class="np-detail" ${staffOpen ? '' : 'hidden'}>${f.staff.map((w) => `
     <div class="np-detail-row"><span>${esc(w.name)}<small>${[w.shifts ? `${w.shifts} ${plural(w.shifts, ['выход', 'выхода', 'выходов'])}` : '', w.salary ? `ставка и оклад ${money(w.salary)}` : '', w.bonus ? `${w.percent ? `${int(w.percent)}% от продаж и бонусы` : 'бонусы'} ${money(w.bonus)}` : '', w.fines ? `штрафы −${money(w.fines)}` : ''].filter(Boolean).join(' · ')}</small></span><b class="num">${money(w.pay)}</b></div>`).join('')}</div>` : '';
@@ -896,7 +1020,7 @@ setInterval(() => { if (currentView === 'home') load(); }, REFRESH_MS);
   if (!page) return;
   let x0 = null, y0 = 0, t0 = 0;
   page.addEventListener('touchstart', (e) => {
-    if (state.period !== 'day' || e.touches.length !== 1 || e.target.closest('.chart, .table-wrap, table, .periods, input, select, textarea')) { x0 = null; return; }
+    if (e.touches.length !== 1 || e.target.closest('.chart, .rb-chart, .rb-tabs, .table-wrap, table, .periods, input, select, textarea')) { x0 = null; return; }
     x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now();
   }, { passive: true });
   page.addEventListener('touchend', (e) => {
