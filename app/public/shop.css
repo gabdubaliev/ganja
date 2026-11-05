@@ -406,7 +406,8 @@ dialog[open].side { animation: slide .35s var(--ease); }
   body[data-herobtn="none"] .hero-cta { display: none; }
   body[data-herobtn="none"][data-herom="fit"] .hero.has-image:not(:has(.hero-text > :is(h1, p):not([hidden]):not(.ui-hidden):not(:empty))) .hero-inner { display: none; }
   /* Масштаб на телефоне (конструктор): вся витрина и отдельно текст и кнопки баннера. */
-  body { zoom: var(--mzoom, 1); }
+  /* Только страница: окна (товар, корзина, вход) — всегда во весь экран, их zoom сжимал бы по ширине. */
+  body > :is(.preview-note, .announce, .site-head, .hero, .perks, .catalog, .site-foot, .install-bar) { zoom: var(--mzoom, 1); }
   .hero-text { zoom: var(--hzoom, 1); }
   /* Высота баннера на телефоне (конструктор → «Баннер на телефоне»). */
   /* «Вся картинка целиком»: картинка — полностью, по своим пропорциям; текст и кнопки (если есть) — под ней. */
