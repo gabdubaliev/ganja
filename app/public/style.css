@@ -363,7 +363,13 @@ select.input { text-align: left; }
 .doc-actions { padding: 0 4px 12px 82px; }
 .doc > .pick-meta { padding: 0 4px 12px 82px; margin: 0; }
 .doc.refunded summary b { text-decoration: line-through; color: var(--muted); }
-.day-nav { display: flex; align-items: center; gap: 6px; margin: 10px 0 4px; flex-wrap: nowrap; }
+.day-nav { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; flex: 1; min-width: 0; }
+/* Главная: строка «‹ день 📅 › Сегодня» всегда видна — прилипает под верхним меню при прокрутке. */
+/* Фон строки — на всю ширину экрана (тень + обрезка по бокам), без сдвига вёрстки. */
+.home-top { position: sticky; top: var(--nav-h, 60px); z-index: 6; flex-wrap: nowrap; gap: 8px; margin-top: -8px; padding: 8px 0; background: var(--bg); box-shadow: 0 0 0 100vmax var(--bg), 0 1px 0 100vmax color-mix(in srgb, var(--ink, #000) 6%, transparent); clip-path: inset(0 -100vmax -1px); }
+.home-top .source { flex: none; font-size: 12px; }
+@media (max-width: 640px) { .home-top .source #source-text { display: none; } }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .day-nav[hidden] { display: none; }
 .day-nav .btn[data-day="-1"], .day-nav .btn[data-day="1"] { font-size: 20px; line-height: 1; min-width: 40px; }
 .day-pick { position: relative; padding: 6px 8px; border-radius: 10px; cursor: pointer; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }

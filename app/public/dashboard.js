@@ -15,7 +15,8 @@ const PERIODS = {
 };
 
 const state = {
-  period: store('period') || 'week',
+  // Главная всегда открывается на выручке за сегодня; дни листаются стрелками, свайпом и календарём.
+  period: 'day',
   filter: 'all',
   sort: { key: 'profit', dir: -1 },
   query: '',
@@ -39,7 +40,7 @@ function renderDayNav() {
     nav = document.createElement('div');
     nav.id = 'day-nav';
     nav.className = 'day-nav';
-    $('#periods').closest('header').after(nav);
+    $('#periods').before(nav);
     nav.addEventListener('click', (e) => {
       if (e.target.closest('[data-today]')) return setDay(0);
       const b = e.target.closest('[data-day]');
@@ -52,8 +53,7 @@ function renderDayNav() {
       setDay(Math.min(0, off));
     });
   }
-  nav.hidden = state.period !== 'day';
-  if (nav.hidden) return;
+  nav.hidden = false;
   const d = new Date(viewNow());
   const wd = d.toLocaleDateString('ru-RU', { weekday: 'short' });
   const name = state.dayOffset === 0 ? 'Сегодня' : state.dayOffset === -1 ? 'Вчера' : wd[0].toUpperCase() + wd.slice(1);
@@ -858,7 +858,7 @@ $('#tbody').addEventListener('click', (e) => {
 
 // Блоки главной — их порядок и видимость настраивает владелец в админ-панели.
 const HOME_BLOCKS = [
-  ['cash-desk', 'Касса сейчас'], ['kpis', 'Плитки: выручка, расходы, прибыль, чеки'], ['net-profit', 'Расходы и чистая прибыль'],
+  ['kpis', 'Плитки: выручка, расходы, прибыль, чеки'], ['cash-desk', 'Касса сейчас'], ['net-profit', 'Расходы и чистая прибыль'],
   ['home-chart', 'График выручки'], ['home-hits', 'Топ товаров и сотрудников'], ['home-abc', 'ABC / XYZ матрица'], ['home-stock', 'Товары и остатки'],
 ];
 function applyHomeLayout() {
@@ -891,4 +891,11 @@ setInterval(() => { if (currentView === 'home') load(); }, REFRESH_MS);
     if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.5 || Date.now() - t0 > 800) return;
     shiftDay(dx > 0 ? -1 : 1); // вправо — вчера, влево — к сегодняшнему
   }, { passive: true });
+})();
+
+// Строка с днём прилипает под верхним меню — высота меню меняется (телефон/компьютер), поэтому меряем.
+(() => {
+  const nav = document.querySelector('.nav');
+  if (!nav || !window.ResizeObserver) return;
+  new ResizeObserver(() => document.documentElement.style.setProperty('--nav-h', `${nav.offsetHeight}px`)).observe(nav);
 })();
