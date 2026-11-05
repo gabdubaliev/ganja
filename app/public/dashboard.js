@@ -25,6 +25,51 @@ const state = {
   view: null,
 };
 if (!PERIODS[state.period]) state.period = 'week';
+// «Сегодня» можно листать по дням: 0 — сегодня, −1 — вчера и т.д. (стрелки, свайп, календарь).
+state.dayOffset = 0;
+// Конец просматриваемого периода: для прошлого дня — 23:59:59 того дня, иначе — сейчас.
+function viewNow() {
+  if (state.period !== 'day' || !state.dayOffset) return Date.now();
+  return addDays(dayStart(Date.now()), state.dayOffset + 1) - 1;
+}
+const vsLabel = () => (state.period === 'day' && state.dayOffset ? 'предыдущий день' : PERIODS[state.period].vs);
+function renderDayNav() {
+  let nav = document.getElementById('day-nav');
+  if (!nav) {
+    nav = document.createElement('div');
+    nav.id = 'day-nav';
+    nav.className = 'day-nav';
+    $('#periods').closest('header').after(nav);
+    nav.addEventListener('click', (e) => {
+      if (e.target.closest('[data-today]')) return setDay(0);
+      const b = e.target.closest('[data-day]');
+      if (b) shiftDay(Number(b.dataset.day));
+    });
+    nav.addEventListener('change', (e) => {
+      if (!e.target.matches('input[type=date]') || !e.target.value) return;
+      const picked = fromDateInput(e.target.value);
+      const off = Math.round((dayStart(picked) - dayStart(Date.now())) / 864e5);
+      setDay(Math.min(0, off));
+    });
+  }
+  nav.hidden = state.period !== 'day';
+  if (nav.hidden) return;
+  const d = new Date(viewNow());
+  const wd = d.toLocaleDateString('ru-RU', { weekday: 'short' });
+  const name = state.dayOffset === 0 ? 'Сегодня' : state.dayOffset === -1 ? 'Вчера' : wd[0].toUpperCase() + wd.slice(1);
+  nav.innerHTML = `<button type="button" class="btn small ghost" data-day="-1" aria-label="Предыдущий день">‹</button>
+    <label class="day-pick" title="Выбрать день"><b>${name}</b>, ${d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', ...(d.getFullYear() !== new Date().getFullYear() && { year: 'numeric' }) })} 📅
+      <input type="date" max="${dateInput(Date.now())}" value="${dateInput(d.getTime())}" aria-label="Выбрать день"></label>
+    <button type="button" class="btn small ghost" data-day="1" aria-label="Следующий день" ${state.dayOffset >= 0 ? 'disabled' : ''}>›</button>
+    ${state.dayOffset < 0 ? '<button type="button" class="btn small ghost" data-today>Сегодня</button>' : ''}`;
+}
+function setDay(off) {
+  if (off > 0 || off === state.dayOffset) return undefined;
+  state.dayOffset = off;
+  renderDayNav();
+  load();
+}
+const shiftDay = (n) => setDay(state.dayOffset + n);
 
 /* ---------- Данные ---------- */
 function fetchData(from, to) {
@@ -179,7 +224,7 @@ function renderKpis(v) {
     <div class="kpi">
       <div class="label">${label}</div>
       <div class="value">${value}</div>
-      <div class="delta">${deltaHtml(cur, prev, p.vs, points, inverse)}</div>
+      <div class="delta">${deltaHtml(cur, prev, vsLabel(), points, inverse)}</div>
     </div>`).join('');
 }
 
@@ -421,8 +466,9 @@ function renderSource(error) {
 
 function renderAll() {
   if (!state.data) return;
-  state.view = compute(state.data, state.period, Date.now());
+  state.view = compute(state.data, state.period, viewNow());
   renderPeriods();
+  renderDayNav();
   renderKpis(state.view);
   renderNetProfit(state.view);
   renderChart(state.view);
@@ -433,7 +479,7 @@ function renderAll() {
 let loading = 0;
 async function load() {
   const ticket = ++loading;
-  const now = Date.now();
+  const now = viewNow();
   const r = periodRange(state.period, now);
   const from = Math.min(r.prevStart, addDays(dayStart(now), -(STOCK_WINDOW_DAYS - 1)));
   try {
@@ -463,6 +509,7 @@ $('#periods').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-period]');
   if (!btn || btn.dataset.period === state.period) return;
   state.period = btn.dataset.period;
+  state.dayOffset = 0;
   store('period', state.period);
   renderPeriods();
   load();
@@ -827,3 +874,21 @@ function applyHomeLayout() {
 }
 views.home = { show: () => { applyHomeLayout(); renderPeriods(); load(); loadCashDesk(); if (typeof renderHomeAbc === 'function') renderHomeAbc(); }, right: 'dashboard' };
 setInterval(() => { if (currentView === 'home') load(); }, REFRESH_MS);
+
+// Свайп по главной влево/вправо — соседний день (когда выбран «Сегодня»).
+(() => {
+  const page = document.querySelector('[data-view="home"]');
+  if (!page) return;
+  let x0 = null, y0 = 0, t0 = 0;
+  page.addEventListener('touchstart', (e) => {
+    if (state.period !== 'day' || e.touches.length !== 1 || e.target.closest('.chart, .table-wrap, table, .periods, input, select, textarea')) { x0 = null; return; }
+    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now();
+  }, { passive: true });
+  page.addEventListener('touchend', (e) => {
+    if (x0 === null) return;
+    const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
+    x0 = null;
+    if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.5 || Date.now() - t0 > 800) return;
+    shiftDay(dx > 0 ? -1 : 1); // вправо — вчера, влево — к сегодняшнему
+  }, { passive: true });
+})();
