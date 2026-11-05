@@ -918,6 +918,23 @@ tr.audit-login_failed, tr.audit-denied { background: rgba(208, 59, 59, 0.06); }
 /* ---------- Меню: основные разделы, на телефоне — нижняя панель ---------- */
 .nav-main { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
 .nav-kassa { color: var(--series) !important; }
+.nav-plus { display: none; }
+/* Окно кнопки «+»: снизу поверх страницы. */
+.plus-sheet { position: fixed; inset: 0; z-index: 40; }
+.plus-sheet[hidden] { display: none; }
+.plus-backdrop { position: absolute; inset: 0; background: rgba(15, 17, 28, .45); opacity: 0; transition: opacity .2s; }
+.plus-panel { position: absolute; left: 0; right: 0; bottom: 0; max-height: 86vh; overflow-y: auto; overscroll-behavior: contain; background: var(--surface); border-radius: 22px 22px 0 0; padding: 6px 16px calc(20px + env(safe-area-inset-bottom, 0px)); box-shadow: 0 -16px 40px rgba(15, 17, 28, .2); transform: translateY(100%); transition: transform .22s cubic-bezier(.2, .8, .2, 1); }
+.plus-sheet.open .plus-backdrop { opacity: 1; }
+.plus-sheet.open .plus-panel { transform: none; }
+.plus-grip { width: 44px; height: 5px; border-radius: 9px; background: var(--border); margin: 6px auto 4px; cursor: pointer; }
+.plus-body section { margin-top: 14px; }
+.plus-body h3 { margin: 0 2px 10px; font-size: 17px; }
+.plus-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.plus-item { display: flex; align-items: center; gap: 8px; min-height: 54px; padding: 10px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface-2); color: var(--ink); font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.plus-item:active { background: color-mix(in srgb, var(--series) 12%, var(--surface)); }
+.plus-icon { font-size: 20px; width: 26px; text-align: center; flex: none; }
+.plus-item span:last-child { min-width: 0; font-size: 14px; line-height: 1.2; hyphens: auto; -webkit-hyphens: auto; }
+@media (min-width: 641px) { .plus-panel { left: 50%; right: auto; width: min(560px, 100%); transform: translate(-50%, 100%); } .plus-sheet.open .plus-panel { transform: translate(-50%, 0); } .plus-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .nav .badge { margin-left: -2px; }
 .hidden-scroll { scrollbar-width: none; }
 
@@ -941,6 +958,17 @@ tr.audit-login_failed, tr.audit-denied { background: rgba(208, 59, 59, 0.06); }
   .nav-main a .badge { position: absolute; top: 2px; left: calc(50% + 6px); margin: 0; }
   .nav-main a[aria-current="page"] { background: none; color: var(--series); }
   .nav-main a[aria-current="page"] svg { filter: drop-shadow(0 2px 6px color-mix(in srgb, var(--series) 45%, transparent)); }
+  /* Нижняя панель: Главная, Товары, «+», Журнал, Ещё. Касса и закреплённые разделы — в «Ещё». */
+  .nav-main > a[href="#home"] { order: 1; }
+  .nav-main > a[href="#products"] { order: 2; }
+  .nav-main > .nav-plus { order: 3; }
+  .nav-main > a[href="#sales"] { order: 4; }
+  .nav-main > #nav-more { order: 5; }
+  .nav-main > .nav-kassa, .nav-main > .nav-pinned, .nav-main > .nav-owner { display: none !important; }
+  .nav-plus { display: grid; place-items: center; flex: 0 0 auto; width: 52px; height: 52px; margin: -14px 6px 0; border: 0; border-radius: 18px; background: var(--grad); color: #fff; font-size: 30px; font-weight: 400; line-height: 1; box-shadow: 0 8px 20px color-mix(in srgb, var(--series) 40%, transparent); cursor: pointer; transition: transform .2s; }
+  .nav-plus span { display: block; transform: translateY(-1px); transition: transform .2s; }
+  body.plus-open .nav-plus span { transform: rotate(45deg); }
+
   .toasts { bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
   h1 { font-size: 22px; }
   .panel { padding: 16px; }

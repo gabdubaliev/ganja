@@ -84,7 +84,9 @@ function orderedItems(group, items) {
 }
 
 function renderMore() {
-  $('#more-groups').innerHTML = MORE_GROUPS.map(([group, items]) => {
+  // «Касса» — первой плиткой (на телефоне её нет в нижней панели).
+  const kassa = session.can('pos') ? `<section class="more-group"><div class="more-tiles"><a class="more-tile more-kassa" href="/kassa.html" target="_blank"><span class="more-icon" aria-hidden="true">🖥️</span><span class="more-text"><b>Касса</b><span>Окно кассира: продажа, смена, чеки</span></span></a></div></section>` : '';
+  $('#more-groups').innerHTML = kassa + MORE_GROUPS.map(([group, items]) => {
     const visible = orderedItems(group, items).map(sectionView).filter((x) => canAny(x.right) && (!x.hidden || session.isOwner));
     if (!visible.length) return '';
     return `<section class="more-group">
@@ -131,3 +133,77 @@ session.ready.then(renderPinned);
 
 // Раздел открыт, если есть хоть одно право на что-то внутри.
 views.more = { show: renderMore, right: null };
+
+/* ---------- Кнопка «+» внизу (телефон): документы и разделы — окном поверх страницы ---------- */
+const PLUS_GROUPS = [
+  ['Документы', [
+    ['doc:sale', 'docs.sale', '🧾', 'Продажа'], ['doc:purchase', 'arrivals', '📦', 'Закупка'],
+    ['doc:return', 'refund', '↩️', 'Возврат продажи'], ['receive', 'receive.photo', '📸', 'Приход по фото'],
+    ['doc:receipt', 'arrivals', '➕', 'Оприходование'], ['doc:writeoff', 'writeoff', '🗑️', 'Списание'],
+    ['doc:inventory', 'stock', '📋', 'Инвентаризация'], ['doc:transfer', 'transfer', '🚚', 'Перемещение'],
+  ]],
+  ['Товары', [
+    ['new-product', 'products', '🏷️', 'Новый товар'], ['products', 'products', '📦', 'Все товары'],
+  ]],
+  ['Прочее', [
+    ['loyalty', 'customers', '⭐', 'Клиенты'], ['certificates', 'certificates', '🎁', 'Сертификаты'],
+    ['users', 'staff', '👥', 'Сотрудники'], ['accounts', 'accounts', '💰', 'Счета'],
+    ['fines', ['fines', 'kpi'], '⚠️', 'Штрафы'], ['bonuses', ['bonuses', 'salary', 'kpi'], '🎁', 'Бонусы'],
+    ['tasks', '', '✅', 'Задания'],
+  ]],
+];
+function plusSheet() {
+  let sheet = document.getElementById('plus-sheet');
+  if (!sheet) {
+    sheet = document.createElement('div');
+    sheet.id = 'plus-sheet';
+    sheet.className = 'plus-sheet';
+    sheet.hidden = true;
+    sheet.innerHTML = '<div class="plus-backdrop" data-plus-close></div><div class="plus-panel" role="dialog" aria-modal="true" aria-label="Создать"><div class="plus-grip" data-plus-close></div><div class="plus-body"></div></div>';
+    document.body.append(sheet);
+    sheet.addEventListener('click', onPlusClick);
+    // Смахнуть окно вниз — закрыть.
+    let y0 = null;
+    const panel = sheet.querySelector('.plus-panel');
+    panel.addEventListener('touchstart', (e) => { y0 = panel.scrollTop <= 0 ? e.touches[0].clientY : null; }, { passive: true });
+    panel.addEventListener('touchmove', (e) => { if (y0 !== null) { const d = Math.max(0, e.touches[0].clientY - y0); panel.style.transform = d ? `translateY(${d}px)` : ''; } }, { passive: true });
+    panel.addEventListener('touchend', (e) => { if (y0 === null) return; const d = e.changedTouches[0].clientY - y0; y0 = null; panel.style.transform = ''; if (d > 90) closePlus(); }, { passive: true });
+  }
+  // Только то, на что у сотрудника есть право (и что владелец не скрыл).
+  const hiddenKey = (k) => Boolean(session.layout?.sections?.[k.startsWith('doc:') ? `docs:${k.slice(4)}` : k]?.hidden) && !session.isOwner;
+  sheet.querySelector('.plus-body').innerHTML = PLUS_GROUPS.map(([group, items]) => {
+    const list = items.filter(([k, right]) => (right === '' || canAny(right)) && !hiddenKey(k));
+    if (!list.length) return '';
+    return `<section><h3>${group}</h3><div class="plus-grid">${list.map(([k, , icon, title]) => `<button type="button" class="plus-item" data-plus="${k}"><span class="plus-icon" aria-hidden="true">${icon}</span><span>${esc(title)}</span></button>`).join('')}</div></section>`;
+  }).join('') || '<p class="empty">Для вашей роли здесь ничего нет</p>';
+  return sheet;
+}
+function openPlus() {
+  const sheet = plusSheet();
+  sheet.hidden = false;
+  requestAnimationFrame(() => sheet.classList.add('open'));
+  document.body.classList.add('plus-open');
+}
+function closePlus() {
+  const sheet = document.getElementById('plus-sheet');
+  if (!sheet || sheet.hidden) return;
+  sheet.classList.remove('open');
+  document.body.classList.remove('plus-open');
+  setTimeout(() => { sheet.hidden = true; }, 220);
+}
+function onPlusClick(e) {
+  if (e.target.closest('[data-plus-close]')) return closePlus();
+  const b = e.target.closest('[data-plus]');
+  if (!b) return;
+  const k = b.dataset.plus;
+  closePlus();
+  if (k.startsWith('doc:')) return newDoc(k.slice(4)); // сразу новый документ
+  if (k === 'new-product') {
+    if (currentView !== 'products') location.hash = 'products';
+    return setTimeout(() => openProductDialog(null, typeof renderProducts === 'function' ? renderProducts : () => {}), currentView === 'products' ? 0 : 400);
+  }
+  location.hash = k;
+}
+$('#nav-plus')?.addEventListener('click', () => (document.getElementById('plus-sheet')?.hidden === false ? closePlus() : openPlus()));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePlus(); });
+window.addEventListener('hashchange', closePlus);
