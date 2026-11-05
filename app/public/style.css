@@ -2122,3 +2122,17 @@ body.no-mig-purchase .mig-c-purchase, body.no-mig-cost .mig-c-cost, body.no-mig-
 .sz-size small { font-size: 11px; opacity: .75; }
 .sz-out { background: color-mix(in srgb, var(--critical, #d33) 14%, transparent); border-color: color-mix(in srgb, var(--critical, #d33) 45%, transparent); }
 .sz-low { background: color-mix(in srgb, var(--warning, #e8a100) 16%, transparent); border-color: color-mix(in srgb, var(--warning, #e8a100) 50%, transparent); }
+
+.right-check { align-items: flex-start; }
+.right-check > span { display: grid; gap: 2px; }
+.right-check b { font-weight: 600; }
+.right-check small { font-size: 12px; line-height: 1.35; color: var(--muted); font-weight: 400; }
+.ac-right b { display: block; font-weight: 600; }
+.ac-hint { display: block; margin-top: 2px; font-size: 12px; line-height: 1.35; color: var(--muted); font-weight: 400; max-width: 420px; white-space: normal; }
+.right-check b { text-transform: none; letter-spacing: normal; color: var(--ink); font-size: 14px; }
+.ac-right b { text-transform: none; letter-spacing: normal; color: var(--ink); }
+.ac-table th.ac-right { white-space: normal; min-width: 220px; max-width: 340px; text-transform: none; letter-spacing: normal; }
+.ac-table .ac-hint { text-transform: none; letter-spacing: normal; font-size: 12px; overflow-wrap: anywhere; }
+@media (max-width: 640px) { .ac-table th.ac-right { min-width: 180px; max-width: 230px; } }
+.ac-table .ac-hint { max-width: 340px; }
+@media (max-width: 640px) { .ac-table .ac-hint, .ac-table .ac-right b { max-width: 210px; } }

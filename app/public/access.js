@@ -23,7 +23,7 @@ function drawAccess() {
   const q = acView.q.trim().toLowerCase();
   const userMatch = (u) => !q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
   const shownUsers = users.some(userMatch) ? users.filter(userMatch) : users;
-  const rightMatch = (r, g) => !q || users.some(userMatch) || r.label.toLowerCase().includes(q) || g.name.toLowerCase().includes(q);
+  const rightMatch = (r, g) => !q || users.some(userMatch) || r.label.toLowerCase().includes(q) || (r.hint || '').toLowerCase().includes(q) || g.name.toLowerCase().includes(q);
   $('#ac-sub').textContent = `${shownUsers.length} ${plural(shownUsers.length, ['сотрудник', 'сотрудника', 'сотрудников'])}${acView.role ? ` · роль «${d.roles[acView.role] || acView.role}»` : ''}`;
   if (!shownUsers.length) { $('#ac-table').innerHTML = '<p class="empty">Сотрудников нет — их заводят в «Сотрудниках».</p>'; return; }
   const head = `<thead><tr><th class="ac-right">Право</th><th class="ac-all">Всем</th>${shownUsers.map((u) => `<th class="ac-user ${u.disabled ? 'off' : ''}" title="${esc(u.email)}"><b>${esc(u.name)}</b><small>${esc(d.roles[u.role] || u.role)}${u.custom ? ' · свои права' : ''}</small>${u.custom ? `<button type="button" class="link" data-ac-reset="${u.id}" title="Права как у роли «${esc(d.roles[u.role] || u.role)}»">как у роли</button>` : ''}</th>`).join('')}</tr></thead>`;
@@ -32,7 +32,7 @@ function drawAccess() {
     if (!rows.length) return '';
     return `<tr class="ac-group"><th colspan="${shownUsers.length + 2}">${esc(g.name)}</th></tr>` + rows.map((r) => {
       const n = shownUsers.filter((u) => u.rights.includes(r.key)).length;
-      return `<tr><th class="ac-right">${esc(r.label)}</th>
+      return `<tr><th class="ac-right"><b>${esc(r.label)}</b>${r.hint ? `<small class="ac-hint">${esc(r.hint)}</small>` : ''}</th>
         <td class="ac-all"><button type="button" class="btn small" data-ac-all="${r.key}" data-on="1" ${n === shownUsers.length ? 'disabled' : ''} title="Дать всем в таблице">✓</button><button type="button" class="btn small ghost" data-ac-all="${r.key}" data-on="0" ${n === 0 ? 'disabled' : ''} title="Убрать у всех в таблице">✕</button><small>${n}/${shownUsers.length}</small></td>
         ${shownUsers.map((u) => `<td class="ac-cell"><input type="checkbox" data-ac-user="${u.id}" data-ac-right="${r.key}" ${u.rights.includes(r.key) ? 'checked' : ''} aria-label="${esc(u.name)}: ${esc(r.label)}"></td>`).join('')}</tr>`;
     }).join('');

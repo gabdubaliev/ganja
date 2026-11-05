@@ -155,7 +155,7 @@ function renderRights(custom) {
   const groups = groupBy(session.rightsList);
   $('#uf-rights-list').innerHTML = [...groups].map(([group, rights]) => `
     <div class="rights-group"><b>${esc(group)}</b>
-      ${rights.map((r) => `<label class="check"><input type="checkbox" value="${r.key}" ${checked.has(r.key) ? 'checked' : ''} ${isAdmin ? 'disabled' : ''}> ${esc(r.label)}</label>`).join('')}
+      ${rights.map((r) => `<label class="check right-check"><input type="checkbox" value="${r.key}" ${checked.has(r.key) ? 'checked' : ''} ${isAdmin ? 'disabled' : ''}><span><b>${esc(r.label)}</b>${r.hint ? `<small>${esc(r.hint)}</small>` : ''}</span></label>`).join('')}
     </div>`).join('');
   $('#uf-rights-reset').hidden = isAdmin;
   markRightsCustom();

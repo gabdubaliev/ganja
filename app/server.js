@@ -982,7 +982,7 @@ function accessOut() {
   for (const r of RIGHTS) {
     let g = groups.find((x) => x.name === r.group);
     if (!g) groups.push(g = { name: r.group, rights: [] });
-    g.rights.push({ key: r.key, label: r.label });
+    g.rights.push({ key: r.key, label: r.label, hint: r.hint || "" });
   }
   return {
     groups, roles: Object.fromEntries(Object.entries(ROLES).map(([k, v]) => [k, v.name])),
