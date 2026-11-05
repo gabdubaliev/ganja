@@ -19,6 +19,8 @@ body.ui-editing [data-ui-key]:hover { outline: 2px dashed #6366f1; outline-offse
 body.ui-editing .ui-picked { outline: 3px solid #6366f1 !important; outline-offset: 2px; }
 .ui-icon { display: inline-block; line-height: 1; }
 img.ui-icon { width: 1.25em; height: 1.25em; object-fit: contain; vertical-align: -0.2em; }
+.ui-has-icon::before { display: none !important; }
+.logo > .ui-icon { width: 34px; height: 34px; flex: none; display: grid; place-items: center; font-size: 26px; border-radius: 10px; object-fit: cover; }
 #ui-bar { position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 2000; display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; padding: 10px 12px; border-radius: 14px; background: #111827; color: #fff; font: 14px/1.3 system-ui, sans-serif; box-shadow: 0 10px 30px rgba(0,0,0,.3); }
 #ui-bar span { opacity: .75; }
 #ui-bar button, #ui-pane button { border: 0; border-radius: 10px; padding: 8px 10px; background: #374151; color: #fff; font: inherit; cursor: pointer; }
@@ -93,6 +95,8 @@ img.ui-icon { width: 1.25em; height: 1.25em; object-fit: contain; vertical-align
   function setIcon(el, icon) {
     const old = iconOf(el);
     if (el.dataset.uiOrigIcon === undefined) el.dataset.uiOrigIcon = old ? '1' : '0';
+    // Иконка, нарисованная стилем (буква «М» в логотипе), — прячется, когда задана своя или убрана.
+    el.classList.add('ui-has-icon');
     if (!icon) { if (old) old.style.display = 'none'; return; }
     let node;
     if (icon.img) {
@@ -117,7 +121,11 @@ img.ui-icon { width: 1.25em; height: 1.25em; object-fit: contain; vertical-align
       const el = keyed.get(k);
       if (!el) continue;
       if (o.text !== undefined && getText(el) !== o.text) setText(el, o.text);
-      if (o.icon !== undefined && !el.dataset.uiIconDone) { setIcon(el, o.icon); el.dataset.uiIconDone = '1'; }
+      // Иконка: если программа перерисовала элемент и своя иконка пропала — ставим снова.
+      if (o.icon !== undefined) {
+        const has = o.icon ? el.querySelector(':scope > .ui-icon') : el.classList.contains('ui-has-icon') && !iconOf(el)?.offsetParent;
+        if (!has || !el.dataset.uiIconDone) { setIcon(el, o.icon); el.dataset.uiIconDone = '1'; }
+      }
       el.classList.toggle('ui-hidden', Boolean(o.hide));
       el.style.color = o.color || '';
       el.style.background = o.bg || '';
