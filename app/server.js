@@ -32,7 +32,7 @@ const DB_FILE = path.resolve(__dirname, process.env.DB_FILE || 'data/shop.db');
 const PUBLIC = path.join(__dirname, 'public');
 const MAX_RANGE = 800 * 864e5;
 // Без входа можно открыть только страницу входа и её стили.
-const PUBLIC_PATHS = new Set(['/login.html', '/style.css', '/manifest.webmanifest', '/icon.svg', '/shop.css', '/shop.js', '/colors.js', '/ui-edit.js']);
+const PUBLIC_PATHS = new Set(['/login.html', '/style.css', '/manifest.webmanifest', '/app.webmanifest', '/icon.svg', '/shop.css', '/shop.js', '/colors.js', '/ui-edit.js']);
 const ORDER_LIMIT = 5; // заказов с одного адреса за 10 минут — защита от спама
 const orderLog = new Map(); // ip -> [время заказа]
 
@@ -2730,6 +2730,38 @@ function uiGet(page) {
   return ui;
 }
 const uiFavicon = (page) => { try { return Number(JSON.parse(mainStore.setting(`ui_${page}`, '{}'))?.favicon) || null; } catch { return null; } };
+// Значок приложения: свой из «Изменить интерфейс», иначе логотип витрины, иначе стандартный.
+function appIcon(page) {
+  let shop = {};
+  try { shop = JSON.parse(mainStore.setting('shop', '{}')) || {}; } catch { /* нет витрины */ }
+  return uiFavicon(page) || uiFavicon('admin') || shop.faviconId || shop.logoId || null;
+}
+const appName = () => mainStore.design().name || 'Мой магазин';
+function appManifest(page) {
+  const icon = appIcon(page);
+  const kassa = page === 'kassa';
+  const name = kassa ? `Касса — ${appName()}` : appName();
+  return {
+    name, short_name: kassa ? 'Касса' : appName().slice(0, 12), id: kassa ? '/kassa.html' : '/', start_url: kassa ? '/kassa.html' : '/', scope: '/',
+    display: 'standalone', background_color: '#f4f5f2', theme_color: '#2a78d6', lang: 'ru',
+    icons: icon ? [{ src: `/img/${icon}?v=${icon}`, sizes: '512x512', purpose: 'any' }, { src: `/img/${icon}?v=${icon}`, sizes: '192x192', purpose: 'any' }]
+      : [{ src: '/icon.svg', sizes: 'any', type: 'image/svg+xml' }],
+  };
+}
+function appHead(page, pathname) {
+  const icon = appIcon(page);
+  const fav = uiFavicon(page) || icon;
+  const title = htmlAttr(page === 'kassa' ? 'Касса' : appName().slice(0, 14));
+  return [
+    pathname === '/kassa.html' ? '' : '<link rel="manifest" href="/app.webmanifest">',
+    '<meta name="mobile-web-app-capable" content="yes">',
+    '<meta name="apple-mobile-web-app-capable" content="yes">',
+    '<meta name="apple-mobile-web-app-status-bar-style" content="default">',
+    `<meta name="apple-mobile-web-app-title" content="${title}">`,
+    fav ? `<link rel="icon" href="/img/${fav}?v=${fav}">` : '',
+    icon ? `<link rel="apple-touch-icon" href="/img/${icon}?v=${icon}">` : '<link rel="apple-touch-icon" href="/icon.svg">',
+  ].filter(Boolean).join('\n');
+}
 const uiFont = (v) => { const s = String(v || '').trim(); return /^[\p{L}\p{N} _.-]{1,60}$/u.test(s) ? s : undefined; };
 function uiSet(page, body) {
   if (!UI_PAGES.has(page)) throw new UserError('Неизвестная страница');
@@ -2900,10 +2932,11 @@ async function handleRequest(req, res, url, user, owner) {
     } catch {
       return sendJson(res, 400, { error: 'Неверный адрес' });
     }
-    // База и касса: значок вкладки вписываем прямо в страницу — он виден сразу и не сбрасывается на стандартный.
-    const uiPage = pathname === '/' || pathname === '/index.html' ? 'admin' : pathname === '/kassa.html' ? 'kassa' : null;
-    const fav = uiPage && uiFavicon(uiPage);
-    if (fav) return serveStatic(res, pathname, (html) => html.replace('</head>', `<link rel="icon" href="/img/${fav}?v=${fav}">\n<link rel="apple-touch-icon" href="/img/${fav}?v=${fav}">\n</head>`));
+    // Приложение на телефоне (iPhone: Safari → «На экран Домой»): манифест базы и кассы — название и значок магазина.
+    if (pathname === '/app.webmanifest' || pathname === '/manifest.webmanifest') return sendJson(res, 200, appManifest(pathname === '/app.webmanifest' ? 'admin' : 'kassa'));
+    // База, касса и вход: значок вкладки и всё для приложения на экране «Домой» — прямо в страницу.
+    const uiPage = pathname === '/' || pathname === '/index.html' || pathname === '/login.html' ? 'admin' : pathname === '/kassa.html' ? 'kassa' : null;
+    if (uiPage) return serveStatic(res, pathname, (html) => html.replace('</head>', `${appHead(uiPage, pathname)}\n</head>`));
     return serveStatic(res, pathname);
   }
   // Вложение клиента из Instagram/WhatsApp через наш сервер: телефон (Safari) не всегда играет видео
