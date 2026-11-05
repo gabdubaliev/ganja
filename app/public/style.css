@@ -411,6 +411,13 @@ select.input { text-align: left; }
 .day-pick { position: relative; padding: 6px 8px; border-radius: 10px; cursor: pointer; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .day-nav [data-today] { margin-left: auto; flex: none; }
 .day-pick input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
+/* Защита от снимков экрана: водяной знак, без выделения текста, размытие вне фокуса. */
+#screen-guard { display: none; position: fixed; inset: 0; z-index: 30; pointer-events: none; background-repeat: repeat; }
+body.screen-guard #screen-guard { display: block; }
+body.screen-guard main.page { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+body.screen-guard main.page input, body.screen-guard main.page textarea { -webkit-user-select: text; user-select: text; }
+body.guard-hide main.page { filter: blur(22px); }
+@media print { body.screen-guard main.page { display: none !important; } }
 .sales-summary { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; margin-bottom: 8px; font-size: 15px; }
 /* Итоги журнала продаж: карточки «Итого», «Наличными», «Безнал». */
 .sales-summary:has(.ss-tiles) { display: block; margin-bottom: 14px; }

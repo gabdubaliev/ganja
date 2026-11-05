@@ -1696,6 +1696,14 @@ const routes = [
   ['GET', '/api/design', () => store.design(), 'design'],
   ['PUT', '/api/design', (p, url, body) => store.setDesign(body), 'design'],
   ['GET', '/api/fonts', () => mainStore.listFonts(), 'any'],
+  // Сотрудник без права «Скриншоты» нажал PrintScreen (или Win+Shift+S) в разделе с цифрами — в журнал и владельцу.
+  ['POST', '/api/security/screenshot', (p, url, body, user) => {
+    const where = String(body?.view || '').slice(0, 40);
+    store.audit({ kind: 'change', user, action: 'Попытка скриншота в разделе с цифрами', details: `${where}${body?.how ? ` · ${String(body.how).slice(0, 40)}` : ''}` });
+    const tg = current().notifier.tgFor('screenshot');
+    if (tg) current().notifier.sendTelegram(`📸 ${user?.name || user?.email || 'Сотрудник'} нажал снимок экрана в разделе «${where}» (${new Date().toLocaleString('ru-RU')})`, tg).catch(() => {});
+    return { ok: true };
+  }, 'any'],
   ['POST', '/api/fonts', (p, url, body) => mainStore.addFont(body), ['design', 'shop', 'print.design']],
   ['PUT', '/api/fonts/:id', (p, url, body) => mainStore.updateFont(p.id, body), ['design', 'shop']],
   ['DELETE', '/api/fonts/:id', (p) => mainStore.deleteFont(p.id), ['design', 'shop']],

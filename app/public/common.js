@@ -321,6 +321,7 @@ function route() {
   const navTarget = document.querySelector(`.nav a[href="#${target}"]`) ? target : IS_KASSA && target === 'sales' ? 'pos' : 'more';
   for (const a of document.querySelectorAll('.nav a[href^="#"]')) a.setAttribute('aria-current', a.getAttribute('href') === '#' + navTarget ? 'page' : 'false');
   views[target].show();
+  applyScreenGuard();
 }
 addEventListener('hashchange', route);
 
@@ -771,3 +772,51 @@ document.addEventListener('keydown', (e) => {
   };
   if (currentView !== route.view) { location.hash = route.view; setTimeout(go, 300); } else go();
 }, true);
+
+
+/* ---------- Защита разделов с цифрами от снимков экрана (сотрудники без права «Скриншоты») ---------- */
+// Сайт не может запретить снимок экрана — это умеют только приложения. Поэтому: водяной знак с именем и временем
+// (по снимку видно, кто снял), цифры размываются, когда окно не в фокусе, копирование выключено,
+// PrintScreen на компьютере прячет экран и сообщает владельцу.
+const GUARD_VIEWS = new Set(['home', 'sales', 'money', 'kpi', 'stockreport', 'deadstock', 'sizes', 'abc', 'accounts', 'shifts', 'timesheet', 'mytimesheet', 'certificates', 'loyalty', 'bonuses', 'fines', 'owner', 'audit']);
+const screenGuardOn = () => session.user && !session.isOwner && !session.can('screenshots') && GUARD_VIEWS.has(currentView);
+let guardTimer = null;
+function guardMark() {
+  let m = document.getElementById('screen-guard');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'screen-guard';
+    m.setAttribute('aria-hidden', 'true');
+    document.body.append(m);
+  }
+  const who = (session.user?.name || session.user?.email || 'Сотрудник').replace(/[<>&"']/g, '');
+  const when = new Date().toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const text = `${who} · ${when}`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><text x="10" y="110" transform="rotate(-24 160 90)" font-family="sans-serif" font-size="15" fill="rgba(120,120,135,0.16)">${text}</text></svg>`;
+  m.style.backgroundImage = `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
+}
+function applyScreenGuard() {
+  const on = Boolean(screenGuardOn());
+  document.body.classList.toggle('screen-guard', on);
+  clearInterval(guardTimer);
+  if (on) { guardMark(); guardTimer = setInterval(guardMark, 60_000); }
+  else document.body.classList.remove('guard-hide');
+}
+session.ready?.then?.(() => applyScreenGuard());
+const guardHide = (on) => { if (document.body.classList.contains('screen-guard')) document.body.classList.toggle('guard-hide', on); };
+addEventListener('blur', () => guardHide(true));
+addEventListener('focus', () => guardHide(false));
+document.addEventListener('visibilitychange', () => guardHide(document.hidden));
+const guardReport = (how) => { api('/api/security/screenshot', { method: 'POST', body: { view: currentView, how } }).catch(() => {}); };
+addEventListener('keyup', (e) => {
+  if (!document.body.classList.contains('screen-guard')) return;
+  if (e.key === 'PrintScreen' || (e.shiftKey && e.metaKey && ['s', 'S', '3', '4', '5'].includes(e.key))) {
+    guardHide(true);
+    navigator.clipboard?.writeText(' ').catch(() => {}); // убрать снимок из буфера, если браузер разрешит
+    toast('Снимки экрана в этом разделе запрещены — владелец получит уведомление', 'error');
+    guardReport(e.key === 'PrintScreen' ? 'PrintScreen' : 'Cmd+Shift');
+    setTimeout(() => guardHide(false), 1500);
+  }
+});
+document.addEventListener('copy', (e) => { if (document.body.classList.contains('screen-guard') && !e.target.closest?.('input, textarea')) { e.preventDefault(); toast('Копирование цифр в этом разделе запрещено', 'error'); } });
+document.addEventListener('contextmenu', (e) => { if (document.body.classList.contains('screen-guard') && !e.target.closest('input, textarea')) e.preventDefault(); });
