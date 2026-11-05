@@ -151,7 +151,13 @@ img.ui-icon { width: 1.25em; height: 1.25em; object-fit: contain; vertical-align
   }
   // Программа перерисовывает надписи (например, имя кнопки) — возвращаем свои.
   let tick = null;
-  new MutationObserver(() => { clearTimeout(tick); tick = setTimeout(apply, 120); }).observe(document.body, { childList: true, subtree: true, characterData: true });
+  // Свои панели редактора (#ui-bar, #ui-pane) не считаются — иначе панель перерисовывала бы сама себя без конца.
+  const own = (n) => { const e = n.nodeType === 1 ? n : n.parentElement; return Boolean(e && e.closest('#ui-bar, #ui-pane, #me-menu')); };
+  new MutationObserver((list) => {
+    if (list.every((m) => own(m.target))) return;
+    clearTimeout(tick);
+    tick = setTimeout(apply, 120);
+  }).observe(document.body, { childList: true, subtree: true, characterData: true });
 
   const loadUrl = PAGE === 'shop' ? '/shop/ui' : `/api/ui?page=${PAGE}`;
   fetch(loadUrl).then((r) => (r.ok ? r.json() : null)).then((d) => { if (d) { data = { items: d.items || {}, favicon: d.favicon || null }; apply(); } }).catch(() => {});
@@ -175,13 +181,15 @@ img.ui-icon { width: 1.25em; height: 1.25em; object-fit: contain; vertical-align
       bar.addEventListener('click', onBar);
     }
     const hidden = Object.entries(data.items).filter(([, o]) => o.hide).length;
-    bar.innerHTML = moveFrom
+    const html = moveFrom
       ? `<b>Куда поставить?</b> Нажмите на элемент — «${esc2(label(keyed.get(moveFrom)))}» встанет рядом с ним. <button type="button" data-ui="cancel-move">Отмена</button>`
       : `<b>✏️ Изменение интерфейса</b> <span>Нажмите на любую кнопку, надпись или блок</span>
         <button type="button" data-ui="favicon">Иконка вкладки</button>
         <button type="button" data-ui="hidden">Скрытые (${hidden})</button>
         <button type="button" data-ui="reset-all">Сбросить всё</button>
         <button type="button" data-ui="done" class="ui-done">Готово</button>`;
+    // Перерисовываем, только если что-то поменялось: кнопки не «дёргаются» под пальцем.
+    if (bar.dataset.html !== html) { bar.innerHTML = html; bar.dataset.html = html; }
   }
   const esc2 = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const label = (el) => (el ? (getText(el) || el.getAttribute('aria-label') || el.tagName.toLowerCase()).slice(0, 40) : '');
@@ -323,7 +331,7 @@ img.ui-icon { width: 1.25em; height: 1.25em; object-fit: contain; vertical-align
     try {
       if (b.dataset.ui === 'done') return stop();
       if (b.dataset.ui === 'cancel-move') { moveFrom = null; return renderBar(); }
-      if (b.dataset.ui === 'favicon') return pickImage((id) => { data.favicon = id; save().then(() => { apply(); msg('Иконка вкладки сохранена'); }); });
+      if (b.dataset.ui === 'favicon') return pickImage((id) => { data.favicon = id; save().then(() => { apply(); msg('Иконка вкладки сохранена — браузер может показать её не сразу, обновите страницу'); }).catch((err) => msg(err.message, true)); });
       if (b.dataset.ui === 'hidden') {
         const list = Object.entries(data.items).filter(([, o]) => o.hide);
         if (!list.length) return msg('Скрытых элементов нет');
