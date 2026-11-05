@@ -60,7 +60,8 @@ function renderDayNav() {
   if (state.period !== 'day') {
     // 7 или 30 дней: какие дни входят — до сегодня включительно.
     const r = periodRange(state.period, Date.now());
-    const f = (t) => new Date(t).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+    const twoYears = new Date(r.start).getFullYear() !== new Date(r.end).getFullYear();
+    const f = (t) => new Date(t).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', ...(twoYears && { year: 'numeric' }) }).replace(' г.', '');
     nav.innerHTML = `<span class="day-pick"><b>${HOME_PERIODS[state.period]}</b>: ${f(r.start)} — ${f(r.end)}</span>
       <button type="button" class="btn small ghost" data-today>Сегодня</button>`;
     return;
@@ -194,7 +195,7 @@ function compute(data, key, now) {
 
 /* ---------- Отрисовка ---------- */
 // На главной — «День», «7 дней», «30 дней» над строкой с календарём (открывается всегда на «День»).
-const HOME_PERIODS = { day: 'День', week: '7 дней', month: '30 дней' };
+const HOME_PERIODS = { day: 'День', week: '7 дней', month: '30 дней', year: 'Год' };
 function renderPeriods() {
   $('#periods').hidden = false;
   $('#periods').innerHTML = Object.entries(HOME_PERIODS).map(([key, label]) =>
