@@ -136,7 +136,7 @@ function migDraw() {
       <td class="mig-c-markup"><input class="input num" data-f="markup" inputmode="decimal" value="${markup === null ? '' : migFmt(markup)}" title="В CloudShop: ${src[0].markup ?? '—'}%" ${dis}></td>
       <td><input class="input num" data-f="price" inputmode="decimal" value="${migFmt(d.price)}" ${dis}></td>
       <td class="num mig-c-margin" title="В CloudShop: ${src[0].margin ?? '—'}%">${margin === null ? '—' : migFmt(margin) + '%'}</td>
-      <td><input class="input num" data-f="stock" inputmode="decimal" value="${migFmt(d.stock)}" ${dis}></td>
+      <td>${dis ? `<input class="input num" data-f="stock" inputmode="decimal" value="${migFmt(d.stock)}" ${dis}>` : qstep(`<input class="input num" data-f="stock" inputmode="decimal" value="${migFmt(d.stock)}">`)}</td>
       <td>${d.variants?.on ? '<small>новые у каждой модификации</small>' : `<input class="input" data-f="barcode" value="${esc(d.barcode || '')}" ${dis}>`}</td>
       <td><button type="button" class="btn small ${d.variants?.on ? '' : 'ghost'}" data-mig-var ${dis}>${varLabel}</button>${src.length > 1 && !done && session.can('migrate') ? '<button type="button" class="link" data-mig-split>Разделить</button>' : ''}</td>
     </tr>`;

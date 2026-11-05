@@ -1980,6 +1980,16 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .mv-cells { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px 18px; }
 .mv-cell { display: grid; grid-template-columns: 52px 44px minmax(48px, 1fr) 44px; gap: 8px; align-items: center; }
 .mv-size { font-weight: 700; }
+/* Кнопки «−» и «+» у поля количества. */
+.qstep { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; }
+.qstep .input { width: 64px; min-width: 48px; text-align: center; padding-inline: 6px; }
+.field .qstep { display: flex; }
+.field .qstep .input { flex: 1; width: auto; }
+.qstep-btn { flex: none; width: 32px; height: 32px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); font-size: 18px; font-weight: 700; line-height: 1; cursor: pointer; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+.qstep-btn:hover { border-color: color-mix(in srgb, var(--series) 45%, var(--border)); }
+.qstep-btn:active { background: color-mix(in srgb, var(--series) 18%, var(--surface)); }
+.field .qstep-btn { width: 44px; height: 44px; font-size: 22px; }
+@media (pointer: coarse) { .qstep-btn { width: 40px; height: 40px; font-size: 20px; } }
 .mv-step { width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); font-size: 22px; font-weight: 700; line-height: 1; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
 .mv-step:active { background: color-mix(in srgb, var(--series) 18%, var(--surface)); }
 .mv-cell .input { height: 44px; text-align: center; font-size: 17px; padding: 4px; }

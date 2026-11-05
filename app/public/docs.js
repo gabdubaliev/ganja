@@ -219,7 +219,7 @@ function renderDoc() {
     if (doc.filter === 'diff') lines = lines.filter((x) => diffOf(x));
   } else $('#doc-filter').hidden = true;
   const input = (field, value, label) => (ro ? `<span class="num">${field === 'reason' ? esc(value || '—') : numText(value) || '—'}</span>`
-    : `<input class="input num" data-line="${field}" inputmode="decimal" value="${numText(value)}" placeholder="${field === 'actual' ? '—' : '0'}" aria-label="${label}">`);
+    : ((html) => (field === 'qty' || field === 'actual' ? qstep(html) : html))(`<input class="input num" data-line="${field}" inputmode="decimal" value="${numText(value)}" placeholder="${field === 'actual' ? '—' : '0'}" aria-label="${label}">`));
   $('#doc-lines').innerHTML = lines.length ? lines.slice(0, 400).map((x) => {
     const { l, i, p } = x;
     const name = `<div class="pname">${esc(p?.name || l.name)}</div><div class="pcat">${esc([p?.barcode, p?.unit || l.unit].filter(Boolean).join(' · '))}</div>`;
@@ -436,7 +436,7 @@ function openDocVariants(base) {
           <input type="checkbox" data-dv-check="${k.id}">
           <span class="dv-name">${esc(rest || k.name)}${was ? ' <small class="dv-in">в документе</small>' : ''}</span>
           <small class="num">${k.stock === null ? '' : `ост. ${qty(k.stock, k.unit)}`}</small>
-          <input class="input num dv-q" data-dv-qty="${k.id}" inputmode="decimal" placeholder="${inv ? 'факт' : '1'}" aria-label="${inv ? 'Факт' : 'Количество'}">
+          ${qstep(`<input class="input num dv-q" data-dv-qty="${k.id}" inputmode="decimal" placeholder="${inv ? 'факт' : '1'}" aria-label="${inv ? 'Факт' : 'Количество'}">`)}
         </label>`;
       }).join('')}
     </div>`).join('');

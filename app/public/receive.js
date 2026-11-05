@@ -97,7 +97,7 @@ function drawReceiveLines() {
         <input class="input" data-line="product" list="rc-products" value="${esc(r.p ? rcLabel(r.p) : l.name || '')}" placeholder="Название или код товара" aria-label="Товар">
         <div class="rc-meta">${badge}${l.raw && (!r.p || r.p.name !== l.raw) ? `<span class="pcat">в накладной: ${esc(l.raw)}</span>` : ''}${!r.p ? `<input class="input rc-cat" data-line="category" list="categories" value="${esc(l.category || '')}" placeholder="Категория">` : ''}</div>
       </td>
-      <td><input class="input num rc-qty" data-line="qty" inputmode="decimal" value="${esc(l.qty ?? '')}" aria-label="Количество"><div class="pcat">${esc(r.p?.unit || l.unit || 'шт')}</div></td>
+      <td>${qstep(`<input class="input num rc-qty" data-line="qty" inputmode="decimal" value="${esc(l.qty ?? '')}" aria-label="Количество">`)}<div class="pcat">${esc(r.p?.unit || l.unit || 'шт')}</div></td>
       <td><input class="input num rc-price" data-line="price_cur" inputmode="decimal" value="${esc(l.price_cur ?? '')}" aria-label="Цена в валюте"><div class="pcat">${r.qty ? `${qtyFmt.format(Math.round((parseNum(l.price_cur) || 0) * r.qty * 100) / 100)} ${cur}` : ''}</div></td>
       <td class="num">${money2(r.purchase)}${r.p ? `<div class="pcat">было ${money2(r.p.purchase ?? r.p.cost)}</div>` : ''}</td>
       <td class="num">${r.extra ? `+${money2(r.extra)}` : '—'}</td>

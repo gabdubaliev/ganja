@@ -772,7 +772,7 @@ function renderGenPreview() {
         return `<tr data-combo="${i}" data-label="${esc(label)}">
         <td>${esc(label)}</td>
         <td><input class="input num" data-combo="price" inputmode="decimal" value="${esc(ed.price || '')}" placeholder="${esc(price || '0')}" aria-label="Цена"></td>
-        <td><input class="input num" data-combo="stock" inputmode="decimal" value="${esc(ed.stock || '')}" placeholder="0" aria-label="Остаток"></td>
+        <td>${qstep(`<input class="input num" data-combo="stock" inputmode="decimal" value="${esc(ed.stock || '')}" placeholder="0" aria-label="Остаток">`)}</td>
       </tr>`;
       }).join('')}</tbody>
     </table>`;

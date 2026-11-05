@@ -119,6 +119,30 @@ function phoneFmt(p) {
 const qtyFmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 3 });
 const qty = (v, unit = 'шт') => `${qtyFmt.format(v)} ${unit}`;
 const parseNum = (s) => Number(String(s ?? '').replace(/\s/g, '').replace(',', '.'));
+
+/* ---------- Кнопки «−» и «+» у поля количества (документы, приход, товар, перенос) ---------- */
+// qstep(html поля) — поле с кнопками; wrapQstep(input) — то же для поля, которое уже есть на странице.
+// Кнопка меняет число на 1 и сообщает программе, как будто число вписали руками (события input и change).
+const qstep = (inputHtml) => `<span class="qstep"><button type="button" class="qstep-btn" data-qstep="-1" tabindex="-1" aria-label="Меньше">−</button>${inputHtml}<button type="button" class="qstep-btn" data-qstep="1" tabindex="-1" aria-label="Больше">+</button></span>`;
+function wrapQstep(input) {
+  if (!input || input.closest('.qstep')) return;
+  const box = document.createElement('span');
+  box.className = 'qstep';
+  input.before(box);
+  box.innerHTML = '<button type="button" class="qstep-btn" data-qstep="-1" tabindex="-1" aria-label="Меньше">−</button><button type="button" class="qstep-btn" data-qstep="1" tabindex="-1" aria-label="Больше">+</button>';
+  box.firstChild.after(input);
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-qstep]');
+  if (!b) return;
+  const input = b.parentElement.querySelector('input');
+  if (!input || input.disabled || input.readOnly) return;
+  const cur = input.value.trim() === '' ? 0 : parseNum(input.value) || 0;
+  const n = Math.max(0, Math.round((cur + Number(b.dataset.qstep)) * 1000) / 1000);
+  input.value = String(n).replace('.', ',');
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+});
 // Штрафы и бонусы сотрудника списком: дата, сумма, за что, кто выписал. showUser — с именем сотрудника.
 function finesListHtml(items, { showUser = false, empty = 'Штрафов и бонусов нет' } = {}) {
   if (!items.length) return `<p class="pick-meta">${empty}</p>`;
@@ -677,3 +701,6 @@ $('#logo-home')?.addEventListener('click', (e) => {
 });
 $('#password-cancel').addEventListener('click', () => $('#password-dialog').close());
 
+
+// Поля количества, которые уже есть на странице: «Сейчас на складе» в карточке товара и «Сколько на самом деле».
+for (const id of ['pf-stock', 'sf-stock']) wrapQstep(document.getElementById(id));
