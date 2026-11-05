@@ -1,0 +1,114 @@
+/* ---------- Оформление «Как у Apple»: светлый фон, белые карточки без рамок, стеклянное меню,
+   системный шрифт Apple, кнопки-«таблетки», переключатели как в iOS. Меняет только внешний вид. ---------- */
+:root {
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", "Helvetica Neue", system-ui, sans-serif;
+  --series: #0071e3;
+  --series-2: #0071e3;
+  --series-soft: rgba(0, 113, 227, 0.10);
+  --grad: #0071e3;
+  --bg: #f5f5f7;
+  --surface: #ffffff;
+  --surface-2: #f5f5f7;
+  --ink: #1d1d1f;
+  --ink-2: #424245;
+  --muted: #86868b;
+  --border: rgba(0, 0, 0, 0.08);
+  --hover: rgba(0, 0, 0, 0.04);
+  --grid: #ececf0;
+  --axis: #d2d2d7;
+  --rest: #e3e3e8;
+  --radius: 14px;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 6px 20px rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.18);
+  --ios-fill: rgba(118, 118, 128, 0.12);
+  --ios-glass: rgba(255, 255, 255, 0.72);
+  --ios-seg-on: #ffffff;
+  accent-color: #0071e3;
+}
+/*DARK-START*/@media (prefers-color-scheme: dark) {
+  :root {
+    --series: #0a84ff; --series-2: #0a84ff; --grad: #0a84ff; --series-soft: rgba(10, 132, 255, 0.16);
+    --bg: #000000; --surface: #1c1c1e; --surface-2: #2c2c2e; --ink: #f5f5f7; --ink-2: #d1d1d6; --muted: #8e8e93;
+    --border: rgba(255, 255, 255, 0.10); --hover: rgba(255, 255, 255, 0.06); --grid: #2c2c2e; --axis: #3a3a3c; --rest: #3a3a3c;
+    --shadow: none; --shadow-sm: none; --ios-fill: rgba(118, 118, 128, 0.24); --ios-glass: rgba(28, 28, 30, 0.72);
+    accent-color: #0a84ff;
+    --ios-seg-on: #636366;
+  }
+}/*DARK-END*/
+body { font-family: var(--font); background: var(--bg) !important; background-image: none !important; -webkit-font-smoothing: antialiased; letter-spacing: -0.01em; }
+h1 { font-weight: 700; letter-spacing: -0.025em; }
+h2 { font-weight: 650; letter-spacing: -0.02em; }
+
+/* Верхнее меню и нижняя панель — «стекло». */
+.nav { background: var(--ios-glass) !important; backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 0.5px solid var(--border) !important; box-shadow: none !important; }
+.nav a { border-radius: 10px; font-weight: 500; }
+.nav a[aria-current="page"] { background: var(--series-soft) !important; color: var(--series) !important; }
+.logo::before { background: var(--series) !important; box-shadow: none !important; border-radius: 9px; }
+@media (max-width: 640px) {
+  .nav { background: var(--surface) !important; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .nav-main { background: var(--ios-glass) !important; border-top: 0.5px solid var(--border) !important; box-shadow: none !important; backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); }
+  .nav-main a[aria-current="page"] { background: none !important; }
+  .nav-main a[aria-current="page"] svg { filter: none !important; }
+  .nav-plus { background: var(--series) !important; border-radius: 50% !important; box-shadow: 0 6px 16px color-mix(in srgb, var(--series) 35%, transparent) !important; }
+}
+
+/* Карточки: белые, без рамок, мягкая тень. */
+.panel, .kpi, .st-tile, .tile, .more-tile, .doc, .plus-item, .ss-tile:not(.ss-total) { border-color: transparent !important; box-shadow: var(--shadow) !important; border-radius: 18px !important; }
+.panel { background: var(--surface) !important; backdrop-filter: none !important; }
+.more-tile { background: var(--surface) !important; }
+.more-tile:hover, .plus-item:hover { transform: none; background: var(--surface) !important; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05), 0 10px 28px rgba(0, 0, 0, 0.08) !important; }
+.more-icon, .plus-icon { filter: saturate(0.95); }
+
+/* Кнопки — «таблетки». */
+.btn { border-radius: 980px; font-weight: 500; box-shadow: none !important; }
+.btn.primary, .btn-primary, button.primary { background: var(--series) !important; border-color: var(--series) !important; color: #fff !important; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.ghost, .btn:not([class*="primary"]):not([class*="danger"]):not(.scan-btn) { background: var(--ios-fill); border-color: transparent; color: var(--series); }
+.btn.danger { border-radius: 980px; }
+.icon-btn { border-radius: 50%; }
+
+/* Поля ввода: серая заливка без рамки, синее кольцо при вводе. */
+.input, .search, select.input, textarea.input { border-color: transparent !important; background: var(--ios-fill) !important; border-radius: 12px !important; box-shadow: none !important; }
+.input:focus, .search:focus, textarea.input:focus { background: var(--surface) !important; box-shadow: 0 0 0 4px color-mix(in srgb, var(--series) 25%, transparent) !important; outline: none; }
+
+/* Переключатели периодов — как сегменты в iOS. */
+.periods, .seg, .tabs { background: var(--ios-fill) !important; border: 0 !important; box-shadow: none !important; border-radius: 10px !important; padding: 2px !important; gap: 0 !important; }
+.periods button, .seg button { border-radius: 8px !important; font-weight: 500; color: var(--ink) !important; }
+.periods button[aria-pressed="true"], .seg button[aria-pressed="true"], .seg button.on { background: var(--ios-seg-on) !important; color: var(--ink) !important; font-weight: 600; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12), 0 3px 1px rgba(0, 0, 0, 0.04) !important; }
+.chip { border-radius: 980px !important; }
+.chip[aria-pressed="true"] { background: var(--series) !important; color: #fff !important; border-color: var(--series) !important; }
+
+/* Табло главной и итоги продаж — спокойные цвета. */
+.rb-bar { fill: var(--series); }
+.rb-track { fill: var(--ios-fill); }
+.rb-tabs button[aria-selected="true"] { border-bottom-color: var(--series); }
+.ss-total { background: var(--series) !important; box-shadow: 0 10px 30px color-mix(in srgb, var(--series) 25%, transparent) !important; border-radius: 18px !important; }
+
+/* Таблицы — тонкие разделители. */
+table th { font-weight: 600; color: var(--muted); }
+table td, table th { border-color: var(--grid) !important; }
+
+/* Окна — крупное скругление, размытый фон. */
+dialog { border: 0 !important; border-radius: 22px !important; box-shadow: var(--shadow-lg) !important; }
+dialog::backdrop { background: rgba(0, 0, 0, 0.32); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.plus-panel { border-radius: 22px 22px 0 0 !important; }
+.plus-item { background: var(--surface) !important; }
+.plus-grip { background: var(--axis) !important; }
+
+/* Уведомления. */
+.toast { border-radius: 14px !important; backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); }
+
+/* Галочки и переключатели — цвет системы. */
+input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color: var(--series); }
+
+/* Кнопки в шапке — обычного цвета, как в системных приложениях. */
+.nav .btn, .nav select { color: var(--ink) !important; }
+.nav select, .nav .input { border-color: transparent !important; background: var(--ios-fill) !important; }
+/* Списки товаров в кассе и документах — карточки без рамок. */
+.pick, .suggest, .cart-line, .sale-row .doc { border-color: transparent !important; box-shadow: var(--shadow-sm) !important; border-radius: 14px !important; }
+.pick:hover, .suggest:hover { background: var(--hover) !important; }
+/* «−» и «+» у количества — серые круглые кнопки. */
+.qstep-btn, .mv-step { border: 0 !important; background: var(--ios-fill) !important; color: var(--series) !important; border-radius: 50% !important; }
+.field .qstep-btn { border-radius: 12px !important; }
+.scan-btn { border: 0 !important; background: var(--ios-fill) !important; }

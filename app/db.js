@@ -1069,7 +1069,7 @@ function daysToBirthday(bday, now = Date.now()) {
 
 // Оформление программы. Цвета — #rrggbb, остальное проверяется в setDesign.
 const DESIGN_DEFAULTS = { name: 'Мой магазин', accent: '#5b5bf6', bg: '', surface: '', ink: '', font: 'system', radius: 14, theme: 'auto', css: '',
-  density: 'normal', cards: 'shadow', background: 'soft', nav: 'light' };
+  density: 'normal', cards: 'shadow', background: 'soft', nav: 'light', ui: 'ios' };
 // Свои шрифты (загруженные файлы) лежат в главной базе — их видят и программа, и витрина, и все филиалы.
 let fontSource = null;
 const useFontsFrom = (store) => { fontSource = store; };
@@ -5121,6 +5121,7 @@ function createStore(file) {
         cards: ['shadow', 'flat', 'outline', 'glass'].includes(input.cards) ? input.cards : 'shadow',
         background: ['soft', 'plain', 'gradient', 'mesh'].includes(input.background) ? input.background : 'soft',
         nav: ['light', 'dark', 'accent'].includes(input.nav) ? input.nav : 'light',
+        ui: input.ui === 'classic' ? 'classic' : 'ios',
       };
       this.setSetting('design', JSON.stringify(next));
       return next;

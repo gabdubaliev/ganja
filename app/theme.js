@@ -24,6 +24,18 @@ const DARK = {
   '--shadow': '0 2px 4px rgba(0, 0, 0, 0.25), 0 8px 24px rgba(0, 0, 0, 0.35)', '--shadow-sm': '0 1px 2px rgba(0, 0, 0, 0.3)',
 };
 
+// Оформление «Как у Apple» (ios-theme.css): для светлой темы — без тёмного варианта, для тёмной — всегда тёмный.
+const fs = require('node:fs');
+const path = require('node:path');
+let iosCss = null;
+function iosTheme(theme) {
+  iosCss ??= fs.readFileSync(path.join(__dirname, 'ios-theme.css'), 'utf8');
+  const m = iosCss.match(/\/\*DARK-START\*\/([\s\S]*?)\/\*DARK-END\*\//);
+  if (!m) return iosCss;
+  if (theme === 'light') return iosCss.replace(m[0], '');
+  if (theme === 'dark') return iosCss.replace(m[0], m[1].replace(/@media \(prefers-color-scheme: dark\) \{([\s\S]*)\}\s*$/, '$1').replace(/^\s*@media[^{]*\{/, ''));
+  return iosCss;
+}
 const block = (vars) => Object.entries(vars).filter(([, v]) => v !== '' && v != null).map(([k, v]) => `  ${k}: ${v};`).join('\n');
 
 function rgba(hex, alpha) {
@@ -86,6 +98,7 @@ function themeCss(d, fonts = []) {
   if (CARDS[d.cards]) parts.push(CARDS[d.cards]);
   if (BACKGROUNDS[d.background]) parts.push(BACKGROUNDS[d.background]);
   if (NAVS[d.nav]) parts.push(NAVS[d.nav], NAV_KEEP);
+  if ((d.ui || 'ios') === 'ios') parts.push(iosTheme(d.theme));
   if (d.css) parts.push(`/* Свой CSS */\n${d.css}`);
   return parts.join('\n\n') + '\n';
 }
