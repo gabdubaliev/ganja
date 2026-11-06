@@ -980,7 +980,8 @@ let sideOpen = (() => { try { return new Set(JSON.parse(localStorage.getItem('na
 // Меню ☰ окна кассы: её разделы (нижняя панель и «Ещё») одним списком.
 const KASSA_SIDE = [
   // История продаж — кнопкой в чеке; доставка, сделки, задания — в нижней панели.
-  ['pos', 'Продажа', 'cart', 'pos'], ['mytimesheet', 'Мой табель', 'calendar', 'mytimesheet'],
+  // Продажа — в нижней панели.
+  ['mytimesheet', 'Мой табель', 'calendar', 'mytimesheet'],
   ['photos', 'Фото товаров', 'spark', 'photos'], ['__base', 'База (админ-панель)', 'home', ['dashboard', 'products', 'sales']],
 ];
 // HTML меню разделов — для меню слева (компьютер) и для выдвижного меню по ☰ (телефон, планшет).
