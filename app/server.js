@@ -2098,7 +2098,49 @@ function match(method, pathname) {
 
 const clientErrors = { at: 0, n: 0 };
 // transform(html) — правка страницы перед отдачей (например, версия значка вкладки).
+/* ---------- Склейка скриптов страницы в один файл ---------- */
+// Страница базы подключает ~40 скриптов — на мобильном интернете это ~40 запросов при первом открытии.
+// Подряд идущие <script src="…js"> заменяются одним /bundle/<ключ>.js: один запрос, а внутри каждый файл
+// выполняется отдельным скриптом (как раньше): общие переменные видны всем, ошибка в одном файле не ломает остальные.
+// Ключ — по списку файлов и их времени изменения: после обновления программы — новый файл. SHOP_NO_BUNDLE=1 — выключить.
+const bundles = new Map();
+function bundleUrl(files) {
+  const parts = files.map((f) => { const file = path.join(PUBLIC, f); return file.startsWith(PUBLIC + path.sep) && fs.existsSync(file) ? { f, file, m: fs.statSync(file).mtimeMs } : null; });
+  if (parts.some((x) => !x)) return null;
+  const key = crypto.createHash('sha1').update(parts.map((x) => `${x.f}:${x.m}`).join('|')).digest('hex').slice(0, 16);
+  if (!bundles.has(key)) {
+    const list = parts.map((x) => [x.f.replace(/^\//, ''), fs.readFileSync(x.file, 'utf8')]);
+    const code = `'use strict';\n// Склейка: ${list.length} файлов программы одним запросом; каждый выполняется своим скриптом, по порядку.\n`
+      + `(function (files) { for (var i = 0; i < files.length; i++) { var s = document.createElement('script'); s.textContent = files[i][1] + '\\n//# sourceURL=/' + files[i][0]; document.head.appendChild(s); } })(${JSON.stringify(list).replace(/<\/script/gi, '<\\/script')});\n`;
+    if (bundles.size > 20) bundles.delete(bundles.keys().next().value);
+    bundles.set(key, code);
+  }
+  return `/bundle/${key}.js`;
+}
+const BUNDLE_CORE = ['ui-edit.js', 'common.js', 'barcode.js'];
+function bundleScripts(html) {
+  if (process.env.SHOP_NO_BUNDLE === '1') return html;
+  return html.replace(/(?:<script src="(?:\/?[\w.\/-]+\.js)"><\/script>\s*){3,}/g, (run) => {
+    const files = [...run.matchAll(/<script src="(\/?[\w.\/-]+\.js)"><\/script>/g)].map((m) => m[1]);
+    try {
+      // Общее начало базы и кассы (ui-edit, common, barcode) — отдельной склейкой: браузер берёт её из кэша на обеих страницах.
+      const n = BUNDLE_CORE.every((f, i) => files[i]?.replace(/^\//, '') === f) ? BUNDLE_CORE.length : 0;
+      const groups = (n && files.length > n ? [files.slice(0, n), files.slice(n)] : [files]);
+      const urls = groups.map((g) => (g.length > 1 ? bundleUrl(g) : null));
+      if (urls.some((u, i) => !u && groups[i].length > 1)) return run;
+      return groups.map((g, i) => (urls[i] ? `<script src="${urls[i]}"></script>\n` : `<script src="${g[0]}"></script>\n`)).join('');
+    } catch (err) { console.error('Склейка скриптов:', err.message); return run; }
+  });
+}
+
 function serveStatic(res, pathname, transform = null) {
+  const bm = pathname.match(/^\/bundle\/([0-9a-f]{16})\.js$/);
+  if (bm) {
+    const code = bundles.get(bm[1]);
+    if (!code) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end('Склейка устарела — обновите страницу'); }
+    res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=31536000, immutable' });
+    return res.end(code);
+  }
   const file = path.join(PUBLIC, pathname === '/' ? 'index.html' : pathname);
   if (!file.startsWith(PUBLIC + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -2112,7 +2154,7 @@ function serveStatic(res, pathname, transform = null) {
   if (path.extname(file) === '.html') {
     headers['Cache-Control'] = 'no-store';
     delete headers.ETag; delete headers['Last-Modified'];
-    const html = fs.readFileSync(file, 'utf8').replace(/(<script[^>]*\ssrc|<link[^>]*\shref)="(\/?[\w.\/-]+\.(?:js|css))"/g, (all, attr, url) => {
+    const html = bundleScripts(fs.readFileSync(file, 'utf8')).replace(/(<script[^>]*\ssrc|<link[^>]*\shref)="(\/?[\w.\/-]+\.(?:js|css))"/g, (all, attr, url) => {
       const asset = path.join(PUBLIC, url);
       if (!asset.startsWith(PUBLIC + path.sep) || !fs.existsSync(asset)) return all;
       return `${attr}="${url}?v=${Math.floor(fs.statSync(asset).mtimeMs).toString(36)}"`;
