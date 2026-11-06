@@ -4,7 +4,7 @@
 
 const STOCK_WINDOW_DAYS = 30;
 const LOW_STOCK_DAYS = 7;
-const REFRESH_MS = 5 * 60_000;
+const REFRESH_MS = 60_000; // главная сама обновляется раз в минуту (и сразу после каждой продажи)
 
 const PERIODS = {
   day: { label: 'Сегодня', days: 1, bucket: 'hour', vs: 'вчера к этому часу' },
@@ -1039,7 +1039,20 @@ $('#shr-tg').addEventListener('click', async () => {
 });
 
 // Касса обновляется сама: после каждой продажи и раз в минуту.
-salesFeed.listeners.push(() => { if (currentView === 'home') loadCashDesk(); });
+// Цифры главной — всегда свежие: новая продажа (с любой кассы) → выручка и «Касса сейчас» пересчитываются сами;
+// вернулись в программу (телефон разблокировали, переключились на вкладку) → тоже; и раз в минуту.
+let saleReload = null;
+salesFeed.listeners.push(() => {
+  if (currentView === 'home') loadCashDesk();
+  if (currentView !== 'home' && currentView !== 'reports') return;
+  clearTimeout(saleReload);
+  saleReload = setTimeout(() => load(), 1500); // несколько чеков подряд — одно обновление
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || (currentView !== 'home' && currentView !== 'reports')) return;
+  load();
+  if (currentView === 'home') loadCashDesk();
+});
 setInterval(() => { if (currentView === 'home' && !document.hidden) loadCashDesk(); }, 60000);
 
 // Строка таблицы «Товары и остатки» открывает карточку товара с продажами за период.
@@ -1109,7 +1122,7 @@ function showHome(mode) {
 }
 views.home = { show: () => showHome('home'), right: 'dashboard' };
 views.reports = { show: () => showHome('reports'), right: 'dashboard' };
-setInterval(() => { if (currentView === 'home' || currentView === 'reports') load(); }, REFRESH_MS);
+setInterval(() => { if (!document.hidden && (currentView === 'home' || currentView === 'reports')) load(); }, REFRESH_MS);
 
 // Свайп по главной влево/вправо — соседний день (когда выбран «Сегодня»).
 (() => {

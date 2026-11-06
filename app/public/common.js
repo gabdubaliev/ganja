@@ -481,8 +481,8 @@ function listenSales() {
   const source = new EventSource('/api/events');
   source.addEventListener('sale', (e) => {
     const sale = JSON.parse(e.data);
-    // Свои продажи кассир видит и так — уведомляем только о чужих.
-    if (sale.userId && sale.userId === session.user?.id) return;
+    // Цифры (главная, касса сейчас) обновляются от любой продажи; уведомление — только о чужих (свои кассир видит и так).
+    if (sale.userId && sale.userId === session.user?.id) { for (const fn of salesFeed.listeners) fn(sale); return; }
     const text = `${sale.user}: чек №${sale.id} на ${money2(sale.total)}`;
     toast('🧾 ' + text);
     try {
@@ -752,12 +752,6 @@ $('#logo-home')?.addEventListener('click', (e) => {
   const home = document.body.classList.contains('kassa') ? '#pos' : session.can?.('dashboard') ? '#home' : '';
   if (location.hash === home || (!home && !location.hash)) return location.reload();
   location.hash = home;
-  location.reload();
-});
-// Кнопка «Главная» в меню (и в нижней панели на телефоне) — как логотип: на главную и обновить страницу.
-document.querySelector('.nav-main a[href="#home"]')?.addEventListener('click', (e) => {
-  e.preventDefault();
-  if (location.hash !== '#home') location.hash = 'home';
   location.reload();
 });
 $('#password-cancel').addEventListener('click', () => $('#password-dialog').close());
@@ -1090,16 +1084,20 @@ function placeNavUser() {
 session.ready?.then?.(() => panelSidebar());
 matchMedia('(min-width: 1100px)').addEventListener?.('change', () => { panelSidebar(); if (typeof renderAll === 'function' && typeof state !== 'undefined' && state.data) renderAll(); });
 
-/* ---------- Нижняя панель (касса и база): каждая кнопка, кроме «+», — открыть раздел и обновить страницу ---------- */
-// Свежие остатки, смена и заказы без ручного обновления. «+» открывает своё окно, как раньше.
-{
-  document.querySelector('.nav-main')?.addEventListener('click', (e) => {
-    const a = e.target.closest('a[href^="#"]');
-    if (!a || e.defaultPrevented || e.metaKey || e.ctrlKey) return;
-    const h = a.getAttribute('href');
-    if (!h || h === '#') return;
-    e.preventDefault();
-    if (location.hash !== h) history.replaceState(null, '', h);
-    location.reload();
-  });
+/* ---------- Нижняя панель (касса и база): каждая кнопка, кроме «+», — открыть раздел со свежими данными ---------- */
+// Без перезагрузки страницы (это секунды на мобильном интернете): раздел заново берёт данные с сервера —
+// главная — выручку и кассу, касса — остатки товаров, остальные — свои списки. «+» открывает своё окно, как раньше.
+async function freshView(h) {
+  scrollTo({ top: 0 });
+  if (document.body.classList.contains('kassa') && h === '#pos' && typeof catalog !== 'undefined') { try { await catalog.load(); } catch { /* ниже — что есть */ } }
+  if (location.hash !== h) { location.hash = h; return; } // смена раздела: route() покажет его и загрузит данные
+  views[currentView]?.show?.(); // тот же раздел — просто обновить
 }
+document.querySelector('.nav-main')?.addEventListener('click', (e) => {
+  const a = e.target.closest('a[href^="#"]');
+  if (!a || e.defaultPrevented || e.metaKey || e.ctrlKey) return;
+  const h = a.getAttribute('href');
+  if (!h || h === '#') return;
+  e.preventDefault();
+  freshView(h);
+});
