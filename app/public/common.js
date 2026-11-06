@@ -887,15 +887,12 @@ function panelSidebar() {
   if (!nav || !sideUi()) return;
   renderSideMenu();
   const kassa = document.body.classList.contains('kassa');
-  if (!document.querySelector('.pn-search')) {
-    const box = document.createElement('label');
-    box.className = 'pn-search';
-    box.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Поиск товара" aria-label="Поиск товара"><kbd>${/Mac/.test(navigator.platform) ? '⌘' : 'Ctrl'} K</kbd>`;
-    nav.querySelector('.logo').after(box);
+  // Под логотипом — «＋ Добавить документ» и «Разделы» (поиска товара в меню нет: он в «Товарах» и в кассе).
+  if (!document.querySelector('.nav-inner > .pn-label')) {
     const lab = document.createElement('div');
     lab.className = 'pn-label';
     lab.textContent = 'Разделы';
-    box.after(lab);
+    nav.querySelector('.logo').after(lab);
     // «+ Добавить документ» — то же, что «+» в нижней панели телефона: документы, расходы, товары и разделы.
     if (!kassa && typeof openPlus === 'function') {
       const add = document.createElement('button');
@@ -903,27 +900,10 @@ function panelSidebar() {
       add.className = 'btn primary pn-create';
       add.innerHTML = '<span aria-hidden="true">＋</span> Добавить документ';
       add.addEventListener('click', () => openPlus());
-      box.after(add);
+      nav.querySelector('.logo').after(add);
     }
-    const input = box.querySelector('input');
-    // Пишут в поиске меню — ищем в товарах (в кассе — в подборе товара для чека).
-    input.addEventListener('input', () => {
-      const q = input.value;
-      if (kassa) {
-        if (location.hash !== '#pos') location.hash = 'pos';
-        const t = document.getElementById('pos-search');
-        if (t) { t.value = q; t.dispatchEvent(new Event('input', { bubbles: true })); }
-        return;
-      }
-      if (location.hash !== '#products') location.hash = 'products';
-      setTimeout(() => { const t = document.getElementById('products-search'); if (t) { t.value = q; t.dispatchEvent(new Event('input', { bubbles: true })); } }, location.hash === '#products' ? 0 : 200);
-    });
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && kassa) { e.preventDefault(); document.getElementById('pos-search')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); input.value = ''; }
-      if (e.key === 'Escape') input.blur();
-    });
-    addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K') && sideUi()) { e.preventDefault(); input.focus(); input.select(); } });
   }
+
 }
 /* ---------- Меню слева (компьютер): все разделы по порядку, с группами ---------- */
 // [раздел, название, значок] или [null, группа, значок, [[раздел, название], …]]. Пункт виден, если у сотрудника есть право на раздел.
