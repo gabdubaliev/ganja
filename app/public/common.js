@@ -971,31 +971,16 @@ const sideOk = (key) => {
   return Boolean(v) && (v.right === null || v.right === '' || [v.right].flat().some((r) => session.can(r))) && !sectionHidden(key);
 };
 let sideOpen = (() => { try { return new Set(JSON.parse(localStorage.getItem('nav.open') || '[]')); } catch { return new Set(); } })();
-function renderSideMenu() {
-  const nav = document.querySelector('.nav-inner');
-  if (!nav || document.body.classList.contains('kassa')) return;
-  let box = document.querySelector('.nav-side');
-  if (!box) {
-    box = document.createElement('div');
-    box.className = 'nav-side';
-    document.querySelector('.nav-main').after(box);
-    box.addEventListener('click', (e) => {
-      const g = e.target.closest('[data-side-group]');
-      if (!g) return;
-      const name = g.dataset.sideGroup;
-      if (sideOpen.has(name)) sideOpen.delete(name); else sideOpen.add(name);
-      try { localStorage.setItem('nav.open', JSON.stringify([...sideOpen])); } catch { /* без памяти */ }
-      renderSideMenu();
-    });
-  }
+// HTML меню разделов — для меню слева (компьютер) и для выдвижного меню по ☰ (телефон, планшет).
+function sideMenuHtml() {
   const svg = (i) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SIDE_ICONS[i] || ''}</svg>`;
   const link = (key, label, icon, sub) => {
     const cur = currentView === key;
     const href = key === 'kassa' ? '/kassa.html" target="_blank' : `#${key}`;
-    const badge = key === 'orders' ? ' <span class="badge" data-orders-badge hidden></span>' : '';
+    const badge = key === 'orders' ? ' <span class="badge" data-orders-badge hidden></span>' : key === 'tasks' ? ' <span class="badge" data-task-badge hidden></span>' : '';
     return `<a href="${href}" class="${sub ? 'side-sub' : ''}" ${cur ? 'aria-current="page"' : ''}>${icon ? svg(icon) : ''}<span>${esc(label)}</span>${badge}</a>`;
   };
-  box.innerHTML = SIDE_MENU.map(([key, label, icon, sub]) => {
+  return SIDE_MENU.map(([key, label, icon, sub]) => {
     if (key === 'more' && typeof moreHasItems === 'function' && !moreHasItems(true)) return '';
     if (!sub) return sideOk(key) ? link(key, label, icon) : '';
     const items = sub.filter(([k]) => sideOk(k));
@@ -1004,8 +989,87 @@ function renderSideMenu() {
     return `<button type="button" class="side-group" data-side-group="${esc(label)}" aria-expanded="${open}">${svg(icon)}<span>${esc(label)}</span><i aria-hidden="true">${open ? '▾' : '▸'}</i></button>`
       + (open ? `<div class="side-items">${items.map(([k, l]) => link(k, l, null, true)).join('')}</div>` : '');
   }).join('');
+}
+// Раскрыть/свернуть группу (обоих меню).
+function sideGroupClick(e) {
+  const g = e.target.closest('[data-side-group]');
+  if (!g) return false;
+  const name = g.dataset.sideGroup;
+  if (sideOpen.has(name)) sideOpen.delete(name); else sideOpen.add(name);
+  try { localStorage.setItem('nav.open', JSON.stringify([...sideOpen])); } catch { /* без памяти */ }
+  renderSideMenu();
+  renderDrawerMenu();
+  return true;
+}
+function renderSideMenu() {
+  const nav = document.querySelector('.nav-inner');
+  if (!nav || document.body.classList.contains('kassa')) return;
+  let box = document.querySelector('.nav-inner > .nav-side');
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'nav-side';
+    document.querySelector('.nav-main').after(box);
+    box.addEventListener('click', sideGroupClick);
+  }
+  box.innerHTML = sideMenuHtml();
   if (typeof setOrdersBadge === 'function' && session.newOrders !== undefined) setOrdersBadge(session.newOrders);
 }
+
+/* ---------- Телефон и планшет: меню по кнопке ☰ (то же, что слева на компьютере) ---------- */
+function drawer() {
+  let d = document.getElementById('side-drawer');
+  if (d) return d;
+  d = document.createElement('div');
+  d.id = 'side-drawer';
+  d.className = 'side-drawer';
+  d.hidden = true;
+  d.innerHTML = `<div class="sd-backdrop" data-sd-close></div>
+    <aside class="sd-panel" role="dialog" aria-modal="true" aria-label="Разделы">
+      <div class="sd-head"><b class="sd-title"></b><button type="button" class="icon-btn" data-sd-close aria-label="Закрыть">×</button></div>
+      <button type="button" class="btn primary sd-create">＋ Добавить документ</button>
+      <div class="nav-side sd-menu"></div>
+    </aside>`;
+  document.body.append(d);
+  d.addEventListener('click', (e) => {
+    if (sideGroupClick(e)) return;
+    if (e.target.closest('[data-sd-close]')) return closeDrawer();
+    if (e.target.closest('.sd-create')) { closeDrawer(); return typeof openPlus === 'function' && openPlus(); }
+    if (e.target.closest('a')) closeDrawer();
+  });
+  // Смахнуть влево — закрыть.
+  let x0 = null;
+  const panel = d.querySelector('.sd-panel');
+  panel.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; }, { passive: true });
+  panel.addEventListener('touchend', (e) => { if (x0 !== null && x0 - e.changedTouches[0].clientX > 70) closeDrawer(); x0 = null; }, { passive: true });
+  return d;
+}
+function renderDrawerMenu() {
+  const d = document.getElementById('side-drawer');
+  if (!d || d.hidden) return;
+  d.querySelector('.sd-title').textContent = session.design?.name || 'Мой магазин';
+  d.querySelector('.sd-create').hidden = typeof openPlus !== 'function';
+  d.querySelector('.sd-menu').innerHTML = sideMenuHtml();
+  if (typeof setOrdersBadge === 'function' && session.newOrders !== undefined) setOrdersBadge(session.newOrders);
+  if (typeof updateTaskBadge === 'function') updateTaskBadge();
+}
+function openDrawer() {
+  const d = drawer();
+  d.hidden = false;
+  renderDrawerMenu();
+  requestAnimationFrame(() => d.classList.add('open'));
+  document.body.classList.add('drawer-open');
+}
+function closeDrawer() {
+  const d = document.getElementById('side-drawer');
+  if (!d || d.hidden) return;
+  d.classList.remove('open');
+  document.body.classList.remove('drawer-open');
+  setTimeout(() => { d.hidden = true; }, 220);
+}
+document.getElementById('nav-burger')?.addEventListener('click', () => (document.getElementById('side-drawer')?.hidden === false ? closeDrawer() : openDrawer()));
+document.getElementById('nav-reload')?.addEventListener('click', (e) => { e.preventDefault(); location.reload(); });
+addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
+addEventListener('hashchange', closeDrawer);
 
 // Меню слева: «Настройки» и выбор магазина на главной и в отчётах — справа от «День, Неделя, Месяц, Год».
 function placeNavUser() {

@@ -2416,3 +2416,31 @@ a.logo { color: inherit; text-decoration: none; cursor: pointer; }
 /* Настройки компании: ссылки на оформление и автоматику. */
 .settings-links { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
 .settings-links .more-tile[hidden] { display: none; }
+
+/* Меню по ☰ (телефон, планшет — где нет меню слева) и «Обновить» вместо «Ещё» в нижней панели телефона. */
+.nav-burger { display: grid; place-items: center; flex: none; width: 42px; height: 42px; border: 0; border-radius: 12px; background: var(--ios-fill, var(--hover)); color: var(--ink); font-size: 22px; line-height: 1; cursor: pointer; }
+body.ui-side .nav-burger { display: none !important; }
+.nav-reload { display: none !important; }
+@media (max-width: 640px) {
+  .nav-main > #nav-more { display: none !important; }
+  .nav-main > .nav-reload { display: flex !important; order: 5; }
+}
+.side-drawer { position: fixed; inset: 0; z-index: 60; }
+.side-drawer[hidden] { display: none; }
+.sd-backdrop { position: absolute; inset: 0; background: rgba(15, 17, 28, .45); opacity: 0; transition: opacity .2s; }
+.sd-panel { position: absolute; top: 0; bottom: 0; left: 0; width: min(300px, 86vw); display: flex; flex-direction: column; gap: 8px; padding: calc(12px + env(safe-area-inset-top, 0px)) 12px calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--surface); box-shadow: 16px 0 40px rgba(15, 17, 28, .2); overflow-y: auto; overscroll-behavior: contain; transform: translateX(-100%); transition: transform .22s cubic-bezier(.2, .8, .2, 1); }
+.side-drawer.open .sd-backdrop { opacity: 1; }
+.side-drawer.open .sd-panel { transform: none; }
+.sd-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 6px; }
+.sd-title { font-size: 17px; }
+.sd-create { width: 100%; justify-content: center; }
+.sd-menu { display: flex !important; flex-direction: column; gap: 1px; }
+.sd-menu > a, .sd-menu .side-group, .sd-menu .side-sub { display: flex; align-items: center; gap: 12px; padding: 10px 10px; border: 0; border-radius: 10px; background: none; color: var(--ink); font: inherit; font-size: 15.5px; font-weight: 500; text-align: left; text-decoration: none; cursor: pointer; }
+.sd-menu svg { width: 19px; height: 19px; flex: none; opacity: .85; }
+.sd-menu a[aria-current="page"] { background: var(--series-soft); color: var(--series); }
+.sd-menu .side-group i { margin-left: auto; font-style: normal; font-size: 12px; color: var(--muted); }
+.sd-menu .side-items { display: grid; gap: 1px; margin-bottom: 4px; }
+.sd-menu .side-sub { padding-left: 41px; font-size: 15px; }
+.sd-menu .badge { margin-left: auto; }
+body.drawer-open { overflow: hidden; }
+@media (max-width: 640px) { body:not(.kassa) .nav-inner > .logo { display: none !important; } }
