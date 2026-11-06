@@ -4222,6 +4222,17 @@ function createStore(file) {
       });
     },
 
+    // Касса уходит в другой магазин: без смен — удаляется, со сменами — отключается (история продаж остаётся).
+    detachRegister(id, note) {
+      const cur = db.prepare('SELECT * FROM registers WHERE id = ?').get(Number(id));
+      if (!cur) throw new UserError('Касса не найдена');
+      if (db.prepare('SELECT 1 FROM shifts WHERE register_id = ? AND closed_at IS NULL').get(cur.id)) throw new UserError('На этой кассе открыта смена — сначала закройте её');
+      if (cur.active && db.prepare('SELECT COUNT(*) AS n FROM registers WHERE active = 1').get().n <= 1) throw new UserError('Это последняя касса магазина — сначала добавьте ему другую кассу');
+      if (db.prepare('SELECT 1 FROM shifts WHERE register_id = ?').get(cur.id)) {
+        db.prepare('UPDATE registers SET active = 0, name = ? WHERE id = ?').run(`${cur.name} (${note})`.slice(0, 60), cur.id);
+      } else db.prepare('DELETE FROM registers WHERE id = ?').run(cur.id);
+    },
+
     saveRegister(id, input) {
       const name = text(input.name, 'Название кассы', { required: true, max: 60 });
       if (id) {

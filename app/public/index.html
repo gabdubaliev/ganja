@@ -292,6 +292,20 @@
   <div class="acc-list" id="reg-list"></div>
 </main>
 
+<dialog id="reg-dialog" aria-labelledby="reg-title">
+  <form id="reg-form" novalidate>
+    <h2 id="reg-title">Касса</h2>
+    <div class="field"><label for="reg-name">Название</label><input id="reg-name" name="name" class="input" maxlength="60" placeholder="Например, Касса 2" autocomplete="off" required></div>
+    <div class="field" id="reg-branch-row"><label for="reg-branch">Магазин</label><select id="reg-branch" name="branch" class="input"></select>
+      <p class="pick-meta" id="reg-move-note" hidden>Касса перейдёт в выбранный магазин. Если на ней уже были смены, здесь она останется отключённой — для истории продаж. Счета кассы настроите уже в новом магазине.</p></div>
+    <label class="check" id="reg-active-row"><input type="checkbox" name="active"> Касса работает</label>
+    <div class="field" id="reg-methods-row"><label>Какие счета принимает эта касса</label><div id="reg-methods" class="reg-methods"></div>
+      <p class="pick-meta">Все включены — касса принимает все счета «на кассе», и новые тоже.</p></div>
+    <p class="form-error" id="reg-error" hidden></p>
+    <div class="form-actions"><button type="button" class="btn ghost" id="reg-cancel">Отмена</button><button type="submit" class="btn primary">Сохранить</button></div>
+  </form>
+</dialog>
+
 <main class="page" data-view="branches" hidden>
   <header class="top">
     <div class="title"><h1>Магазины</h1><span class="source">филиалы: у каждого свои товары, остатки, сотрудники, кассы и документы</span></div>

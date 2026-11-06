@@ -91,36 +91,91 @@ $('#acc-ops').addEventListener('click', async (e) => {
 });
 
 /* ---------- Кассы ---------- */
+let regList = [];
 async function renderRegisters() {
-  let list;
-  try { list = await api('/api/registers?overview=1'); } catch (err) { return toast(err.message, 'error'); }
+  // Несколько магазинов — владелец видит кассы всех магазинов, у каждой — её магазин.
+  const multi = (session.branch?.allowed?.length || 0) > 1 && session.isOwner;
+  try { regList = await api(`/api/registers?overview=1${multi ? '&branch=all' : ''}`); } catch (err) { return toast(err.message, 'error'); }
   const edit = session.can('settings');
+  const curBranch = session.branch?.id || 1;
   $('#reg-add').hidden = !edit;
   api('/api/cash-drawer').then((d) => {
     $('#reg-drawer-row').hidden = !edit;
     $('#reg-drawer').checked = d.one;
   }).catch(() => {});
-  const shopName = session.branch?.name || session.design?.name || 'Магазин';
-  $('#reg-list').innerHTML = list.map((r) => `
-    <article class="acc-card reg-card ${r.active ? '' : 'off'}" data-reg="${r.id}">
-      <div class="acc-head">${edit ? `<input class="input" value="${esc(r.name)}" data-reg-name aria-label="Название кассы">` : `<b>${esc(r.name)}</b>`}
+  $('#reg-list').innerHTML = regList.map((r, i) => `
+    <article class="acc-card reg-card ${r.active ? '' : 'off'}">
+      <div class="acc-head"><b>${esc(r.name)}</b>
         <span class="reg-status ${r.active ? 'on' : ''}">${r.active ? 'Активна' : 'Отключена'}</span>
-        ${edit ? `<label class="check" title="Включить или отключить кассу"><input type="checkbox" data-reg-active ${r.active ? 'checked' : ''} aria-label="Касса работает"></label>` : ''}</div>
+        ${edit ? `<button type="button" class="btn small" data-reg-edit="${i}">✏️ Изменить</button>` : ''}</div>
       <div class="acc-balance num" title="Сколько наличных должно быть в денежном ящике">${r.balance === null || r.balance === undefined ? '—' : money(r.balance)}</div>
       <dl class="acc-flows reg-info">
-        <dt>Магазин</dt><dd>🏬 ${esc(shopName)}</dd>
+        <dt>Магазин</dt><dd>🏬 ${esc(r.branch_name || session.branch?.name || 'Магазин')}</dd>
         <dt>Счета на кассе</dt><dd>${r.methods?.length ? r.methods.map(esc).join(', ') : '—'}${r.own ? '' : ' <span class="pcat">(все)</span>'}</dd>
         <dt>Сегодня</dt><dd>${int(r.today.receipts)} ${plural(r.today.receipts, ['чек', 'чека', 'чеков'])} на ${money(r.today.revenue)}</dd>
         <dt>Создана</dt><dd>${r.created_at ? new Date(r.created_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'}</dd>
       </dl>
       ${r.open.length ? r.open.map((s) => `<div class="reg-open"><span class="live-dot" aria-hidden="true"></span><b>${esc(s.user)}</b> на смене с ${new Date(s.since).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
         <div class="pcat">наличными ${money(s.cash)} · безнал ${money(s.card)}</div></div>`).join('') : '<p class="pick-meta">Сейчас смены нет</p>'}
-      ${edit && r.all_methods?.length ? `<div class="reg-methods"><b>Какие счета принимает эта касса</b>
-        ${r.all_methods.map((m) => `<label class="check"><input type="checkbox" data-reg-method="${m.id}" ${r.method_ids.includes(m.id) ? 'checked' : ''}> ${esc(m.name)}</label>`).join('')}
-        <p class="pick-meta">Отмечены все — касса принимает все счета «на кассе», и новые тоже. Снимите лишние, чтобы на этой кассе их не было.</p></div>` : ''}
-      <div class="acc-actions"><button type="button" class="btn small" data-reg-sales="${r.id}" data-reg-title="${esc(r.name)}">🧾 Журнал продаж кассы</button></div>
+      <div class="acc-actions">${!r.branch_id || r.branch_id === curBranch
+        ? `<button type="button" class="btn small" data-reg-sales="${r.id}" data-reg-title="${esc(r.name)}">🧾 Журнал продаж кассы</button>`
+        : '<span class="pick-meta">Журнал продаж этой кассы — переключите магазин вверху</span>'}</div>
     </article>`).join('');
 }
+
+// Окно «Изменить кассу» / «Новая касса»: название, магазин, работает ли, какие счета принимает.
+let regEditing = null;
+function openRegDialog(r = null) {
+  regEditing = r;
+  const f = $('#reg-form');
+  f.reset();
+  $('#reg-error').hidden = true;
+  $('#reg-title').textContent = r ? `Касса «${r.name}»` : 'Новая касса';
+  f.elements.name.value = r ? r.name : '';
+  const cur = r?.branch_id || session.branch?.id || 1;
+  const shops = session.isOwner && session.branch?.allowed?.length ? session.branch.allowed : [{ id: cur, name: session.branch?.name || 'Магазин' }];
+  f.elements.branch.innerHTML = shops.map((b) => `<option value="${b.id}" ${b.id === cur ? 'selected' : ''}>🏬 ${esc(b.name)}</option>`).join('');
+  $('#reg-branch-row').hidden = shops.length < 2;
+  f.elements.active.checked = r ? r.active : true;
+  $('#reg-active-row').hidden = !r;
+  renderRegMethods();
+  $('#reg-dialog').showModal();
+  f.elements.name.focus();
+}
+// Счета — только у кассы, которая остаётся в своём магазине (у другого магазина свои счета).
+function renderRegMethods() {
+  const r = regEditing, f = $('#reg-form');
+  const same = r && Number(f.elements.branch.value) === (r.branch_id || session.branch?.id || 1);
+  $('#reg-methods-row').hidden = !same || !r.all_methods?.length;
+  $('#reg-move-note').hidden = !r || same;
+  if (same) $('#reg-methods').innerHTML = r.all_methods.map((m) => `<label class="check"><input type="checkbox" data-reg-method="${m.id}" ${r.method_ids.includes(m.id) ? 'checked' : ''}> ${esc(m.name)}</label>`).join('');
+}
+$('#reg-form').addEventListener('change', (e) => { if (e.target.name === 'branch') renderRegMethods(); });
+$('#reg-cancel').addEventListener('click', () => $('#reg-dialog').close());
+$('#reg-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target, r = regEditing;
+  const branch = Number(f.elements.branch.value);
+  const body = { name: f.elements.name.value, branch };
+  try {
+    if (!r) {
+      await api('/api/registers', { method: 'POST', body });
+      toast('Касса добавлена');
+    } else {
+      body.active = f.elements.active.checked;
+      const boxes = [...f.querySelectorAll('[data-reg-method]')];
+      if (!$('#reg-methods-row').hidden && boxes.length) {
+        const on = boxes.filter((b) => b.checked).map((b) => Number(b.dataset.regMethod));
+        // Все отмечены — без ограничения (новые счета появятся на кассе сами).
+        body.methods = on.length === boxes.length ? null : on;
+      }
+      const saved = await api(`/api/registers/${r.id}?branch=${r.branch_id || ''}`, { method: 'PUT', body });
+      toast(saved.branch_name && saved.branch_id !== r.branch_id ? `Касса перенесена в «${saved.branch_name}»` : 'Сохранено');
+    }
+    $('#reg-dialog').close();
+    renderRegisters();
+  } catch (err) { showFormError('#reg-error', err); }
+});
 
 $('#reg-drawer').addEventListener('change', async (e) => {
   try {
@@ -128,11 +183,7 @@ $('#reg-drawer').addEventListener('change', async (e) => {
     toast(e.target.checked ? 'Один ящик на все кассы: второй сотрудник деньги не пересчитывает' : 'У каждой кассы свой ящик с деньгами');
   } catch (err) { toast(err.message, 'error'); e.target.checked = !e.target.checked; }
 });
-$('#reg-add').addEventListener('click', async () => {
-  const name = prompt('Название новой кассы, например «Касса 2»:');
-  if (!name) return;
-  try { await api('/api/registers', { method: 'POST', body: { name } }); toast('Касса добавлена'); renderRegisters(); } catch (err) { toast(err.message, 'error'); }
-});
+$('#reg-add').addEventListener('click', () => openRegDialog());
 // «Журнал продаж кассы» — журнал продаж только с чеками этой кассы.
 $('#reg-list').addEventListener('click', (e) => {
   const b = e.target.closest('[data-reg-sales]');
@@ -140,18 +191,9 @@ $('#reg-list').addEventListener('click', (e) => {
   salesView.register = { id: Number(b.dataset.regSales), name: b.dataset.regTitle };
   if (location.hash === '#sales') renderSales(); else location.hash = 'sales';
 });
-$('#reg-list').addEventListener('change', async (e) => {
-  const card = e.target.closest('[data-reg]');
-  if (!card) return;
-  try {
-    const boxes = [...card.querySelectorAll('[data-reg-method]')];
-    const on = boxes.filter((b) => b.checked).map((b) => Number(b.dataset.regMethod));
-    // Все отмечены — без ограничения (новые счета появятся на кассе сами).
-    const methods = !boxes.length || on.length === boxes.length ? null : on;
-    await api(`/api/registers/${card.dataset.reg}`, { method: 'PUT', body: { name: card.querySelector('[data-reg-name]').value, active: card.querySelector('[data-reg-active]').checked, methods } });
-    toast('Сохранено');
-  } catch (err) { toast(err.message, 'error'); }
-  renderRegisters();
+$('#reg-list').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-reg-edit]');
+  if (b) openRegDialog(regList[Number(b.dataset.regEdit)]);
 });
 
 // «+ Создать счёт»: счёт для денег (прибыль, сейф, зарплата) — по желанию и кнопкой оплаты на кассе.

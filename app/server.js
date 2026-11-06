@@ -786,6 +786,33 @@ function resolveContext(req, user) {
 }
 
 // Действие над сотрудником другого магазина (?branch=N) — только у владельца.
+/* ---------- Кассы разных магазинов ---------- */
+// Кассы другого магазина меняет владелец; касса хранится в базе своего магазина.
+const regOwner = (u) => !auth.enabled || u?.role === 'owner';
+const branchName = (id) => branchList().find((b) => b.id === id)?.name || 'Магазин';
+function regIn(branch, user, fn) {
+  const b = Number(branch) || current().id;
+  if (b === current().id) return fn();
+  if (!regOwner(user)) throw new UserError('Кассы другого магазина меняет владелец');
+  const ctx = contextOf(b);
+  if (!ctx) throw new UserError('Магазин не найден');
+  return als.run(ctx, fn);
+}
+// Перенос кассы в другой магазин: там создаётся касса с этим названием; здесь старая удаляется,
+// а если на ней уже были смены (история) — отключается с пометкой, куда перенесена.
+function moveRegister(id, from, to, body, user) {
+  if (!regOwner(user)) throw new UserError('Кассу в другой магазин переносит владелец');
+  const src = contextOf(from), dst = contextOf(to);
+  if (!src || !dst) throw new UserError('Магазин не найден');
+  const cur = src.store.listRegisters({ all: true }).find((r) => r.id === Number(id));
+  if (!cur) throw new UserError('Касса не найдена');
+  const name = String(body.name || cur.name).trim() || cur.name;
+  src.store.detachRegister(cur.id, `перенесена в «${branchName(to)}»`);
+  const made = dst.store.saveRegister(null, { name });
+  if (body.active === false) dst.store.saveRegister(made.id, { name, active: false });
+  return { ...made, branch_id: to, branch_name: branchName(to) };
+}
+
 function inBranch(url, user, fn) {
   const b = Number(url.searchParams.get('branch')) || current().id;
   if (b === current().id) return fn();
@@ -1483,12 +1510,23 @@ const routes = [
   ['PUT', '/api/print-designs/:kind', (p, url, body) => store.setPrintDesign(p.kind, body), 'print.design'],
   ['GET', '/api/sales/:id/receipt', (p) => store.receiptData(p.id), ['pos', 'sales']],
   ['GET', '/api/shift/info', (p, url, body, user) => store.shiftInfo(user), 'pos'],
-  ['GET', '/api/registers', (p, url) => (url.searchParams.get('overview') === '1' ? store.registersOverview() : store.listRegisters()), 'any'],
-  ['POST', '/api/registers', (p, url, body) => store.saveRegister(null, body), 'settings'],
+  // ?overview=1 — кассы с деньгами и сменами; с &branch=all — кассы всех магазинов (владельцу), у каждой магазин.
+  ['GET', '/api/registers', (p, url, body, user) => {
+    if (url.searchParams.get('overview') !== '1') return store.listRegisters();
+    if (url.searchParams.get('branch') !== 'all' || !regOwner(user)) return store.registersOverview().map((r) => ({ ...r, branch_id: current().id, branch_name: branchName(current().id) }));
+    return branchList().flatMap((b) => { const ctx = contextOf(b.id); return ctx ? ctx.store.registersOverview().map((r) => ({ ...r, branch_id: b.id, branch_name: b.name })) : []; });
+  }, 'any'],
+  ['POST', '/api/registers', (p, url, body, user) => regIn(body.branch, user, () => store.saveRegister(null, body)), 'settings'],
   // Один денежный ящик на все кассы: второй сотрудник на смене деньги не пересчитывает.
   ['GET', '/api/cash-drawer', () => ({ one: store.setting('cash_one_drawer', '1') !== '0', registers: store.listRegisters().length }), ['settings', 'shifts', 'dashboard']],
   ['PUT', '/api/cash-drawer', (p, url, body) => { store.setSetting('cash_one_drawer', body.one ? '1' : '0'); return { one: Boolean(body.one) }; }, 'settings'],
-  ['PUT', '/api/registers/:id', (p, url, body) => store.saveRegister(p.id, body), 'settings'],
+  // ?branch=N — касса этого магазина; body.branch — перенести кассу в другой магазин.
+  ['PUT', '/api/registers/:id', (p, url, body, user) => {
+    const from = Number(url.searchParams.get('branch')) || current().id;
+    const to = Number(body.branch) || from;
+    if (to === from) return regIn(from, user, () => store.saveRegister(p.id, body));
+    return moveRegister(p.id, from, to, body, user);
+  }, 'settings'],
   ['GET', '/api/accounts', (p, url) => ({ accounts: store.accounts(range(url)), ops: store.accountOps(range(url)) }), 'accounts'],
   ['POST', '/api/accounts/ops', (p, url, body, user) => store.addAccountOp(body, user), 'accounts'],
   ['DELETE', '/api/accounts/ops/:id', (p) => store.deleteAccountOp(p.id), 'accounts'],
