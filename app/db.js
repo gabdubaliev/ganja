@@ -841,6 +841,9 @@ function open(file) {
   `);
   // Уценка, которую поставила автоматика (а не человек): её можно снять при новом поступлении.
   addColumns('products', [['auto_discount', 'REAL NOT NULL DEFAULT 0']]);
+  // Общий справочник магазинов: uid — один и тот же товар во всех магазинах (у каждого магазина своя копия карточки).
+  addColumns('products', [['uid', 'TEXT']]);
+  db.exec('CREATE INDEX IF NOT EXISTS products_uid ON products(uid)');
   // Перенос из CloudShop: черновые карточки (строки выгрузки, собранные в товары), их правка и отметка «перенесено».
   db.exec(`
     CREATE TABLE IF NOT EXISTS migrate_items (
@@ -1865,18 +1868,130 @@ function createStore(file) {
         WHERE p.archived = ? AND p.deleted = 0 ORDER BY p.name COLLATE NOCASE`).all(archived ? 1 : 0);
     },
 
+    /* ---------- Общий справочник товаров между магазинами ---------- */
+    // Поля карточки, которые одинаковы во всех магазинах. Свои у каждого магазина: остаток, себестоимость, закупка,
+    // поставщик, скидка (автоуценка неликвидов считается по продажам своего магазина).
+    catalogFields: ['name', 'category', 'barcode', 'code', 'unit', 'price', 'archived', 'created_at', 'photo_at', 'deleted', 'description', 'options', 'article'],
+    ensureUids() {
+      db.exec("UPDATE products SET uid = lower(hex(randomblob(8))) WHERE uid IS NULL OR uid = ''");
+    },
+    // Снимок справочника: товары (с uid основного товара), подпись фото и галереи — без самих картинок.
+    catalogSnapshot() {
+      this.ensureUids();
+      const rows = db.prepare(`SELECT p.*, b.uid AS parent_uid,
+          (SELECT length(data) FROM product_photos f WHERE f.product_id = p.id) AS photo_len,
+          (SELECT group_concat(position || ':' || length(data), ',') FROM (SELECT position, data FROM product_images g WHERE g.product_id = p.id ORDER BY position, id)) AS gallery
+        FROM products p LEFT JOIN products b ON b.id = p.parent_id`).all();
+      const cats = db.prepare(`SELECT c.name, c.sort, c.created_at, pc.name AS parent, (SELECT length(data) FROM images i WHERE i.id = c.image_id) AS image_len, c.image_id
+        FROM categories c LEFT JOIN categories pc ON pc.id = c.parent_id ORDER BY c.parent_id IS NOT NULL, c.sort, c.id`).all();
+      return { rows, cats };
+    },
+    photoOf(id) { return db.prepare('SELECT mime, data FROM product_photos WHERE product_id = ?').get(Number(id)) || null; },
+    galleryOf(id) { return db.prepare('SELECT mime, data, position, created_at FROM product_images WHERE product_id = ? ORDER BY position, id').all(Number(id)); },
+    imageOf(id) { return db.prepare('SELECT mime, data, created_at FROM images WHERE id = ?').get(Number(id)) || null; },
+    // Привести справочник этого магазина к снимку другого. full — и обновить совпавшие карточки (после изменения
+    // в том магазине); без full — только добавить недостающие товары и категории (ничего существующего не меняется).
+    applyCatalog(snap, src, { full = true } = {}) {
+      const F = this.catalogFields;
+      let added = 0, updated = 0;
+      transaction(db, () => {
+        // Категории — по названию; у новых — родитель по названию и картинка.
+        const cur = new Map(db.prepare('SELECT * FROM categories').all().map((c) => [c.name, c]));
+        for (const c of snap.cats) {
+          let mine = cur.get(c.name);
+          const parentId = c.parent ? db.prepare('SELECT id FROM categories WHERE name = ?').get(c.parent)?.id ?? null : null;
+          if (!mine) {
+            const id = Number(db.prepare('INSERT INTO categories (name, sort, created_at, parent_id) VALUES (?, ?, ?, ?)').run(c.name, c.sort || 0, c.created_at || Date.now(), parentId).lastInsertRowid);
+            mine = { id, image_id: null };
+            cur.set(c.name, mine);
+          } else if (full) db.prepare('UPDATE categories SET sort = ?, parent_id = ? WHERE id = ?').run(c.sort || 0, parentId, mine.id);
+          const myLen = mine.image_id ? db.prepare('SELECT length(data) AS n FROM images WHERE id = ?').get(mine.image_id)?.n : null;
+          if (c.image_id && (myLen ?? null) !== c.image_len && (full || !mine.image_id)) {
+            const img = src.imageOf(c.image_id);
+            if (img) {
+              const iid = Number(db.prepare('INSERT INTO images (mime, data, created_at) VALUES (?, ?, ?)').run(img.mime, img.data, img.created_at || Date.now()).lastInsertRowid);
+              db.prepare('UPDATE categories SET image_id = ? WHERE id = ?').run(iid, mine.id);
+            }
+          }
+        }
+        if (full) {
+          const names = new Set(snap.cats.map((c) => c.name));
+          for (const [name, c] of cur) if (!names.has(name)) db.prepare('DELETE FROM categories WHERE id = ?').run(c.id);
+        }
+        // Товары — по uid: сначала основные (без parent), потом модификации.
+        const mine = new Map(db.prepare('SELECT * FROM products WHERE uid IS NOT NULL').all().map((r) => [r.uid, r]));
+        const ordered = [...snap.rows].sort((a, b) => (a.parent_uid ? 1 : 0) - (b.parent_uid ? 1 : 0));
+        const ins = db.prepare(`INSERT INTO products (${F.join(', ')}, uid, parent_id, stock, cost, purchase) VALUES (${F.map(() => '?').join(', ')}, ?, ?, 0, ?, ?)`);
+        const upd = db.prepare(`UPDATE products SET ${F.map((f) => `${f} = ?`).join(', ')}, parent_id = ? WHERE id = ?`);
+        for (const r of ordered) {
+          const parentId = r.parent_uid ? mine.get(r.parent_uid)?.id ?? null : null;
+          if (r.parent_uid && !parentId) continue;
+          let m = mine.get(r.uid);
+          const vals = F.map((f) => r[f] ?? (f === 'options' || f === 'description' || f === 'article' || f === 'code' || f === 'barcode' || f === 'category' ? '' : null));
+          if (!m) {
+            if (r.deleted) continue;
+            const id = Number(ins.run(...vals, r.uid, parentId, r.cost ?? 0, r.purchase ?? null).lastInsertRowid);
+            m = { id, uid: r.uid, photo_at: null };
+            mine.set(r.uid, m);
+            added++;
+          } else if (full && (F.some((f) => (m[f] ?? null) !== (r[f] ?? null) && !(m[f] === '' && r[f] === null)) || (m.parent_id ?? null) !== parentId)) {
+            upd.run(...vals, parentId, m.id);
+            updated++;
+          } else if (!full) continue;
+          // Фото: основное — по длине картинки, галерея — по подписи (порядок и размеры).
+          const myPhoto = db.prepare('SELECT length(data) AS n FROM product_photos WHERE product_id = ?').get(m.id)?.n ?? null;
+          if ((r.photo_len ?? null) !== myPhoto) {
+            db.prepare('DELETE FROM product_photos WHERE product_id = ?').run(m.id);
+            const ph = r.photo_len ? src.photoOf(r.id) : null;
+            if (ph) db.prepare('INSERT INTO product_photos (product_id, mime, data) VALUES (?, ?, ?)').run(m.id, ph.mime, ph.data);
+          }
+          const myGal = db.prepare("SELECT group_concat(position || ':' || length(data), ',') AS g FROM (SELECT position, data FROM product_images WHERE product_id = ? ORDER BY position, id)").get(m.id)?.g ?? null;
+          if ((r.gallery ?? null) !== myGal) {
+            db.prepare('DELETE FROM product_images WHERE product_id = ?').run(m.id);
+            for (const g of r.gallery ? src.galleryOf(r.id) : []) db.prepare('INSERT INTO product_images (product_id, mime, data, position, created_at) VALUES (?, ?, ?, ?, ?)').run(m.id, g.mime, g.data, g.position, g.created_at || Date.now());
+          }
+        }
+        // Товар удалён в том магазине совсем (без истории продаж) — здесь он тоже убирается (помечается удалённым).
+        if (full) {
+          const srcUids = new Set(snap.rows.map((r) => r.uid));
+          for (const [uid, m] of mine) if (!srcUids.has(uid) && !m.deleted && m.id) { db.prepare('UPDATE products SET deleted = 1 WHERE id = ?').run(m.id); updated++; }
+        }
+      });
+      return { added, updated };
+    },
+    // Первая связка с основным магазином: товар этого магазина получает uid того же товара основного
+    // (по штрихкоду → коду с названием → названию). Ничего, кроме uid, не меняется.
+    linkCatalog(mainRows) {
+      const byBarcode = new Map(), byCodeName = new Map(), byName = new Map();
+      for (const r of mainRows) {
+        if (r.barcode && !byBarcode.has(r.barcode)) byBarcode.set(r.barcode, r.uid);
+        if (r.code && !byCodeName.has(`${r.code}\u0001${r.name}`)) byCodeName.set(`${r.code}\u0001${r.name}`, r.uid);
+        if (!byName.has(r.name)) byName.set(r.name, r.uid);
+      }
+      const taken = new Set(db.prepare('SELECT uid FROM products WHERE uid IS NOT NULL').all().map((r) => r.uid));
+      let linked = 0;
+      for (const r of db.prepare("SELECT * FROM products WHERE uid IS NULL OR uid = '' ORDER BY parent_id IS NOT NULL, id").all()) {
+        const u = (r.barcode && byBarcode.get(r.barcode)) || (r.code && byCodeName.get(`${r.code}\u0001${r.name}`)) || byName.get(r.name);
+        if (u && !taken.has(u)) { db.prepare('UPDATE products SET uid = ? WHERE id = ?').run(u, r.id); taken.add(u); linked++; }
+      }
+      this.ensureUids();
+      return linked;
+    },
+
     // Остатки всех товаров этой базы для сопоставления с другим магазином — те же правила, что findSameProduct:
     // штрихкод, затем код с названием, затем название. Один проход вместо запроса на каждый товар.
     stockIndex() {
-      const rows = db.prepare('SELECT barcode, code, name, stock, parent_id FROM products WHERE deleted = 0 ORDER BY parent_id IS NULL, id').all();
-      const byBarcode = new Map(), byCodeName = new Map(), byName = new Map();
+      const rows = db.prepare('SELECT uid, barcode, code, name, stock, parent_id FROM products WHERE deleted = 0 ORDER BY parent_id IS NULL, id').all();
+      const byUid = new Map(), byBarcode = new Map(), byCodeName = new Map(), byName = new Map();
       for (const r of rows) {
+        if (r.uid) byUid.set(r.uid, r.stock);
         if (r.barcode && !byBarcode.has(r.barcode)) byBarcode.set(r.barcode, r.stock);
         if (r.code && !byCodeName.has(`${r.code}\u0001${r.name}`)) byCodeName.set(`${r.code}\u0001${r.name}`, r.stock);
         if (!byName.has(r.name) || r.parent_id === null) byName.set(r.name, r.stock);
       }
       return (p) => {
-        const v = (p.barcode && byBarcode.get(p.barcode)) ?? (p.code && byCodeName.get(`${p.code}\u0001${p.name}`)) ?? byName.get(p.name);
+        const pick = (ok, m, k) => (ok ? m.get(k) : undefined);
+        const v = pick(p.uid, byUid, p.uid) ?? pick(p.barcode, byBarcode, p.barcode) ?? pick(p.code, byCodeName, `${p.code}\u0001${p.name}`) ?? byName.get(p.name);
         return v === undefined ? null : v;
       };
     },
@@ -1884,7 +1999,8 @@ function createStore(file) {
     // Тот же товар в этой базе (для перемещений и остатков по магазинам): по штрихкоду, по коду вместе
     // с названием (коды в каждом магазине присваиваются свои), по названию.
     findSameProduct(p) {
-      return (p.barcode && db.prepare('SELECT * FROM products WHERE barcode = ? AND deleted = 0 ORDER BY parent_id IS NULL, id').get(p.barcode))
+      return (p.uid && db.prepare('SELECT * FROM products WHERE uid = ? AND deleted = 0').get(p.uid))
+        || (p.barcode && db.prepare('SELECT * FROM products WHERE barcode = ? AND deleted = 0 ORDER BY parent_id IS NULL, id').get(p.barcode))
         || (p.code && db.prepare('SELECT * FROM products WHERE code = ? AND name = ? AND deleted = 0').get(p.code, p.name))
         || db.prepare('SELECT * FROM products WHERE name = ? AND deleted = 0').get(p.name) || null;
     },

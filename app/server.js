@@ -249,6 +249,7 @@ function studioFacts(s) {
 }
 makeContext(1, mainStore);
 for (const b of branchList()) if (!b.main) contextOf(b.id);
+linkCatalogs();
 // Один раз: бонусы и сертификаты филиалов переезжают в основную базу и становятся общими.
 if (mainStore.setting('shared_wallet', '0') !== '1') {
   mainStore.hideAdminBonusRows();
@@ -820,17 +821,27 @@ function mergeByName(list, key = 'name') {
   for (const x of list) { const cur = m.get(x[key]); m.set(x[key], cur ? sumDeep([cur, x]) : { ...x }); }
   return [...m.values()];
 }
-// Аналитика главной всех магазинов: id товаров, чеков и сотрудников с номером магазина («2:15»), продажи по времени.
+// Аналитика главной всех магазинов: товар — по названию (один и тот же товар во всех магазинах — одна строка, остатки
+// складываются; модификации — в свой основной товар по его названию), чеки и сотрудники — с номером магазина («2:15»).
 function mergeAnalytics(parts) {
-  const products = [], parents = {}, staff = {}, lines = [];
+  const byKey = new Map(), parents = {}, staff = {}, lines = [];
+  const nk = (name) => `n:${name}`;
   for (const { b, name, v } of parts) {
     const k = (x) => (x === null || x === undefined ? null : `${b}:${x}`);
-    for (const pr of v.products) products.push({ ...pr, id: k(pr.id), parent: k(pr.parent), shop: name });
-    for (const [id, par] of Object.entries(v.parents || {})) parents[k(id)] = { ...par, id: k(par.id) };
+    const pkey = new Map();
+    for (const pr of v.products) {
+      const key = nk(pr.name);
+      pkey.set(String(pr.id), key);
+      const cur = byKey.get(key);
+      if (cur) cur.stock = cur.stock === null || pr.stock === null ? cur.stock ?? pr.stock : cur.stock + pr.stock;
+      else byKey.set(key, { ...pr, id: key, parent: pr.parent ? nk(pr.parentName || '') : null });
+    }
+    for (const [id, par] of Object.entries(v.parents || {})) parents[pkey.get(id) || k(id)] = { ...par, id: nk(par.name || '') };
     for (const [id, u] of Object.entries(v.staff || {})) staff[k(id)] = { ...u, name: parts.length > 1 ? `${u.name} · ${name}` : u.name };
     let t = 0;
-    for (const x of v.sales.rows) { t += x[0]; lines.push([t, k(x[1]), k(x[2]), k(x[3]), v.sales.names[x[4]], x[5], x[6], x[7], x[8]]); }
+    for (const x of v.sales.rows) { t += x[0]; const nm = v.sales.names[x[4]]; lines.push([t, k(x[1]), k(x[2]), pkey.get(String(x[3])) || nk(nm), nm, x[5], x[6], x[7], x[8]]); }
   }
+  const products = [...byKey.values()];
   lines.sort((a, b) => a[0] - b[0]);
   const names = [], idx = new Map();
   let prev = 0;
@@ -1018,6 +1029,57 @@ function docRight(user, kind) {
 }
 
 // Новый магазин: своя база рядом с основной. По желанию — копия каталога товаров (без остатков) и категорий.
+/* ---------- Общий справочник товаров ---------- */
+// Магазины — формально разные базы, но товары, модификации, штрихкоды, категории и фото у всех одни:
+// карточки связаны uid. Остаток, себестоимость, закупка, поставщик и скидка у каждого магазина свои.
+const CATALOG_ROUTES = /^\/api\/(invoice|products|categories|categories-order|migrate|studio|images|docs|receive|demo|import|gallery|audit|undo)\b/;
+function syncCatalogFrom(fromId) {
+  if (branchList().length < 2) return;
+  const src = contextOf(fromId);
+  if (!src) return;
+  try {
+    const snap = src.store.catalogSnapshot();
+    for (const b of branchList()) {
+      if (b.id === fromId) continue;
+      const ctx = contextOf(b.id);
+      if (ctx) ctx.store.applyCatalog(snap, src.store, { full: true });
+    }
+  } catch (err) { console.error('Общий справочник: не удалось передать изменения в магазины:', err.message); }
+}
+// При запуске: товары магазинов связываются с товарами основного (по штрихкоду, коду с названием, названию),
+// недостающие карточки появляются во всех магазинах с остатком 0. Существующие карточки не меняются.
+function linkCatalogs() {
+  const others = branchList().filter((b) => !b.main);
+  if (!others.length) return;
+  try {
+    mainStore.ensureUids();
+    const mainRows = mainStore.catalogSnapshot().rows;
+    for (const b of others) contextOf(b.id)?.store.linkCatalog(mainRows);
+    for (const b of others) { const c = contextOf(b.id); if (c) mainStore.applyCatalog(c.store.catalogSnapshot(), c.store, { full: false }); }
+    const snap = mainStore.catalogSnapshot();
+    for (const b of others) contextOf(b.id)?.store.applyCatalog(snap, mainStore, { full: false });
+  } catch (err) { console.error('Общий справочник: связка магазинов не удалась:', err.message); }
+}
+
+// Удалить магазин: он пропадает из списка, его база не стирается — переименовывается в «…deleted-дата.db» (можно вернуть).
+function deleteBranch(id, user) {
+  if (auth.enabled && !user?.owner) throw new UserError('Магазины удаляет владелец');
+  const n = Number(id);
+  if (n === 1) throw new UserError('Основной магазин удалить нельзя');
+  const list = branchList().filter((b) => !b.main);
+  const b = list.find((x) => x.id === n);
+  if (!b) throw new UserError('Магазин не найден');
+  const ctx = contextOf(n);
+  if (ctx && ctx.store.db.prepare('SELECT 1 FROM shifts WHERE closed_at IS NULL').get()) throw new UserError('В этом магазине открыта смена — сначала закройте её');
+  mainStore.setSetting('branches', JSON.stringify(list.filter((x) => x.id !== n)));
+  contexts.delete(n);
+  try { ctx?.store.db.close(); } catch { /* уже закрыта */ }
+  const file = path.join(path.dirname(DB_FILE), b.file);
+  const kept = file.replace(/\.db$/, `.deleted-${new Date().toISOString().slice(0, 10)}.db`);
+  try { if (fs.existsSync(file)) fs.renameSync(file, kept); } catch (err) { console.error('Магазин удалён из списка, файл базы не переименован:', err.message); }
+  return { ok: true, id: n, name: b.name, kept: path.basename(kept) };
+}
+
 function createBranch(input, user) {
   if (auth.enabled && !user?.owner) throw new UserError('Магазины заводит владелец — администратор основного магазина');
   const name = String(input.name ?? '').trim().slice(0, 80);
@@ -1029,7 +1091,9 @@ function createBranch(input, user) {
   mainStore.setSetting('branches', JSON.stringify([...list.filter((x) => !x.main), b]));
   const ctx = contextOf(id);
   ctx.store.setDesign?.({ ...mainStore.design(), name });
-  if (input.copyProducts) {
+  // Справочник общий: новый магазин сразу получает все товары, модификации, штрихкоды, категории и фото (остаток 0).
+  mainStore.ensureUids();
+  {
     const db = ctx.store.db;
     db.exec(`ATTACH DATABASE '${path.join(path.dirname(DB_FILE), path.basename(DB_FILE)).replace(/'/g, "''")}' AS src`);
     try {
@@ -1180,11 +1244,12 @@ const routes = [
   }), 'any'],
   ['GET', '/api/kassa/users', () => store.kassaUsers(), 'pos'],
   ['GET', '/api/branches', (p, url, body, user) => ({
-    branches: branchList().map((b) => ({ id: b.id, name: b.name, address: b.address || '', phone: b.phone || '', main: Boolean(b.main), current: b.id === current().id })),
+    branches: branchList().map((b) => ({ id: b.id, name: b.name, address: b.address || '', phone: b.phone || '', main: Boolean(b.main), current: b.id === current().id, created_at: b.created_at || null })),
     canManage: Boolean(user?.owner) || !auth.enabled,
   }), 'any'],
   ['POST', '/api/branches', (p, url, body, user) => createBranch(body, user), 'any'],
   ['PUT', '/api/branches/:id', (p, url, body, user) => updateBranch(p.id, body, user), 'any'],
+  ['DELETE', '/api/branches/:id', (p, url, body, user) => deleteBranch(p.id, user), 'any'],
   ['PUT', '/api/me/pin', (p, url, body, user) => {
     if (!user) throw new UserError('Сначала заведите сотрудников');
     if (!checkPassword(body.current, store.findUser(user.id).password_hash)) throw new UserError('Текущий пароль указан неверно');
@@ -3395,6 +3460,8 @@ async function handleRequest(req, res, url, user, owner) {
     } else if (undoToken) store.undoDiscard(undoToken);
     if (!body.dryRun) moveTelegram(key, route.params, body, result, user);
     if (req.method !== 'GET') try { store.clearShopCache(); } catch {}
+    // Общий справочник: изменили товары или категории в одном магазине — то же во всех остальных.
+    if (req.method !== 'GET' && CATALOG_ROUTES.test(url.pathname) && !body.dryRun) syncCatalogFrom(current().id);
     if (result?.__file) return sendBytes(res, result.__file.mime, Buffer.from(result.__file.data), 'private, max-age=3600');
     sendJson(res, 200, result);
   } catch (err) {
