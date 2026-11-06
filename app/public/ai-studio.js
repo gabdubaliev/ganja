@@ -677,7 +677,8 @@ $('[data-view="studio"]').addEventListener('click', async (e) => {
     if ((x = b('[data-st-edit]'))) return openStudioEditor(findAsset(x.dataset.stEdit), st.session, reloadSession);
     if ((x = b('[data-st-ok-edit]'))) {
       await api(`/api/studio/assets/${x.dataset.stOkEdit}/review`, { method: 'POST', body: { decision: 'approved' } });
-      toast('Обработка одобрена');
+      const added = await autoAttach(Number(x.dataset.stOkEdit));
+      toast(added ? `Обработка одобрена и добавлена в товар: ${added}` : 'Обработка одобрена');
       return reloadSession();
     }
     if ((x = b('[data-st-compare]'))) return openCompare(Number(x.dataset.stCompare));
@@ -745,7 +746,8 @@ async function sendReview(decision) {
       await reloadSession();
       return showTask(r.retryTask.id);
     }
-    toast(decision === 'approved' ? 'Одобрено — теперь можно добавить в галерею товара' : 'Отклонено');
+    const added = decision === 'approved' ? await autoAttach(cmp.a.id) : null;
+    toast(decision === 'approved' ? (added ? `Одобрено и добавлено в товар: ${added}` : 'Одобрено — теперь можно добавить в галерею товара') : 'Отклонено');
     reloadSession();
   } catch (err) {
     showFormError('#st-cmp-error', err);
@@ -764,6 +766,22 @@ $('#st-cmp-reject').addEventListener('click', () => sendReview('rejected'));
 
 /* ---------- В галерею товара ---------- */
 let attachId = null;
+// Одобренное фото — сразу в товар: туда же, куда по умолчанию предлагает «В галерею товара»
+// (цвет съёмки — всем размерам этого цвета; модификация съёмки; иначе весь товар). Не вышло (нет права «Фото»,
+// галерея полна) — фото остаётся одобренным, и кнопка «В галерею товара» на месте.
+async function autoAttach(id) {
+  const s = st.session, p = s?.product;
+  if (!st.meta?.canAttach || !p || p.deleted) return null;
+  try {
+    const data = await galleryJpeg(id);
+    const body = s.color && p.colors?.length ? { color: s.color } : { productId: Number(s.variant_id || p.id), color: '' };
+    const r = await api(`/api/studio/assets/${id}/attach`, { method: 'POST', body: { ...body, data } });
+    return `${s.color ? `${p.name} · ${s.color} (все размеры)` : p.name}, фото №${r.gallery.imageId}`;
+  } catch (err) {
+    toast(`Одобрено, но в товар не добавилось: ${err.message}. Добавьте кнопкой «В галерею товара».`, 'error');
+    return null;
+  }
+}
 function openAttach(id) {
   const a = findAsset(id);
   const p = st.session.product;
