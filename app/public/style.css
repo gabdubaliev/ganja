@@ -2476,3 +2476,6 @@ body.drawer-open { overflow: hidden; }
 /* И в кассе: магазин кассы — тот, в который вошли (владелец переходит через «Компания → Магазины»). */
 .nav .branch-switch, .home-top .branch-switch { display: none !important; }
 @media (max-width: 640px) { .nav-inner > #nav-user { margin-left: auto !important; } }
+/* Касса, телефон: вместо «Ещё» — «Перенос» из CloudShop (потом здесь будет «Мой табель»). */
+.nav-migrate { display: none !important; }
+@media (max-width: 640px) { .kassa .nav-main > .nav-migrate:not([hidden]) { display: flex !important; order: 5; } .kassa .nav-main > #nav-more { display: none !important; } }
