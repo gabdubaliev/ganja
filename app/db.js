@@ -502,6 +502,8 @@ function open(file) {
   // Колонки таблиц, которые создаются выше в этой же функции: на новой базе их добавляем после создания таблиц.
   addColumns('fines', [['kind', "TEXT NOT NULL DEFAULT 'fine'"]]);
   addColumns('shifts', [['register_id', 'INTEGER']]);
+  // Свои счета у кассы: JSON-список id способов оплаты; NULL — все счета «на кассе».
+  addColumns('registers', [['methods', 'TEXT']]);
   // Смену не закрыли до полуночи — программа закрыла её сама (деньги никто не пересчитывал).
   addColumns('shifts', [['auto_closed', 'INTEGER NOT NULL DEFAULT 0']]);
   // Деньги в кассе по смене. Открытие: сколько насчитали (open_cash), сколько должно было быть (open_expected —
@@ -1991,7 +1993,12 @@ function createStore(file) {
     allowedPaymentMethods(user) {
       const active = this.listPaymentMethods();
       const own = user?.payment_methods ? JSON.parse(user.payment_methods) : null;
-      const onPos = active.filter((m) => m.pos !== 0); // счета «не для кассы» оплатой не принимаются
+      let onPos = active.filter((m) => m.pos !== 0); // счета «не для кассы» оплатой не принимаются
+      // У кассы, на которой открыта смена, могут быть свои счета — остальные на ней не принимаются (у всех, и у владельца).
+      const sh = user?.id ? this.currentShift(user.id) : null;
+      const reg = sh?.register_id ? db.prepare('SELECT methods FROM registers WHERE id = ?').get(sh.register_id) : null;
+      const regIds = reg?.methods ? JSON.parse(reg.methods) : null;
+      if (Array.isArray(regIds)) onPos = onPos.filter((m) => regIds.includes(m.id));
       return Array.isArray(own) && !['admin', 'owner'].includes(user.role) ? onPos.filter((m) => own.includes(m.id)) : onPos;
     },
 
@@ -4202,15 +4209,16 @@ function createStore(file) {
       const d = new Date();
       const from = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
       // Счета на кассе: способы оплаты, которыми кассир принимает деньги (общие для всех касс магазина).
-      const methods = db.prepare('SELECT name FROM payment_methods WHERE active = 1 AND pos <> 0 ORDER BY sort, id').all();
+      const methods = db.prepare('SELECT id, name FROM payment_methods WHERE active = 1 AND pos <> 0 ORDER BY sort, id').all();
       return this.listRegisters({ all: true }).map((r) => {
         const open = db.prepare('SELECT id FROM shifts WHERE register_id = ? AND closed_at IS NULL ORDER BY opened_at').all(r.id).map((x) => this.getShift(x.id));
         const today = db.prepare(`SELECT COUNT(DISTINCT s.id) AS receipts, COALESCE(SUM(s.total), 0) AS revenue FROM sales s JOIN shifts sh ON sh.id = s.shift_id
           WHERE sh.register_id = ? AND s.refunded_at IS NULL AND s.created_at >= ?`).get(r.id, from);
+        const ids = r.methods ? JSON.parse(r.methods) : null;
         // Деньги в ящике: идёт смена — сколько должно быть сейчас; нет — что оставили при закрытии ± движения после.
         const balance = open.length ? this.expectedDrawerCash(open[0]) : this.expectedOpenCash(r.id);
         return { ...r, open: open.map((s) => ({ user: s.user_name, since: s.opened_at, revenue: s.revenue, cash: s.cash, card: s.card })), today: { receipts: today.receipts, revenue: round2(today.revenue) },
-          balance, methods: methods.map((m) => m.name) };
+          balance, own: Boolean(ids), method_ids: ids || methods.map((m) => m.id), methods: methods.filter((m) => !ids || ids.includes(m.id)).map((m) => m.name), all_methods: methods };
       });
     },
 
@@ -4222,7 +4230,17 @@ function createStore(file) {
         const active = input.active === undefined ? cur.active : input.active ? 1 : 0;
         if (!active && cur.active && db.prepare('SELECT COUNT(*) AS n FROM registers WHERE active = 1').get().n <= 1) throw new UserError('Должна остаться хотя бы одна касса');
         if (!active && db.prepare('SELECT 1 FROM shifts WHERE register_id = ? AND closed_at IS NULL').get(cur.id)) throw new UserError('На этой кассе открыта смена — сначала закройте её');
-        db.prepare('UPDATE registers SET name = ?, active = ? WHERE id = ?').run(name, active, cur.id);
+        // methods: список id счетов этой кассы; null — все счета «на кассе». Пустой список нельзя: кассе нечем принимать оплату.
+        let methods = cur.methods;
+        if (input.methods !== undefined) {
+          if (input.methods === null) methods = null;
+          else {
+            const ids = [...new Set((Array.isArray(input.methods) ? input.methods : []).map(Number).filter((x) => db.prepare('SELECT 1 FROM payment_methods WHERE id = ?').get(x)))];
+            if (!ids.length) throw new UserError('Оставьте кассе хотя бы один счёт — иначе на ней нечем принять оплату');
+            methods = JSON.stringify(ids);
+          }
+        }
+        db.prepare('UPDATE registers SET name = ?, active = ?, methods = ? WHERE id = ?').run(name, active, methods, cur.id);
         return db.prepare('SELECT * FROM registers WHERE id = ?').get(cur.id);
       }
       const sort = (db.prepare('SELECT MAX(sort) AS m FROM registers').get().m || 0) + 1;

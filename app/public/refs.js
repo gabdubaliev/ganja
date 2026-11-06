@@ -109,12 +109,15 @@ async function renderRegisters() {
       <div class="acc-balance num" title="Сколько наличных должно быть в денежном ящике">${r.balance === null || r.balance === undefined ? '—' : money(r.balance)}</div>
       <dl class="acc-flows reg-info">
         <dt>Магазин</dt><dd>🏬 ${esc(shopName)}</dd>
-        <dt>Счета на кассе</dt><dd>${r.methods?.length ? r.methods.map(esc).join(', ') : '—'}</dd>
+        <dt>Счета на кассе</dt><dd>${r.methods?.length ? r.methods.map(esc).join(', ') : '—'}${r.own ? '' : ' <span class="pcat">(все)</span>'}</dd>
         <dt>Сегодня</dt><dd>${int(r.today.receipts)} ${plural(r.today.receipts, ['чек', 'чека', 'чеков'])} на ${money(r.today.revenue)}</dd>
         <dt>Создана</dt><dd>${r.created_at ? new Date(r.created_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'}</dd>
       </dl>
       ${r.open.length ? r.open.map((s) => `<div class="reg-open"><span class="live-dot" aria-hidden="true"></span><b>${esc(s.user)}</b> на смене с ${new Date(s.since).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
         <div class="pcat">наличными ${money(s.cash)} · безнал ${money(s.card)}</div></div>`).join('') : '<p class="pick-meta">Сейчас смены нет</p>'}
+      ${edit && r.all_methods?.length ? `<div class="reg-methods"><b>Какие счета принимает эта касса</b>
+        ${r.all_methods.map((m) => `<label class="check"><input type="checkbox" data-reg-method="${m.id}" ${r.method_ids.includes(m.id) ? 'checked' : ''}> ${esc(m.name)}</label>`).join('')}
+        <p class="pick-meta">Отмечены все — касса принимает все счета «на кассе», и новые тоже. Снимите лишние, чтобы на этой кассе их не было.</p></div>` : ''}
       <div class="acc-actions"><button type="button" class="btn small" data-reg-sales="${r.id}" data-reg-title="${esc(r.name)}">🧾 Журнал продаж кассы</button></div>
     </article>`).join('');
 }
@@ -141,7 +144,11 @@ $('#reg-list').addEventListener('change', async (e) => {
   const card = e.target.closest('[data-reg]');
   if (!card) return;
   try {
-    await api(`/api/registers/${card.dataset.reg}`, { method: 'PUT', body: { name: card.querySelector('[data-reg-name]').value, active: card.querySelector('[data-reg-active]').checked } });
+    const boxes = [...card.querySelectorAll('[data-reg-method]')];
+    const on = boxes.filter((b) => b.checked).map((b) => Number(b.dataset.regMethod));
+    // Все отмечены — без ограничения (новые счета появятся на кассе сами).
+    const methods = !boxes.length || on.length === boxes.length ? null : on;
+    await api(`/api/registers/${card.dataset.reg}`, { method: 'PUT', body: { name: card.querySelector('[data-reg-name]').value, active: card.querySelector('[data-reg-active]').checked, methods } });
     toast('Сохранено');
   } catch (err) { toast(err.message, 'error'); }
   renderRegisters();
