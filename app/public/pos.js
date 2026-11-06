@@ -21,8 +21,7 @@ function renderPick() {
   const q = $('#pos-search').value;
   // Без поиска модификации спрятаны в карточку своего товара; при поиске находятся сразу.
   // Поиск ищет по всем товарам; без поиска — товары выбранной категории.
-  const list = q.trim() ? groupVariants(catalog.search(q, 40), q) : catalog.list.filter((p) => !p.parent_id && (!pos.cat || p.category === pos.cat));
-  renderPosCats(Boolean(q.trim()));
+  const list = q.trim() ? groupVariants(catalog.search(q, 40), q) : catalog.list.filter((p) => !p.parent_id);
   $('#pos-results').innerHTML = list.length ? list.map((p) => {
     const group = catalog.isGroup(p);
     const inCart = group
@@ -972,41 +971,7 @@ $('#shift-bar').addEventListener('click', (e) => {
 });
 
 /* ---------- Категории с фото над товарами ---------- */
-async function loadPosCats() {
-  try { pos.cats = await api('/api/categories'); } catch { pos.cats = []; }
-}
-
-let posCatsHidden = (() => { try { return localStorage.getItem('kassa.cats') === 'hide'; } catch { return false; } })();
-function renderPosCats(searching) {
-  const used = new Set(catalog.list.filter((p) => !p.parent_id).map((p) => p.category).filter(Boolean));
-  const cats = pos.cats.filter((c) => used.has(c.name));
-  if (pos.cat && !used.has(pos.cat)) pos.cat = '';
-  const el = $('#pos-cats');
-  // При поиске категории не нужны; одна категория — тоже. Кнопкой их можно свернуть (помнится в этом браузере).
-  const tg = $('#pos-cats-toggle');
-  tg.hidden = searching || cats.length < 2;
-  const picked = cats.find((c) => c.name === pos.cat);
-  tg.textContent = posCatsHidden ? `▸ Категории${picked ? `: ${picked.label || picked.name}` : ''}` : '▾ Скрыть категории';
-  el.hidden = searching || cats.length < 2 || posCatsHidden;
-  if (el.hidden) return;
-  el.innerHTML = [{ name: '', label: 'Все' }, ...cats].map((c) => `
-    <button type="button" class="pos-cat" data-pos-cat="${esc(c.name)}" aria-pressed="${pos.cat === c.name}">
-      <span class="pos-cat-pic">${c.image_id ? `<img src="/img/${c.image_id}" alt="" loading="lazy">` : esc(c.name ? c.name.trim()[0].toUpperCase() : '★')}</span>
-      <span class="pos-cat-name">${esc(c.label || c.name)}</span>
-    </button>`).join('');
-}
-
-$('#pos-cats-toggle').addEventListener('click', () => {
-  posCatsHidden = !posCatsHidden;
-  try { localStorage.setItem('kassa.cats', posCatsHidden ? 'hide' : 'show'); } catch { /* без памяти */ }
-  renderPick();
-});
-$('#pos-cats').addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-pos-cat]');
-  if (!btn) return;
-  pos.cat = btn.dataset.posCat;
-  renderPick();
-});
+// Категорий в кассе нет: кассир ищет товар по названию, коду или штрихкоду.
 
 /* ---------- Смена кассира ---------- */
 // Два кассира на одной кассе: выбрать себя и ввести PIN (или пароль, если PIN не задан).
@@ -1089,7 +1054,7 @@ function restoreCart() {
 
 views.pos = {
   async show() {
-    try { await Promise.all([catalog.load(), loadPosCats(), loadPayMethods()]); } catch (err) { toast(err.message, 'error'); }
+    try { await Promise.all([catalog.load(), loadPayMethods()]); } catch (err) { toast(err.message, 'error'); }
     if (!pos.restored) { pos.restored = true; restoreCart(); }
     renderPick();
     renderCart();
