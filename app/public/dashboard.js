@@ -126,8 +126,15 @@ function setDay(off) {
 const shiftDay = (n) => setDay(state.dayOffset + n);
 
 /* ---------- Данные ---------- */
-function fetchData(from, to) {
-  return api(`/api/analytics?from=${Math.floor(from)}&to=${Math.ceil(to)}`);
+async function fetchData(from, to) {
+  const d = await api(`/api/analytics?from=${Math.floor(from)}&to=${Math.ceil(to)}`);
+  // Сервер присылает продажи сжато (массивы, время — разницей): разворачиваем в обычные строки.
+  if (d.sales && !Array.isArray(d.sales)) {
+    const { rows, names } = d.sales;
+    let t = 0;
+    d.sales = rows.map((x) => { t += x[0]; return { t, r: String(x[1]), u: x[2], p: String(x[3]), n: names[x[4]], q: x[5], s: x[6], c: x[7], f: x[8] }; });
+  }
+  return d;
 }
 
 function compute(data, key, now, range = periodRange(key, now), buckets = buildBuckets(key, range)) {
@@ -624,8 +631,17 @@ function renderAll() {
 }
 
 let loading = 0;
+// Уже открытые периоды держим в памяти: при возврате к ним график показывается сразу, свежие цифры догружаются следом.
+const homeCache = new Map();
+const homeKey = () => `${state.period}:${state.dayOffset}`;
+function applyHome(c) {
+  state.finSeries = c.finSeries; state.finance = c.finance; state.expenses = c.expenses; state.recurring = c.recurring; state.data = c.data;
+  renderAll();
+}
 async function load() {
   const ticket = ++loading;
+  const key = homeKey();
+  if (homeCache.has(key)) applyHome(homeCache.get(key));
   const r = homeRange();
   const now = r.end;
   const from = Math.min(r.prevStart, addDays(dayStart(now), -(STOCK_WINDOW_DAYS - 1)));
@@ -634,26 +650,19 @@ async function load() {
     const fin = (a, b) => api(`/api/finance?from=${Math.floor(a)}&to=${Math.ceil(b)}`);
     // Расходы и чистая прибыль — только с правом «finance».
     const f = session.can('finance');
-    const [data, cur, prev, expenses, recurring] = await Promise.all([fetchData(from, now),
+    // Расходы по дням (неделя, месяц) и по месяцам (год) — каждый столбик считает сервер: зарплата по сменам этого дня.
+    // Запрашиваются одновременно с продажами, а не после них.
+    const starts = f && state.period !== 'day' ? homeBuckets(state.period, r).map((x) => x.from).filter((t) => t < r.end) : [];
+    const series = starts.length ? api(`/api/finance/series?b=${[...starts, r.end].map((t) => Math.round(t)).join(',')}`).catch(() => null) : null;
+    const [data, cur, prev, expenses, recurring, finSeries] = await Promise.all([fetchData(from, now),
       f ? fin(r.start, now).catch(() => null) : null, f ? fin(r.prevStart, r.prevEnd).catch(() => null) : null,
       f ? api(`/api/expenses?from=${Math.floor(r.start)}&to=${Math.ceil(now)}`).catch(() => null) : null,
-      f ? api('/api/recurring-expenses').catch(() => []) : []]);
+      f ? api('/api/recurring-expenses').catch(() => []) : [], series]);
     if (ticket !== loading) return;
-    // Расходы по дням (неделя, месяц) и по месяцам (год) — каждый столбик считает сервер: зарплата по сменам этого дня.
-    state.finSeries = null;
-    if (f && state.period !== 'day') {
-      const starts = homeBuckets(state.period, r).map((x) => x.from).filter((t) => t < r.end);
-      if (starts.length) {
-        const bounds = [...starts, r.end].map((t) => Math.round(t)).join(',');
-        state.finSeries = await api(`/api/finance/series?b=${bounds}`).catch(() => null);
-        if (ticket !== loading) return;
-      }
-    }
-    state.finance = cur && prev ? { cur, prev } : null;
-    state.expenses = expenses;
-    state.recurring = recurring;
-    state.data = data;
-    renderAll();
+    const c = { finSeries, finance: cur && prev ? { cur, prev } : null, expenses, recurring, data };
+    homeCache.set(key, c);
+    if (homeCache.size > 12) homeCache.delete(homeCache.keys().next().value);
+    applyHome(c);
     renderSource(null);
   } catch (err) {
     if (ticket !== loading) return;

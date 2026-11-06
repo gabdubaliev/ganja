@@ -4889,11 +4889,22 @@ function createStore(file) {
           si.qty * si.price - ${LINE_FEE} AS s, si.qty * COALESCE(si.purchase, si.cost) AS c, ${LINE_FEE} AS f
         FROM sales s JOIN sale_items si ON si.sale_id = s.id
         WHERE s.refunded_at IS NULL AND s.created_at >= ? AND s.created_at < ?
-        ORDER BY s.created_at`).all(from, to)
-        .map((l) => ({ ...l, p: String(l.p), r: String(l.r) }));
+        ORDER BY s.created_at`).all(from, to);
+      // Сжато, чтобы график за год грузился быстро (было ~6 МБ): строки — массивы без названий полей,
+      // время — разница с предыдущей строкой, название товара — номер в списке names. Расшифровывает dashboard.js.
+      const names = [], nameIdx = new Map();
+      const r4 = (x) => Math.round(x * 10000) / 10000;
+      let prevT = 0;
+      const rows = sales.map((l) => {
+        let ni = nameIdx.get(l.n);
+        if (ni === undefined) { ni = names.length; names.push(l.n); nameIdx.set(l.n, ni); }
+        const row = [l.t - prevT, l.r, l.u, l.p, ni, l.q, r4(l.s), r4(l.c), r4(l.f)];
+        prevT = l.t;
+        return row;
+      });
       // Имена сотрудников для «Топ сотрудников»; чеки без входа идут под ключом null.
       const staff = Object.fromEntries(db.prepare("SELECT id, COALESCE(NULLIF(name, ''), email) AS name, role FROM users").all().map((u) => [u.id, { name: u.name, role: u.role }]));
-      return { products, sales, staff, parents, updatedAt: Date.now() };
+      return { products, sales: { v: 1, rows, names }, staff, parents, updatedAt: Date.now() };
     },
 
     /* ---------- Сотрудники ---------- */
