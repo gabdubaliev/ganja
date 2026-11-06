@@ -143,6 +143,9 @@ const PLUS_GROUPS = [
     ['doc:receipt', 'arrivals', '➕', 'Оприходование'], ['doc:writeoff', 'writeoff', '🗑️', 'Списание'],
     ['doc:inventory', 'stock', '📋', 'Инвентаризация'], ['doc:transfer', 'transfer', '🚚', 'Перемещение'],
   ]],
+  ['Расходы', [
+    ['expense-fixed', 'expenses', '🔁', 'Постоянный расход'], ['expense-once', 'expenses', '💸', 'Разовый расход'],
+  ]],
   ['Товары', [
     ['new-product', 'products', '🏷️', 'Новый товар'], ['products', 'products', '📦', 'Все товары'],
     ['scan-product', 'products', '📷', 'Найти камерой'],
@@ -201,6 +204,12 @@ function onPlusClick(e) {
   closePlus();
   if (k.startsWith('doc:')) return newDoc(k.slice(4)); // сразу новый документ
   if (k === 'scan-product') return openScanner({ onCode: async (code, close) => { if (!catalog.list.length) await catalog.load(); return productByScan(code, close); } });
+  // Расходы — окно из «Отчётов» (там же видно, как расход лёг на чистую прибыль).
+  if (k === 'expense-fixed' || k === 'expense-once') {
+    const btn = k === 'expense-fixed' ? '#np-fixed-add' : '#np-add';
+    if (currentView !== 'reports') location.hash = 'reports';
+    return setTimeout(() => document.querySelector(btn)?.click(), currentView === 'reports' ? 0 : 400);
+  }
   if (k === 'new-product') {
     if (currentView !== 'products') location.hash = 'products';
     return setTimeout(() => openProductDialog(null, typeof renderProducts === 'function' ? renderProducts : () => {}), currentView === 'products' ? 0 : 400);
