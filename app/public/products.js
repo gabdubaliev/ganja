@@ -281,6 +281,24 @@ $('#pc-open').addEventListener('click', () => {
   if (currentView === 'products') renderProducts(); else location.hash = 'products';
 });
 
+/* ---------- Остатки по магазинам (несколько магазинов): колонка на каждый магазин и «Всего» ---------- */
+// Тот же товар в другом магазине — по штрихкоду, коду с названием или названию (как при перемещении).
+// У товара с модификациями остаток магазина — сумма его модификаций.
+const storesView = { on: (() => { try { return localStorage.getItem('products.stores') === 'on'; } catch { return false; } })(), data: null, at: 0 };
+const storesAvail = () => (session.branch?.count || 1) > 1 && session.can('stock.view');
+async function loadStoresStock() {
+  if (!storesView.on || !storesAvail() || productsView.archived) return null;
+  if (!storesView.data || Date.now() - storesView.at > 30_000) {
+    try { storesView.data = await api('/api/products/stores-stock'); storesView.at = Date.now(); } catch (err) { toast(err.message, 'error'); return null; }
+  }
+  return storesView.data;
+}
+$('#products-stores').addEventListener('change', (e) => {
+  storesView.on = e.target.checked;
+  try { localStorage.setItem('products.stores', storesView.on ? 'on' : 'off'); } catch { /* без памяти */ }
+  renderProducts();
+});
+
 async function renderProducts() {
   let list;
   try {
@@ -288,6 +306,14 @@ async function renderProducts() {
   } catch (err) {
     return toast(err.message, 'error');
   }
+  const sd = await loadStoresStock();
+  $('#products-stores-row').hidden = !storesAvail() || productsView.archived;
+  $('#products-stores').checked = storesView.on;
+  // Заголовок: «Остаток» или по колонке на магазин + «Всего».
+  const th = $('#products-stock-th');
+  document.querySelectorAll('.products-table .st-col').forEach((x) => x.remove());
+  th.textContent = sd ? 'Всего' : 'Остаток';
+  if (sd) for (const s of sd.shops) th.insertAdjacentHTML('beforebegin', `<th class="st-col num ${s.current ? 'st-here' : ''}" title="${s.current ? 'Этот магазин' : ''}">${esc(s.name)}</th>`);
   const q = productsView.query.trim().toLowerCase();
   const byId = new Map(list.map((p) => [p.id, p]));
   const kids = new Map();
@@ -341,16 +367,25 @@ async function renderProducts() {
       <td class="cost-only">${group ? '' : purchase ? money2(purchase) : '—'}</td>
       <td class="cost-only">${group ? '' : p.cost ? money2(p.cost) : '—'}</td>
       <td class="cost-only">${group || m === null ? '—' : pct(m)}</td>
-      <td class="${stock !== null && stock <= 0 ? 'neg' : ''}">${p.stock === null ? '—' : qty(stock, p.unit)}</td>
+      ${sd ? storeCells(p, children, sd) : ''}<td class="${stock !== null && stock <= 0 ? 'neg' : ''}">${p.stock === null ? '—' : qty(sd ? storeTotal(p, children, sd) : stock, p.unit)}</td>
       <td class="nowrap">${received ? dateOnly(received) : '—'}</td>
       <td><div class="actions">
         <button type="button" class="btn small ghost" data-print-labels="${p.id}" title="${group ? 'Печать этикеток: выбрать модификации' : 'Печать этикетки'}">🏷 Этикетка</button>
         ${productsView.archived || group || !session.can('stock') ? '' : `<button type="button" class="btn small ghost" data-stock="${p.id}">Пересчитать</button>`}
       </div></td>
     </tr>`;
-  }).join('') : `<tr><td colspan="11" class="empty">${list.length ? 'Ничего не нашлось' : productsView.archived ? 'Скрытых товаров нет' : 'Товаров пока нет. Нажмите «Добавить товар» или загрузите их из Excel.'}</td></tr>`;
+  }).join('') : `<tr><td colspan="${11 + (sd ? sd.shops.length : 0)}" class="empty">${list.length ? 'Ничего не нашлось' : productsView.archived ? 'Скрытых товаров нет' : 'Товаров пока нет. Нажмите «Добавить товар» или загрузите их из Excel.'}</td></tr>`;
   renderBulkBar();
 }
+
+// Остатки товара по магазинам: у модификаций — свои, у товара с модификациями — сумма; не найден в магазине — «—».
+function storeVals(p, children, sd) {
+  const of = (x) => sd.stock[x.id] || sd.shops.map(() => null);
+  if (!children.length) return of(p);
+  return sd.shops.map((_, i) => { const v = children.map((k) => of(k)[i]).filter((x) => x !== null); return v.length ? v.reduce((a, b) => a + b, 0) : null; });
+}
+const storeTotal = (p, children, sd) => storeVals(p, children, sd).reduce((a, v) => a + (v || 0), 0);
+const storeCells = (p, children, sd) => storeVals(p, children, sd).map((v, i) => `<td class="num st-col ${sd.shops[i].current ? 'st-here' : ''} ${v !== null && v <= 0 ? 'neg' : ''}">${v === null ? '<span class="pcat" title="Такого товара в этом магазине нет">—</span>' : qty(v, p.unit)}</td>`).join('');
 
 function renderBulkBar() {
   const n = productsView.selected.size;

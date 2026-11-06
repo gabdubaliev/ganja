@@ -1865,6 +1865,22 @@ function createStore(file) {
         WHERE p.archived = ? AND p.deleted = 0 ORDER BY p.name COLLATE NOCASE`).all(archived ? 1 : 0);
     },
 
+    // Остатки всех товаров этой базы для сопоставления с другим магазином — те же правила, что findSameProduct:
+    // штрихкод, затем код с названием, затем название. Один проход вместо запроса на каждый товар.
+    stockIndex() {
+      const rows = db.prepare('SELECT barcode, code, name, stock, parent_id FROM products WHERE deleted = 0 ORDER BY parent_id IS NULL, id').all();
+      const byBarcode = new Map(), byCodeName = new Map(), byName = new Map();
+      for (const r of rows) {
+        if (r.barcode && !byBarcode.has(r.barcode)) byBarcode.set(r.barcode, r.stock);
+        if (r.code && !byCodeName.has(`${r.code}\u0001${r.name}`)) byCodeName.set(`${r.code}\u0001${r.name}`, r.stock);
+        if (!byName.has(r.name) || r.parent_id === null) byName.set(r.name, r.stock);
+      }
+      return (p) => {
+        const v = (p.barcode && byBarcode.get(p.barcode)) ?? (p.code && byCodeName.get(`${p.code}\u0001${p.name}`)) ?? byName.get(p.name);
+        return v === undefined ? null : v;
+      };
+    },
+
     // Тот же товар в этой базе (для перемещений и остатков по магазинам): по штрихкоду, по коду вместе
     // с названием (коды в каждом магазине присваиваются свои), по названию.
     findSameProduct(p) {

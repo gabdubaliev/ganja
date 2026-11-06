@@ -973,6 +973,19 @@ function productStores(id, user) {
   });
 }
 
+// Остатки списка товаров во всех магазинах (колонки «по магазинам» в «Товарах»): у каждого товара этого магазина —
+// остаток того же товара в каждом магазине. Модификации — каждая отдельно, сумму по товару считает страница.
+function storesStock(user) {
+  const here = current();
+  const allowed = new Set([user?.branch || 1, ...(Array.isArray(user?.stores) ? user.stores : [])]);
+  const shops = branchList().filter((b) => b.id === here.id || !auth.enabled || !user || user.owner || user.role === 'owner' || allowed.has(b.id));
+  const list = here.store.listProducts({ archived: false });
+  const finders = shops.map((b) => (b.id === here.id ? null : contextOf(b.id)?.store.stockIndex()));
+  const stock = {};
+  for (const p of list) stock[p.id] = shops.map((b, i) => (b.id === here.id ? p.stock : finders[i] ? finders[i](p) : null));
+  return { shops: shops.map((b) => ({ id: b.id, name: b.name, current: b.id === here.id })), stock };
+}
+
 // Расположение: названия, значки, скрытые разделы, порядок, закреплённые в верхнем меню, блоки главной.
 function readLayout() {
   try { return JSON.parse(mainStore.setting('layout', '{}')) || {}; } catch { return {}; }
@@ -1292,6 +1305,7 @@ const routes = [
     return can(user, 'stock.view') ? info : { ...info, stock: null, children: info.children.map((k) => ({ ...k, stock: null })) };
   }, ['products', 'dashboard', 'stock.view']],
   ['GET', '/api/products/:id/history', (p) => store.productHistory(p.id), 'products.history'],
+  ['GET', '/api/products/stores-stock', (p, url, body, user) => storesStock(user), 'stock.view'],
   ['GET', '/api/products/:id/stores', (p, url, body, user) => productStores(p.id, user), 'stock.view'],
   ['PUT', '/api/products/:id/photo', (p, url, body) => store.setPhoto(p.id, body), 'photos'],
   ['DELETE', '/api/products/:id/photo', (p) => store.deletePhoto(p.id), 'photos'],

@@ -151,6 +151,7 @@
       <select id="products-category" class="input category-filter" aria-label="Категория" hidden></select>
       <button type="button" class="btn small" id="products-variants" title="Показать или скрыть модификации у всех товаров"></button>
       <button type="button" class="btn small" id="products-cats-toggle" title="Показать или скрыть список категорий"></button>
+      <label class="check" id="products-stores-row" hidden title="Остаток в каждом магазине отдельной колонкой"><input type="checkbox" id="products-stores"> Остатки по магазинам</label>
       <label class="check"><input type="checkbox" id="products-archived"> Показать убранные из продажи</label>
     </div>
     <div class="cat-chips" id="products-cats" role="group" aria-label="Категории"></div>
@@ -173,7 +174,7 @@
     </div>
     <div class="table-wrap">
       <table class="products-table">
-        <thead><tr><th class="sel" data-can="products" hidden><input type="checkbox" id="products-all" aria-label="Выбрать все товары в списке"></th><th class="name-col">Товар</th><th>Код</th><th>Штрихкод</th><th>Цена</th><th class="cost-only">Закупка</th><th class="cost-only">Себестоимость</th><th class="cost-only">Наценка</th><th>Остаток</th><th>Поступление</th><th></th></tr></thead>
+        <thead><tr><th class="sel" data-can="products" hidden><input type="checkbox" id="products-all" aria-label="Выбрать все товары в списке"></th><th class="name-col">Товар</th><th>Код</th><th>Штрихкод</th><th>Цена</th><th class="cost-only">Закупка</th><th class="cost-only">Себестоимость</th><th class="cost-only">Наценка</th><th id="products-stock-th">Остаток</th><th>Поступление</th><th></th></tr></thead>
         <tbody id="products-body"></tbody>
       </table>
     </div>
