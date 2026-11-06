@@ -2473,5 +2473,6 @@ body.drawer-open { overflow: hidden; }
 #bell { display: none !important; }
 /* База: переключателя магазина в шапке нет — справочник общий, магазин выбирается там, где он важен
    (главная 🏬, журналы, «Остатки по магазинам», документ «Магазин», «Компания → Магазины → Перейти»). В кассе — остаётся. */
-body:not(.kassa) .nav .branch-switch, body:not(.kassa) .home-top .branch-switch { display: none !important; }
-@media (max-width: 640px) { body:not(.kassa) .nav-inner > #nav-user { margin-left: auto !important; } }
+/* И в кассе: магазин кассы — тот, в который вошли (владелец переходит через «Компания → Магазины»). */
+.nav .branch-switch, .home-top .branch-switch { display: none !important; }
+@media (max-width: 640px) { .nav-inner > #nav-user { margin-left: auto !important; } }

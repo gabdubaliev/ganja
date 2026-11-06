@@ -1066,7 +1066,9 @@ function renderDrawerMenu() {
   const d = document.getElementById('side-drawer');
   if (!d || d.hidden) return;
   const kassa = document.body.classList.contains('kassa');
-  d.querySelector('.sd-title').textContent = kassa ? 'Касса' : session.design?.name || 'Мой магазин';
+  // Название магазина, в котором вы работаете (переключателя в шапке нет).
+  const shop = session.branch?.count > 1 ? session.branch.name : '';
+  d.querySelector('.sd-title').textContent = kassa ? `Касса${shop ? ` · ${shop}` : ''}` : session.design?.name || shop || 'Мой магазин';
   // «Добавить документ» на телефоне не нужен — есть «+» в нижней панели.
   d.querySelector('.sd-create').hidden = true;
   // Уведомления о продажах — здесь, а не кнопкой в шапке телефона.
