@@ -1403,6 +1403,9 @@ const routes = [
     settings: studioPrompts.SETTINGS, platforms: studioPrompts.PLATFORMS, adStyles: studioPrompts.AD_STYLES, checklist: studio.CHECKLIST, canAttach: can(user, 'photos'),
     required: studioAi.REQUIRED, ai: Boolean(invoice.apiKey(mainStore)), canDescribe: can(user, 'products'),
   }), 'studio'],
+  // Сжать базу Студии — владелец (на время сжатия Студия ненадолго занята).
+  ['GET', '/api/studio/db-info', () => studio.dbInfo(), 'studio'],
+  ['POST', '/api/studio/compact', (p, url, body, user) => { if (auth.enabled && user?.role !== 'owner') throw new UserError('Сжимает базу Студии владелец'); return studio.compact(user); }, 'studio'],
   ['GET', '/api/studio/sessions', (p, url) => studio.listSessions(current().id, { status: url.searchParams.get('status') || 'open' }).map((s) => ({ ...s, product: studioProductBrief(s) })), 'studio'],
   ['POST', '/api/studio/sessions', (p, url, body, user) => {
     let product = studioProduct(current().id, body.productId);
@@ -2149,6 +2152,7 @@ const AUDIT_LABELS = {
   'POST /api/studio/assets/:id/retry': 'AI Studio: повторная генерация',
   'POST /api/studio/assets/:id/attach': 'AI Studio: фото добавлено в галерею товара',
   'DELETE /api/studio/assets/:id': 'AI Studio: удалён файл съёмки',
+  'POST /api/studio/compact': 'Студия: база сжата',
   'DELETE /api/studio/sessions/:id': 'AI Studio: съёмка удалена навсегда',
   'POST /api/products/bulk': 'Групповое изменение товаров',
   'POST /api/products/:id/variants': 'Добавил модификации',

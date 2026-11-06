@@ -306,6 +306,24 @@ function createStudio(file, { UserError }) {
     // Удалить съёмку навсегда: все её файлы (исходники, обработки, результаты ChatGPT), задания и историю.
     // Фото, уже добавленные в галерею товара, — это отдельные копии в базе магазина: они остаются в каталоге.
     // Всё или ничего (транзакция). Затем журнал WAL сбрасывается в базу, а при большом освободившемся месте база сжимается.
+    // Размер базы Студии и пустое место после удалений (для кнопки «Сжать базу»).
+    dbInfo() {
+      const page = db.prepare('PRAGMA page_size').get().page_size;
+      const pages = db.prepare('PRAGMA page_count').get().page_count;
+      const free = db.prepare('PRAGMA freelist_count').get().freelist_count;
+      return { size: pages * page, free: free * page };
+    },
+    // Сжать базу: пустое место после удалённых съёмок возвращается на диск. Данные не меняются.
+    compact(user) {
+      const before = this.dbInfo();
+      db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+      db.exec('VACUUM');
+      db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+      const after = this.dbInfo();
+      console.log(`Студия: база сжата ${(before.size / 1048576).toFixed(1)} → ${(after.size / 1048576).toFixed(1)} МБ — ${who(user) || 'без входа'}`);
+      return { before: before.size, after: after.size, freed: Math.max(0, before.size - after.size) };
+    },
+
     deleteSession(id, branchId, user) {
       const s = session(id, branchId);
       const files = db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(bytes), 0) AS bytes, COUNT(attached_image_id) AS attached FROM studio_assets WHERE session_id = ?').get(s.id);

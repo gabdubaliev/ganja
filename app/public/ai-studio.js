@@ -74,7 +74,15 @@ async function renderStudio() {
   if (st.sessionId) return openStudioSession(st.sessionId);
   $('#st-tools').innerHTML = `
     <div class="seg" role="group"><button type="button" data-st-filter="open" aria-pressed="${st.filter === 'open'}">В работе</button><button type="button" data-st-filter="all" aria-pressed="${st.filter === 'all'}">Все</button></div>
+    <button type="button" class="btn" id="st-compact" hidden title="Вернуть на диск место после удалённых съёмок"></button>
     <button type="button" class="btn primary" id="st-new-btn">+ Новая съёмка</button>`;
+  // «Сжать базу» — владельцу, когда после удалений набралось хотя бы 1 МБ пустого места.
+  if (session.isOwner) api('/api/studio/db-info').then((d) => {
+    const b = $('#st-compact');
+    if (!b || d.free < 1048576) return;
+    b.hidden = false;
+    b.textContent = `🗜 Сжать базу (освободится ~${(d.free / 1048576).toFixed(1)} МБ)`;
+  }).catch(() => {});
   try {
     st.list = await api(`/api/studio/sessions?status=${st.filter}`);
   } catch (err) {
@@ -813,3 +821,17 @@ function studioViewer(url) {
   addEventListener('keydown', onKey);
   document.body.append(box);
 }
+
+// Сжать базу Студии: место после удалённых съёмок возвращается на диск (съёмки и фото не меняются).
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('#st-compact');
+  if (!b) return;
+  if (!confirm('Сжать базу Студии? Место после удалённых съёмок вернётся на диск. Съёмки и фото не изменятся. Займёт несколько секунд.')) return;
+  b.disabled = true;
+  b.textContent = 'Сжимаю…';
+  try {
+    const r = await api('/api/studio/compact', { method: 'POST' });
+    toast(`База Студии сжата: ${(r.before / 1048576).toFixed(1)} → ${(r.after / 1048576).toFixed(1)} МБ`);
+    b.hidden = true;
+  } catch (err) { toast(err.message, 'error'); b.disabled = false; }
+});
