@@ -1,0 +1,37 @@
+/* ---------- Меню слева на компьютере (экран от 1100 точек) для стилей «Как у Apple» и «Панель»:
+   логотип, поиск товара (Ctrl/⌘K), разделы, категории, внизу магазин и настройки. На телефоне — как было. ---------- */
+@media (min-width: 1100px) {
+  body { padding-left: 248px !important; }
+  /* Меню больше не сверху — закреплённая шапка главной прилипает к самому верху. */
+  html { --nav-h: 0px !important; }
+  /* Боковое меню */
+  .nav { position: fixed !important; left: 0; top: 0; bottom: 0; width: 248px; z-index: 20; background: var(--ios-glass, var(--surface)) !important; border-right: 1px solid var(--border) !important; border-bottom: 0 !important; box-shadow: none !important; overflow-y: auto; }
+  .nav-inner { display: flex !important; flex-direction: column !important; align-items: stretch !important; gap: 4px !important; min-height: 100%; padding: 18px 14px !important; max-width: none !important; margin: 0 !important; box-sizing: border-box; width: 100%; overflow: visible !important; }
+  .nav-inner > * { box-sizing: border-box; max-width: 100% !important; min-width: 0; flex-shrink: 0; }
+  .nav { overflow-x: hidden; }
+  .nav .logo, body .nav a.logo { margin: 0 0 12px !important; padding: 6px 8px !important; background: transparent !important; font-size: 17px !important; color: var(--ink) !important; box-shadow: none !important; }
+  .nav .logo:hover { background: var(--hover) !important; }
+  .logo .logo-text { color: var(--ink) !important; }
+  .nav-main { display: flex !important; flex-direction: column !important; align-items: stretch !important; gap: 2px !important; }
+  .nav-main > a { justify-content: flex-start !important; padding: 9px 10px !important; border-radius: 9px !important; color: var(--ink-2) !important; font-weight: 500 !important; font-size: 14.5px !important; background: none !important; }
+  .nav-main > a svg { width: 17px; height: 17px; opacity: .85; }
+  .nav-main > a[aria-current="page"] { background: var(--series-soft) !important; color: var(--series) !important; }
+  .nav-main > a:hover { background: var(--hover) !important; color: var(--ink) !important; }
+  .nav-main .badge { margin-left: auto !important; }
+  .nav-main > .nav-plus { display: none !important; }
+  .nav-kassa { color: var(--series) !important; }
+  .nav-user { margin: 0 !important; order: 50; display: flex !important; flex-wrap: wrap; gap: 6px; }
+  .nav-user:has(#bell) { order: 48; }
+  .nav-user:last-of-type { margin-top: auto !important; order: 99; display: grid !important; }
+  .nav .btn, .nav select { justify-content: flex-start; background: var(--ios-fill, var(--surface-2)) !important; border: 1px solid var(--border) !important; color: var(--ink-2) !important; border-radius: 10px !important; max-width: none !important; }
+  .nav-user:last-of-type .btn, .nav-user:last-of-type select { width: 100%; }
+  .pn-search { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 0 10px; border-radius: 10px; background: var(--ios-fill, var(--surface-2)); border: 1px solid var(--border); color: var(--muted); }
+  .pn-search input { flex: 1; min-width: 0; border: 0; background: none; color: var(--ink); font: inherit; font-size: 14px; padding: 9px 0; outline: none; }
+  .pn-search kbd { font: 11px var(--mono); padding: 2px 6px; border-radius: 5px; border: 1px solid var(--border); color: var(--muted); }
+  .pn-label { font: 11px var(--mono); color: var(--muted); padding: 12px 10px 6px; border-top: 1px solid var(--border); margin-top: 6px; }
+  .pn-cats { display: grid; gap: 1px; }
+  .pn-cats button { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: 0; border-radius: 9px; background: none; color: var(--ink-2); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+  .pn-cats button:hover, .pn-cats button[aria-pressed="true"] { background: var(--hover); color: var(--ink); }
+  .pn-cats i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  #screen-guard { left: 248px; }
+}

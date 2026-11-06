@@ -27,7 +27,8 @@ const DARK = {
 // Оформление «Как у Apple» (ios-theme.css): для светлой темы — без тёмного варианта, для тёмной — всегда тёмный.
 const fs = require('node:fs');
 const path = require('node:path');
-let iosCss = null;
+let iosCss = null, sideCss = null;
+const sideTheme = () => (sideCss ??= fs.readFileSync(path.join(__dirname, 'sidebar.css'), 'utf8'));
 function iosTheme(theme) {
   iosCss ??= fs.readFileSync(path.join(__dirname, 'ios-theme.css'), 'utf8');
   const m = iosCss.match(/\/\*DARK-START\*\/([\s\S]*?)\/\*DARK-END\*\//);
@@ -116,7 +117,7 @@ function themeCss(d, fonts = []) {
   if (NAVS[d.nav]) parts.push(NAVS[d.nav], NAV_KEEP);
   const ui = d.ui || 'ios';
   // «Панель»: на компьютере — панель, на телефоне — «Как у Apple».
-  if (ui === 'ios' || ui.startsWith('panel')) parts.push(iosTheme(d.theme));
+  if (ui === 'ios' || ui.startsWith('panel')) parts.push(iosTheme(d.theme), sideTheme());
   if (ui === 'panel-dark' || ui === 'panel-light') parts.push(panelTheme(ui === 'panel-light' ? 'light' : 'dark'));
   if (d.css) parts.push(`/* Свой CSS */\n${d.css}`);
   return parts.join('\n\n') + '\n';

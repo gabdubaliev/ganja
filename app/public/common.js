@@ -863,10 +863,13 @@ document.addEventListener('contextmenu', (e) => { if (document.body.classList.co
 
 /* ---------- Стиль «Панель» (только компьютер): поиск и категории в боковом меню ---------- */
 const panelUi = () => /^panel-/.test(session.design?.ui || '') && matchMedia('(min-width: 1100px)').matches;
+// Меню слева (поиск и категории) — в «Как у Apple» и «Панели», только на компьютере.
+const sideUi = () => /^(ios|panel-)/.test(session.design?.ui || 'ios') && matchMedia('(min-width: 1100px)').matches;
 function panelSidebar() {
   const nav = document.querySelector('.nav-inner');
   document.body.classList.toggle('ui-panel', panelUi());
-  if (!nav || !panelUi()) return;
+  document.body.classList.toggle('ui-side', sideUi());
+  if (!nav || !sideUi()) return;
   const kassa = document.body.classList.contains('kassa');
   if (!document.querySelector('.pn-search')) {
     const box = document.createElement('label');
@@ -894,14 +897,14 @@ function panelSidebar() {
       if (e.key === 'Enter' && kassa) { e.preventDefault(); document.getElementById('pos-search')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); input.value = ''; }
       if (e.key === 'Escape') input.blur();
     });
-    addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K') && panelUi()) { e.preventDefault(); input.focus(); input.select(); } });
+    addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K') && sideUi()) { e.preventDefault(); input.focus(); input.select(); } });
   }
   // Категории с количеством товаров (в базе): нажать — товары этой категории.
   if (!kassa && typeof catalog !== 'undefined') renderPanelCats();
 }
 const PN_COLORS = ['#f5c84c', '#5fd3a2', '#6f9bff', '#ff7ab6', '#a78bfa', '#4fd1e0', '#ff9f5a'];
 async function renderPanelCats() {
-  if (!panelUi() || !session.can('products')) return;
+  if (!sideUi() || !session.can('products')) return;
   if (!catalog.list.length) await catalog.load().catch(() => {});
   const counts = new Map();
   for (const p of catalog.list) if (!p.parent_id && p.category && !p.archived) { const top = p.category.split('/')[0].trim(); counts.set(top, (counts.get(top) || 0) + 1); }
