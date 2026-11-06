@@ -890,6 +890,15 @@ function panelSidebar() {
     lab.className = 'pn-label';
     lab.textContent = 'Разделы';
     box.after(lab);
+    // «+ Добавить документ» — то же, что «+» в нижней панели телефона: документы, расходы, товары и разделы.
+    if (!kassa && typeof openPlus === 'function') {
+      const add = document.createElement('button');
+      add.type = 'button';
+      add.className = 'btn primary pn-create';
+      add.innerHTML = '<span aria-hidden="true">＋</span> Добавить документ';
+      add.addEventListener('click', () => openPlus());
+      box.after(add);
+    }
     const input = box.querySelector('input');
     // Пишут в поиске меню — ищем в товарах (в кассе — в подборе товара для чека).
     input.addEventListener('input', () => {

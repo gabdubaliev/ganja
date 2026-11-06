@@ -46,5 +46,10 @@
   .nav-side .badge { margin-left: auto; }
   .nav-side span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .nav-user:has(#bell) .btn { width: auto !important; }
+  /* «+ Добавить документ» под поиском и окно с документами — по центру экрана. */
+  .nav .pn-create { display: flex; justify-content: center; width: 100%; margin: 0 0 8px; background: var(--series) !important; border-color: var(--series) !important; color: #fff !important; font-weight: 600; }
+  body.ui-side .plus-panel { left: calc(50% + 124px); right: auto; top: 50%; bottom: auto; width: min(680px, calc(100vw - 300px)); max-height: 82vh; border-radius: 22px; padding: 10px 20px 20px; transform: translate(-50%, -46%); opacity: 0; transition: transform .2s, opacity .2s; }
+  body.ui-side .plus-sheet.open .plus-panel { transform: translate(-50%, -50%); opacity: 1; }
+  body.ui-side .plus-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   #screen-guard { left: 248px; }
 }

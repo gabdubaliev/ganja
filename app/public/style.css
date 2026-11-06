@@ -431,7 +431,7 @@ main[data-mode="reports"] :is(#kpis, #cash-desk) { display: none !important; }
 .home-top:has(> #nav-user) #periods { grid-column: 1; grid-row: 1; }
 .home-top > #nav-user .btn, .home-top > #nav-user select { width: auto !important; }
 /* Части стиля «Панель» видны только в нём (на компьютере). */
-.pn-search, .pn-label, .pn-cats, .pn-cards, #pn-head, .pn-legend, .nav-side { display: none; }
+.pn-search, .pn-label, .pn-cats, .pn-cards, #pn-head, .pn-legend, .nav-side, .pn-create { display: none; }
 @media (min-width: 1100px) { body.ui-side .pn-search, body.ui-panel .pn-legend { display: flex; } body.ui-side .pn-label, body.ui-panel #pn-head { display: block; } body.ui-side .pn-cats, body.ui-panel .pn-cards { display: grid; } }
 .sales-summary { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; margin-bottom: 8px; font-size: 15px; }
 /* Итоги журнала продаж: карточки «Итого», «Наличными», «Безнал». */
