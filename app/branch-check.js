@@ -59,6 +59,20 @@ for (const b of branches) {
 const ids = branches.map((b) => b.id);
 const lost = all(main, "SELECT number, status, doc_date, branch_to FROM docs WHERE kind = 'transfer' AND branch_to IS NOT NULL").filter((d) => !ids.includes(d.branch_to));
 console.log(`\nПеремещения в удалённые магазины: ${lost.length ? lost.map((d) => `№${d.number} в магазин №${d.branch_to} ${d.status === 'posted' ? 'проведено' : 'черновик'} ${day(d.doc_date)}`).join('; ') : 'нет'}`);
+// Студия: съёмки и файлы по магазинам, и кто их удалял (журнал действий основного магазина и филиалов).
+try {
+  const st = open('studio.db');
+  const ss = all(st, 'SELECT branch_id, COUNT(*) AS n, MAX(updated_at) AS last FROM studio_sessions GROUP BY branch_id');
+  const as = one(st, 'SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS bytes FROM studio_assets') || one(st, 'SELECT COUNT(*) AS n FROM studio_assets');
+  console.log(`\nСтудия: съёмок ${ss.reduce((a, x) => a + x.n, 0)}${ss.length ? ` (${ss.map((x) => `магазин №${x.branch_id}: ${x.n}, последняя ${day(x.last)}`).join('; ')})` : ''}; файлов ${as?.n || 0}${as?.bytes ? ` (${(as.bytes / 1048576).toFixed(1)} МБ)` : ''}; размер базы ${(fs.statSync(path.join(dir, 'studio.db')).size / 1048576).toFixed(1)} МБ, из них пустого места после удалений ${((one(st, 'PRAGMA freelist_count')?.freelist_count || 0) * (one(st, 'PRAGMA page_size')?.page_size || 0) / 1048576).toFixed(1)} МБ`);
+  st.close();
+} catch (err) { console.log(`\nСтудия: не открылась — ${err.message}`); }
+for (const [file, name] of [['shop.db', mainName], ...branches.map((b) => [b.file, b.name])]) {
+  let db; try { db = open(file); } catch { continue; }
+  const rows = all(db, "SELECT at, user_name, action, details FROM audit WHERE action LIKE '%Studio%' AND (action LIKE '%удал%') ORDER BY at DESC LIMIT 15");
+  if (rows.length) console.log(`Удаления в Студии (журнал «${name}»): ${rows.map((r) => `${day(r.at)} ${r.user_name || '—'}: ${r.action}${r.details ? ` (${r.details})` : ''}`).join('; ')}`);
+  db.close();
+}
 const deleted = fs.readdirSync(dir).filter((f) => /\.deleted-.*\.db$/.test(f));
 console.log(`\nКопии удалённых магазинов: ${deleted.length ? deleted.map((f) => `${f} (${(fs.statSync(path.join(dir, f)).size / 1048576).toFixed(1)} МБ)`).join(', ') : 'нет'}`);
 main.close();
