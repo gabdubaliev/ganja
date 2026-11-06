@@ -1067,7 +1067,8 @@ function renderDrawerMenu() {
   if (!d || d.hidden) return;
   const kassa = document.body.classList.contains('kassa');
   d.querySelector('.sd-title').textContent = kassa ? 'Касса' : session.design?.name || 'Мой магазин';
-  d.querySelector('.sd-create').hidden = kassa || typeof openPlus !== 'function';
+  // «Добавить документ» на телефоне не нужен — есть «+» в нижней панели.
+  d.querySelector('.sd-create').hidden = true;
   // Уведомления о продажах — здесь, а не кнопкой в шапке телефона.
   const bell = document.getElementById('bell'), sb = d.querySelector('.sd-bell');
   sb.hidden = !bell || bell.hidden;
