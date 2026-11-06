@@ -248,7 +248,7 @@ $('#product-card').addEventListener('click', (e) => {
 async function afterCardEdit(saved) {
   await catalog.load().catch(() => {});
   if (currentView === 'products') renderProducts();
-  if (currentView === 'home' && typeof load === 'function') load();
+  if ((currentView === 'home' || currentView === 'reports') && typeof load === 'function') load();
   if (saved?.id) openProductCard(saved.id);
 }
 $('#pc-edit').addEventListener('click', async () => {

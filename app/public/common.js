@@ -315,12 +315,14 @@ function route() {
   const name = location.hash.slice(1);
   const target = allowed.includes(name) ? name : ownWork[0] || allowed[0];
   currentView = target;
-  for (const el of document.querySelectorAll('[data-view]')) el.hidden = el.dataset.view !== target;
+  // Главная и «Отчёты» — одна страница (общий период и данные), разный набор блоков.
+  for (const el of document.querySelectorAll('[data-view]')) el.hidden = el.dataset.view !== target && el.dataset.also !== target;
   // Разделы из «Ещё» подсвечивают пункт «Ещё».
   // История продаж в окне кассы — часть «Продажи».
   const navTarget = document.querySelector(`.nav a[href="#${target}"]`) ? target : IS_KASSA && target === 'sales' ? 'pos' : 'more';
   for (const a of document.querySelectorAll('.nav a[href^="#"]')) a.setAttribute('aria-current', a.getAttribute('href') === '#' + navTarget ? 'page' : 'false');
   views[target].show();
+  placeNavUser();
   applyScreenGuard();
 }
 addEventListener('hashchange', route);
@@ -764,7 +766,7 @@ function barcodeRoute() {
   const kassa = document.body.classList.contains('kassa');
   if (kassa) return { input: 'pos-search', view: 'pos' };
   if (currentView === 'doc') return { input: 'doc-search', view: 'doc' };
-  if (currentView === 'products' || currentView === 'home') return { products: true };
+  if (currentView === 'products' || currentView === 'home' || currentView === 'reports') return { products: true };
   return null;
 }
 document.addEventListener('keydown', (e) => {
@@ -869,6 +871,7 @@ function panelSidebar() {
   const nav = document.querySelector('.nav-inner');
   document.body.classList.toggle('ui-panel', panelUi());
   document.body.classList.toggle('ui-side', sideUi());
+  placeNavUser();
   if (!nav || !sideUi()) return;
   const kassa = document.body.classList.contains('kassa');
   if (!document.querySelector('.pn-search')) {
@@ -901,6 +904,14 @@ function panelSidebar() {
   }
   // Категории с количеством товаров (в базе): нажать — товары этой категории.
   if (!kassa && typeof catalog !== 'undefined') renderPanelCats();
+}
+// Меню слева: «Настройки» и выбор магазина на главной и в отчётах — справа от «День, Неделя, Месяц, Год».
+function placeNavUser() {
+  const u = document.getElementById('nav-user');
+  if (!u) return;
+  const top = document.querySelector('main:not([hidden]) .home-top');
+  const want = document.body.classList.contains('ui-side') && top ? top : document.querySelector('.nav-inner');
+  if (want && u.parentElement !== want) want.append(u);
 }
 const PN_COLORS = ['#f5c84c', '#5fd3a2', '#6f9bff', '#ff7ab6', '#a78bfa', '#4fd1e0', '#ff9f5a'];
 async function renderPanelCats() {

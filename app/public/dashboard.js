@@ -1060,8 +1060,16 @@ function applyHomeLayout() {
     el.classList.toggle('layout-hidden', (cfg.hidden || []).includes(id));
   }
 }
-views.home = { show: () => { applyHomeLayout(); renderPeriods(); load(); loadCashDesk(); if (typeof renderHomeAbc === 'function') renderHomeAbc(); }, right: 'dashboard' };
-setInterval(() => { if (currentView === 'home') load(); }, REFRESH_MS);
+// Главная — выручка и «Касса сейчас»; «Отчёты» — расходы и чистая прибыль, топы, матрица, остатки (тот же период).
+function showHome(mode) {
+  document.querySelector('main[data-view="home"]').dataset.mode = mode;
+  applyHomeLayout(); renderPeriods(); load();
+  if (mode === 'home') loadCashDesk();
+  if (mode === 'reports' && typeof renderHomeAbc === 'function') renderHomeAbc();
+}
+views.home = { show: () => showHome('home'), right: 'dashboard' };
+views.reports = { show: () => showHome('reports'), right: 'dashboard' };
+setInterval(() => { if (currentView === 'home' || currentView === 'reports') load(); }, REFRESH_MS);
 
 // Свайп по главной влево/вправо — соседний день (когда выбран «Сегодня»).
 (() => {
@@ -1101,7 +1109,7 @@ function renderPanelHome(v, d) {
   const t = periodTitle();
   const year = String(new Date(homeRange().start).getFullYear());
   const main = state.period === 'year' ? 'Год' : t.replace(new RegExp(`\\s*${year}$`), '');
-  head.innerHTML = `<div class="pn-crumb"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>Главная</div>
+  head.innerHTML = `<div class="pn-crumb"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>${currentView === 'reports' ? 'Отчёты' : 'Главная'}</div>
     <h1 class="pn-title">${esc(main)} <span>${esc(year)}</span></h1>`;
   if (!cards) {
     cards = document.createElement('section');
