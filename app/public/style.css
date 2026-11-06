@@ -2469,3 +2469,5 @@ body.drawer-open { overflow: hidden; }
   .home-top .source { display: none !important; }
 }
 @media (max-width: 640px) { .home-top .home-pick #periods { order: 0; } .home-top .home-pick .home-shop-wrap { order: 1; } .home-top .home-pick .day-nav { order: 2; } }
+/* Кнопка уведомлений не показывается нигде (и в старых браузерах без :has) — переключатель в «⚙️ Настройки». */
+#bell { display: none !important; }
