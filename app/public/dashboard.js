@@ -14,6 +14,12 @@ const PERIODS = {
   year: { label: 'Год', days: 365, bucket: 'month', vs: 'прошлый год' },
 };
 
+// Магазин главной (владелец, несколько магазинов): '' — текущий, 'all' — все вместе, число — один магазин.
+const homeShop = { v: (() => { try { return localStorage.getItem('home.shop') || ''; } catch { return ''; } })() };
+const shopQ = (sep = '&') => (homeShop.v && multiShop() ? `${sep}shop=${homeShop.v}` : '');
+const multiShop = () => session.isOwner && (session.branch?.allowed?.length || 0) > 1;
+// Смотрим другой магазин (или все) — расходы здесь не правятся: их меняют в самом магазине.
+const foreignShop = () => Boolean(homeShop.v) && multiShop() && homeShop.v !== String(session.branch?.id || 1);
 const state = {
   // Главная всегда открывается на выручке за сегодня; дни листаются стрелками, свайпом и календарём.
   period: 'day',
@@ -127,7 +133,7 @@ const shiftDay = (n) => setDay(state.dayOffset + n);
 
 /* ---------- Данные ---------- */
 async function fetchData(from, to) {
-  const d = await api(`/api/analytics?from=${Math.floor(from)}&to=${Math.ceil(to)}`);
+  const d = await api(`/api/analytics?from=${Math.floor(from)}&to=${Math.ceil(to)}${shopQ()}`);
   // Сервер присылает продажи сжато (массивы, время — разницей): разворачиваем в обычные строки.
   if (d.sales && !Array.isArray(d.sales)) {
     const { rows, names } = d.sales;
@@ -633,7 +639,7 @@ function renderAll() {
 let loading = 0;
 // Уже открытые периоды держим в памяти: при возврате к ним график показывается сразу, свежие цифры догружаются следом.
 const homeCache = new Map();
-const homeKey = () => `${state.period}:${state.dayOffset}`;
+const homeKey = () => `${state.period}:${state.dayOffset}:${homeShop.v}`;
 function applyHome(c) {
   state.finSeries = c.finSeries; state.finance = c.finance; state.expenses = c.expenses; state.recurring = c.recurring; state.data = c.data;
   renderAll();
@@ -647,17 +653,17 @@ async function load() {
   const from = Math.min(r.prevStart, addDays(dayStart(now), -(STOCK_WINDOW_DAYS - 1)));
   try {
     // Зарплата и расходы — за текущий и прошлый такой же период (для сравнения чистой прибыли).
-    const fin = (a, b) => api(`/api/finance?from=${Math.floor(a)}&to=${Math.ceil(b)}`);
+    const fin = (a, b) => api(`/api/finance?from=${Math.floor(a)}&to=${Math.ceil(b)}${shopQ()}`);
     // Расходы и чистая прибыль — только с правом «finance».
     const f = session.can('finance');
     // Расходы по дням (неделя, месяц) и по месяцам (год) — каждый столбик считает сервер: зарплата по сменам этого дня.
     // Запрашиваются одновременно с продажами, а не после них.
     const starts = f && state.period !== 'day' ? homeBuckets(state.period, r).map((x) => x.from).filter((t) => t < r.end) : [];
-    const series = starts.length ? api(`/api/finance/series?b=${[...starts, r.end].map((t) => Math.round(t)).join(',')}`).catch(() => null) : null;
+    const series = starts.length ? api(`/api/finance/series?b=${[...starts, r.end].map((t) => Math.round(t)).join(',')}${shopQ()}`).catch(() => null) : null;
     const [data, cur, prev, expenses, recurring, finSeries] = await Promise.all([fetchData(from, now),
       f ? fin(r.start, now).catch(() => null) : null, f ? fin(r.prevStart, r.prevEnd).catch(() => null) : null,
-      f ? api(`/api/expenses?from=${Math.floor(r.start)}&to=${Math.ceil(now)}`).catch(() => null) : null,
-      f ? api('/api/recurring-expenses').catch(() => []) : [], series]);
+      f ? api(`/api/expenses?from=${Math.floor(r.start)}&to=${Math.ceil(now)}${shopQ()}`).catch(() => null) : null,
+      f ? api(`/api/recurring-expenses${shopQ('?')}`).catch(() => []) : [], series]);
     if (ticket !== loading) return;
     const c = { finSeries, finance: cur && prev ? { cur, prev } : null, expenses, recurring, data };
     homeCache.set(key, c);
@@ -759,7 +765,7 @@ function renderNetProfit(v) {
       <div><span>Не потрачено по сертификатам</span><b class="num">${money(f.certificates.outstanding)}</b><small>${f.certificates.openCount} действующих — столько товара ещё должны выдать</small></div>
     </div>` : '',
   ].join('');
-  const canEdit = session.can('expenses');
+  const canEdit = session.can('expenses') && !foreignShop();
   const fixed = state.recurring || [];
   $('#np-fixed').innerHTML = `<h3>Постоянные расходы</h3>${fixed.length ? `<ul class="np-items">${fixed.map((r) => {
     const dim = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
@@ -917,7 +923,7 @@ const methodsText = (methods) => methods.filter((m) => m.kind !== 'cash' && m.su
 
 async function loadCashDesk() {
   let d;
-  try { d = await api('/api/cash-desk'); } catch { return; }
+  try { d = await api(`/api/cash-desk${shopQ('?')}`); } catch { return; }
   const o = d.open;
   $('#desk-sub').textContent = d.shifts.length
     ? `${d.shifts.length} ${plural(d.shifts.length, ['открытая смена', 'открытые смены', 'открытых смен'])} · ${int(o.receipts)} ${plural(o.receipts, ['чек', 'чека', 'чеков'])}`
@@ -1041,6 +1047,8 @@ $('#tbody').addEventListener('click', (e) => {
   const tr = e.target.closest('[data-card]');
   if (!tr) return;
   const stats = (state.mains ? state.view.mains : state.view.products).find((p) => String(p.id) === tr.dataset.card);
+  // Товары другого магазина (вид «Все магазины») — карточка открывается в своём магазине.
+  if (!/^\d+$/.test(tr.dataset.card)) return toast('Карточка товара другого магазина — переключите магазин вверху', 'error');
   openProductCard(Number(tr.dataset.card), stats);
 });
 
@@ -1061,7 +1069,34 @@ function applyHomeLayout() {
   }
 }
 // Главная — выручка и «Касса сейчас»; «Отчёты» — расходы и чистая прибыль, топы, матрица, остатки (тот же период).
+// Выбор магазина на главной и в отчётах: «Все магазины» или один (только владелец с несколькими магазинами).
+function renderHomeShop() {
+  const top = document.querySelector('main[data-view="home"] .home-top');
+  let sel = document.getElementById('home-shop');
+  if (!multiShop()) { sel?.remove(); return; }
+  if (!sel) {
+    sel = document.createElement('select');
+    sel.id = 'home-shop';
+    sel.className = 'input home-shop';
+    sel.setAttribute('aria-label', 'Магазин');
+    sel.addEventListener('change', () => {
+      homeShop.v = sel.value;
+      try { localStorage.setItem('home.shop', homeShop.v); } catch { /* без памяти */ }
+      load();
+      if (currentView === 'home') loadCashDesk();
+    });
+    // Рядом с «День, Неделя, Месяц, Год» — в одной строке.
+    const per = top.querySelector('#periods');
+    const row = document.createElement('div');
+    row.className = 'home-pick';
+    per.before(row);
+    row.append(per, sel);
+  }
+  const cur = homeShop.v || String(session.branch?.id || 1);
+  sel.innerHTML = `<option value="all" ${cur === 'all' ? 'selected' : ''}>🏬 Все магазины</option>` + session.branch.allowed.map((b) => `<option value="${b.id}" ${String(b.id) === cur ? 'selected' : ''}>🏬 ${esc(b.name)}</option>`).join('');
+}
 function showHome(mode) {
+  renderHomeShop();
   document.querySelector('main[data-view="home"]').dataset.mode = mode;
   applyHomeLayout(); renderPeriods(); load();
   if (mode === 'home') loadCashDesk();

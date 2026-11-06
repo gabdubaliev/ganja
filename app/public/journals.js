@@ -10,7 +10,17 @@ const GJ_TYPES = {
 };
 const GJ_STATUS = { posted: ['✓', 'Проведён'], draft: ['○', 'Черновик'], refunded: ['↩', 'Возвращён'], done: ['✓', 'Проведён'] };
 const weekAgo = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime() - 6 * 864e5; };
-const journalState = () => ({ from: weekAgo(), to: Date.now(), q: '', status: '', type: '', account: '', category: '', list: [], open: new Set() });
+const journalState = () => ({ from: weekAgo(), to: Date.now(), q: '', status: '', type: '', account: '', category: '', shop: 'all', list: [], open: new Set() });
+// Несколько магазинов — владелец видит все сразу (по умолчанию) или один; колонка «Отправитель» / «Магазин» показывает чей.
+const jrMulti = () => session.isOwner && (session.branch?.allowed?.length || 0) > 1;
+function jrShop(prefix, st) {
+  const row = $(`#${prefix}-shop-row`);
+  row.hidden = !jrMulti();
+  if (!jrMulti()) return '';
+  $(`#${prefix}-shop`).innerHTML = `<option value="all" ${st.shop === 'all' ? 'selected' : ''}>Все магазины</option>` + session.branch.allowed.map((b) => `<option value="${b.id}" ${String(b.id) === st.shop ? 'selected' : ''}>${esc(b.name)}</option>`).join('');
+  return `&shop=${st.shop}`;
+}
+const jrHere = (x) => !x.branch_id || x.branch_id === (session.branch?.id || 1);
 const gj = journalState();
 const mj = journalState();
 
@@ -43,7 +53,7 @@ const fillSelect = (sel, first, values, cur) => {
 /* ---------- Движение товара ---------- */
 async function renderGoods() {
   journalPeriod('gj', gj);
-  try { gj.list = await api(`/api/journal/goods?from=${gj.from}&to=${gj.to}`); } catch (err) { return toast(err.message, 'error'); }
+  try { gj.list = await api(`/api/journal/goods?from=${gj.from}&to=${gj.to}${jrShop('gj', gj)}`); } catch (err) { return toast(err.message, 'error'); }
   fillSelect($('#gj-type'), 'Все типы', Object.entries(GJ_TYPES).filter(([k]) => gj.list.some((x) => x.type === k)).map(([k, [l]]) => [k, l]), gj.type);
   fillSelect($('#gj-pay'), 'Оплата: все', [...new Set(gj.list.flatMap((x) => (x.methods ? x.methods.split(', ') : [])))].sort().map((m) => [m, m]).concat([['—', 'Без оплаты']]), gj.account);
   const q = gj.q.trim().toLowerCase();
@@ -59,7 +69,7 @@ async function renderGoods() {
   $('#gj-body').innerHTML = list.length ? byDays(list, (x) => {
     const [label, cls] = GJ_TYPES[x.type] || [x.type, ''];
     const [mark, st] = GJ_STATUS[x.status] || ['', x.status];
-    const key = `${x.type}:${x.id}`;
+    const key = `${x.type}:${x.id}:${x.branch_id || ''}`;
     const open = x.type === 'sale' && gj.open.has(key);
     return `<tr class="jr-row ${x.status}" data-gj="${key}" tabindex="0">
       <td class="jr-st ${x.status}" title="${st}">${mark}</td>
@@ -78,13 +88,14 @@ async function renderGoods() {
 $('#gj-body').addEventListener('click', (e) => {
   const tr = e.target.closest('[data-gj]');
   if (!tr) return;
-  const [type, id] = tr.dataset.gj.split(':');
+  const [type, id, branch] = tr.dataset.gj.split(':');
   // Чек — раскрыть состав; документ — открыть.
   if (type === 'sale') {
     const key = tr.dataset.gj;
     if (gj.open.has(key)) gj.open.delete(key); else gj.open.add(key);
     return renderGoods();
   }
+  if (branch && Number(branch) !== (session.branch?.id || 1)) return toast('Документ другого магазина — откройте его, переключив магазин вверху', 'error');
   openDoc(Number(id));
 });
 $('#gj-create').addEventListener('click', () => { $('#gj-create-menu').hidden = !$('#gj-create-menu').hidden; });
@@ -98,7 +109,7 @@ $('#gj-create-menu').addEventListener('click', (e) => {
 /* ---------- Движение денег ---------- */
 async function renderCashflow() {
   journalPeriod('mj', mj);
-  try { mj.list = await api(`/api/journal/money?from=${mj.from}&to=${mj.to}`); } catch (err) { return toast(err.message, 'error'); }
+  try { mj.list = await api(`/api/journal/money?from=${mj.from}&to=${mj.to}${jrShop('mj', mj)}`); } catch (err) { return toast(err.message, 'error'); }
   fillSelect($('#mj-account'), 'Все счета', [...new Set(mj.list.map((x) => x.account).filter((a) => a && a !== '—'))].sort().map((a) => [a, a]), mj.account);
   fillSelect($('#mj-category'), 'Все категории', [...new Set(mj.list.map((x) => x.category))].sort().map((c) => [c, c]), mj.category);
   const q = mj.q.trim().toLowerCase();
@@ -115,14 +126,14 @@ async function renderCashflow() {
   const what = (x) => (x.src === 'sale' ? `чек №${x.ref}` : x.src === 'doc' ? `${x.kind === 'purchase' ? 'закупка' : 'возврат'} №${x.number}` : x.src === 'cert' ? (x.number ? `сертификат ${x.number}` : 'сертификат') : '');
   $('#mj-body').innerHTML = list.length ? byDays(list, (x) => {
     const [mark, st] = x.status === 'refunded' ? ['↩', 'Чек возвращён — деньги не учитываются'] : ['✓', 'Проведён'];
-    return `<tr class="jr-row ${x.status}" ${x.src === 'doc' ? `data-mj-doc="${x.ref}" tabindex="0"` : ''}>
+    return `<tr class="jr-row ${x.status}" ${x.src === 'doc' && jrHere(x) ? `data-mj-doc="${x.ref}" tabindex="0"` : ''}>
       <td class="jr-st ${x.status}" title="${st}">${mark}</td>
       <td><span class="jr-tag ${x.dir}">${x.dir === 'in' ? 'Приход' : 'Расход'}</span>${what(x) ? ` <span class="pcat">${esc(what(x))}</span>` : ''}${x.note ? `<div class="pcat">${esc(x.note)}</div>` : ''}</td>
       <td>${jrTime(x.at)}</td>
       <td class="num pos-text">${x.dir === 'in' ? money2(x.amount) : '—'}</td>
       <td class="num neg">${x.dir === 'out' ? money2(x.amount) : '—'}</td>
       <td>${esc(x.counterparty || '—')}</td>
-      <td>${esc(x.account || '—')}</td>
+      <td>${esc(x.account || '—')}${x.shop && mj.shop === 'all' && jrMulti() ? `<div class="pcat">${esc(x.shop)}</div>` : ''}</td>
       <td>${esc(x.category)}</td>
       <td>${esc(x.author || '—')}</td>
     </tr>`;
@@ -141,7 +152,7 @@ $('#mj-create-menu').addEventListener('click', (e) => {
 for (const [prefix, st, render] of [['gj', gj, () => renderGoods()], ['mj', mj, () => renderCashflow()]]) {
   let timer = null;
   $(`#${prefix}-q`).addEventListener('input', (e) => { st.q = e.target.value; clearTimeout(timer); timer = setTimeout(render, 200); });
-  for (const [id, key] of [['status', 'status'], ['type', 'type'], ['pay', 'account'], ['account', 'account'], ['category', 'category']]) {
+  for (const [id, key] of [['status', 'status'], ['type', 'type'], ['pay', 'account'], ['account', 'account'], ['category', 'category'], ['shop', 'shop']]) {
     $(`#${prefix}-${id}`)?.addEventListener('change', (e) => { st[key] = e.target.value; render(); });
   }
   $(`#${prefix}-from`).addEventListener('change', render);

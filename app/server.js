@@ -786,6 +786,64 @@ function resolveContext(req, user) {
 }
 
 // Действие над сотрудником другого магазина (?branch=N) — только у владельца.
+/* ---------- Главная и журналы по нескольким магазинам ---------- */
+// ?shop=N — данные магазина N; ?shop=all — всех магазинов вместе (только владелец). Без shop — текущий магазин.
+function shopScope(url, user, fn, merge) {
+  const want = url.searchParams.get('shop');
+  if (!want || Number(want) === current().id) return fn(current().id);
+  if (!regOwner(user)) throw new UserError('Данные другого магазина видит владелец');
+  if (want !== 'all') {
+    const ctx = contextOf(Number(want));
+    if (!ctx) throw new UserError('Магазин не найден');
+    return als.run(ctx, () => fn(ctx.id));
+  }
+  const parts = branchList().map((b) => { const ctx = contextOf(b.id); return ctx ? als.run(ctx, () => ({ b: b.id, name: b.name, v: fn(b.id) })) : null; }).filter(Boolean);
+  return merge(parts);
+}
+const round2s = (x) => Math.round(x * 100) / 100;
+// Сложить числа одинаковых полей (вложенные объекты — тоже), массивы — склеить.
+function sumDeep(list) {
+  const out = {};
+  for (const x of list) {
+    for (const [k, v] of Object.entries(x || {})) {
+      if (typeof v === 'number') out[k] = round2s((out[k] || 0) + v);
+      else if (Array.isArray(v)) out[k] = [...(out[k] || []), ...v];
+      else if (v && typeof v === 'object') out[k] = sumDeep([out[k] || {}, v]);
+      else if (!(k in out)) out[k] = v;
+    }
+  }
+  return out;
+}
+// Строки {name, sum, …} с одинаковым названием — в одну.
+function mergeByName(list, key = 'name') {
+  const m = new Map();
+  for (const x of list) { const cur = m.get(x[key]); m.set(x[key], cur ? sumDeep([cur, x]) : { ...x }); }
+  return [...m.values()];
+}
+// Аналитика главной всех магазинов: id товаров, чеков и сотрудников с номером магазина («2:15»), продажи по времени.
+function mergeAnalytics(parts) {
+  const products = [], parents = {}, staff = {}, lines = [];
+  for (const { b, name, v } of parts) {
+    const k = (x) => (x === null || x === undefined ? null : `${b}:${x}`);
+    for (const pr of v.products) products.push({ ...pr, id: k(pr.id), parent: k(pr.parent), shop: name });
+    for (const [id, par] of Object.entries(v.parents || {})) parents[k(id)] = { ...par, id: k(par.id) };
+    for (const [id, u] of Object.entries(v.staff || {})) staff[k(id)] = { ...u, name: parts.length > 1 ? `${u.name} · ${name}` : u.name };
+    let t = 0;
+    for (const x of v.sales.rows) { t += x[0]; lines.push([t, k(x[1]), k(x[2]), k(x[3]), v.sales.names[x[4]], x[5], x[6], x[7], x[8]]); }
+  }
+  lines.sort((a, b) => a[0] - b[0]);
+  const names = [], idx = new Map();
+  let prev = 0;
+  const rows = lines.map((l) => {
+    let ni = idx.get(l[4]);
+    if (ni === undefined) { ni = names.length; names.push(l[4]); idx.set(l[4], ni); }
+    const row = [l[0] - prev, l[1], l[2], l[3], ni, l[5], l[6], l[7], l[8]];
+    prev = l[0];
+    return row;
+  });
+  return { products, sales: { v: 1, rows, names }, staff, parents, updatedAt: Date.now(), shops: parts.map((x) => x.name) };
+}
+
 /* ---------- Кассы разных магазинов ---------- */
 // Кассы другого магазина меняет владелец; касса хранится в базе своего магазина.
 const regOwner = (u) => !auth.enabled || u?.role === 'owner';
@@ -1433,33 +1491,40 @@ const routes = [
   }, 'receive.photo'],
   ['POST', '/api/invoice/match', (p, url, body) => store.matchInvoiceLines(Array.isArray(body.lines) ? body.lines : []), 'receive.photo'],
   ['POST', '/api/invoice/receive', (p, url, body, user) => store.receiveInvoice(body, user), 'receive.photo'],
-  ['GET', '/api/finance', (p, url) => store.finance(range(url)), 'finance'],
+  ['GET', '/api/finance', (p, url, body, user) => shopScope(url, user, () => store.finance(range(url)), (parts) => {
+    const f = sumDeep(parts.map((x) => x.v));
+    return { ...f, expenses: mergeByName(f.expenses || [], 'category') };
+  }), 'finance'],
   // Расходы по столбикам графика главной: b — границы (начало каждого дня/месяца и конец), до 40 столбиков.
   // Зарплата — по сменам и продажам именно этого дня, постоянные — их доля за день, разовые — в свой день.
   ['GET', '/api/finance/series', (p, url) => {
     const b = String(url.searchParams.get('b') || '').split(',').map(Number).filter((x) => Number.isFinite(x) && x > 0);
     if (b.length < 2 || b.length > 41) throw new UserError('Неверные границы');
-    const out = [];
-    for (let i = 0; i < b.length - 1; i++) {
-      if (!(b[i + 1] > b[i])) throw new UserError('Неверные границы');
-      const f = store.finance({ from: b[i], to: b[i + 1] });
-      out.push({ total: f.total, salary: f.salary, fixed: f.fixed, other: f.other, writeoffs: f.writeoffs });
-    }
-    return out;
+    for (let i = 0; i < b.length - 1; i++) if (!(b[i + 1] > b[i])) throw new UserError('Неверные границы');
+    const series = () => b.slice(0, -1).map((from, i) => {
+      const f = store.finance({ from, to: b[i + 1] });
+      return { total: f.total, salary: f.salary, fixed: f.fixed, other: f.other, writeoffs: f.writeoffs };
+    });
+    return shopScope(url, user, series, (parts) => parts[0].v.map((_, i) => sumDeep(parts.map((x) => x.v[i]))));
   }, 'finance'],
-  ['GET', '/api/expenses', (p, url) => ({ list: store.listExpenses(range(url)), categories: store.expenseCategories }), ['expenses', 'finance']],
+  ['GET', '/api/expenses', (p, url, body, user) => shopScope(url, user, (b) => ({ list: store.listExpenses(range(url)).map((e) => ({ ...e, branch_id: b })), categories: store.expenseCategories }),
+    (parts) => ({ list: parts.flatMap((x) => x.v.list.map((e) => ({ ...e, shop: x.name }))).sort((a, b) => b.at - a.at), categories: parts[0].v.categories })), ['expenses', 'finance']],
   ['POST', '/api/expenses', (p, url, body, user) => store.addExpense(body, user), 'expenses'],
   ['DELETE', '/api/expenses/:id', (p) => store.deleteExpense(p.id), 'expenses'],
-  ['GET', '/api/recurring-expenses', () => store.listRecurring(), ['expenses', 'finance']],
+  ['GET', '/api/recurring-expenses', (p, url, body, user) => shopScope(url, user, (b) => store.listRecurring().map((r) => ({ ...r, branch_id: b })),
+    (parts) => parts.flatMap((x) => x.v.map((r) => ({ ...r, name: `${r.name} · ${x.name}`, shop: x.name })))), ['expenses', 'finance']],
   ['POST', '/api/recurring-expenses', (p, url, body) => store.saveRecurring(null, body), 'expenses'],
   ['PUT', '/api/recurring-expenses/:id', (p, url, body) => store.saveRecurring(p.id, body), 'expenses'],
   ['DELETE', '/api/recurring-expenses/:id', (p) => store.deleteRecurring(p.id), 'expenses'],
   ['POST', '/api/suppliers', (p, url, body) => store.saveSupplier(null, body), 'arrivals'],
   ['PUT', '/api/suppliers/:id', (p, url, body) => store.saveSupplier(p.id, body), 'arrivals'],
   ['DELETE', '/api/suppliers/:id', (p) => store.deleteSupplier(p.id), 'arrivals'],
-  ['GET', '/api/cash-desk', () => store.cashDesk(), ['dashboard', 'shifts']],
+  ['GET', '/api/cash-desk', (p, url, body, user) => shopScope(url, user, () => store.cashDesk(), (parts) => {
+    const pick = (k) => { const x = sumDeep(parts.map((q) => q.v[k])); return { ...x, methods: mergeByName(x.methods || []) }; };
+    return { shifts: parts.flatMap((q) => q.v.shifts.map((sh) => ({ ...sh, register_name: [sh.register_name, q.name].filter(Boolean).join(' · ') }))), open: pick('open'), today: pick('today') };
+  }), ['dashboard', 'shifts']],
   ['GET', '/api/analytics', (p, url, body, user) => {
-    const a = store.analytics(range(url));
+    const a = shopScope(url, user, () => store.analytics(range(url)), mergeAnalytics);
     return { ...a, products: hideStock(user, a.products) };
   }, 'dashboard'],
   ['GET', '/api/kpi', (p, url) => store.kpi(range(url)), ['kpi', 'salary']],
@@ -1525,10 +1590,12 @@ const routes = [
   ['GET', '/api/journal/goods', (p, url, body, user) => {
     const kinds = Object.keys(store.docKinds).filter((k) => can(user, store.docKinds[k].right));
     const names = Object.fromEntries(branchList().map((b) => [b.id, b.name]));
-    return store.goodsJournal(range(url), { shop: branchName(current().id), kinds, sales: can(user, 'sales') })
-      .map((r) => ({ ...r, sender: r.sender?.branch ? names[r.sender.branch] || 'Магазин' : r.sender, recipient: r.recipient?.branch ? names[r.recipient.branch] || 'Магазин' : r.recipient }));
+    const one = (b) => store.goodsJournal(range(url), { shop: branchName(b), kinds, sales: can(user, 'sales') })
+      .map((r) => ({ ...r, branch_id: b, sender: r.sender?.branch ? names[r.sender.branch] || 'Магазин' : r.sender, recipient: r.recipient?.branch ? names[r.recipient.branch] || 'Магазин' : r.recipient }));
+    return shopScope(url, user, one, (parts) => parts.flatMap((x) => x.v).sort((a, b) => b.at - a.at));
   }, ['sales', 'docs.sale', 'arrivals', 'refund', 'writeoff', 'stock', 'transfer']],
-  ['GET', '/api/journal/money', (p, url) => store.moneyJournal(range(url)), ['accounts', 'reports.money']],
+  ['GET', '/api/journal/money', (p, url, body, user) => shopScope(url, user, (b) => store.moneyJournal(range(url)).map((r) => ({ ...r, branch_id: b, shop: branchName(b) })),
+    (parts) => parts.flatMap((x) => x.v).sort((a, b) => b.at - a.at)), ['accounts', 'reports.money']],
   ['DELETE', '/api/registers/:id', (p, url, body, user) => regIn(url.searchParams.get('branch'), user, () => store.detachRegister(p.id)), 'settings'],
   ['PUT', '/api/registers/:id', (p, url, body, user) => {
     const from = Number(url.searchParams.get('branch')) || current().id;
