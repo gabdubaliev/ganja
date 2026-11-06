@@ -5311,8 +5311,9 @@ function createStore(file) {
     },
 
     // Кто может работать на кассе — для кнопки «Сменить кассира».
+    // «Сменить кассира»: сотрудники этого магазина с правом кассы — без владельца и без гостей из других магазинов.
     kassaUsers() {
-      return db.prepare('SELECT * FROM users WHERE disabled = 0 AND owner_shadow = 0 ORDER BY name, email').all()
+      return db.prepare("SELECT * FROM users WHERE disabled = 0 AND owner_shadow = 0 AND role <> 'owner' ORDER BY name, email").all()
         .filter((u) => can(u, 'pos'))
         .map((u) => ({ id: u.id, name: u.name || u.email, role: u.role, hasPin: Boolean(u.pin_hash) }));
     },
