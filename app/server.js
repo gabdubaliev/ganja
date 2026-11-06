@@ -1479,6 +1479,8 @@ const routes = [
     // Первое одобренное фото товара без основного фото становится основным; у модификации без фото основного
     // товара — заодно и основным фото самого товара (его видно в списке и на витрине).
     const bst = contextOf(s.branch_id).store;
+    // Автодобавление после «Одобрить» (onlyMain): товару хватает одного фото — если основное уже есть, ничего не добавляем.
+    if (body.onlyMain && bst.getPhoto(target.id)) return { skipped: true };
     const added = bst.appendGalleryImage(target.id, { data: body.data, mainIfNone: true });
     let baseMain = false;
     if (target !== base && !bst.getPhoto(base.id)) { bst.appendGalleryImage(base.id, { data: body.data, mainIfNone: true }); baseMain = true; }

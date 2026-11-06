@@ -678,7 +678,7 @@ $('[data-view="studio"]').addEventListener('click', async (e) => {
     if ((x = b('[data-st-ok-edit]'))) {
       await api(`/api/studio/assets/${x.dataset.stOkEdit}/review`, { method: 'POST', body: { decision: 'approved' } });
       const added = await autoAttach(Number(x.dataset.stOkEdit));
-      toast(added ? `Обработка одобрена и добавлена в товар: ${added}` : 'Обработка одобрена');
+      toast(added ? `Обработка одобрена и стала фото товара: ${added}` : 'Обработка одобрена (у товара уже есть фото — не добавлялась)');
       return reloadSession();
     }
     if ((x = b('[data-st-compare]'))) return openCompare(Number(x.dataset.stCompare));
@@ -747,7 +747,7 @@ async function sendReview(decision) {
       return showTask(r.retryTask.id);
     }
     const added = decision === 'approved' ? await autoAttach(cmp.a.id) : null;
-    toast(decision === 'approved' ? (added ? `Одобрено и добавлено в товар: ${added}` : 'Одобрено — теперь можно добавить в галерею товара') : 'Отклонено');
+    toast(decision === 'approved' ? (added ? `Одобрено и стало фото товара: ${added}` : 'Одобрено (у товара уже есть фото — не добавлялось)') : 'Отклонено');
     reloadSession();
   } catch (err) {
     showFormError('#st-cmp-error', err);
@@ -766,7 +766,7 @@ $('#st-cmp-reject').addEventListener('click', () => sendReview('rejected'));
 
 /* ---------- В галерею товара ---------- */
 let attachId = null;
-// Одобренное фото — сразу в товар: туда же, куда по умолчанию предлагает «В галерею товара»
+// Одобренное фото — в товар, только если у товара ещё нет основного фото (одного фото товару достаточно): туда же, куда по умолчанию предлагает «В галерею товара»
 // (цвет съёмки — всем размерам этого цвета; модификация съёмки; иначе весь товар). Не вышло (нет права «Фото»,
 // галерея полна) — фото остаётся одобренным, и кнопка «В галерею товара» на месте.
 async function autoAttach(id) {
@@ -775,7 +775,8 @@ async function autoAttach(id) {
   try {
     const data = await galleryJpeg(id);
     const body = s.color && p.colors?.length ? { color: s.color } : { productId: Number(s.variant_id || p.id), color: '' };
-    const r = await api(`/api/studio/assets/${id}/attach`, { method: 'POST', body: { ...body, data } });
+    const r = await api(`/api/studio/assets/${id}/attach`, { method: 'POST', body: { ...body, data, onlyMain: true } });
+    if (r.skipped) return null;
     return `${s.color ? `${p.name} · ${s.color} (все размеры)` : p.name}, ${r.gallery.main ? 'основное фото' : `фото №${r.gallery.imageId}`}`;
   } catch (err) {
     toast(`Одобрено, но в товар не добавилось: ${err.message}. Добавьте кнопкой «В галерею товара».`, 'error');
