@@ -2479,3 +2479,6 @@ body.drawer-open { overflow: hidden; }
 /* Касса, телефон: вместо «Ещё» — «Перенос» из CloudShop (потом здесь будет «Мой табель»). */
 .nav-migrate { display: none !important; }
 @media (max-width: 640px) { .kassa .nav-main > .nav-migrate:not([hidden]) { display: flex !important; order: 5; } .kassa .nav-main > #nav-more { display: none !important; } }
+/* Телефон, база: вместо «Обновить» — «Studio» (все кнопки внизу и так обновляют страницу). */
+.nav-studio { display: none !important; }
+@media (max-width: 640px) { .nav-main > .nav-studio:not([hidden]) { display: flex !important; order: 5; } }
