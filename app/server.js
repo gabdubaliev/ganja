@@ -1609,7 +1609,7 @@ const routes = [
   }), 'finance'],
   // Расходы по столбикам графика главной: b — границы (начало каждого дня/месяца и конец), до 40 столбиков.
   // Зарплата — по сменам и продажам именно этого дня, постоянные — их доля за день, разовые — в свой день.
-  ['GET', '/api/finance/series', (p, url) => {
+  ['GET', '/api/finance/series', (p, url, body, user) => {
     const b = String(url.searchParams.get('b') || '').split(',').map(Number).filter((x) => Number.isFinite(x) && x > 0);
     if (b.length < 2 || b.length > 41) throw new UserError('Неверные границы');
     for (let i = 0; i < b.length - 1; i++) if (!(b[i + 1] > b[i])) throw new UserError('Неверные границы');
