@@ -2120,6 +2120,10 @@ function serveStatic(res, pathname, transform = null) {
     res.writeHead(200, headers);
     return res.end(transform ? transform(html) : html);
   }
+  // Скрипт или стиль с ?v=<время изменения> (так их подключает страница): у этой версии файла содержимое не меняется —
+  // браузер хранит его до обновления программы и не переспрашивает сервер при каждой загрузке страницы
+  // (раньше — ~50 запросов «не изменился ли файл?» на каждое открытие, на мобильном интернете это секунды).
+  if (/[?&]v=[0-9a-z]+/.test(res.req?.url || '') && /\.(js|css)$/.test(file)) headers['Cache-Control'] = 'public, max-age=31536000, immutable';
   if (res.req?.headers['if-none-match'] === etag) { res.writeHead(304, headers); return res.end(); }
   res.writeHead(200, headers);
   fs.createReadStream(file).pipe(res);
