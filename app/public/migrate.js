@@ -359,10 +359,10 @@ function migVarDraw() {
   body.innerHTML = `
     <div class="mig-var-row"><b>Цвета</b> <small>(можно без цвета — тогда только размеры)</small></div>
     <div class="gen-chips">${colorChoices.map((c) => chip('color', c, v.colors.includes(c))).join('')}
-      <input class="input small mig-add" id="mv-color-add" placeholder="+ свой цвет"></div>
+      <input class="input small mig-add" id="mv-color-add" placeholder="+ свой цвет (можно через запятую)"></div>
     <div class="mig-var-row"><b>Размеры</b> <button type="button" class="link" data-mv-preset="M,L,XL,2XL,3XL">M–3XL</button> <button type="button" class="link" data-mv-preset="M,L,XL,2XL,3XL,4XL,5XL">M–5XL</button></div>
     <div class="gen-chips">${sizeChoices.map((s) => chip('size', s, v.sizes.includes(s))).join('')}
-      <input class="input small mig-add" id="mv-size-add" placeholder="+ свой (44, 32…)"></div>
+      <input class="input small mig-add" id="mv-size-add" placeholder="+ свои: 30, 31, 32"></div>
     ${v.colors.length || v.sizes.length ? `<div class="mig-var-row"><b>Количество</b> <small>(кнопки − и + или впишите число)</small></div>
     <div class="mv-grid">${colors.map((c) => `<section class="mv-color">
       ${c ? `<div class="mv-color-head">${typeof swatchBg === 'function' ? `<i style="background:${swatchBg(c)}"></i>` : ''}<b>${esc(c)}</b><small data-mv-ctotal="${esc(c)}">${migFmt(sizes.reduce((a, s) => a + (Number(v.qty[migKey(c, s)]) || 0), 0))} шт</small></div>` : ''}
@@ -432,8 +432,13 @@ $('#mig-var-body').addEventListener('change', (e) => {
     const val = e.target.value.trim();
     if (!val) return;
     const list = e.target.id === 'mv-color-add' ? 'colors' : 'sizes';
-    const norm = list === 'sizes' ? val.toUpperCase() : val[0].toUpperCase() + val.slice(1);
-    if (!migVar.v[list].includes(norm)) migVar.v[list].push(norm);
+    // Несколько сразу: размеры — через запятую, точку с запятой или пробел («30, 31», «44 46 48»),
+    // цвета — через запятую или точку с запятой («Тёмно синий» остаётся одним цветом).
+    const parts = val.split(list === 'sizes' ? /[,;\s]+/ : /[,;]+/).map((x) => x.trim()).filter(Boolean);
+    for (const p of parts) {
+      const norm = list === 'sizes' ? p.toUpperCase() : p[0].toUpperCase() + p.slice(1);
+      if (!migVar.v[list].includes(norm)) migVar.v[list].push(norm);
+    }
     migVarDraw();
     $(`#${e.target.id}`)?.focus();
   }
