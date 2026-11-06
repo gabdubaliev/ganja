@@ -6,7 +6,8 @@
 
 const migView = { items: [], filter: 'todo', q: '', page: 0, suppliers: [], loaded: false };
 const MIG_PAGE = 50;
-const MIG_SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'];
+// Размеры на выбор: одежда M–3XL и брюки 30–36. Другой размер — в поле «+ свои» (уже выбранные тоже видны).
+const MIG_SIZES = ['M', 'L', 'XL', '2XL', '3XL', '30', '31', '32', '33', '34', '36'];
 const migKey = (c, s) => `${c ?? ''}\u0001${s ?? ''}`;
 const migN = (v) => Number(String(v ?? '').replace(/\s/g, '').replace(',', '.'));
 const migFmt = (v) => (Number.isFinite(Number(v)) ? String(Math.round(Number(v) * 100) / 100).replace('.', ',') : '');
@@ -360,7 +361,7 @@ function migVarDraw() {
     <div class="mig-var-row"><b>Цвета</b> <small>(можно без цвета — тогда только размеры)</small></div>
     <div class="gen-chips">${colorChoices.map((c) => chip('color', c, v.colors.includes(c))).join('')}
       <input class="input small mig-add" id="mv-color-add" placeholder="+ свой цвет (можно через запятую)"></div>
-    <div class="mig-var-row"><b>Размеры</b> <button type="button" class="link" data-mv-preset="M,L,XL,2XL,3XL">M–3XL</button> <button type="button" class="link" data-mv-preset="M,L,XL,2XL,3XL,4XL,5XL">M–5XL</button></div>
+    <div class="mig-var-row"><b>Размеры</b> <button type="button" class="link" data-mv-preset="M,L,XL,2XL,3XL">M–3XL</button> <button type="button" class="link" data-mv-preset="30,31,32,33,34,36">30–36</button></div>
     <div class="gen-chips">${sizeChoices.map((s) => chip('size', s, v.sizes.includes(s))).join('')}
       <input class="input small mig-add" id="mv-size-add" placeholder="+ свои: 30, 31, 32"></div>
     ${v.colors.length || v.sizes.length ? `<div class="mig-var-row"><b>Количество</b> <small>(кнопки − и + или впишите число)</small></div>
