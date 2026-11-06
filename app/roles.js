@@ -51,6 +51,7 @@ const RIGHTS = [
   { key: 'stock', group: 'Документы', label: 'Инвентаризация', hint: 'Проводит инвентаризацию: пересчитывает товар и исправляет остатки по факту. Недостача и излишки попадают в отчёты.' },
   { key: 'writeoff', group: 'Документы', label: 'Списание', hint: 'Списывает товар со склада: брак, порча, потеря, подарок.' },
   { key: 'crm', group: 'Покупатели', label: 'CRM: сделки и переписка', hint: 'Раздел CRM: сделки с клиентами, переписка в Instagram и WhatsApp, задачи, ответ ценой по артикулу, лист ожидания размера. Когда сотрудник на смене, ему по очереди приходят новые сделки.' },
+  { key: 'crm.delete', group: 'Покупатели', label: 'CRM: удалять сделки', hint: 'Кнопка «Удалить» в карточке сделки. Без этого права сотрудник (кассир) сделки только ведёт и закрывает, удалить не может.' },
   { key: 'crm.settings', group: 'Покупатели', label: 'CRM: настройки', hint: 'Меняет этапы воронки, правила раздачи сделок сотрудникам и текст сообщения «Поступил ваш размер».' },
   { key: 'customers', group: 'Покупатели', label: 'Список покупателей', hint: 'Раздел «Клиенты»: все покупатели, их покупки, рейтинг и история бонусов.' },
   { key: 'certificates', group: 'Покупатели', label: 'Сертификаты: смотреть', hint: 'Видит список подарочных сертификатов: остатки, историю, кому продан; может заблокировать и продлить срок.' },
@@ -101,7 +102,7 @@ const ROLES = {
   manager: {
     name: 'Управляющий',
     about: 'Видит всё и ведёт магазин, выписывает штрафы, правит смены, ведёт табель, даёт и проверяет задания. По умолчанию не меняет сотрудников, бонусы, оформление, настройки и не видит журнал действий.',
-    can: ['dashboard', 'kpi', 'pos', 'customers.create', 'certificates.sell', 'certificates.accept', 'certificates', 'sales', 'refund', 'discount', 'products', 'products.cost', 'products.value', 'categories', 'stock.view', 'products.delete', 'import', 'products.export', 'migrate', 'migrate.purchase', 'migrate.cost', 'migrate.markup', 'migrate.margin', 'docs.newproduct', 'stock', 'photos', 'arrivals', 'crm', 'crm.settings', 'customers', 'customers.accounts', 'orders', 'orders.payment', 'notify', 'shifts', 'fines', 'timesheet', 'timesheet.edit', 'tasks', 'writeoff', 'docs.sale', 'transfer', 'docs.unpost', 'expenses', 'expenses.cash', 'pos.chefchange', 'finance', 'abc', 'reports.stock', 'reports.money', 'products.history', 'receive.photo', 'mytimesheet', 'undo.own'],
+    can: ['dashboard', 'kpi', 'pos', 'customers.create', 'certificates.sell', 'certificates.accept', 'certificates', 'sales', 'refund', 'discount', 'products', 'products.cost', 'products.value', 'categories', 'stock.view', 'products.delete', 'import', 'products.export', 'migrate', 'migrate.purchase', 'migrate.cost', 'migrate.markup', 'migrate.margin', 'docs.newproduct', 'stock', 'photos', 'arrivals', 'crm', 'crm.delete', 'crm.settings', 'customers', 'customers.accounts', 'orders', 'orders.payment', 'notify', 'shifts', 'fines', 'timesheet', 'timesheet.edit', 'tasks', 'writeoff', 'docs.sale', 'transfer', 'docs.unpost', 'expenses', 'expenses.cash', 'pos.chefchange', 'finance', 'abc', 'reports.stock', 'reports.money', 'products.history', 'receive.photo', 'mytimesheet', 'undo.own'],
   },
   cashier: {
     name: 'Кассир',

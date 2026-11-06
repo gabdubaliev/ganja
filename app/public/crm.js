@@ -154,7 +154,8 @@ async function openLead(id = null, stage = null) {
   }
   if (stage) f.elements.stage.value = stage;
   $('#ld-lost-field').hidden = f.elements.stage.value !== 'lost';
-  $('#lead-delete').hidden = !l;
+  // Удалить сделку — только с правом «CRM: удалять сделки» (у кассира кнопки нет).
+  $('#lead-delete').hidden = !l || !session.can('crm.delete');
   $('#lead-delete').classList.remove('danger');
   $('#lead-delete').textContent = 'Удалить';
   $('#lead-side').hidden = !l;
