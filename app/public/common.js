@@ -933,7 +933,7 @@ const SIDE_MENU = [
   ['products', 'Товары', 'box'],
   ['sales', 'Журнал продаж', 'receipt'],
   [null, 'Касса и смены', 'kassa', [['kassa', 'Открыть кассу'], ['shifts', 'Смены'], ['registers', 'Кассы']]],
-  ['studio', 'Studio', 'spark'],
+  ['studio', 'Студия', 'spark'],
   ['migrate', 'Перенос из CloudShop', 'import'],
   ['cashflow', 'Движение денег', 'money'],
   ['goods', 'Движение товара', 'move'],

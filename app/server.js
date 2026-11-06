@@ -250,6 +250,18 @@ function studioFacts(s) {
 makeContext(1, mainStore);
 for (const b of branchList()) if (!b.main) contextOf(b.id);
 linkCatalogs();
+// Один раз: раздел «MONT AI Studio» теперь называется «Студия» — и в своих названиях разделов, и в «Изменить интерфейс».
+if (mainStore.setting('studio_renamed', '0') !== '1') {
+  try {
+    const lay = readLayout();
+    if (lay.sections?.studio?.name && /studio/i.test(lay.sections.studio.name)) { lay.sections.studio.name = 'Студия'; mainStore.setSetting('layout', JSON.stringify(lay)); }
+    for (const page of ['admin', 'kassa']) {
+      const raw = mainStore.setting(`ui_${page}`, '');
+      if (raw && /MONT AI STUDIO/i.test(raw)) mainStore.setSetting(`ui_${page}`, raw.replace(/MONT AI STUDIO/gi, 'Студия'));
+    }
+  } catch (err) { console.error('Переименование Студии:', err.message); }
+  mainStore.setSetting('studio_renamed', '1');
+}
 // Один раз: бонусы и сертификаты филиалов переезжают в основную базу и становятся общими.
 if (mainStore.setting('shared_wallet', '0') !== '1') {
   mainStore.hideAdminBonusRows();

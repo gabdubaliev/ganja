@@ -14,7 +14,7 @@ const when = (t) => new Date(t).toLocaleString('ru-RU', { day: 'numeric', month:
 
 document.querySelector('[data-view="studio"]').innerHTML = `
   <header class="top">
-    <div class="title"><h1>🎨 Studio</h1><span class="source" id="st-sub">Фото товаров: проверка Claude, обработка на устройстве и задания для ChatGPT</span></div>
+    <div class="title"><h1>🎨 Студия</h1><span class="source" id="st-sub">Фото товаров: проверка Claude, обработка на устройстве и задания для ChatGPT</span></div>
     <div class="tools" id="st-tools"></div>
   </header>
   <div id="st-body"></div>`;
