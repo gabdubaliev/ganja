@@ -846,6 +846,8 @@ input[type="range"] { width: 100%; accent-color: var(--series); }
 @media (max-width: 640px) { .pm-add, .pm-row { grid-template-columns: 1fr; } }
 
 /* Категории с фото в кассе */
+.pos-cats-toggle { justify-self: start; align-self: flex-start; margin: 2px 0 6px; }
+.pos-cats-toggle[hidden] { display: none; }
 .pos-cats { display: flex; gap: 10px; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: thin; }
 .pos-cat { flex: none; display: grid; justify-items: center; gap: 5px; width: 78px; padding: 0; border: 0; background: none; color: var(--ink-2); font-size: 12px; font-weight: 600; line-height: 1.2; text-align: center; }
 .pos-cat-pic { width: 60px; height: 60px; border-radius: 50%; overflow: hidden; display: grid; place-items: center; background: var(--series-soft); color: var(--series); font-size: 22px; font-weight: 800; border: 3px solid transparent; box-shadow: var(--shadow-sm); transition: border-color 0.15s, transform 0.15s; }

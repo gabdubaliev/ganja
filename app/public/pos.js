@@ -976,13 +976,18 @@ async function loadPosCats() {
   try { pos.cats = await api('/api/categories'); } catch { pos.cats = []; }
 }
 
+let posCatsHidden = (() => { try { return localStorage.getItem('kassa.cats') === 'hide'; } catch { return false; } })();
 function renderPosCats(searching) {
   const used = new Set(catalog.list.filter((p) => !p.parent_id).map((p) => p.category).filter(Boolean));
   const cats = pos.cats.filter((c) => used.has(c.name));
   if (pos.cat && !used.has(pos.cat)) pos.cat = '';
   const el = $('#pos-cats');
-  // При поиске категории не нужны; одна категория — тоже.
-  el.hidden = searching || cats.length < 2;
+  // При поиске категории не нужны; одна категория — тоже. Кнопкой их можно свернуть (помнится в этом браузере).
+  const tg = $('#pos-cats-toggle');
+  tg.hidden = searching || cats.length < 2;
+  const picked = cats.find((c) => c.name === pos.cat);
+  tg.textContent = posCatsHidden ? `▸ Категории${picked ? `: ${picked.label || picked.name}` : ''}` : '▾ Скрыть категории';
+  el.hidden = searching || cats.length < 2 || posCatsHidden;
   if (el.hidden) return;
   el.innerHTML = [{ name: '', label: 'Все' }, ...cats].map((c) => `
     <button type="button" class="pos-cat" data-pos-cat="${esc(c.name)}" aria-pressed="${pos.cat === c.name}">
@@ -991,6 +996,11 @@ function renderPosCats(searching) {
     </button>`).join('');
 }
 
+$('#pos-cats-toggle').addEventListener('click', () => {
+  posCatsHidden = !posCatsHidden;
+  try { localStorage.setItem('kassa.cats', posCatsHidden ? 'hide' : 'show'); } catch { /* без памяти */ }
+  renderPick();
+});
 $('#pos-cats').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-pos-cat]');
   if (!btn) return;
