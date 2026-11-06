@@ -15,6 +15,7 @@
 <body data-ui-page="kassa" class="kassa">
 <nav class="nav" aria-label="Разделы кассы">
   <div class="nav-inner">
+    <button type="button" class="nav-burger" id="nav-burger" aria-label="Меню: все разделы кассы" title="Все разделы">☰</button>
     <a class="logo" href="#pos" id="logo-home" data-initial="К" title="К продаже (обновить страницу)"><span class="logo-text">Касса</span></a>
     <div class="nav-main">
       <a href="#pos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h2l2.4 10.2a1 1 0 0 0 1 .8h8.9a1 1 0 0 0 1-.8L20 7H6.2"/><circle cx="9" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/></svg><span>Продажа</span></a>
@@ -23,7 +24,8 @@
       <button type="button" class="nav-plus" id="nav-plus" aria-label="Добавить товар: камера или поиск" aria-haspopup="dialog"><span aria-hidden="true">+</span></button>
       <a href="#tasks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l2 2 4-4"/><rect x="4" y="4" width="16" height="16" rx="3"/></svg><span>Задания</span> <span class="badge" data-task-badge hidden></span></a>
       <a href="/" class="nav-base" data-can-any="dashboard products sales" hidden title="Открыть базу (админ-панель)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg><span>База</span></a>
-      <a href="#more"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg><span>Ещё</span></a>
+      <a href="#" id="nav-reload" class="nav-reload" title="Обновить страницу"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg><span>Обновить</span></a>
+      <a href="#more" id="nav-more"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg><span>Ещё</span></a>
     </div>
     <span class="nav-user" id="nav-user" hidden>
       <button type="button" class="btn small switch-btn" id="switch-user" title="Сменить кассира"><span aria-hidden="true">⇄</span><span class="switch-label">Сменить кассира</span></button>

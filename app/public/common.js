@@ -971,8 +971,19 @@ const sideOk = (key) => {
   return Boolean(v) && (v.right === null || v.right === '' || [v.right].flat().some((r) => session.can(r))) && !sectionHidden(key);
 };
 let sideOpen = (() => { try { return new Set(JSON.parse(localStorage.getItem('nav.open') || '[]')); } catch { return new Set(); } })();
+// Меню ☰ окна кассы: её разделы (нижняя панель и «Ещё») одним списком.
+const KASSA_SIDE = [
+  ['pos', 'Продажа', 'cart', 'pos'], ['sales', 'История продаж', 'receipt', 'pos'], ['orders', 'Доставка', 'move', 'orders'],
+  ['crm', 'Сделки', 'deal', 'crm'], ['tasks', 'Задания', 'docs', ''], ['mytimesheet', 'Мой табель', 'calendar', 'mytimesheet'],
+  ['photos', 'Фото товаров', 'spark', 'photos'], ['__base', 'База (админ-панель)', 'home', ['dashboard', 'products', 'sales']],
+];
 // HTML меню разделов — для меню слева (компьютер) и для выдвижного меню по ☰ (телефон, планшет).
 function sideMenuHtml() {
+  if (document.body.classList.contains('kassa')) {
+    const svg = (i) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SIDE_ICONS[i] || ''}</svg>`;
+    return KASSA_SIDE.filter(([key, , , right]) => (right === '' || [right].flat().some((r) => session.can(r))) && (key === '__base' || views[key]))
+      .map(([key, label, icon]) => `<a href="${key === '__base' ? '/' : `#${key}`}" ${currentView === key ? 'aria-current="page"' : ''}>${svg(icon)}<span>${esc(label)}</span>${key === 'orders' ? ' <span class="badge" data-orders-badge hidden></span>' : key === 'tasks' ? ' <span class="badge" data-task-badge hidden></span>' : ''}</a>`).join('');
+  }
   const svg = (i) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SIDE_ICONS[i] || ''}</svg>`;
   const link = (key, label, icon, sub) => {
     const cur = currentView === key;
@@ -1028,12 +1039,14 @@ function drawer() {
       <div class="sd-head"><b class="sd-title"></b><button type="button" class="icon-btn" data-sd-close aria-label="Закрыть">×</button></div>
       <button type="button" class="btn primary sd-create">＋ Добавить документ</button>
       <div class="nav-side sd-menu"></div>
+      <button type="button" class="btn sd-bell" hidden></button>
     </aside>`;
   document.body.append(d);
   d.addEventListener('click', (e) => {
     if (sideGroupClick(e)) return;
     if (e.target.closest('[data-sd-close]')) return closeDrawer();
     if (e.target.closest('.sd-create')) { closeDrawer(); return typeof openPlus === 'function' && openPlus(); }
+    if (e.target.closest('.sd-bell')) { document.getElementById('bell')?.click(); return setTimeout(renderDrawerMenu, 300); }
     if (e.target.closest('a')) closeDrawer();
   });
   // Смахнуть влево — закрыть.
@@ -1046,8 +1059,13 @@ function drawer() {
 function renderDrawerMenu() {
   const d = document.getElementById('side-drawer');
   if (!d || d.hidden) return;
-  d.querySelector('.sd-title').textContent = session.design?.name || 'Мой магазин';
-  d.querySelector('.sd-create').hidden = typeof openPlus !== 'function';
+  const kassa = document.body.classList.contains('kassa');
+  d.querySelector('.sd-title').textContent = kassa ? 'Касса' : session.design?.name || 'Мой магазин';
+  d.querySelector('.sd-create').hidden = kassa || typeof openPlus !== 'function';
+  // Уведомления о продажах — здесь, а не кнопкой в шапке телефона.
+  const bell = document.getElementById('bell'), sb = d.querySelector('.sd-bell');
+  sb.hidden = !bell || bell.hidden;
+  if (bell && !bell.hidden) sb.textContent = bell.getAttribute('aria-pressed') === 'true' ? '🔔 Уведомления о продажах: включены' : '🔕 Уведомления о продажах: выключены';
   d.querySelector('.sd-menu').innerHTML = sideMenuHtml();
   if (typeof setOrdersBadge === 'function' && session.newOrders !== undefined) setOrdersBadge(session.newOrders);
   if (typeof updateTaskBadge === 'function') updateTaskBadge();

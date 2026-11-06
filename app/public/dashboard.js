@@ -1085,12 +1085,17 @@ function renderHomeShop() {
       load();
       if (currentView === 'home') loadCashDesk();
     });
-    // Рядом с «День, Неделя, Месяц, Год» — в одной строке.
+    // Рядом с «День, Неделя, Месяц, Год» — в одной строке. На телефоне — только значок 🏬 (список открывается по нажатию).
     const per = top.querySelector('#periods');
     const row = document.createElement('div');
     row.className = 'home-pick';
     per.before(row);
-    row.append(per, sel);
+    const wrap = document.createElement('label');
+    wrap.className = 'home-shop-wrap';
+    wrap.title = 'Магазин';
+    wrap.innerHTML = '<span class="home-shop-ico" aria-hidden="true">🏬</span>';
+    wrap.append(sel);
+    row.append(per, wrap);
   }
   const cur = homeShop.v || String(session.branch?.id || 1);
   sel.innerHTML = `<option value="all" ${cur === 'all' ? 'selected' : ''}>🏬 Все магазины</option>` + session.branch.allowed.map((b) => `<option value="${b.id}" ${String(b.id) === cur ? 'selected' : ''}>🏬 ${esc(b.name)}</option>`).join('');
