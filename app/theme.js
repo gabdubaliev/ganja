@@ -36,6 +36,22 @@ function iosTheme(theme) {
   if (theme === 'dark') return iosCss.replace(m[0], m[1].replace(/@media \(prefers-color-scheme: dark\) \{([\s\S]*)\}\s*$/, '$1').replace(/^\s*@media[^{]*\{/, ''));
   return iosCss;
 }
+// «Панель» (только компьютер): тёмный и светлый варианты — переменные --pn-*.
+const PANEL_VARS = {
+  dark: { '--pn-scheme': 'dark', '--pn-bg': '#0a0a0b', '--pn-surface': '#141416', '--pn-surface-2': '#1a1a1d', '--pn-side': '#0d0d0f', '--pn-ink': '#f2f2f3', '--pn-ink-2': '#b4b4ba', '--pn-muted': '#76767e',
+    '--pn-border': 'rgba(255,255,255,0.07)', '--pn-grid': 'rgba(255,255,255,0.06)', '--pn-axis': 'rgba(255,255,255,0.10)', '--pn-hover': 'rgba(255,255,255,0.05)', '--pn-fill': '#161618', '--pn-input': '#111113',
+    '--pn-active': '#1c1c1f', '--pn-seg-on': '#26262a', '--pn-seg-shadow': 'none', '--pn-accent': '#8b9bff', '--pn-accent-soft': 'rgba(139,155,255,0.18)', '--pn-rest': '#2a2a2e',
+    '--pn-good': '#5fd3a2', '--pn-bad': '#ff7a85', '--pn-shadow-lg': '0 24px 60px rgba(0,0,0,.6)', '--pn-glow': '3.5', '--pn-track': 'rgba(255,255,255,.05)' },
+  light: { '--pn-scheme': 'light', '--pn-bg': '#f6f6f7', '--pn-surface': '#ffffff', '--pn-surface-2': '#f7f7f8', '--pn-side': '#fbfbfc', '--pn-ink': '#111114', '--pn-ink-2': '#52525b', '--pn-muted': '#8e8e96',
+    '--pn-border': 'rgba(0,0,0,0.07)', '--pn-grid': 'rgba(0,0,0,0.05)', '--pn-axis': 'rgba(0,0,0,0.10)', '--pn-hover': 'rgba(0,0,0,0.04)', '--pn-fill': '#f1f1f3', '--pn-input': '#ffffff',
+    '--pn-active': '#ffffff', '--pn-seg-on': '#ffffff', '--pn-seg-shadow': '0 1px 2px rgba(0,0,0,.08), 0 2px 6px rgba(0,0,0,.05)', '--pn-accent': '#4f5bd5', '--pn-accent-soft': 'rgba(79,91,213,0.14)', '--pn-rest': '#e4e4e8',
+    '--pn-good': '#16a34a', '--pn-bad': '#e5484d', '--pn-shadow-lg': '0 24px 60px rgba(0,0,0,.16)', '--pn-glow': '1.6', '--pn-track': 'rgba(0,0,0,.04)' },
+};
+let panelCss = null;
+function panelTheme(variant) {
+  panelCss ??= fs.readFileSync(path.join(__dirname, 'panel-theme.css'), 'utf8');
+  return `@media (min-width: 1100px) {\n:root {\n${block(PANEL_VARS[variant] || PANEL_VARS.dark)}\n}\n}\n${panelCss}`;
+}
 const block = (vars) => Object.entries(vars).filter(([, v]) => v !== '' && v != null).map(([k, v]) => `  ${k}: ${v};`).join('\n');
 
 function rgba(hex, alpha) {
@@ -98,7 +114,10 @@ function themeCss(d, fonts = []) {
   if (CARDS[d.cards]) parts.push(CARDS[d.cards]);
   if (BACKGROUNDS[d.background]) parts.push(BACKGROUNDS[d.background]);
   if (NAVS[d.nav]) parts.push(NAVS[d.nav], NAV_KEEP);
-  if ((d.ui || 'ios') === 'ios') parts.push(iosTheme(d.theme));
+  const ui = d.ui || 'ios';
+  // «Панель»: на компьютере — панель, на телефоне — «Как у Apple».
+  if (ui === 'ios' || ui.startsWith('panel')) parts.push(iosTheme(d.theme));
+  if (ui === 'panel-dark' || ui === 'panel-light') parts.push(panelTheme(ui === 'panel-light' ? 'light' : 'dark'));
   if (d.css) parts.push(`/* Свой CSS */\n${d.css}`);
   return parts.join('\n\n') + '\n';
 }

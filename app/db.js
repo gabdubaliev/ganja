@@ -5142,7 +5142,7 @@ function createStore(file) {
         cards: ['shadow', 'flat', 'outline', 'glass'].includes(input.cards) ? input.cards : 'shadow',
         background: ['soft', 'plain', 'gradient', 'mesh'].includes(input.background) ? input.background : 'soft',
         nav: ['light', 'dark', 'accent'].includes(input.nav) ? input.nav : 'light',
-        ui: input.ui === 'classic' ? 'classic' : 'ios',
+        ui: ['classic', 'panel-dark', 'panel-light'].includes(input.ui) ? input.ui : 'ios',
       };
       this.setSetting('design', JSON.stringify(next));
       return next;

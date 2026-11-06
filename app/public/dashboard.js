@@ -321,6 +321,8 @@ function renderKpis(v) {
       const val = d.totals[k][0];
       return `<button type="button" role="tab" data-metric="${k}" aria-selected="${k === state.metric}"><b class="num ${val < 0 ? 'neg' : ''}">${moneyCompact(val)}</b><span>${label}</span></button>`;
     }).join('')}</div>`;
+  renderPanelHome(v, d);
+  if (panelUi()) return renderPanelChart(v, d);
   renderBoardChart(v, d);
 }
 function renderBoardChart(v, d) {
@@ -1076,3 +1078,101 @@ setInterval(() => { if (currentView === 'home') load(); }, REFRESH_MS);
   if (!nav || !window.ResizeObserver) return;
   new ResizeObserver(() => document.documentElement.style.setProperty('--nav-h', `${nav.offsetHeight}px`)).observe(nav);
 })();
+
+/* ---------- Стиль «Панель» (компьютер): заголовок периода, три карточки, график плавными линиями ---------- */
+function renderPanelHome(v, d) {
+  const on = panelUi();
+  let head = document.getElementById('pn-head'), cards = document.getElementById('pn-cards');
+  if (!on) { head?.remove(); cards?.remove(); document.getElementById('pn-legend')?.remove(); return; }
+  if (!head) {
+    head = document.createElement('div');
+    head.id = 'pn-head';
+    $('header.home-top').before(head);
+  }
+  const t = periodTitle();
+  const year = String(new Date(homeRange().start).getFullYear());
+  const main = state.period === 'year' ? 'Год' : t.replace(new RegExp(`\\s*${year}$`), '');
+  head.innerHTML = `<div class="pn-crumb"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>Главная</div>
+    <h1 class="pn-title">${esc(main)} <span>${esc(year)}</span></h1>`;
+  if (!cards) {
+    cards = document.createElement('section');
+    cards.id = 'pn-cards';
+    cards.className = 'pn-cards';
+    $('#kpis').before(cards);
+  }
+  const ch = (a, b, inverse) => {
+    if (!b) return '<b>—</b>';
+    const up = a >= b;
+    return `<b class="${up === Boolean(inverse) ? 'bad' : ''}">${up ? '+' : '−'}${pct(Math.abs((a - b) / Math.abs(b)))}</b>`;
+  };
+  const [rev, prevRev] = d.totals.revenue, [net, prevNet] = d.totals.net, [avg] = d.totals.avg;
+  const pc = v.prev.receipts.size;
+  const deco = `<svg class="pn-deco" viewBox="0 0 200 116" aria-hidden="true">
+    <rect x="62" y="6" width="132" height="84" rx="12" fill="var(--surface-2)" stroke="var(--border)" transform="rotate(-8 128 48)"/>
+    <rect x="42" y="24" width="132" height="84" rx="12" fill="var(--pn-fill)" stroke="var(--axis)" transform="rotate(-8 108 66)"/>
+    <rect x="58" y="48" width="22" height="16" rx="3" fill="var(--muted)" opacity=".55" transform="rotate(-8 108 66)"/>
+    <text x="112" y="94" fill="var(--muted)" font-size="9" font-family="monospace" transform="rotate(-8 108 66)">${esc((session.design?.name || 'MONT').slice(0, 14))}</text></svg>`;
+  cards.innerHTML = `
+    <div class="pn-card"><div class="k">Выручка · ${esc(t)}</div><div class="v num">${money(rev)}</div><div class="d">${ch(rev, prevRev)} · ${esc(vsLabel())}</div>${deco}</div>
+    <div class="pn-card"><div class="k">${d.hasFinance ? 'Чистая прибыль' : 'Прибыль'}</div><div class="v num ${net < 0 ? 'neg' : ''}">${money(d.hasFinance ? net : rev - d.totals.cost[0])}</div><div class="d">${ch(net, prevNet)} · ${esc(vsLabel())}</div></div>
+    <div class="pn-card"><div class="k">Чеки</div><div class="v num">${int(d.checks)}</div><div class="d">${ch(d.checks, pc)} · средний ${money(avg)}</div></div>`;
+}
+function renderPanelChart(v, d) {
+  const el = $('#rb-chart');
+  if (!el) return;
+  let bk = v.buckets.map((b, i) => ({ ...b, i }));
+  if (state.period === 'day') {
+    const active = bk.filter((b) => b.receipts.size || b.exp > 0.5);
+    let lo = 9, hi = 20;
+    if (active.length) { lo = Math.min(lo, Number(active[0].label)); hi = Math.max(hi, Number(active[active.length - 1].label)); }
+    bk = bk.filter((b) => Number(b.label) >= lo && Number(b.label) <= hi);
+  }
+  const W = el.clientWidth || 900, H = el.clientHeight || 300, m = { l: 52, r: 12, t: 12, b: 22 };
+  const now = homeRange().end;
+  const live = bk.filter((b) => b.from < now);
+  const series = [
+    ['revenue', 'Выручка', '#f5c84c', (b) => b.revenue],
+    ['cost', 'Цена закупки', '#6f9bff', (b) => b.cost],
+    ['net', d.hasFinance ? 'Чистая прибыль' : 'Прибыль', '#5fd3a2', (b) => d.bar.net(b)],
+  ];
+  const sel = ['revenue', 'cost', 'net'].includes(state.metric) ? state.metric : null;
+  const down = (b) => (d.hasFinance ? b.exp || 0 : 0);
+  const hasDown = live.some((b) => down(b) > 0.5);
+  const max = Math.max(1, ...live.map((b) => Math.max(b.revenue, d.bar.net(b), b.cost)));
+  const dmax = Math.max(1, ...live.map(down));
+  const mid = m.t + (H - m.t - m.b) * (hasDown ? 0.68 : 0.93);
+  const yUp = (val) => mid - (Math.max(0, val) / max) * (mid - m.t);
+  const yDn = (val) => mid + (val / dmax) * (H - m.b - mid - 4);
+  const x = (k) => m.l + (bk.length > 1 ? k / (bk.length - 1) : 0.5) * (W - m.l - m.r);
+  const path = (pts) => pts.map((p, k) => {
+    if (!k) return `M${p[0]},${p[1]}`;
+    const [x0, y0] = pts[k - 1]; const cx = (x0 + p[0]) / 2;
+    return `C${cx},${y0} ${cx},${p[1]} ${p[0]},${p[1]}`;
+  }).join('');
+  const n = Math.max(1, live.length);
+  const pts = (fn, y) => bk.slice(0, n).map((b, k) => [x(k), y(fn(b))]);
+  const parts = [];
+  for (const k of [1, 0.75, 0.5, 0.25]) parts.push(`<line x1="${m.l}" x2="${W - m.r}" y1="${yUp(max * k)}" y2="${yUp(max * k)}" stroke="var(--grid)"/><text x="${m.l - 8}" y="${yUp(max * k) + 4}" text-anchor="end" class="rb-axis" font-family="monospace">${moneyShort(max * k)}</text>`);
+  if (hasDown) for (const k of [0.5, 1]) parts.push(`<line x1="${m.l}" x2="${W - m.r}" y1="${yDn(dmax * k)}" y2="${yDn(dmax * k)}" stroke="var(--grid)"/><text x="${m.l - 8}" y="${yDn(dmax * k) + 4}" text-anchor="end" class="rb-axis" font-family="monospace">${moneyShort(dmax * k)}</text>`);
+  parts.push(`<line x1="${m.l}" x2="${W - m.r}" y1="${mid}" y2="${mid}" stroke="var(--axis)"/>`);
+  const every = Math.max(1, Math.ceil(bk.length / Math.max(1, Math.floor((W - m.l) / 46))));
+  bk.forEach((b, k) => { if (k % every === 0) parts.push(`<text x="${x(k)}" y="${hasDown ? mid + 15 : H - 4}" text-anchor="middle" class="rb-axis" font-family="monospace">${esc(b.label)}</text>`); });
+  if (n >= 1) {
+    for (const [key, , color, fn] of series) {
+      const dim = sel && key !== sel;
+      parts.push(`<path d="${path(n === 1 ? [[x(0) - 6, yUp(fn(bk[0]))], [x(0) + 6, yUp(fn(bk[0]))]] : pts(fn, yUp))}" fill="none" stroke="${color}" stroke-width="${key === sel ? 2.8 : 2}" stroke-linecap="round" opacity="${dim ? 0.35 : 1}" filter="${dim ? '' : 'url(#pn-glow)'}"/>`);
+    }
+    if (hasDown) [1, 0.82, 0.64].forEach((k, j) => parts.push(`<path d="${path(pts((b) => down(b) * k, yDn))}" fill="none" stroke="var(--muted)" stroke-width="1.4" opacity="${0.7 - j * 0.18}"/>`));
+  }
+  // Наведение/нажатие: вертикальная линия и значения сверху.
+  if (state.tip != null) {
+    const k = bk.findIndex((b) => b.i === state.tip);
+    if (k >= 0) parts.push(`<line x1="${x(k)}" x2="${x(k)}" y1="${m.t}" y2="${H - m.b}" stroke="var(--axis)" stroke-dasharray="3 3"/>` + series.map(([, , c, fn]) => `<circle cx="${x(k)}" cy="${yUp(fn(bk[k]))}" r="4" fill="${c}"/>`).join(''));
+  }
+  const band = (W - m.l - m.r) / Math.max(1, bk.length - 1);
+  bk.forEach((b, k) => parts.push(`<rect x="${x(k) - band / 2}" y="0" width="${band}" height="${H}" fill="transparent" class="rb-hit" data-i="${b.i}"/>`));
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="График выручки, закупки и прибыли"><defs><filter id="pn-glow" x="-10%" y="-30%" width="120%" height="160%"><feGaussianBlur stdDeviation="${parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--pn-glow')) || 3}" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>${parts.join('')}</svg>`;
+  let lg = document.getElementById('pn-legend');
+  if (!lg) { lg = document.createElement('div'); lg.id = 'pn-legend'; lg.className = 'pn-legend'; el.after(lg); }
+  lg.innerHTML = series.map(([, name, c]) => `<span><i style="background:${c};box-shadow:0 0 8px ${c}"></i>${esc(name)}</span>`).join('') + (hasDown ? '<span><i style="background:var(--muted)"></i>Расходы — вниз от оси</span>' : '');
+}
