@@ -639,7 +639,8 @@ $('#doc-switch').addEventListener('click', async (e) => {
   } catch (err) { toast(err.message, 'error'); }
 });
 $('#doc-save').addEventListener('click', () => saveDoc());
-$('#doc-back').addEventListener('click', () => { location.hash = 'docs'; });
+// Назад — в «Движение товара» (там все документы с переключателем «Все / Проведённые / Не проведённые»).
+$('#doc-back').addEventListener('click', () => { location.hash = views.goods && session.can && [views.goods.right].flat().some((r) => session.can(r)) ? 'goods' : 'docs'; });
 $('#doc-delete').addEventListener('click', async (e) => {
   if (!e.target.classList.contains('danger')) { e.target.classList.add('danger'); e.target.textContent = 'Удалить черновик?'; return; }
   try {

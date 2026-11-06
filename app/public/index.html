@@ -190,7 +190,7 @@
     <label class="jr-f jr-search"><span>Поиск</span><input id="gj-q" class="input" type="search" placeholder="Номер, комментарий, товар, контрагент" autocomplete="off"></label>
     <label class="jr-f" id="gj-shop-row" hidden><span>Магазин</span><select id="gj-shop" class="input"></select></label>
     <div class="jr-f"><span>Период</span><div class="jr-period"><input id="gj-from" class="input" type="date" aria-label="С"><i>—</i><input id="gj-to" class="input" type="date" aria-label="По"><small id="gj-days"></small></div></div>
-    <label class="jr-f"><span>Статус</span><select id="gj-status" class="input"><option value="">Все</option><option value="posted">Проведён</option><option value="draft">Черновик</option><option value="refunded">Возвращён</option></select></label>
+    <div class="jr-f"><span>Статус</span><div class="periods" id="gj-status" role="group" aria-label="Статус"><button type="button" data-st="" aria-pressed="true">Все</button><button type="button" data-st="posted" aria-pressed="false">Проведённые</button><button type="button" data-st="draft" aria-pressed="false">Не проведённые</button></div></div>
     <label class="jr-f"><span>Тип</span><select id="gj-type" class="input"></select></label>
     <label class="jr-f"><span>Оплата</span><select id="gj-pay" class="input"></select></label>
   </section>
@@ -264,7 +264,7 @@
 
 <main class="page" data-view="doc" hidden>
   <header class="top">
-    <div class="title"><button type="button" class="btn small ghost" id="doc-back">← Документы</button><h1 id="doc-title"></h1></div>
+    <div class="title"><button type="button" class="btn small ghost" id="doc-back">← Движение товара</button><h1 id="doc-title"></h1></div>
     <div class="doc-switch" id="doc-switch" role="group" aria-label="Статус документа"></div>
   </header>
   <p class="doc-posted-note" id="doc-posted-note"></p>
@@ -335,7 +335,7 @@
 <main class="page" data-view="registers" hidden>
   <header class="top">
     <div class="title"><h1>Кассы</h1><span class="source">рабочие места: смена открывается на конкретной кассе</span></div>
-    <div class="tools"><button type="button" class="btn primary" id="reg-add" hidden>Добавить кассу</button></div>
+    <div class="tools"><a class="btn" href="/kassa.html" target="_blank" data-can="pos" hidden>🖥️ Открыть кассу</a><button type="button" class="btn primary" id="reg-add" hidden>Добавить кассу</button></div>
   </header>
   <label class="check reg-drawer" id="reg-drawer-row" hidden><input type="checkbox" id="reg-drawer"> <span><b>Один денежный ящик на все кассы.</b> Деньги считает только тот, кто открыл смену первым; кто выходит вторым — не пересчитывает, и сумма в кассе не удваивается. При закрытии деньги считает последний. Снимите галочку, только если у каждой кассы свой отдельный ящик с деньгами.</span></label>
   <div class="acc-list" id="reg-list"></div>
@@ -1517,6 +1517,10 @@
 
 <main class="page" data-view="settings" hidden>
   <header class="top"><div class="title"><h1>Настройки</h1></div></header>
+  <section class="panel settings-links">
+    <a class="more-tile" href="#design" data-can="design" hidden><span class="more-icon" aria-hidden="true">🎨</span><span class="more-text"><b>Оформление</b><span>Название, цвета, шрифт, стиль программы, свой CSS</span></span></a>
+    <a class="more-tile" href="#automation" data-can="automation" hidden><span class="more-icon" aria-hidden="true">🤖</span><span class="more-text"><b>Автоматика</b><span>Отчёты в Telegram по расписанию и автоуценка неликвидов</span></span></a>
+  </section>
   <section class="panel" data-can="currency">
     <form id="currency-form" class="settings-form" novalidate>
       <div>

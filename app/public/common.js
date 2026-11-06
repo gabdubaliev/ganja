@@ -938,13 +938,17 @@ const SIDE_ICONS = {
   calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
   lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
   shield: '<path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/>',
+  spark: '<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>',
+  import: '<path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 17v3h16v-3"/>',
   more: '<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
 };
 const SIDE_MENU = [
   ['home', 'Главная', 'home'],
   ['products', 'Товары', 'box'],
-  [null, 'Касса и смены', 'kassa', [['kassa', 'Открыть кассу'], ['shifts', 'Смены'], ['registers', 'Кассы']]],
   ['sales', 'Журнал продаж', 'receipt'],
+  [null, 'Касса и смены', 'kassa', [['kassa', 'Открыть кассу'], ['shifts', 'Смены'], ['registers', 'Кассы']]],
+  ['studio', 'MONT AI Studio', 'spark'],
+  ['migrate', 'Перенос из CloudShop', 'import'],
   ['cashflow', 'Движение денег', 'money'],
   ['goods', 'Движение товара', 'move'],
   ['reports', 'Отчёты', 'chart'],
@@ -953,7 +957,7 @@ const SIDE_MENU = [
   ['orders', 'Заказы с витрины', 'cart'],
   ['crm', 'CRM — сделки', 'deal'],
   [null, 'Все отчёты', 'docs', [['money', 'ДДС и прибыль'], ['kpi', 'Зарплата и продавцы'], ['stockreport', 'Товарный отчёт'], ['deadstock', 'Неликвиды'], ['sizes', 'Заканчиваются размеры'], ['abc', 'ABC / XYZ анализ']]],
-  [null, 'Компания', 'company', [['settings', 'Настройки компании'], ['users', 'Сотрудники'], ['branches', 'Магазины'], ['loyaltyset', 'Лояльность'], ['accounts', 'Счета']]],
+  [null, 'Компания', 'company', [['settings', 'Настройки компании'], ['users', 'Сотрудники'], ['branches', 'Магазины'], ['loyaltyset', 'Лояльность'], ['accounts', 'Счета'], ['print', 'Чеки и этикетки']]],
   ['timesheet', 'Табель', 'calendar'],
   ['access', 'Права и доступ', 'lock'],
   ['audit', 'Журнал событий', 'shield'],
@@ -992,6 +996,7 @@ function renderSideMenu() {
     return `<a href="${href}" class="${sub ? 'side-sub' : ''}" ${cur ? 'aria-current="page"' : ''}>${icon ? svg(icon) : ''}<span>${esc(label)}</span>${badge}</a>`;
   };
   box.innerHTML = SIDE_MENU.map(([key, label, icon, sub]) => {
+    if (key === 'more' && typeof moreHasItems === 'function' && !moreHasItems(true)) return '';
     if (!sub) return sideOk(key) ? link(key, label, icon) : '';
     const items = sub.filter(([k]) => sideOk(k));
     if (!items.length) return '';

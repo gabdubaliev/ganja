@@ -58,7 +58,7 @@ async function renderGoods() {
   fillSelect($('#gj-pay'), 'Оплата: все', [...new Set(gj.list.flatMap((x) => (x.methods ? x.methods.split(', ') : [])))].sort().map((m) => [m, m]).concat([['—', 'Без оплаты']]), gj.account);
   const q = gj.q.trim().toLowerCase();
   const list = gj.list.filter((x) => (!gj.type || x.type === gj.type)
-    && (!gj.status || x.status === gj.status)
+    && (!gj.status || (gj.status === 'posted' ? x.status === 'posted' || x.status === 'refunded' : x.status === gj.status))
     && (!gj.account || (gj.account === '—' ? !x.methods : x.methods.split(', ').includes(gj.account)))
     && (!q || [x.number, x.note, x.sender, x.recipient, x.author, x.register, ...(x.items || []).map((i) => i.name)].join(' ').toLowerCase().includes(q)));
   const sales = list.filter((x) => x.type === 'sale' && x.status === 'posted');
@@ -148,11 +148,18 @@ $('#mj-create-menu').addEventListener('click', (e) => {
   if (b.dataset.mjNew === 'expense') { location.hash = 'reports'; setTimeout(() => $('#np-add')?.click(), 400); } else location.hash = 'accounts';
 });
 
+$('#gj-status').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-st]');
+  if (!b) return;
+  gj.status = b.dataset.st;
+  for (const x of $('#gj-status').querySelectorAll('[data-st]')) x.setAttribute('aria-pressed', String(x === b));
+  renderGoods();
+});
 // Фильтры обоих журналов.
 for (const [prefix, st, render] of [['gj', gj, () => renderGoods()], ['mj', mj, () => renderCashflow()]]) {
   let timer = null;
   $(`#${prefix}-q`).addEventListener('input', (e) => { st.q = e.target.value; clearTimeout(timer); timer = setTimeout(render, 200); });
-  for (const [id, key] of [['status', 'status'], ['type', 'type'], ['pay', 'account'], ['account', 'account'], ['category', 'category'], ['shop', 'shop']]) {
+  for (const [id, key] of [...(prefix === 'mj' ? [['status', 'status']] : []), ['type', 'type'], ['pay', 'account'], ['account', 'account'], ['category', 'category'], ['shop', 'shop']]) {
     $(`#${prefix}-${id}`)?.addEventListener('change', (e) => { st[key] = e.target.value; render(); });
   }
   $(`#${prefix}-from`).addEventListener('change', render);
