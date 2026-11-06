@@ -1087,8 +1087,15 @@ function deleteBranch(id, user) {
   contexts.delete(n);
   try { ctx?.store.db.close(); } catch { /* уже закрыта */ }
   const file = path.join(path.dirname(DB_FILE), b.file);
-  const kept = file.replace(/\.db$/, `.deleted-${new Date().toISOString().slice(0, 10)}.db`);
-  try { if (fs.existsSync(file)) fs.renameSync(file, kept); } catch (err) { console.error('Магазин удалён из списка, файл базы не переименован:', err.message); }
+  // Дата и время в имени, чтобы вторая удалённая копия в тот же день не заменила первую.
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+  let kept = file.replace(/\.db$/, `.deleted-${stamp}.db`);
+  for (let i = 2; fs.existsSync(kept); i++) kept = file.replace(/\.db$/, `.deleted-${stamp}-${i}.db`);
+  try {
+    if (fs.existsSync(file)) fs.renameSync(file, kept);
+    // Хвосты базы (журнал записи) — рядом с копией, иначе новый магазин с этим именем файла подхватил бы их.
+    for (const ext of ['-wal', '-shm']) if (fs.existsSync(file + ext)) fs.renameSync(file + ext, kept + ext);
+  } catch (err) { console.error('Магазин удалён из списка, файл базы не переименован:', err.message); }
   return { ok: true, id: n, name: b.name, kept: path.basename(kept) };
 }
 
@@ -1098,7 +1105,9 @@ function createBranch(input, user) {
   if (!name) throw new UserError('Название магазина');
   const list = branchList();
   if (list.some((b) => b.name.toLowerCase() === name.toLowerCase())) throw new UserError('Магазин с таким названием уже есть');
-  const id = Math.max(...list.map((b) => b.id)) + 1;
+  // Номер магазина не повторяется: у удалённого магазина он не переходит к новому (документы и журналы ссылаются на номер).
+  const id = Math.max(...list.map((b) => b.id), Number(mainStore.setting('branch_last_id', '0')) || 0) + 1;
+  mainStore.setSetting('branch_last_id', String(id));
   const b = { id, name, address: String(input.address ?? '').trim().slice(0, 200), phone: String(input.phone ?? '').trim().slice(0, 40), file: `branch-${id}.db`, created_at: Date.now() };
   mainStore.setSetting('branches', JSON.stringify([...list.filter((x) => !x.main), b]));
   const ctx = contextOf(id);
