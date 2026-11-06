@@ -186,6 +186,15 @@ function renderDoc() {
       ? `<select id="doc-branch" class="input" ${ro ? 'disabled' : ''}><option value="">— магазин —</option>${doc.branches.map((b) => `<option value="${b.id}" ${b.id === d.branch_to ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}${d.branch_to && !doc.branches.some((b) => b.id === d.branch_to) ? `<option value="${d.branch_to}" selected>Магазин №${d.branch_to}</option>` : ''}</select>`
       : '<p class="pick-meta">Другой магазин ещё не заведён: «Ещё» → «Магазины».</p>'}</div>`);
   }
+  // Магазин документа: новый документ можно оформить в любом доступном магазине (справочник общий —
+  // строки переносятся по товару); у сохранённого документа магазин уже не меняется.
+  const shops = session.branch?.allowed || [];
+  if (shops.length > 1) {
+    const here = session.branch.id;
+    fields.unshift(`<div class="field"><label for="doc-shop">Магазин</label>${d.id || ro
+      ? `<b class="doc-shop-name">🏬 ${esc(session.branch.name)}</b>`
+      : `<select id="doc-shop" class="input">${shops.map((b) => `<option value="${b.id}" ${b.id === here ? 'selected' : ''}>🏬 ${esc(b.name)}</option>`).join('')}</select>`}</div>`);
+  }
   fields.push(`<div class="field grow"><label for="doc-note">Комментарий</label><input id="doc-note" class="input" value="${esc(d.note || '')}" autocomplete="off" ${ro ? 'disabled' : ''} placeholder="${k === 'receipt' ? 'Основание, например: найдено при уборке' : ''}"></div>`);
   $('#doc-head').innerHTML = fields.join('');
 
@@ -530,7 +539,49 @@ $('#doc-lines').addEventListener('click', (e) => {
   doc.dirty = true;
   renderDoc();
 });
-$('#doc-head').addEventListener('change', () => { doc.dirty = true; readHead(); $('#doc-save').textContent = 'Сохранить черновик •'; });
+$('#doc-head').addEventListener('change', (e) => {
+  if (e.target.id === 'doc-shop') return moveDraftToShop(Number(e.target.value));
+  doc.dirty = true; readHead(); $('#doc-save').textContent = 'Сохранить черновик •';
+});
+// Другой магазин для нового документа: черновик запоминается (товары — по общему uid), программа переходит
+// в тот магазин и открывает там этот же документ — оприходование, списание и т.д. проведутся в нём.
+const DOC_PENDING = 'doc.pending';
+async function moveDraftToShop(id) {
+  if (!id || id === session.branch?.id) return;
+  readHead();
+  const byId = new Map(catalog.list.map((p) => [p.id, p]));
+  const d = doc.data;
+  const pending = { kind: d.kind, note: d.note || '', doc_date: d.doc_date, shop: (session.branch.allowed.find((b) => b.id === id) || {}).name || '',
+    items: docLines().map((i) => ({ uid: byId.get(i.productId)?.uid || null, name: byId.get(i.productId)?.name || i.name || '', qty: i.qty, cost: i.cost, price: i.price, actual: i.actual, reason: i.reason })) };
+  try { localStorage.setItem(DOC_PENDING, JSON.stringify(pending)); } catch { return toast('Браузер не дал сохранить черновик — переключите магазин вверху и создайте документ там', 'error'); }
+  try {
+    await api('/api/branch/switch', { method: 'POST', body: { id } });
+    location.hash = 'docs';
+    location.reload();
+  } catch (err) { try { localStorage.removeItem(DOC_PENDING); } catch { /* нет памяти */ } toast(err.message, 'error'); }
+}
+// После перехода в другой магазин — открыть перенесённый черновик.
+session.ready?.then?.(async () => {
+  let pending = null;
+  try { pending = JSON.parse(localStorage.getItem(DOC_PENDING) || 'null'); localStorage.removeItem(DOC_PENDING); } catch { /* нет памяти */ }
+  if (!pending?.kind) return;
+  try { await catalog.load(); } catch { /* ниже — без товаров */ }
+  const byUid = new Map(catalog.list.filter((p) => p.uid).map((p) => [p.uid, p]));
+  const missed = [];
+  const items = pending.items.map((i) => {
+    const p = byUid.get(i.uid);
+    if (!p) { missed.push(i.name); return null; }
+    return { productId: p.id, product_id: p.id, name: p.name, unit: p.unit, qty: i.qty, cost: i.cost ?? p.cost, price: i.price ?? p.price, actual: i.actual, reason: i.reason || '' };
+  }).filter(Boolean);
+  setTimeout(() => {
+    newDoc(pending.kind, items);
+    doc.data.note = pending.note;
+    doc.data.doc_date = pending.doc_date || Date.now();
+    if (currentView === 'doc') renderDoc();
+    toast(`Документ оформляется в магазине «${session.branch?.name || pending.shop}»${missed.length ? `. Не нашлись здесь: ${missed.join(', ')}` : ''}`, missed.length ? 'error' : undefined);
+  }, 300);
+});
+
 $('#doc-head').addEventListener('click', async (e) => {
   if (e.target.closest('#doc-customer-clear')) { doc.customer = null; doc.dirty = true; return renderDoc(); }
   if (e.target.closest('#doc-customer-find')) {
