@@ -81,6 +81,12 @@ function sectionView([key, right, icon, title, about]) {
   return { key, right, icon: s.icon || icon, title: s.name || title, about, hidden: Boolean(s.hidden), origIcon: icon, origTitle: title };
 }
 // Порядок разделов внутри группы — как расставил владелец.
+// Что есть в «+» (документы, клиенты, сертификаты, сотрудники, счета, штрафы, бонусы, задания), в «Ещё» не повторяется.
+// В «+» документ — «doc:вид», в «Ещё» — «docs:вид».
+function inPlus(key) {
+  const k = key.startsWith('docs:') ? `doc:${key.slice(5)}` : key;
+  return PLUS_GROUPS.some(([, items]) => items.some((it) => it[0] === k));
+}
 // Группы «Ещё» на телефоне — по порядку меню слева; остальные разделы — в своих прежних группах ниже.
 const PHONE_GROUPS = [
   ['Касса и смены', ['shifts', 'registers']],
@@ -109,13 +115,14 @@ function orderedItems(group, items) {
 
 function renderMore() {
   // «Касса» — первой плиткой (на телефоне её нет в нижней панели).
-  const kassa = session.can('pos') ? `<section class="more-group"><div class="more-tiles"><a class="more-tile more-kassa" href="/kassa.html" target="_blank"><span class="more-icon" aria-hidden="true">🖥️</span><span class="more-text"><b>Касса</b><span>Окно кассира: продажа, смена, чеки</span></span></a></div></section>` : '';
+  // На компьютере с меню слева касса уже есть в «Касса и смены» → «Открыть кассу».
+  const kassa = session.can('pos') && !document.body.classList.contains('ui-side') ? `<section class="more-group"><div class="more-tiles"><a class="more-tile more-kassa" href="/kassa.html" target="_blank"><span class="more-icon" aria-hidden="true">🖥️</span><span class="more-text"><b>Касса</b><span>Окно кассира: продажа, смена, чеки</span></span></a></div></section>` : '';
   // На компьютере с меню слева — только то, чего в меню нет; на телефоне и планшете — все разделы,
   // сгруппированные так же, как меню слева (Касса и смены, Журналы, Отчёты, Контрагенты, Компания…).
   const side = document.body.classList.contains('ui-side') && typeof SIDE_KEYS !== 'undefined';
   const groups = side ? MORE_GROUPS : phoneGroups();
   $('#more-groups').innerHTML = kassa + groups.map(([group, items]) => {
-    const visible = orderedItems(group, items).filter((it) => !(side && SIDE_KEYS.has(it[0]))).map(sectionView).filter((x) => canAny(x.right) && (!x.hidden || session.isOwner));
+    const visible = orderedItems(group, items).filter((it) => !(side && SIDE_KEYS.has(it[0])) && !inPlus(it[0])).map(sectionView).filter((x) => canAny(x.right) && (!x.hidden || session.isOwner));
     if (!visible.length) return '';
     return `<section class="more-group">
       <h2>${group}</h2>
