@@ -3993,7 +3993,8 @@ function createStore(file) {
     },
 
     // Добавить одно фото в конец галереи (MONT AI Studio). Основное фото и остальные фото не трогаются.
-    appendGalleryImage(id, { data } = {}) {
+    // mainIfNone — у товара нет основного фото: это фото становится основным (а не дополнительным).
+    appendGalleryImage(id, { data, mainIfNone = false } = {}) {
       const p = getProduct(id);
       if (p.deleted) throw new UserError('Товар удалён');
       const bytes = Buffer.from(String(data || ''), 'base64');
@@ -4001,6 +4002,11 @@ function createStore(file) {
       if (bytes.length > 3e6) throw new UserError('Фото больше 3 МБ');
       const mime = imageMime(bytes);
       if (!mime) throw new UserError(`Файл повреждён или это не картинка — подходят только JPEG, PNG и WebP (до ${IMAGE_MAX_SIDE} px по стороне)`);
+      if (mainIfNone && !db.prepare('SELECT 1 FROM product_photos WHERE product_id = ?').get(p.id)) {
+        db.prepare('INSERT INTO product_photos (product_id, mime, data) VALUES (?, ?, ?)').run(p.id, mime, bytes);
+        db.prepare('UPDATE products SET photo_at = ? WHERE id = ?').run(Date.now(), p.id);
+        return { imageId: null, main: true, productId: p.id, position: -1, count: db.prepare('SELECT COUNT(*) AS n FROM product_images WHERE product_id = ?').get(p.id).n, hasMain: true };
+      }
       const { n, last } = db.prepare('SELECT COUNT(*) AS n, MAX(position) AS last FROM product_images WHERE product_id = ?').get(p.id);
       if (n >= GALLERY_MAX) throw new UserError(`В галерее товара уже ${GALLERY_MAX} дополнительных фото — удалите лишнее в окне «Фото товара»`);
       const position = last === null ? 0 : last + 1;

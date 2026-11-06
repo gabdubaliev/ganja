@@ -1476,9 +1476,16 @@ const routes = [
     const color = body.color !== undefined ? String(body.color || '') : body.productId ? '' : s.color;
     const targetId = color ? studioColorPick(s.branch_id, base, color).variant.id : Number(body.productId || s.variant_id || s.product_id);
     const target = targetId === base.id ? base : studioVariant(s.branch_id, base, targetId);
-    const added = contextOf(s.branch_id).store.appendGalleryImage(target.id, { data: body.data });
-    const label = `${base.name}${color ? ` · ${color} (все размеры)` : target !== base ? ` · ${variantLabel(target)}` : ''}: фото №${added.imageId}, ${added.count}-е в галерее`;
-    return { ...studio.markAttached(p.id, { branchId: s.branch_id, productId: target.id, imageId: added.imageId }, user, label), gallery: added };
+    // Первое одобренное фото товара без основного фото становится основным; у модификации без фото основного
+    // товара — заодно и основным фото самого товара (его видно в списке и на витрине).
+    const bst = contextOf(s.branch_id).store;
+    const added = bst.appendGalleryImage(target.id, { data: body.data, mainIfNone: true });
+    let baseMain = false;
+    if (target !== base && !bst.getPhoto(base.id)) { bst.appendGalleryImage(base.id, { data: body.data, mainIfNone: true }); baseMain = true; }
+    added.baseMain = baseMain;
+    const label = `${base.name}${color ? ` · ${color} (все размеры)` : target !== base ? ` · ${variantLabel(target)}` : ''}: ${added.main ? 'основное фото' : `фото №${added.imageId}, ${added.count}-е в галерее`}${baseMain ? ' (и основное фото товара)' : ''}`;
+    // Основное фото помечаем номером −1 (в галерее его нет, но фото «уже в товаре»: повторно не добавляется и не удаляется из съёмки).
+    return { ...studio.markAttached(p.id, { branchId: s.branch_id, productId: target.id, imageId: added.main ? -1 : added.imageId }, user, label), gallery: added };
   }, 'studio'],
   ['GET', '/api/products/:id/gallery', (p) => store.listGallery(p.id), 'photos'],
   ['PUT', '/api/products/:id/gallery', (p, url, body) => store.saveGallery(p.id, body), 'photos'],

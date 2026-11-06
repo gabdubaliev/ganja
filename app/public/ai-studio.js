@@ -280,7 +280,7 @@ function renderSession() {
       ${edits.length ? `<h3>Обработанные здесь <small>${edits.length}</small></h3><div class="st-grid">${edits.map((a) => assetTile(a, `<span class="st-acts">
         ${a.status === 'pending' ? `<button type="button" class="btn small primary" data-st-ok-edit="${a.id}">Одобрить</button>` : ''}
         ${a.status === 'approved' && m.canAttach && !p.deleted ? `<button type="button" class="btn small primary" data-st-attach="${a.id}">В галерею товара</button>` : ''}
-        ${a.status === 'attached' ? `<small>в галерее (фото №${a.attached.imageId})</small>` : ''}
+        ${a.status === 'attached' ? `<small>${a.attached.imageId > 0 ? `в галерее (фото №${a.attached.imageId})` : 'основное фото товара'}</small>` : ''}
         <button type="button" class="btn small ghost" data-st-dl="${a.id}" title="Скачать">⬇</button>
         ${a.status !== 'attached' ? `<button type="button" class="btn small ghost" data-st-del="${a.id}" title="Удалить">✕</button>` : ''}</span>`)).join('')}</div>` : ''}
     </section>
@@ -329,7 +329,7 @@ function taskCard(t, results) {
     ${results.length ? `<div class="st-grid">${results.map((a) => assetTile(a, `<span class="st-acts">
       ${['pending', 'rejected', 'approved'].includes(a.status) ? `<button type="button" class="btn small ${a.status === 'pending' ? 'primary' : ''}" data-st-compare="${a.id}">Сравнить${a.status === 'pending' ? ' и согласовать' : ''}</button>` : ''}
       ${a.status === 'approved' && m.canAttach && !st.session.product.deleted ? `<button type="button" class="btn small primary" data-st-attach="${a.id}">В галерею товара</button>` : ''}
-      ${a.status === 'attached' ? `<small>в галерее (фото №${a.attached.imageId})</small>` : ''}
+      ${a.status === 'attached' ? `<small>${a.attached.imageId > 0 ? `в галерее (фото №${a.attached.imageId})` : 'основное фото товара'}</small>` : ''}
       ${a.reviewNote ? `<small class="st-note">«${esc(a.reviewNote)}»</small>` : ''}
       ${a.ai ? `<small class="${a.ai.verdict === 'ok' ? 'st-ai-ok' : 'st-ai-bad'}">🤖 ${a.ai.verdict === 'ok' ? '✅ совпадает с оригиналом' : `⚠️ ${esc(a.ai.summary)}`}</small>`
         : st.meta.ai && a.status === 'pending' ? `<button type="button" class="btn small" data-st-ai-check="${a.id}" ${st.aiBusy ? 'disabled' : ''}>${st.aiBusy === `result-${a.id}` ? '⏳ Claude сравнивает…' : '🤖 Проверить Claude'}</button>` : ''}
@@ -776,7 +776,7 @@ async function autoAttach(id) {
     const data = await galleryJpeg(id);
     const body = s.color && p.colors?.length ? { color: s.color } : { productId: Number(s.variant_id || p.id), color: '' };
     const r = await api(`/api/studio/assets/${id}/attach`, { method: 'POST', body: { ...body, data } });
-    return `${s.color ? `${p.name} · ${s.color} (все размеры)` : p.name}, фото №${r.gallery.imageId}`;
+    return `${s.color ? `${p.name} · ${s.color} (все размеры)` : p.name}, ${r.gallery.main ? 'основное фото' : `фото №${r.gallery.imageId}`}`;
   } catch (err) {
     toast(`Одобрено, но в товар не добавилось: ${err.message}. Добавьте кнопкой «В галерею товара».`, 'error');
     return null;
@@ -809,7 +809,7 @@ $('#st-att-ok').addEventListener('click', async () => {
     const v = $('#st-att-target').value;
     const r = await api(`/api/studio/assets/${attachId}/attach`, { method: 'POST', body: { ...(v.startsWith('c:') ? { color: v.slice(2) } : { productId: Number(v), color: '' }), data } });
     $('#st-attach').close();
-    toast(`Добавлено в галерею товара: фото №${r.gallery.imageId}, ${r.gallery.count}-е дополнительное`);
+    toast(r.gallery.main ? 'Основного фото не было — это фото стало основным фото товара' : `Добавлено в галерею товара: фото №${r.gallery.imageId}, ${r.gallery.count}-е дополнительное`);
     reloadSession();
   } catch (err) {
     showFormError('#st-att-error', err);

@@ -464,7 +464,7 @@ function createStudio(file, { UserError }) {
         .run(branchId, productId, imageId, who(user), now(), a.id);
       if (a.task_id) db.prepare("UPDATE studio_tasks SET status = 'done', updated_at = ? WHERE id = ? AND status <> 'cancelled'").run(now(), a.task_id);
       touch(a.session_id);
-      log(a.session_id, user, `Фото №${a.id} добавлено в конец галереи`, label);
+      log(a.session_id, user, imageId > 0 ? `Фото №${a.id} добавлено в конец галереи` : `Фото №${a.id} стало основным фото товара`, label);
       return assetMeta(asset(a.id));
     },
 
