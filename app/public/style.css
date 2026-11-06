@@ -2471,3 +2471,7 @@ body.drawer-open { overflow: hidden; }
 @media (max-width: 640px) { .home-top .home-pick #periods { order: 0; } .home-top .home-pick .home-shop-wrap { order: 1; } .home-top .home-pick .day-nav { order: 2; } }
 /* Кнопка уведомлений не показывается нигде (и в старых браузерах без :has) — переключатель в «⚙️ Настройки». */
 #bell { display: none !important; }
+/* База: переключателя магазина в шапке нет — справочник общий, магазин выбирается там, где он важен
+   (главная 🏬, журналы, «Остатки по магазинам», документ «Магазин», «Компания → Магазины → Перейти»). В кассе — остаётся. */
+body:not(.kassa) .nav .branch-switch, body:not(.kassa) .home-top .branch-switch { display: none !important; }
+@media (max-width: 640px) { body:not(.kassa) .nav-inner > #nav-user { margin-left: auto !important; } }
