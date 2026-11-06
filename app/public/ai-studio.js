@@ -660,7 +660,7 @@ $('[data-view="studio"]').addEventListener('click', async (e) => {
     }
     if ((x = b('[data-st-reopen]'))) { await api(`/api/studio/tasks/${x.dataset.stReopen}`, { method: 'PUT', body: { status: 'reopen' } }); return reloadSession(); }
     if ((x = b('[data-st-dl]'))) { const a = findAsset(x.dataset.stDl); return saveBlob(await fetchBlob(a.id), assetName(a)); }
-    if ((x = b('[data-st-view]'))) return window.open(studioFileUrl(x.dataset.stView), '_blank', 'noopener');
+    if ((x = b('[data-st-view]'))) return studioViewer(studioFileUrl(x.dataset.stView));
     if ((x = b('[data-st-del]'))) {
       if (!confirm('Удалить этот файл из съёмки? Галерея товара не изменится.')) return;
       await api(`/api/studio/assets/${x.dataset.stDel}`, { method: 'DELETE' });
@@ -799,3 +799,17 @@ function openStudioForProduct(productId) {
 }
 
 views.studio = { show: renderStudio, right: 'studio' };
+
+// Фото крупно — поверх страницы, с кнопкой «Закрыть» (раньше открывалось отдельной вкладкой, и на телефоне не было как закрыть).
+function studioViewer(url) {
+  const box = document.createElement('div');
+  box.className = 'st-viewer';
+  box.innerHTML = `<img src="${url}" alt="Фото крупно"><div class="st-viewer-bar">
+    <a class="btn" href="${url}" target="_blank" rel="noopener">Открыть оригинал</a>
+    <button type="button" class="btn primary" data-close>✕ Закрыть</button></div>`;
+  const close = () => { box.remove(); removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  box.addEventListener('click', (e) => { if (e.target === box || e.target.closest('[data-close]')) close(); });
+  addEventListener('keydown', onKey);
+  document.body.append(box);
+}

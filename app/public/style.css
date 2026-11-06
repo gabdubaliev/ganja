@@ -2482,3 +2482,8 @@ body.drawer-open { overflow: hidden; }
 /* Телефон, база: вместо «Обновить» — «Studio» (все кнопки внизу и так обновляют страницу). */
 .nav-studio { display: none !important; }
 @media (max-width: 640px) { .nav-main > .nav-studio:not([hidden]) { display: flex !important; order: 5; } }
+
+/* Студия: фото крупно поверх страницы. */
+.st-viewer { position: fixed; inset: 0; z-index: 80; display: grid; grid-template-rows: 1fr auto; place-items: center; gap: 12px; padding: calc(12px + env(safe-area-inset-top, 0px)) 12px calc(14px + env(safe-area-inset-bottom, 0px)); background: rgba(10, 10, 14, .88); }
+.st-viewer img { max-width: 100%; max-height: calc(100vh - 120px); object-fit: contain; border-radius: 10px; }
+.st-viewer-bar { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
