@@ -1071,8 +1071,9 @@ function renderDrawerMenu() {
   d.querySelector('.sd-create').hidden = true;
   // Уведомления о продажах — здесь, а не кнопкой в шапке телефона.
   const bell = document.getElementById('bell'), sb = d.querySelector('.sd-bell');
-  sb.hidden = !bell || bell.hidden;
-  if (bell && !bell.hidden) sb.textContent = bell.getAttribute('aria-pressed') === 'true' ? '🔔 Уведомления о продажах: включены' : '🔕 Уведомления о продажах: выключены';
+  // В меню ☰ переключателя нет — он в «⚙️ Настройки».
+  sb.hidden = true;
+  if (false) sb.textContent = bell.getAttribute('aria-pressed') === 'true' ? '🔔 Уведомления о продажах: включены' : '🔕 Уведомления о продажах: выключены';
   d.querySelector('.sd-menu').innerHTML = sideMenuHtml();
   if (typeof setOrdersBadge === 'function' && session.newOrders !== undefined) setOrdersBadge(session.newOrders);
   if (typeof updateTaskBadge === 'function') updateTaskBadge();
