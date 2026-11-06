@@ -1997,6 +1997,7 @@ h2.inline { display: inline; font-size: 16px; }
 
 /* Товары: категории, модификации, этикетка на строке */
 .cat-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+.cat-chips[hidden] { display: none; }
 .cat-chips .chip { padding: 6px 12px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent); background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
 .cat-chips .chip small { color: var(--ink-2); font-weight: 600; margin-left: 2px; }
 .cat-chips .chip[aria-pressed="true"] { background: var(--series); border-color: var(--series); color: #fff; }

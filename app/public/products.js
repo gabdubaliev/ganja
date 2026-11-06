@@ -1060,7 +1060,17 @@ $('#products-variants').addEventListener('click', () => {
 });
 
 /* ---------- Категории над списком товаров ---------- */
+// Список категорий можно свернуть кнопкой — выбор запоминается в этом браузере. Свёрнут — на кнопке видна выбранная категория.
+let catsHidden = (() => { try { return localStorage.getItem('products.cats') === 'hide'; } catch { return false; } })();
+$('#products-cats-toggle').addEventListener('click', () => {
+  catsHidden = !catsHidden;
+  try { localStorage.setItem('products.cats', catsHidden ? 'hide' : 'show'); } catch { /* без памяти */ }
+  renderProducts();
+});
 function renderCategoryChips(list, catOf) {
+  $('#products-cats').hidden = catsHidden;
+  const picked = productsView.category ? (productsView.category === '—' ? 'Без категории' : productsView.category) : '';
+  $('#products-cats-toggle').textContent = catsHidden ? `▸ Категории${picked ? `: ${picked}` : ''}` : '▾ Скрыть категории';
   const goods = list.filter((p) => !p.parent_id);
   const count = new Map();
   for (const p of goods) count.set(catOf(p) || '—', (count.get(catOf(p) || '—') || 0) + 1);
