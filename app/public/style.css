@@ -2377,3 +2377,38 @@ a.logo { color: inherit; text-decoration: none; cursor: pointer; }
 /* «Товары»: остатки по магазинам. */
 .products-table .st-col { text-align: right; white-space: nowrap; }
 .products-table th.st-here, .products-table td.st-here { background: color-mix(in srgb, var(--series) 6%, transparent); }
+
+/* Телефон: журналы движения — карточками (документ и сумма сверху, остальное подписями), фильтры в столбик. */
+@media (max-width: 640px) {
+  .jr-bar { display: grid; grid-template-columns: 1fr 1fr; }
+  .jr-bar .jr-create-wrap, .jr-bar .jr-search, .jr-bar .jr-f:has(.jr-period) { grid-column: 1 / -1; }
+  .jr-period { flex-wrap: wrap; }
+  .jr-period .input { flex: 1 1 120px; width: auto; min-width: 0; }
+  .jr-f, .jr-f .input { min-width: 0; width: 100%; }
+  .jr-table { min-width: 0 !important; width: 100%; }
+  .jr-table thead { display: none; }
+  .jr-table, .jr-table tbody { display: block; }
+  .jr-table tr.jr-day { display: block; }
+  .jr-table tr.jr-day td { display: block; border-radius: 10px; }
+  .jr-table tr.jr-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 10px; padding: 10px 2px; border-bottom: 1px solid var(--grid); }
+  .jr-table tr.jr-row td { display: block; padding: 0; border: 0; text-align: left !important; background: none !important; }
+  .jr-table tr.jr-row td.jr-st { order: 0; width: 16px; }
+  .jr-table tr.jr-row td.jr-doc { order: 1; flex: 1 1 auto; min-width: 0; }
+  .jr-table tr.jr-row td.jr-sum { order: 2; margin-left: auto; font-size: 15px; font-weight: 650; white-space: nowrap; }
+  .jr-table tr.jr-row td.jr-empty { display: none; }
+  .jr-table tr.jr-row td[data-l]:not(.jr-sum) { order: 4; font-size: 12.5px; color: var(--ink-2); }
+  .jr-table tr.jr-row td[data-l]:not(.jr-sum)::before { content: attr(data-l) " "; color: var(--muted); }
+  .jr-table tr.jr-row td[data-l="Время"]:not(.jr-sum)::before, .jr-table tr.jr-row td[data-l="Счёт"]:not(.jr-sum)::before, .jr-table tr.jr-row td[data-l="Категория"]:not(.jr-sum)::before { content: none; }
+  .jr-table tr.jr-row::after { content: ""; order: 3; flex-basis: 100%; height: 0; }
+  .jr-table tr.jr-row td.jr-doc .pcat { display: inline; }
+  .jr-table tr.jr-row td[data-l] .pcat { display: inline; margin-left: 4px; }
+  .jr-table tr.jr-items { display: block; }
+  .jr-table tr.jr-items td { display: block; padding: 6px 4px 10px 30px; }
+  .jr-table tr.jr-items td:first-child { display: none; }
+  .jr-totals { width: 100%; }
+  /* Главная: периоды, дата и магазин — в несколько строк, без выхода за экран. */
+  .home-top .home-pick { max-width: 100%; }
+  .home-top .home-pick > * { max-width: 100%; }
+  .home-top .home-pick .day-nav { flex: 1 1 100%; }
+  .home-top .home-pick .home-shop { flex: 1 1 100%; }
+}

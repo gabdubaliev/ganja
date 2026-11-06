@@ -81,6 +81,25 @@ function sectionView([key, right, icon, title, about]) {
   return { key, right, icon: s.icon || icon, title: s.name || title, about, hidden: Boolean(s.hidden), origIcon: icon, origTitle: title };
 }
 // Порядок разделов внутри группы — как расставил владелец.
+// Группы «Ещё» на телефоне — по порядку меню слева; остальные разделы — в своих прежних группах ниже.
+const PHONE_GROUPS = [
+  ['Касса и смены', ['shifts', 'registers']],
+  ['Журналы', ['cashflow', 'goods', 'docs']],
+  ['Отчёты', ['reports', 'money', 'kpi', 'stockreport', 'deadstock', 'sizes', 'abc']],
+  ['Контрагенты', ['suppliers', 'loyalty']],
+  ['Онлайн', ['shop', 'orders', 'crm']],
+  ['Компания', ['settings', 'users', 'branches', 'loyaltyset', 'accounts']],
+  ['Персонал и доступ', ['timesheet', 'access', 'audit']],
+];
+function phoneGroups() {
+  const all = new Map(MORE_GROUPS.flatMap(([, items]) => items.map((it) => [it[0], it])));
+  const used = new Set(PHONE_GROUPS.flatMap(([, keys]) => keys));
+  const rest = MORE_GROUPS.map(([g, items]) => [g, items.filter((it) => !used.has(it[0]))]).filter(([, items]) => items.length);
+  const out = PHONE_GROUPS.map(([g, keys]) => [g, keys.map((k) => all.get(k)).filter(Boolean)]);
+  // Остальное — в одноимённую группу, если она уже есть (например, AI Studio — в «Онлайн»).
+  for (const [g, items] of rest) { const same = out.find(([x]) => x === g); if (same) same[1].push(...items); else out.push([g, items]); }
+  return out;
+}
 function orderedItems(group, items) {
   const order = session.layout?.order?.[group];
   if (!order?.length) return items;
@@ -91,9 +110,11 @@ function orderedItems(group, items) {
 function renderMore() {
   // «Касса» — первой плиткой (на телефоне её нет в нижней панели).
   const kassa = session.can('pos') ? `<section class="more-group"><div class="more-tiles"><a class="more-tile more-kassa" href="/kassa.html" target="_blank"><span class="more-icon" aria-hidden="true">🖥️</span><span class="more-text"><b>Касса</b><span>Окно кассира: продажа, смена, чеки</span></span></a></div></section>` : '';
-  $('#more-groups').innerHTML = kassa + MORE_GROUPS.map(([group, items]) => {
-    // На компьютере с меню слева — только то, чего в меню нет.
-    const side = document.body.classList.contains('ui-side') && typeof SIDE_KEYS !== 'undefined';
+  // На компьютере с меню слева — только то, чего в меню нет; на телефоне и планшете — все разделы,
+  // сгруппированные так же, как меню слева (Касса и смены, Журналы, Отчёты, Контрагенты, Компания…).
+  const side = document.body.classList.contains('ui-side') && typeof SIDE_KEYS !== 'undefined';
+  const groups = side ? MORE_GROUPS : phoneGroups();
+  $('#more-groups').innerHTML = kassa + groups.map(([group, items]) => {
     const visible = orderedItems(group, items).filter((it) => !(side && SIDE_KEYS.has(it[0]))).map(sectionView).filter((x) => canAny(x.right) && (!x.hidden || session.isOwner));
     if (!visible.length) return '';
     return `<section class="more-group">

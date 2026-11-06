@@ -73,14 +73,14 @@ async function renderGoods() {
     const open = x.type === 'sale' && gj.open.has(key);
     return `<tr class="jr-row ${x.status}" data-gj="${key}" tabindex="0">
       <td class="jr-st ${x.status}" title="${st}">${mark}</td>
-      <td><span class="jr-tag ${cls}">${label} <b>№${esc(String(x.number ?? x.id))}</b></span>${x.direction === 'in' ? ' <span class="pcat">входящее</span>' : ''}${x.note ? `<div class="pcat">${esc(x.note)}</div>` : ''}</td>
-      <td>${jrTime(x.at)}</td>
-      <td class="num">${int(x.lines)}</td>
-      <td class="num">${x.discount ? '<span class="jr-disc" title="Со скидкой">%</span> ' : ''}${money2(x.total)}</td>
-      <td class="num">${x.paid ? money2(x.paid) : '—'}${x.methods ? `<div class="pcat">${esc(x.methods)}</div>` : ''}</td>
-      <td>${esc(x.sender)}</td>
-      <td>${esc(x.recipient)}</td>
-      <td>${esc(x.author || '—')}${x.register ? `<div class="pcat">${esc(x.register)}</div>` : ''}</td>
+      <td class="jr-doc"><span class="jr-tag ${cls}">${label} <b>№${esc(String(x.number ?? x.id))}</b></span>${x.direction === 'in' ? ' <span class="pcat">входящее</span>' : ''}${x.note ? `<div class="pcat">${esc(x.note)}</div>` : ''}</td>
+      <td data-l="Время">${jrTime(x.at)}</td>
+      <td class="num" data-l="Позиций">${int(x.lines)}</td>
+      <td class="num jr-sum" data-l="Сумма">${x.discount ? '<span class="jr-disc" title="Со скидкой">%</span> ' : ''}${money2(x.total)}</td>
+      <td class="num" data-l="Оплачено">${x.paid ? money2(x.paid) : '—'}${x.methods ? `<div class="pcat">${esc(x.methods)}</div>` : ''}</td>
+      <td data-l="Отправитель">${esc(x.sender)}</td>
+      <td data-l="Получатель">${esc(x.recipient)}</td>
+      <td data-l="Автор">${esc(x.author || '—')}${x.register ? `<div class="pcat">${esc(x.register)}</div>` : ''}</td>
     </tr>${open ? `<tr class="jr-items"><td></td><td colspan="8"><ul>${x.items.map((i) => `<li><span>${esc(i.name)}</span><span class="num">${qtyFmt.format(i.qty)} × ${money2(i.price)} = ${money2(i.qty * i.price)}</span></li>`).join('')}</ul></td></tr>` : ''}`;
   }, 9) : '<tr><td colspan="9" class="empty">За этот период ничего нет</td></tr>';
 }
@@ -128,14 +128,14 @@ async function renderCashflow() {
     const [mark, st] = x.status === 'refunded' ? ['↩', 'Чек возвращён — деньги не учитываются'] : ['✓', 'Проведён'];
     return `<tr class="jr-row ${x.status}" ${x.src === 'doc' && jrHere(x) ? `data-mj-doc="${x.ref}" tabindex="0"` : ''}>
       <td class="jr-st ${x.status}" title="${st}">${mark}</td>
-      <td><span class="jr-tag ${x.dir}">${x.dir === 'in' ? 'Приход' : 'Расход'}</span>${what(x) ? ` <span class="pcat">${esc(what(x))}</span>` : ''}${x.note ? `<div class="pcat">${esc(x.note)}</div>` : ''}</td>
-      <td>${jrTime(x.at)}</td>
-      <td class="num pos-text">${x.dir === 'in' ? money2(x.amount) : '—'}</td>
-      <td class="num neg">${x.dir === 'out' ? money2(x.amount) : '—'}</td>
-      <td>${esc(x.counterparty || '—')}</td>
-      <td>${esc(x.account || '—')}${x.shop && mj.shop === 'all' && jrMulti() ? `<div class="pcat">${esc(x.shop)}</div>` : ''}</td>
-      <td>${esc(x.category)}</td>
-      <td>${esc(x.author || '—')}</td>
+      <td class="jr-doc"><span class="jr-tag ${x.dir}">${x.dir === 'in' ? 'Приход' : 'Расход'}</span>${what(x) ? ` <span class="pcat">${esc(what(x))}</span>` : ''}${x.note ? `<div class="pcat">${esc(x.note)}</div>` : ''}</td>
+      <td data-l="Время">${jrTime(x.at)}</td>
+      <td class="num pos-text jr-sum ${x.dir === 'in' ? '' : 'jr-empty'}" data-l="Приход">${x.dir === 'in' ? money2(x.amount) : '—'}</td>
+      <td class="num neg jr-sum ${x.dir === 'out' ? '' : 'jr-empty'}" data-l="Расход">${x.dir === 'out' ? money2(x.amount) : '—'}</td>
+      <td data-l="Контрагент">${esc(x.counterparty || '—')}</td>
+      <td data-l="Счёт">${esc(x.account || '—')}${x.shop && mj.shop === 'all' && jrMulti() ? `<div class="pcat">${esc(x.shop)}</div>` : ''}</td>
+      <td data-l="Категория">${esc(x.category)}</td>
+      <td data-l="Автор">${esc(x.author || '—')}</td>
     </tr>`;
   }, 9) : '<tr><td colspan="9" class="empty">За этот период движений денег нет</td></tr>';
 }
