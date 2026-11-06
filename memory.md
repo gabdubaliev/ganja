@@ -1008,3 +1008,4 @@
 184. В «+» (PLUS_GROUPS, more.js) группа «Расходы»: «Постоянный расход» и «Разовый расход» (право expenses) — переход в «Отчёты» и нажатие #np-fixed-add / #np-add.
 185. «Товары»: кнопка #products-cats-toggle «▾ Скрыть категории» / «▸ Категории: <выбранная>» сворачивает ряд категорий (#products-cats), выбор помнится в localStorage products.cats.
 186. Касса: кнопка #pos-cats-toggle «▾ Скрыть категории» / «▸ Категории: <выбранная>» над кружками категорий (pos.js renderPosCats, localStorage kassa.cats); при поиске кнопка скрыта.
+187. «Как у Apple» и «Панель» (ios-theme.css в конце): галочки-настройки (input[type=checkbox]) — переключатели iOS 40×24, вкл. #34c759, выкл. серый. Квадратиками остаются галочки выбора: td/th, .line-sel, .sale-check, [data-dv-check], [data-dv-group], .st-src, .tg-switch, [data-task], .no-switch.

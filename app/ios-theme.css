@@ -112,3 +112,19 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
 .qstep-btn, .mv-step { border: 0 !important; background: var(--ios-fill) !important; color: var(--series) !important; border-radius: 50% !important; }
 .field .qstep-btn { border-radius: 12px !important; }
 .scan-btn { border: 0 !important; background: var(--ios-fill) !important; }
+
+/* Галочки-настройки — переключатели как в iOS: включено — зелёный, выключено — серый.
+   Галочки выбора строк (в таблицах, чеки, позиции для скидки, документы) остаются квадратиками. */
+input[type="checkbox"]:not(td input, th input, .line-sel, .sale-check, [data-dv-check], [data-dv-group], .st-src input, .tg-switch input, [data-task], .no-switch) {
+  -webkit-appearance: none; appearance: none; position: relative; flex: none; box-sizing: border-box;
+  width: 40px; height: 24px; margin: 0; padding: 0; border: 0; border-radius: 999px; vertical-align: middle; cursor: pointer;
+  background: rgba(120, 120, 128, 0.32); transition: background-color .2s ease;
+}
+input[type="checkbox"]:not(td input, th input, .line-sel, .sale-check, [data-dv-check], [data-dv-group], .st-src input, .tg-switch input, [data-task], .no-switch)::before {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%;
+  background: #fff; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.22), 0 0 1px rgba(0, 0, 0, 0.12); transition: transform .2s ease;
+}
+input[type="checkbox"]:not(td input, th input, .line-sel, .sale-check, [data-dv-check], [data-dv-group], .st-src input, .tg-switch input, [data-task], .no-switch):checked { background: #34c759; }
+input[type="checkbox"]:not(td input, th input, .line-sel, .sale-check, [data-dv-check], [data-dv-group], .st-src input, .tg-switch input, [data-task], .no-switch):checked::before { transform: translateX(16px); }
+input[type="checkbox"]:not(td input, th input, .line-sel, .sale-check, [data-dv-check], [data-dv-group], .st-src input, .tg-switch input, [data-task], .no-switch):disabled { opacity: .45; cursor: default; }
+input[type="checkbox"]:not(td input, th input, .line-sel, .sale-check, [data-dv-check], [data-dv-group], .st-src input, .tg-switch input, [data-task], .no-switch):focus-visible { outline: 3px solid color-mix(in srgb, #34c759 45%, transparent); outline-offset: 2px; }
