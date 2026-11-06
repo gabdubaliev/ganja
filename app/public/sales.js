@@ -28,7 +28,7 @@ async function renderSales() {
   const [from, to] = salesPeriod();
   let list;
   try {
-    list = await api(`/api/sales?from=${from}&to=${to}${salesView.register ? `&register=${salesView.register.id}` : ''}`);
+    list = await api(`/api/sales?from=${from}&to=${to}${salesView.register ? `&register=${salesView.register.id}${salesView.register.branch ? `&branch=${salesView.register.branch}` : ''}` : ''}`);
   } catch (err) {
     return toast(err.message, 'error');
   }
@@ -36,10 +36,12 @@ async function renderSales() {
   // Журнал одной кассы (из «Кассы»): плашка с названием и «Все кассы».
   const rf = $('#sales-reg-filter');
   rf.hidden = !salesView.register;
-  if (salesView.register) rf.innerHTML = `<span>🖥️ Только касса <b>${esc(salesView.register.name)}</b></span> <button type="button" class="btn small ghost" id="sales-reg-clear">Все кассы ✕</button>`;
+  if (salesView.register) rf.innerHTML = `<span>🖥️ Только касса <b>${esc(salesView.register.name)}</b>${salesView.register.branch ? ` · магазин «${esc(salesView.register.shop)}» — только просмотр` : ''}</span> <button type="button" class="btn small ghost" id="sales-reg-clear">Все кассы ✕</button>`;
   const ids = new Set(list.map((s) => s.id));
   for (const id of salesView.selected) if (!ids.has(id)) salesView.selected.delete(id);
-  const del = canDeleteSales();
+  // Чеки другого магазина — только просмотр: без удаления и возврата.
+  const foreign = Boolean(salesView.register?.branch);
+  const del = canDeleteSales() && !foreign;
   const done = list.filter((s) => !s.refunded_at);
   // Деньгами — без части, оплаченной бонусами.
   const sum = done.reduce((s, x) => s + x.total - x.bonus_spent, 0);
@@ -95,7 +97,7 @@ async function renderSales() {
       ${s.payments?.length > 1 || s.payments?.some((p) => p.commission) ? `<p class="pick-meta">Оплата: ${s.payments.map((p) => `${esc(p.name)} ${money2(p.amount)}${p.commission ? ` (комиссия −${money2(p.commission)})` : ''}`).join(' + ')}</p>` : ''}
       ${s.discount ? `<p class="pick-meta">Скидка ${money2(s.discount)}${s.discount_reason ? ` · ${esc(s.discount_reason)}` : ''}</p>` : ''}
       ${s.customer_id ? `<p class="pick-meta">Покупатель: ${esc(s.customer_name || '+' + s.customer_phone)}${s.bonus_spent ? ` · оплачено бонусами ${money2(s.bonus_spent)}` : ''}${s.bonus_earned ? ` · начислено ${int(s.bonus_earned)} бонусов` : ''}</p>` : ''}
-      ${s.refunded_at ? `<p class="pick-meta">Возврат оформлен ${dateTime(s.refunded_at)}, товар вернулся на склад.</p>` : !session.can('refund') ? '' : `
+      ${s.refunded_at ? `<p class="pick-meta">Возврат оформлен ${dateTime(s.refunded_at)}, товар вернулся на склад.</p>` : !session.can('refund') || foreign ? '' : `
         <div class="doc-actions">
           <button type="button" class="btn small ${salesView.confirm === s.id ? 'danger' : 'ghost'}" data-refund="${s.id}">
             ${salesView.confirm === s.id ? 'Нажмите ещё раз, чтобы вернуть' : 'Оформить возврат'}

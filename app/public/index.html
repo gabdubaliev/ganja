@@ -180,6 +180,52 @@
   </section>
 </main>
 
+<main class="page" data-view="goods" hidden>
+  <header class="top">
+    <div class="title"><h1>Движение товара</h1><span class="source" id="gj-sub"></span></div>
+  </header>
+  <section class="panel jr-bar">
+    <div class="jr-create-wrap"><button type="button" class="btn primary" id="gj-create">+ Создать</button><div class="jr-menu" id="gj-create-menu" hidden></div></div>
+    <label class="jr-f jr-search"><span>Поиск</span><input id="gj-q" class="input" type="search" placeholder="Номер, комментарий, товар, контрагент" autocomplete="off"></label>
+    <div class="jr-f"><span>Период</span><div class="jr-period"><input id="gj-from" class="input" type="date" aria-label="С"><i>—</i><input id="gj-to" class="input" type="date" aria-label="По"><small id="gj-days"></small></div></div>
+    <label class="jr-f"><span>Статус</span><select id="gj-status" class="input"><option value="">Все</option><option value="posted">Проведён</option><option value="draft">Черновик</option><option value="refunded">Возвращён</option></select></label>
+    <label class="jr-f"><span>Тип</span><select id="gj-type" class="input"></select></label>
+    <label class="jr-f"><span>Оплата</span><select id="gj-pay" class="input"></select></label>
+  </section>
+  <section class="panel">
+    <div class="table-wrap">
+      <table class="jr-table">
+        <thead><tr><th>Статус</th><th>Документ</th><th>Время</th><th class="num">Позиций</th><th class="num">Сумма</th><th class="num">Оплачено</th><th>Отправитель</th><th>Получатель</th><th>Автор</th></tr></thead>
+        <tbody id="gj-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<main class="page" data-view="cashflow" hidden>
+  <header class="top">
+    <div class="title"><h1>Движение денег</h1><span class="source" id="mj-sub"></span></div>
+    <div class="jr-totals" id="mj-totals"></div>
+  </header>
+  <section class="panel jr-bar">
+    <div class="jr-create-wrap"><button type="button" class="btn primary" id="mj-create">+ Создать</button><div class="jr-menu" id="mj-create-menu" hidden><button type="button" data-mj-new="expense">💸 Расход</button><button type="button" data-mj-new="op">💰 Внесение, изъятие, перевод — в «Счетах»</button></div></div>
+    <label class="jr-f jr-search"><span>Поиск</span><input id="mj-q" class="input" type="search" placeholder="Номер, комментарий, товар, контрагент" autocomplete="off"></label>
+    <div class="jr-f"><span>Период</span><div class="jr-period"><input id="mj-from" class="input" type="date" aria-label="С"><i>—</i><input id="mj-to" class="input" type="date" aria-label="По"><small id="mj-days"></small></div></div>
+    <label class="jr-f"><span>Тип</span><select id="mj-type" class="input"><option value="">Приход и расход</option><option value="in">Приход</option><option value="out">Расход</option></select></label>
+    <label class="jr-f"><span>Статус</span><select id="mj-status" class="input"><option value="">Все</option><option value="done">Проведён</option><option value="refunded">Чек возвращён</option></select></label>
+    <label class="jr-f"><span>Счёт</span><select id="mj-account" class="input"></select></label>
+    <label class="jr-f"><span>Категория</span><select id="mj-category" class="input"></select></label>
+  </section>
+  <section class="panel">
+    <div class="table-wrap">
+      <table class="jr-table">
+        <thead><tr><th>Статус</th><th>Операция</th><th>Время</th><th class="num">Приход</th><th class="num">Расход</th><th>Контрагент</th><th>Счёт</th><th>Категория</th><th>Автор</th></tr></thead>
+        <tbody id="mj-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
 <main class="page" data-view="docs" hidden>
   <header class="top">
     <div class="title"><h1 id="docs-title">Документы</h1><span class="source" id="docs-sub"></span></div>
@@ -2341,6 +2387,7 @@
 <script src="refs.js"></script>
 <script src="branches.js"></script>
 <script src="sales.js"></script>
+<script src="journals.js"></script>
 <script src="codes.js"></script>
 <script src="print.js"></script>
 <script src="labels.js"></script>

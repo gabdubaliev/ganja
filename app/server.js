@@ -807,7 +807,7 @@ function moveRegister(id, from, to, body, user) {
   const cur = src.store.listRegisters({ all: true }).find((r) => r.id === Number(id));
   if (!cur) throw new UserError('Касса не найдена');
   const name = String(body.name || cur.name).trim() || cur.name;
-  src.store.detachRegister(cur.id, `перенесена в «${branchName(to)}»`);
+  src.store.detachRegister(cur.id);
   const made = dst.store.saveRegister(null, { name });
   if (body.active === false) dst.store.saveRegister(made.id, { name, active: false });
   return { ...made, branch_id: to, branch_name: branchName(to) };
@@ -1323,7 +1323,8 @@ const routes = [
   ['PUT', '/api/products/:id/gallery', (p, url, body) => store.saveGallery(p.id, body), 'photos'],
 
   // Без права «sales» сотрудник видит только свои чеки.
-  ['GET', '/api/sales', (p, url, body, user) => store.listSales({ ...range(url), userId: can(user, 'sales') ? null : user.id, registerId: url.searchParams.get('register') || null }), 'pos'],
+  // ?branch=N — чеки кассы другого магазина без переключения (владельцу), только для просмотра.
+  ['GET', '/api/sales', (p, url, body, user) => regIn(url.searchParams.get('branch'), user, () => store.listSales({ ...range(url), userId: can(user, 'sales') ? null : user.id, registerId: url.searchParams.get('register') || null })), 'pos'],
   ['POST', '/api/sales', (p, url, body, user) => {
     // Номер чека с кассы: тот же чек (повтор после обрыва связи, очередь без интернета) второй раз не пробивается.
     const clientId = typeof body.clientId === 'string' && /^[\w-]{8,64}$/.test(body.clientId) ? body.clientId : null;
@@ -1521,6 +1522,14 @@ const routes = [
   ['GET', '/api/cash-drawer', () => ({ one: store.setting('cash_one_drawer', '1') !== '0', registers: store.listRegisters().length }), ['settings', 'shifts', 'dashboard']],
   ['PUT', '/api/cash-drawer', (p, url, body) => { store.setSetting('cash_one_drawer', body.one ? '1' : '0'); return { one: Boolean(body.one) }; }, 'settings'],
   // ?branch=N — касса этого магазина; body.branch — перенести кассу в другой магазин.
+  ['GET', '/api/journal/goods', (p, url, body, user) => {
+    const kinds = Object.keys(store.docKinds).filter((k) => can(user, store.docKinds[k].right));
+    const names = Object.fromEntries(branchList().map((b) => [b.id, b.name]));
+    return store.goodsJournal(range(url), { shop: branchName(current().id), kinds, sales: can(user, 'sales') })
+      .map((r) => ({ ...r, sender: r.sender?.branch ? names[r.sender.branch] || 'Магазин' : r.sender, recipient: r.recipient?.branch ? names[r.recipient.branch] || 'Магазин' : r.recipient }));
+  }, ['sales', 'docs.sale', 'arrivals', 'refund', 'writeoff', 'stock', 'transfer']],
+  ['GET', '/api/journal/money', (p, url) => store.moneyJournal(range(url)), ['accounts', 'reports.money']],
+  ['DELETE', '/api/registers/:id', (p, url, body, user) => regIn(url.searchParams.get('branch'), user, () => store.detachRegister(p.id)), 'settings'],
   ['PUT', '/api/registers/:id', (p, url, body, user) => {
     const from = Number(url.searchParams.get('branch')) || current().id;
     const to = Number(body.branch) || from;

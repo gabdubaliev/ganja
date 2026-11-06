@@ -117,9 +117,8 @@ async function renderRegisters() {
       </dl>
       ${r.open.length ? r.open.map((s) => `<div class="reg-open"><span class="live-dot" aria-hidden="true"></span><b>${esc(s.user)}</b> на смене с ${new Date(s.since).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
         <div class="pcat">наличными ${money(s.cash)} · безнал ${money(s.card)}</div></div>`).join('') : '<p class="pick-meta">Сейчас смены нет</p>'}
-      <div class="acc-actions">${!r.branch_id || r.branch_id === curBranch
-        ? `<button type="button" class="btn small" data-reg-sales="${r.id}" data-reg-title="${esc(r.name)}">🧾 Журнал продаж кассы</button>`
-        : '<span class="pick-meta">Журнал продаж этой кассы — переключите магазин вверху</span>'}</div>
+      <div class="acc-actions"><button type="button" class="btn small" data-reg-sales="${i}">🧾 Журнал продаж кассы</button>
+        ${edit ? `<button type="button" class="btn small ghost danger-text" data-reg-del="${i}">🗑 Удалить</button>` : ''}</div>
     </article>`).join('');
 }
 
@@ -188,13 +187,27 @@ $('#reg-add').addEventListener('click', () => openRegDialog());
 $('#reg-list').addEventListener('click', (e) => {
   const b = e.target.closest('[data-reg-sales]');
   if (!b) return;
-  salesView.register = { id: Number(b.dataset.regSales), name: b.dataset.regTitle };
+  // Касса другого магазина — журнал открывается без переключения магазина (только просмотр).
+  const r = regList[Number(b.dataset.regSales)];
+  const cur = session.branch?.id || 1;
+  salesView.register = { id: r.id, name: r.name, branch: r.branch_id && r.branch_id !== cur ? r.branch_id : null, shop: r.branch_name || '' };
   if (location.hash === '#sales') renderSales(); else location.hash = 'sales';
 });
 $('#reg-list').addEventListener('click', (e) => {
   const b = e.target.closest('[data-reg-edit]');
   if (b) openRegDialog(regList[Number(b.dataset.regEdit)]);
+  const d = e.target.closest('[data-reg-del]');
+  if (d) deleteRegister(regList[Number(d.dataset.regDel)]);
 });
+// Удалить кассу: без смен — совсем; со сменами — пропадает из списков, а её смены и чеки остаются в истории.
+async function deleteRegister(r) {
+  if (!confirm(`Удалить кассу «${r.name}»${r.branch_name ? ` (${r.branch_name})` : ''}?\n\nСмены и чеки этой кассы останутся в журналах и отчётах.`)) return;
+  try {
+    await api(`/api/registers/${r.id}?branch=${r.branch_id || ''}`, { method: 'DELETE' });
+    toast(`Касса «${r.name}» удалена`);
+    renderRegisters();
+  } catch (err) { toast(err.message, 'error'); }
+}
 
 // «+ Создать счёт»: счёт для денег (прибыль, сейф, зарплата) — по желанию и кнопкой оплаты на кассе.
 $('#acc-new').addEventListener('click', () => {

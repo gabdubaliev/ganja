@@ -936,14 +936,14 @@ const SIDE_MENU = [
   ['products', 'Товары', 'box'],
   [null, 'Касса и смены', 'kassa', [['kassa', 'Открыть кассу'], ['shifts', 'Смены'], ['registers', 'Кассы']]],
   ['sales', 'Журнал продаж', 'receipt'],
-  ['money', 'Движение денег', 'money'],
-  ['docs', 'Движение товара', 'move'],
+  ['cashflow', 'Движение денег', 'money'],
+  ['goods', 'Движение товара', 'move'],
   ['reports', 'Отчёты', 'chart'],
   [null, 'Контрагенты', 'people', [['suppliers', 'Поставщики'], ['loyalty', 'Клиенты']]],
   ['shop', 'Интернет-витрина', 'shop'],
   ['orders', 'Заказы с витрины', 'cart'],
   ['crm', 'CRM — сделки', 'deal'],
-  [null, 'Все отчёты', 'docs', [['kpi', 'Зарплата и продавцы'], ['stockreport', 'Товарный отчёт'], ['deadstock', 'Неликвиды'], ['sizes', 'Заканчиваются размеры'], ['abc', 'ABC / XYZ анализ']]],
+  [null, 'Все отчёты', 'docs', [['money', 'ДДС и прибыль'], ['kpi', 'Зарплата и продавцы'], ['stockreport', 'Товарный отчёт'], ['deadstock', 'Неликвиды'], ['sizes', 'Заканчиваются размеры'], ['abc', 'ABC / XYZ анализ']]],
   [null, 'Компания', 'company', [['settings', 'Настройки компании'], ['users', 'Сотрудники'], ['branches', 'Магазины'], ['loyaltyset', 'Лояльность'], ['accounts', 'Счета']]],
   ['timesheet', 'Табель', 'calendar'],
   ['access', 'Права и доступ', 'lock'],
@@ -977,7 +977,7 @@ function renderSideMenu() {
   }
   const svg = (i) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SIDE_ICONS[i] || ''}</svg>`;
   const link = (key, label, icon, sub) => {
-    const cur = currentView === key || (key === 'docs' && currentView === 'doc');
+    const cur = currentView === key;
     const href = key === 'kassa' ? '/kassa.html" target="_blank' : `#${key}`;
     const badge = key === 'orders' ? ' <span class="badge" data-orders-badge hidden></span>' : '';
     return `<a href="${href}" class="${sub ? 'side-sub' : ''}" ${cur ? 'aria-current="page"' : ''}>${icon ? svg(icon) : ''}<span>${esc(label)}</span>${badge}</a>`;

@@ -503,7 +503,7 @@ function open(file) {
   addColumns('fines', [['kind', "TEXT NOT NULL DEFAULT 'fine'"]]);
   addColumns('shifts', [['register_id', 'INTEGER']]);
   // Свои счета у кассы: JSON-список id способов оплаты; NULL — все счета «на кассе».
-  addColumns('registers', [['methods', 'TEXT']]);
+  addColumns('registers', [['methods', 'TEXT'], ['deleted', 'INTEGER NOT NULL DEFAULT 0']]);
   // Смену не закрыли до полуночи — программа закрыла её сама (деньги никто не пересчитывал).
   addColumns('shifts', [['auto_closed', 'INTEGER NOT NULL DEFAULT 0']]);
   // Деньги в кассе по смене. Открытие: сколько насчитали (open_cash), сколько должно было быть (open_expected —
@@ -4201,7 +4201,86 @@ function createStore(file) {
 
     /* ---------- Кассы ---------- */
     listRegisters({ all = false } = {}) {
-      return db.prepare(`SELECT * FROM registers ${all ? '' : 'WHERE active = 1'} ORDER BY sort, id`).all().map((r) => ({ ...r, active: Boolean(r.active) }));
+      return db.prepare(`SELECT * FROM registers WHERE deleted = 0 ${all ? '' : 'AND active = 1'} ORDER BY sort, id`).all().map((r) => ({ ...r, active: Boolean(r.active) }));
+    },
+
+    /* ---------- Журналы «Движение товара» и «Движение денег» ---------- */
+    // Движение товара: чеки кассы и все документы за период, новые сверху. shop — название этого магазина.
+    // Проведённая продажа через админ-панель уже есть как чек — её документ не дублируем.
+    goodsJournal({ from, to }, { shop = 'Магазин', kinds = null, sales = true } = {}) {
+      const rows = [];
+      if (sales) {
+        const list = db.prepare(`SELECT s.id, s.created_at, s.total, s.discount, s.refunded_at, s.user_name, s.bonus_spent,
+            COALESCE(NULLIF(c.name, ''), c.phone) AS customer, r.name AS register,
+            (SELECT COUNT(*) FROM sale_items i WHERE i.sale_id = s.id) AS lines,
+            (SELECT COALESCE(SUM(amount), 0) FROM sale_payments p WHERE p.sale_id = s.id) AS paid,
+            (SELECT GROUP_CONCAT(method_name, ', ') FROM sale_payments p WHERE p.sale_id = s.id) AS methods
+          FROM sales s LEFT JOIN customers c ON c.id = s.customer_id LEFT JOIN shifts sh ON sh.id = s.shift_id LEFT JOIN registers r ON r.id = sh.register_id
+          WHERE s.created_at >= ? AND s.created_at < ? ORDER BY s.created_at DESC LIMIT 2000`).all(from, to);
+        const items = db.prepare('SELECT name, qty, price FROM sale_items WHERE sale_id = ?');
+        for (const x of list) {
+          rows.push({ type: 'sale', id: x.id, number: x.id, at: x.created_at, status: x.refunded_at ? 'refunded' : 'posted', lines: x.lines, total: round2(x.total),
+            paid: round2(x.paid), discount: round2(x.discount || 0), methods: x.methods || '', sender: shop, recipient: x.customer || 'Розничный покупатель',
+            author: x.user_name || '', register: x.register || '', items: items.all(x.id) });
+        }
+      }
+      const docs = db.prepare(`SELECT d.*, (SELECT COUNT(*) FROM doc_items i WHERE i.doc_id = d.id) AS lines,
+          COALESCE(sp.name, d.supplier_name) AS supplier, COALESCE(NULLIF(c.name, ''), c.phone) AS customer, m.name AS method
+        FROM docs d LEFT JOIN suppliers sp ON sp.id = d.supplier_id LEFT JOIN customers c ON c.id = d.customer_id LEFT JOIN payment_methods m ON m.id = d.method_id
+        WHERE d.doc_date >= ? AND d.doc_date < ? ORDER BY d.doc_date DESC LIMIT 2000`).all(from, to);
+      for (const d of docs) {
+        if (kinds && !kinds.includes(d.kind)) continue;
+        if (d.kind === 'sale' && d.sale_id && sales) continue;
+        const money = ['sale', 'return'].includes(d.kind);
+        const total = d.kind === 'inventory' ? round2((d.surplus_cost || 0) - (d.shortage_cost || 0)) : round2(money ? d.total : d.total_cost || d.total);
+        const ends = {
+          sale: [shop, d.customer || 'Розничный покупатель'], return: [d.customer || 'Розничный покупатель', shop], purchase: [d.supplier || 'Поставщик', shop],
+          receipt: ['—', shop], writeoff: [shop, 'Списание'], inventory: [shop, shop],
+          transfer: d.direction === 'in' ? [{ branch: d.branch_from }, shop] : [shop, { branch: d.branch_to }],
+        }[d.kind] || [shop, '—'];
+        rows.push({ type: d.kind, id: d.id, number: d.number, at: d.doc_date, status: d.status, lines: d.lines, total,
+          paid: d.method_id && ['purchase', 'sale', 'return'].includes(d.kind) && d.status === 'posted' ? round2(d.total) : 0, methods: d.method || '',
+          sender: ends[0], recipient: ends[1], author: d.created_by || '', note: d.note || '', direction: d.direction || '' });
+      }
+      return rows.sort((a, b) => b.at - a.at);
+    },
+
+    // Движение денег: каждая сумма, пришедшая на счёт или ушедшая с него, — как в остатках «Счетов».
+    moneyJournal({ from, to }) {
+      const rows = [];
+      const push = (r) => rows.push({ ...r, amount: round2(r.amount) });
+      for (const p of db.prepare(`SELECT p.id, p.amount, p.commission, p.method_name, s.id AS sale, s.created_at, s.refunded_at, s.user_name,
+          COALESCE(NULLIF(c.name, ''), c.phone) AS customer FROM sale_payments p JOIN sales s ON s.id = p.sale_id LEFT JOIN customers c ON c.id = s.customer_id
+          WHERE s.created_at >= ? AND s.created_at < ?`).all(from, to)) {
+        const status = p.refunded_at ? 'refunded' : 'done';
+        push({ key: `sp${p.id}`, dir: 'in', src: 'sale', ref: p.sale, at: p.created_at, amount: p.amount, counterparty: p.customer || 'Розничный покупатель', account: p.method_name,
+          category: 'Оплата от клиента', author: p.user_name || '', status });
+        if (p.commission) push({ key: `sc${p.id}`, dir: 'out', src: 'sale', ref: p.sale, at: p.created_at, amount: p.commission, counterparty: 'Банк', account: p.method_name, category: 'Комиссия банка', author: p.user_name || '', status });
+      }
+      for (const d of db.prepare(`SELECT d.id, d.kind, d.number, d.doc_date, d.total, d.created_by, d.note, m.name AS account,
+          COALESCE(sp.name, d.supplier_name) AS supplier, COALESCE(NULLIF(c.name, ''), c.phone) AS customer FROM docs d
+          LEFT JOIN payment_methods m ON m.id = d.method_id LEFT JOIN suppliers sp ON sp.id = d.supplier_id LEFT JOIN customers c ON c.id = d.customer_id
+          WHERE d.kind IN ('return', 'purchase') AND d.status = 'posted' AND d.method_id IS NOT NULL AND d.doc_date >= ? AND d.doc_date < ?`).all(from, to)) {
+        push({ key: `d${d.id}`, dir: 'out', src: 'doc', ref: d.id, number: d.number, kind: d.kind, at: d.doc_date, amount: d.total,
+          counterparty: d.kind === 'purchase' ? d.supplier || 'Поставщик' : d.customer || 'Розничный покупатель', account: d.account || '—',
+          category: d.kind === 'purchase' ? 'Оплата поставщику' : 'Возврат клиенту', author: d.created_by || '', note: d.note || '', status: 'done' });
+      }
+      const OPS = { deposit: 'Внесение денег', withdraw: 'Изъятие денег', transfer: 'Перевод между счетами', shift_diff: 'Корректировка баланса счёта', shift_start: 'Пересчёт кассы' };
+      for (const o of db.prepare(`SELECT o.*, m.name AS account FROM account_ops o LEFT JOIN payment_methods m ON m.id = o.method_id WHERE o.at >= ? AND o.at < ?`).all(from, to)) {
+        push({ key: `o${o.id}`, dir: o.amount < 0 ? 'out' : 'in', src: 'op', ref: o.id, at: o.at, amount: Math.abs(o.amount), counterparty: '—', account: o.account || '—',
+          category: OPS[o.kind] || o.kind, author: o.user_name || '', note: o.note || '', status: 'done' });
+      }
+      for (const e of db.prepare(`SELECT e.*, m.name AS account FROM expenses e LEFT JOIN payment_methods m ON m.id = e.method_id WHERE e.at >= ? AND e.at < ?`).all(from, to)) {
+        push({ key: `e${e.id}`, dir: 'out', src: 'expense', ref: e.id, at: e.at, amount: e.amount, counterparty: '—', account: e.account || '—',
+          category: e.category || 'Расход', author: e.user_name || '', note: e.note || '', status: 'done' });
+      }
+      for (const c of db.prepare(`SELECT cp.*, ct.number AS cert, u.name AS who FROM certificate_payments cp JOIN certificates ct ON ct.id = cp.certificate_id
+          LEFT JOIN users u ON u.id = cp.user_id WHERE cp.at >= ? AND cp.at < ?`).all(from, to)) {
+        push({ key: `c${c.id}`, dir: 'in', src: 'cert', ref: c.certificate_id, number: c.cert, at: c.at, amount: c.amount, counterparty: 'Покупатель сертификата', account: c.method_name,
+          category: 'Продажа сертификата', author: c.who || '', status: 'done' });
+        if (c.commission) push({ key: `cc${c.id}`, dir: 'out', src: 'cert', ref: c.certificate_id, at: c.at, amount: c.commission, counterparty: 'Банк', account: c.method_name, category: 'Комиссия банка', author: c.who || '', status: 'done' });
+      }
+      return rows.sort((a, b) => b.at - a.at).slice(0, 3000);
     },
 
     // Кассы с тем, кто сейчас на них работает, и выручкой за сегодня.
@@ -4222,15 +4301,16 @@ function createStore(file) {
       });
     },
 
-    // Касса уходит в другой магазин: без смен — удаляется, со сменами — отключается (история продаж остаётся).
-    detachRegister(id, note) {
+    // Удаление кассы (и перенос в другой магазин): без смен — удаляется совсем; со сменами — скрывается из списков,
+    // а смены и чеки остаются в истории под её названием.
+    detachRegister(id) {
       const cur = db.prepare('SELECT * FROM registers WHERE id = ?').get(Number(id));
       if (!cur) throw new UserError('Касса не найдена');
       if (db.prepare('SELECT 1 FROM shifts WHERE register_id = ? AND closed_at IS NULL').get(cur.id)) throw new UserError('На этой кассе открыта смена — сначала закройте её');
-      if (cur.active && db.prepare('SELECT COUNT(*) AS n FROM registers WHERE active = 1').get().n <= 1) throw new UserError('Это последняя касса магазина — сначала добавьте ему другую кассу');
-      if (db.prepare('SELECT 1 FROM shifts WHERE register_id = ?').get(cur.id)) {
-        db.prepare('UPDATE registers SET active = 0, name = ? WHERE id = ?').run(`${cur.name} (${note})`.slice(0, 60), cur.id);
-      } else db.prepare('DELETE FROM registers WHERE id = ?').run(cur.id);
+      if (cur.active && db.prepare('SELECT COUNT(*) AS n FROM registers WHERE active = 1 AND deleted = 0').get().n <= 1) throw new UserError('Это последняя касса магазина — сначала добавьте ему другую кассу');
+      if (db.prepare('SELECT 1 FROM shifts WHERE register_id = ?').get(cur.id)) db.prepare('UPDATE registers SET active = 0, deleted = 1 WHERE id = ?').run(cur.id);
+      else db.prepare('DELETE FROM registers WHERE id = ?').run(cur.id);
+      return cur;
     },
 
     saveRegister(id, input) {
@@ -4239,7 +4319,7 @@ function createStore(file) {
         const cur = db.prepare('SELECT * FROM registers WHERE id = ?').get(Number(id));
         if (!cur) throw new UserError('Касса не найдена');
         const active = input.active === undefined ? cur.active : input.active ? 1 : 0;
-        if (!active && cur.active && db.prepare('SELECT COUNT(*) AS n FROM registers WHERE active = 1').get().n <= 1) throw new UserError('Должна остаться хотя бы одна касса');
+        if (!active && cur.active && db.prepare('SELECT COUNT(*) AS n FROM registers WHERE active = 1 AND deleted = 0').get().n <= 1) throw new UserError('Должна остаться хотя бы одна касса');
         if (!active && db.prepare('SELECT 1 FROM shifts WHERE register_id = ? AND closed_at IS NULL').get(cur.id)) throw new UserError('На этой кассе открыта смена — сначала закройте её');
         // methods: список id счетов этой кассы; null — все счета «на кассе». Пустой список нельзя: кассе нечем принимать оплату.
         let methods = cur.methods;
