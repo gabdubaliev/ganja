@@ -654,9 +654,14 @@ $('#me-password').addEventListener('click', (e) => {
   const u = session.user || {};
   m.querySelector('.me-menu-who').textContent = `${u.name || u.email || ''}${session.roleName ? ' · ' + session.roleName(u.role) : ''}`;
   const r = e.currentTarget.getBoundingClientRect();
-  m.style.top = `${Math.round(r.bottom + 6)}px`;
-  m.style.right = `${Math.max(8, Math.round(window.innerWidth - r.right))}px`;
   m.hidden = false;
+  // Кнопка внизу (меню слева, касса) — окошко открывается над ней, иначе уходит за край экрана.
+  const below = r.bottom + 6 + m.offsetHeight <= window.innerHeight;
+  m.style.top = below ? `${Math.round(r.bottom + 6)}px` : 'auto';
+  m.style.bottom = below ? 'auto' : `${Math.round(window.innerHeight - r.top + 6)}px`;
+  const leftSide = r.left + r.width / 2 < window.innerWidth / 2;
+  m.style.left = leftSide ? `${Math.max(8, Math.round(r.left))}px` : 'auto';
+  m.style.right = leftSide ? 'auto' : `${Math.max(8, Math.round(window.innerWidth - r.right))}px`;
   m.dataset.open = '1';
 });
 function openProfile() {
@@ -902,8 +907,6 @@ function panelSidebar() {
     });
     addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K') && sideUi()) { e.preventDefault(); input.focus(); input.select(); } });
   }
-  // Категории с количеством товаров (в базе): нажать — товары этой категории.
-  if (!kassa && typeof catalog !== 'undefined') renderPanelCats();
 }
 // Меню слева: «Настройки» и выбор магазина на главной и в отчётах — справа от «День, Неделя, Месяц, Год».
 function placeNavUser() {
@@ -912,33 +915,6 @@ function placeNavUser() {
   const top = document.querySelector('main:not([hidden]) .home-top');
   const want = document.body.classList.contains('ui-side') && top ? top : document.querySelector('.nav-inner');
   if (want && u.parentElement !== want) want.append(u);
-}
-const PN_COLORS = ['#f5c84c', '#5fd3a2', '#6f9bff', '#ff7ab6', '#a78bfa', '#4fd1e0', '#ff9f5a'];
-async function renderPanelCats() {
-  if (!sideUi() || !session.can('products')) return;
-  if (!catalog.list.length) await catalog.load().catch(() => {});
-  const counts = new Map();
-  for (const p of catalog.list) if (!p.parent_id && p.category && !p.archived) { const top = p.category.split('/')[0].trim(); counts.set(top, (counts.get(top) || 0) + 1); }
-  const list = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 7);
-  let box = document.querySelector('.pn-cats');
-  if (!list.length) { box?.previousElementSibling?.remove(); box?.remove(); return; }
-  if (!box) {
-    const lab = document.createElement('div');
-    lab.className = 'pn-label';
-    lab.textContent = 'Категории';
-    box = document.createElement('div');
-    box.className = 'pn-cats';
-    document.querySelector('.nav-main').after(lab, box);
-    box.addEventListener('click', (e) => {
-      const b = e.target.closest('[data-pn-cat]');
-      if (!b || typeof productsView === 'undefined') return;
-      productsView.category = productsView.category === b.dataset.pnCat ? '' : b.dataset.pnCat;
-      if (location.hash !== '#products') location.hash = 'products'; else renderProducts();
-      renderPanelCats();
-    });
-  }
-  const cur = typeof productsView !== 'undefined' ? productsView.category : '';
-  box.innerHTML = list.map(([n, c], i) => `<button type="button" data-pn-cat="${esc(n)}" aria-pressed="${cur === n}"><i style="background:${PN_COLORS[i % PN_COLORS.length]}"></i><span>${esc(n)}</span><b>${c}</b></button>`).join('');
 }
 session.ready?.then?.(() => panelSidebar());
 matchMedia('(min-width: 1100px)').addEventListener?.('change', () => { panelSidebar(); if (typeof renderAll === 'function' && typeof state !== 'undefined' && state.data) renderAll(); });
