@@ -2448,8 +2448,9 @@ body.drawer-open { overflow: hidden; }
 /* Телефон: касса — тоже меню ☰ и «Обновить» вместо «Ещё»; без кнопки уведомлений в шапке (она в меню ☰). */
 @media (max-width: 640px) {
   .kassa .nav-inner > .logo { display: none !important; }
-  .nav-user:has(#bell) { display: none !important; }
 }
+/* Кнопки уведомлений в шапке и в меню слева нет — переключатель в «⚙️ Настройки» (и в меню ☰ на телефоне). */
+.nav-user:has(#bell) { display: none !important; }
 .sd-bell { width: 100%; justify-content: flex-start; margin-top: 6px; }
 .sd-bell[hidden] { display: none; }
 

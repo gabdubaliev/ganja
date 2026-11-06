@@ -637,6 +637,7 @@ $('#me-password').addEventListener('click', (e) => {
     m.setAttribute('role', 'menu');
     m.innerHTML = '<div class="me-menu-who"></div><button type="button" role="menuitem" data-me="profile">👤 Профиль</button>'
       + (session.isOwner ? '<button type="button" role="menuitem" data-me="owner">⚙️ Админ-панель</button><button type="button" role="menuitem" data-me="ui">✏️ Изменить интерфейс</button>' : '')
+      + '<button type="button" role="menuitem" data-me="bell" hidden></button>'
       + '<button type="button" role="menuitem" data-me="logout" class="danger-text">🚪 Выход</button>';
     document.body.append(m);
     m.addEventListener('click', (ev) => {
@@ -646,6 +647,7 @@ $('#me-password').addEventListener('click', (e) => {
       if (b.dataset.me === 'profile') openProfile();
       else if (b.dataset.me === 'owner') { if (document.body.classList.contains('kassa')) location.href = '/#owner'; else location.hash = '#owner'; }
       else if (b.dataset.me === 'ui') window.uiEditStart?.();
+      else if (b.dataset.me === 'bell') document.getElementById('bell')?.click();
       else $('#logout').click();
     });
     document.addEventListener('click', (ev) => { if (!ev.target.closest('#me-menu')) m.hidden = true; });
@@ -653,6 +655,10 @@ $('#me-password').addEventListener('click', (e) => {
   }
   if (!m.hidden && m.dataset.open === '1') { m.hidden = true; m.dataset.open = ''; return; }
   const u = session.user || {};
+  // Уведомления о продажах на этом устройстве — включить/выключить (раньше — кнопка 🔔 в шапке).
+  const bell = document.getElementById('bell'), mb = m.querySelector('[data-me="bell"]');
+  mb.hidden = !bell || bell.hidden;
+  if (bell && !bell.hidden) mb.textContent = bell.getAttribute('aria-pressed') === 'true' ? '🔔 Уведомления о продажах: вкл.' : '🔕 Уведомления о продажах: выкл.';
   m.querySelector('.me-menu-who').textContent = `${u.name || u.email || ''}${session.roleName ? ' · ' + session.roleName(u.role) : ''}`;
   const r = e.currentTarget.getBoundingClientRect();
   m.hidden = false;
