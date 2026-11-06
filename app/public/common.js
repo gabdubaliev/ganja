@@ -322,6 +322,7 @@ function route() {
   const navTarget = document.querySelector(`.nav a[href="#${target}"]`) ? target : IS_KASSA && target === 'sales' ? 'pos' : 'more';
   for (const a of document.querySelectorAll('.nav a[href^="#"]')) a.setAttribute('aria-current', a.getAttribute('href') === '#' + navTarget ? 'page' : 'false');
   views[target].show();
+  if (document.body.classList.contains('ui-side')) renderSideMenu();
   placeNavUser();
   applyScreenGuard();
 }
@@ -878,6 +879,7 @@ function panelSidebar() {
   document.body.classList.toggle('ui-side', sideUi());
   placeNavUser();
   if (!nav || !sideUi()) return;
+  renderSideMenu();
   const kassa = document.body.classList.contains('kassa');
   if (!document.querySelector('.pn-search')) {
     const box = document.createElement('label');
@@ -908,6 +910,89 @@ function panelSidebar() {
     addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K') && sideUi()) { e.preventDefault(); input.focus(); input.select(); } });
   }
 }
+/* ---------- Меню слева (компьютер): все разделы по порядку, с группами ---------- */
+// [раздел, название, значок] или [null, группа, значок, [[раздел, название], …]]. Пункт виден, если у сотрудника есть право на раздел.
+const SIDE_ICONS = {
+  home: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
+  box: '<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/>',
+  kassa: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M7 7V4h10v3M7 12h4M7 16h2M15 12h2M15 16h2"/>',
+  receipt: '<path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 7h6M9 11h6M9 15h4"/>',
+  money: '<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 10v4M18 10v4"/>',
+  move: '<path d="M4 7h13l-3-3M20 17H7l3 3"/>',
+  chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  people: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a5.5 5.5 0 0 1 3.5 6"/>',
+  shop: '<path d="M4 9h16l-1 11H5zM8 9V7a4 4 0 0 1 8 0v2"/>',
+  cart: '<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.5 12h12l2-8H6"/>',
+  deal: '<path d="m11 17 2 2a1 1 0 0 0 3-3"/><path d="m14 14 2.5 2.5a1 1 0 0 0 3-3l-3.9-3.9a3 3 0 0 0-4.2 0l-.9.9a1 1 0 0 1-3-3l2.8-2.8a5 5 0 0 1 5.9-.8l.5.3a2 2 0 0 0 1.4.2L21 4M3 4l1 9 5 5"/>',
+  docs: '<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>',
+  company: '<path d="M3 21h18M5 21V5a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v16M15 9h3a1 1 0 0 1 1 1v11M8 8h2M8 12h2M8 16h2"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  shield: '<path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/>',
+  more: '<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
+};
+const SIDE_MENU = [
+  ['home', 'Главная', 'home'],
+  ['products', 'Товары', 'box'],
+  [null, 'Касса и смены', 'kassa', [['kassa', 'Открыть кассу'], ['shifts', 'Смены'], ['registers', 'Кассы']]],
+  ['sales', 'Журнал продаж', 'receipt'],
+  ['money', 'Движение денег', 'money'],
+  ['docs', 'Движение товара', 'move'],
+  ['reports', 'Отчёты', 'chart'],
+  [null, 'Контрагенты', 'people', [['suppliers', 'Поставщики'], ['loyalty', 'Клиенты']]],
+  ['shop', 'Интернет-витрина', 'shop'],
+  ['orders', 'Заказы с витрины', 'cart'],
+  ['crm', 'CRM — сделки', 'deal'],
+  [null, 'Все отчёты', 'docs', [['kpi', 'Зарплата и продавцы'], ['stockreport', 'Товарный отчёт'], ['deadstock', 'Неликвиды'], ['sizes', 'Заканчиваются размеры'], ['abc', 'ABC / XYZ анализ']]],
+  [null, 'Компания', 'company', [['settings', 'Настройки компании'], ['users', 'Сотрудники'], ['branches', 'Магазины'], ['loyaltyset', 'Лояльность'], ['accounts', 'Счета']]],
+  ['timesheet', 'Табель', 'calendar'],
+  ['access', 'Права и доступ', 'lock'],
+  ['audit', 'Журнал событий', 'shield'],
+  ['more', 'Ещё', 'more'],
+];
+// Разделы, которые есть в меню слева, — в «Ещё» их не показываем (на компьютере).
+const SIDE_KEYS = new Set(SIDE_MENU.flatMap(([k, , , sub]) => (sub ? sub.map(([x]) => x) : [k])).filter((k) => k && k !== 'more'));
+const sideOk = (key) => {
+  if (key === 'kassa') return session.can('pos') && !sectionHidden('kassa');
+  const v = views[key];
+  return Boolean(v) && (v.right === null || v.right === '' || [v.right].flat().some((r) => session.can(r))) && !sectionHidden(key);
+};
+let sideOpen = (() => { try { return new Set(JSON.parse(localStorage.getItem('nav.open') || '[]')); } catch { return new Set(); } })();
+function renderSideMenu() {
+  const nav = document.querySelector('.nav-inner');
+  if (!nav || document.body.classList.contains('kassa')) return;
+  let box = document.querySelector('.nav-side');
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'nav-side';
+    document.querySelector('.nav-main').after(box);
+    box.addEventListener('click', (e) => {
+      const g = e.target.closest('[data-side-group]');
+      if (!g) return;
+      const name = g.dataset.sideGroup;
+      if (sideOpen.has(name)) sideOpen.delete(name); else sideOpen.add(name);
+      try { localStorage.setItem('nav.open', JSON.stringify([...sideOpen])); } catch { /* без памяти */ }
+      renderSideMenu();
+    });
+  }
+  const svg = (i) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SIDE_ICONS[i] || ''}</svg>`;
+  const link = (key, label, icon, sub) => {
+    const cur = currentView === key || (key === 'docs' && currentView === 'doc');
+    const href = key === 'kassa' ? '/kassa.html" target="_blank' : `#${key}`;
+    const badge = key === 'orders' ? ' <span class="badge" data-orders-badge hidden></span>' : '';
+    return `<a href="${href}" class="${sub ? 'side-sub' : ''}" ${cur ? 'aria-current="page"' : ''}>${icon ? svg(icon) : ''}<span>${esc(label)}</span>${badge}</a>`;
+  };
+  box.innerHTML = SIDE_MENU.map(([key, label, icon, sub]) => {
+    if (!sub) return sideOk(key) ? link(key, label, icon) : '';
+    const items = sub.filter(([k]) => sideOk(k));
+    if (!items.length) return '';
+    const open = sideOpen.has(label) || items.some(([k]) => k === currentView);
+    return `<button type="button" class="side-group" data-side-group="${esc(label)}" aria-expanded="${open}">${svg(icon)}<span>${esc(label)}</span><i aria-hidden="true">${open ? '▾' : '▸'}</i></button>`
+      + (open ? `<div class="side-items">${items.map(([k, l]) => link(k, l, null, true)).join('')}</div>` : '');
+  }).join('');
+  if (typeof setOrdersBadge === 'function' && session.newOrders !== undefined) setOrdersBadge(session.newOrders);
+}
+
 // Меню слева: «Настройки» и выбор магазина на главной и в отчётах — справа от «День, Неделя, Месяц, Год».
 function placeNavUser() {
   const u = document.getElementById('nav-user');

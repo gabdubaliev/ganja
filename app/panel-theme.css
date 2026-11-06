@@ -30,6 +30,7 @@
   .nav-main > a[aria-current="page"] { background: var(--pn-active) !important; color: var(--ink) !important; box-shadow: inset 0 0 0 1px var(--border); }
   .nav-main > a:hover { background: var(--hover) !important; color: var(--ink) !important; }
   .nav-main .badge { margin-left: auto !important; }
+  .nav-side a[aria-current="page"] { background: var(--pn-active) !important; color: var(--ink) !important; box-shadow: inset 0 0 0 1px var(--border); }
   .nav-main > .nav-plus { display: none !important; }
   .nav-kassa { color: var(--pn-accent) !important; }
   .nav-user { margin: 0 !important; order: 50; display: flex !important; flex-wrap: wrap; gap: 6px; }

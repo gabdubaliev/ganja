@@ -1296,7 +1296,7 @@ const routes = [
   ['PUT', '/api/products/:id/gallery', (p, url, body) => store.saveGallery(p.id, body), 'photos'],
 
   // Без права «sales» сотрудник видит только свои чеки.
-  ['GET', '/api/sales', (p, url, body, user) => store.listSales({ ...range(url), userId: can(user, 'sales') ? null : user.id }), 'pos'],
+  ['GET', '/api/sales', (p, url, body, user) => store.listSales({ ...range(url), userId: can(user, 'sales') ? null : user.id, registerId: url.searchParams.get('register') || null }), 'pos'],
   ['POST', '/api/sales', (p, url, body, user) => {
     // Номер чека с кассы: тот же чек (повтор после обрыва связи, очередь без интернета) второй раз не пробивается.
     const clientId = typeof body.clientId === 'string' && /^[\w-]{8,64}$/.test(body.clientId) ? body.clientId : null;
@@ -1510,7 +1510,18 @@ const routes = [
   }, ['dashboard', 'shifts']],
   // Расход из кассы (только наличные) — кассир: сумма и причина обязательны.
   ['POST', '/api/kassa/expense', (p, url, body, user) => store.addCashExpense(body, user), 'expenses.cash'],
-  ['GET', '/api/shifts', (p, url) => store.listShifts(range(url)), ['shifts', 'kpi']],
+  // ?branch=all — смены всех доступных магазинов (владельцу — всех), с названием магазина; ?branch=N — одного.
+  ['GET', '/api/shifts', (p, url, body, user) => {
+    const want = url.searchParams.get('branch');
+    if (!want) return store.listShifts(range(url));
+    const ids = user.role === 'owner' ? branchList().map((b) => b.id) : allowedBranches(user);
+    const names = Object.fromEntries(branchList().map((b) => [b.id, b.name]));
+    const pick = want === 'all' ? ids : ids.filter((id) => id === Number(want));
+    return pick.flatMap((id) => {
+      const ctx = contextOf(id);
+      return ctx ? ctx.store.listShifts(range(url)).map((s) => ({ ...s, branch_id: id, branch_name: names[id] })) : [];
+    }).sort((a, b) => b.opened_at - a.opened_at);
+  }, ['shifts', 'kpi']],
   ['POST', '/api/shifts', (p, url, body, user) => store.saveShift(null, body, user), 'shifts'],
   ['PUT', '/api/shifts/:id', (p, url, body, user) => store.saveShift(p.id, body, user), 'shifts'],
   ['DELETE', '/api/shifts/:id', (p) => store.deleteShift(p.id), 'shifts'],

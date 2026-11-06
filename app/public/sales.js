@@ -8,7 +8,7 @@ const SALES_RANGES = {
   week: ['7 дней', -6, 1],
   month: ['30 дней', -29, 1],
 };
-const salesView = { range: 'today', confirm: null, list: [], selected: new Set(), deleting: null };
+const salesView = { range: 'today', confirm: null, list: [], selected: new Set(), deleting: null, register: null };
 // Удалять можно в основной программе, если есть право; в окне кассы — нет.
 // Удалять продажи — только владелец и только в админ-панели (не в кассе).
 const canDeleteSales = () => !IS_KASSA && (session.isOwner || !session.auth);
@@ -28,11 +28,15 @@ async function renderSales() {
   const [from, to] = salesPeriod();
   let list;
   try {
-    list = await api(`/api/sales?from=${from}&to=${to}`);
+    list = await api(`/api/sales?from=${from}&to=${to}${salesView.register ? `&register=${salesView.register.id}` : ''}`);
   } catch (err) {
     return toast(err.message, 'error');
   }
   salesView.list = list;
+  // Журнал одной кассы (из «Кассы»): плашка с названием и «Все кассы».
+  const rf = $('#sales-reg-filter');
+  rf.hidden = !salesView.register;
+  if (salesView.register) rf.innerHTML = `<span>🖥️ Только касса <b>${esc(salesView.register.name)}</b></span> <button type="button" class="btn small ghost" id="sales-reg-clear">Все кассы ✕</button>`;
   const ids = new Set(list.map((s) => s.id));
   for (const id of salesView.selected) if (!ids.has(id)) salesView.selected.delete(id);
   const del = canDeleteSales();
@@ -221,4 +225,5 @@ $('#sales-list').addEventListener('click', async (e) => {
 });
 
 // В окне кассы раздел показывает свои чеки кассира, в программе — все чеки.
+document.addEventListener('click', (e) => { if (e.target.closest('#sales-reg-clear')) { salesView.register = null; renderSales(); } });
 views.sales = { show: () => { salesView.confirm = null; renderSales(); }, right: IS_KASSA ? 'pos' : 'sales' };

@@ -100,13 +100,22 @@ async function renderRegisters() {
     $('#reg-drawer-row').hidden = !edit;
     $('#reg-drawer').checked = d.one;
   }).catch(() => {});
+  const shopName = session.branch?.name || session.design?.name || 'Магазин';
   $('#reg-list').innerHTML = list.map((r) => `
-    <article class="acc-card ${r.active ? '' : 'off'}" data-reg="${r.id}">
+    <article class="acc-card reg-card ${r.active ? '' : 'off'}" data-reg="${r.id}">
       <div class="acc-head">${edit ? `<input class="input" value="${esc(r.name)}" data-reg-name aria-label="Название кассы">` : `<b>${esc(r.name)}</b>`}
-        ${edit ? `<label class="check"><input type="checkbox" data-reg-active ${r.active ? 'checked' : ''}> работает</label>` : ''}</div>
-      ${r.open.length ? r.open.map((s) => `<div class="reg-open"><span class="live-dot" aria-hidden="true"></span><b>${esc(s.user)}</b> с ${new Date(s.since).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+        <span class="reg-status ${r.active ? 'on' : ''}">${r.active ? 'Активна' : 'Отключена'}</span>
+        ${edit ? `<label class="check" title="Включить или отключить кассу"><input type="checkbox" data-reg-active ${r.active ? 'checked' : ''} aria-label="Касса работает"></label>` : ''}</div>
+      <div class="acc-balance num" title="Сколько наличных должно быть в денежном ящике">${r.balance === null || r.balance === undefined ? '—' : money(r.balance)}</div>
+      <dl class="acc-flows reg-info">
+        <dt>Магазин</dt><dd>🏬 ${esc(shopName)}</dd>
+        <dt>Счета на кассе</dt><dd>${r.methods?.length ? r.methods.map(esc).join(', ') : '—'}</dd>
+        <dt>Сегодня</dt><dd>${int(r.today.receipts)} ${plural(r.today.receipts, ['чек', 'чека', 'чеков'])} на ${money(r.today.revenue)}</dd>
+        <dt>Создана</dt><dd>${r.created_at ? new Date(r.created_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'}</dd>
+      </dl>
+      ${r.open.length ? r.open.map((s) => `<div class="reg-open"><span class="live-dot" aria-hidden="true"></span><b>${esc(s.user)}</b> на смене с ${new Date(s.since).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
         <div class="pcat">наличными ${money(s.cash)} · безнал ${money(s.card)}</div></div>`).join('') : '<p class="pick-meta">Сейчас смены нет</p>'}
-      <p class="pick-meta">Сегодня: ${int(r.today.receipts)} ${plural(r.today.receipts, ['чек', 'чека', 'чеков'])} на ${money(r.today.revenue)}</p>
+      <div class="acc-actions"><button type="button" class="btn small" data-reg-sales="${r.id}" data-reg-title="${esc(r.name)}">🧾 Журнал продаж кассы</button></div>
     </article>`).join('');
 }
 
@@ -120,6 +129,13 @@ $('#reg-add').addEventListener('click', async () => {
   const name = prompt('Название новой кассы, например «Касса 2»:');
   if (!name) return;
   try { await api('/api/registers', { method: 'POST', body: { name } }); toast('Касса добавлена'); renderRegisters(); } catch (err) { toast(err.message, 'error'); }
+});
+// «Журнал продаж кассы» — журнал продаж только с чеками этой кассы.
+$('#reg-list').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-reg-sales]');
+  if (!b) return;
+  salesView.register = { id: Number(b.dataset.regSales), name: b.dataset.regTitle };
+  if (location.hash === '#sales') renderSales(); else location.hash = 'sales';
 });
 $('#reg-list').addEventListener('change', async (e) => {
   const card = e.target.closest('[data-reg]');
@@ -154,5 +170,6 @@ $('#acc-new-form').addEventListener('submit', async (e) => {
   } catch (err) { showFormError('#an-error', err); }
 });
 
-views.accounts = { show: renderAccounts, right: 'accounts' };
+// Способы оплаты — это и есть счета: настраиваются здесь же (название, тип, комиссия, на кассе ли, порядок).
+views.accounts = { show: () => { renderAccounts(); if (session.can('settings')) renderPaymentMethods(); }, right: 'accounts' };
 views.registers = { show: renderRegisters, right: ['settings', 'shifts', 'dashboard'] };

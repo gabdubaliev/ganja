@@ -441,6 +441,7 @@ $('#pm-list').addEventListener('change', async (e) => {
     toast('Сохранено');
   } catch (err) { toast(err.message, 'error'); }
   renderPaymentMethods();
+  if (currentView === 'accounts') renderAccounts();
 });
 $('#pm-list').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-pm-move]');
@@ -452,4 +453,4 @@ $('#pm-list').addEventListener('click', async (e) => {
 });
 
 // Только «Курс доллара» (без права «Настройки») — на странице одна эта карточка.
-views.settings = { show: () => { renderSettings(); if (!session.can('settings')) return; renderPaymentMethods(); renderSms(); renderInstagram(); renderIgAuto(); renderWhatsapp(); }, right: ['settings', 'currency'] };
+views.settings = { show: () => { renderSettings(); if (!session.can('settings')) return; renderSms(); renderInstagram(); renderIgAuto(); renderWhatsapp(); }, right: ['settings', 'currency'] };

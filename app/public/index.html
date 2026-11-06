@@ -259,6 +259,22 @@
       <button type="button" class="btn primary" id="acc-new" data-can-any="settings accounts">+ Создать счёт</button></div>
   </header>
   <div class="acc-list" id="acc-list"></div>
+  <section class="panel" data-can="settings">
+    <div class="settings-form">
+      <div>
+        <h2>Настройка счетов — способы оплаты на кассе</h2>
+        <p class="sub">Каждый счёт — это и способ оплаты. Новый счёт — кнопкой «+ Создать счёт» вверху. Кнопки оплаты на кассе: наличные, банки (МБАНК, Оптима, Элсом…), QR, переводы — что угодно. Тип «Наличные» включает на кассе расчёт сдачи. Комиссия, % — сколько удерживает банк (например, М-Банк): касса и отчёты покажут сумму комиссии и сколько придёт на счёт. Выключенный способ пропадает с кассы, но остаётся в отчётах. Каким способом может принимать оплату каждый сотрудник — в его карточке («Сотрудники»).</p>
+      </div>
+      <form id="pm-add" class="pm-add" novalidate hidden>
+        <input name="name" class="input" placeholder="Например, МБАНК" autocomplete="off" aria-label="Название способа оплаты">
+        <select name="kind" class="input" aria-label="Тип"></select>
+        <input name="commission" class="input num" inputmode="decimal" placeholder="Комиссия, %" autocomplete="off" aria-label="Комиссия банка, %">
+        <label class="check"><input type="checkbox" name="pos" checked> на кассе</label>
+        <button type="submit" class="btn primary">Добавить</button>
+      </form>
+      <div id="pm-list" class="pm-list"></div>
+    </div>
+  </section>
   <section class="panel">
     <div class="panel-head"><div><h2>Внесения, изъятия и переводы</h2><p class="sub">Остаток счёта = начальный остаток + оплаты чеков − комиссия банка − возвраты − оплаченные закупки ± эти операции.</p></div></div>
     <div class="table-wrap">
@@ -309,6 +325,7 @@
     <div class="periods" id="sales-ranges" role="group" aria-label="Период"></div>
   </header>
   <section class="panel">
+    <div class="sales-reg-filter" id="sales-reg-filter" hidden></div>
     <div class="sales-summary" id="sales-summary"></div>
     <div class="sales-tools" id="sales-tools" hidden>
       <label class="check"><input type="checkbox" id="sales-all"> Выбрать все на экране</label>
@@ -1145,12 +1162,17 @@
   </header>
   <section class="panel period-bar">
     <div class="periods" id="shifts-ranges" role="group" aria-label="Период"></div>
+    <div class="shift-filters">
+      <select id="shifts-user" class="input" aria-label="Кассир"></select>
+      <select id="shifts-branch" class="input" aria-label="Магазин" hidden></select>
+      <select id="shifts-reg" class="input" aria-label="Касса"></select>
+    </div>
   </section>
   <section class="panel">
     <p class="sub">Кассир открывает и закрывает смену в окне кассы. Каждый день со сменой — один выход, за него начисляется ставка из карточки сотрудника. Забыли открыть или закрыть — исправьте здесь.</p>
     <div class="table-wrap">
       <table class="shifts-table">
-        <thead><tr><th>Сотрудник</th><th>Начало</th><th>Конец</th><th>Длительность</th><th>Чеков</th><th>Выручка</th><th>Наличные / карта</th><th>Деньги в кассе</th><th></th></tr></thead>
+        <thead><tr><th>Сотрудник</th><th>Касса</th><th>Начало</th><th>Конец</th><th>Длительность</th><th>Чеков</th><th>Выручка</th><th>Наличные / карта</th><th>Деньги в кассе</th><th></th></tr></thead>
         <tbody id="shifts-body"></tbody>
       </table>
     </div>
@@ -1382,10 +1404,10 @@
   </form>
 </dialog>
 
-<main class="page" data-view="loyalty" hidden>
+<main class="page" data-view="loyaltyset" hidden>
   <header class="top">
-    <div class="title"><h1>Покупатели</h1><span class="source" id="loyalty-summary"></span></div>
-    <div class="tools"><button type="button" class="btn primary" id="customer-add">Добавить покупателя</button></div>
+    <div class="title"><h1>Лояльность</h1><span class="source">накопительная система: бонусы с покупок</span></div>
+    <div class="tools"><a class="btn" href="#loyalty">⭐ Клиенты и их бонусы</a></div>
   </header>
   <section class="panel">
     <form id="loyalty-form" class="loyalty-rules" novalidate>
@@ -1398,6 +1420,13 @@
       <button type="submit" class="btn primary" data-can="loyalty">Сохранить правила</button>
     </form>
   </section>
+</main>
+
+<main class="page" data-view="loyalty" hidden>
+  <header class="top">
+    <div class="title"><h1>Покупатели</h1><span class="source" id="loyalty-summary"></span></div>
+    <div class="tools"><button type="button" class="btn primary" id="customer-add">Добавить покупателя</button></div>
+  </header>
   <section class="panel codes-panel" id="codes-panel" hidden>
     <div class="panel-head">
       <div><h2>🔑 Коды подтверждения для покупателей</h2>
@@ -1552,22 +1581,6 @@
         <div id="ia-log"></div>
       </div>
     </form>
-  </section>
-  <section class="panel" data-can="settings">
-    <div class="settings-form">
-      <div>
-        <h2>Способы оплаты</h2>
-        <p class="sub">Кнопки оплаты на кассе: наличные, банки (МБАНК, Оптима, Элсом…), QR, переводы — что угодно. Тип «Наличные» включает на кассе расчёт сдачи. Комиссия, % — сколько удерживает банк (например, М-Банк): касса и отчёты покажут сумму комиссии и сколько придёт на счёт. Выключенный способ пропадает с кассы, но остаётся в отчётах. Каким способом может принимать оплату каждый сотрудник — в его карточке («Сотрудники»).</p>
-      </div>
-      <form id="pm-add" class="pm-add" novalidate>
-        <input name="name" class="input" placeholder="Например, МБАНК" autocomplete="off" aria-label="Название способа оплаты">
-        <select name="kind" class="input" aria-label="Тип"></select>
-        <input name="commission" class="input num" inputmode="decimal" placeholder="Комиссия, %" autocomplete="off" aria-label="Комиссия банка, %">
-        <label class="check"><input type="checkbox" name="pos" checked> на кассе</label>
-        <button type="submit" class="btn primary">Добавить</button>
-      </form>
-      <div id="pm-list" class="pm-list"></div>
-    </div>
   </section>
   <section class="panel" data-can="settings">
     <form id="sms-form" class="settings-form" novalidate>

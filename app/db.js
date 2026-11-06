@@ -2822,11 +2822,14 @@ function createStore(file) {
     },
 
     // userId — показать только чеки этого сотрудника.
-    listSales({ from, to, limit = 200, userId = null }) {
+    listSales({ from, to, limit = 200, userId = null, registerId = null }) {
+      // registerId — только чеки смен этой кассы (журнал продаж кассы).
+      const reg = registerId ? Number(registerId) : null;
       const sales = db.prepare(`
         SELECT s.*, c.name AS customer_name, c.phone AS customer_phone FROM sales s LEFT JOIN customers c ON c.id = s.customer_id
         WHERE s.created_at >= ? AND s.created_at < ? AND (? IS NULL OR s.user_id = ?)
-        ORDER BY s.created_at DESC LIMIT ?`).all(from, to, userId, userId, limit);
+          AND (? IS NULL OR s.shift_id IN (SELECT id FROM shifts WHERE register_id = ?))
+        ORDER BY s.created_at DESC LIMIT ?`).all(from, to, userId, userId, reg, reg, limit);
       const items = db.prepare('SELECT product_id, name, qty, price FROM sale_items WHERE sale_id = ?');
       const parts = db.prepare('SELECT method_name AS name, kind, amount, commission FROM sale_payments WHERE sale_id = ?');
       return sales.map((s) => ({ ...s, items: items.all(s.id), payments: parts.all(s.id) }));
@@ -4198,11 +4201,16 @@ function createStore(file) {
     registersOverview() {
       const d = new Date();
       const from = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+      // Счета на кассе: способы оплаты, которыми кассир принимает деньги (общие для всех касс магазина).
+      const methods = db.prepare('SELECT name FROM payment_methods WHERE active = 1 AND pos <> 0 ORDER BY sort, id').all();
       return this.listRegisters({ all: true }).map((r) => {
         const open = db.prepare('SELECT id FROM shifts WHERE register_id = ? AND closed_at IS NULL ORDER BY opened_at').all(r.id).map((x) => this.getShift(x.id));
         const today = db.prepare(`SELECT COUNT(DISTINCT s.id) AS receipts, COALESCE(SUM(s.total), 0) AS revenue FROM sales s JOIN shifts sh ON sh.id = s.shift_id
           WHERE sh.register_id = ? AND s.refunded_at IS NULL AND s.created_at >= ?`).get(r.id, from);
-        return { ...r, open: open.map((s) => ({ user: s.user_name, since: s.opened_at, revenue: s.revenue, cash: s.cash, card: s.card })), today: { receipts: today.receipts, revenue: round2(today.revenue) } };
+        // Деньги в ящике: идёт смена — сколько должно быть сейчас; нет — что оставили при закрытии ± движения после.
+        const balance = open.length ? this.expectedDrawerCash(open[0]) : this.expectedOpenCash(r.id);
+        return { ...r, open: open.map((s) => ({ user: s.user_name, since: s.opened_at, revenue: s.revenue, cash: s.cash, card: s.card })), today: { receipts: today.receipts, revenue: round2(today.revenue) },
+          balance, methods: methods.map((m) => m.name) };
       });
     },
 

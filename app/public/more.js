@@ -21,7 +21,8 @@ const MORE_GROUPS = [
     ['certificates', 'certificates', '🎁', 'Сертификаты', 'Подарочные сертификаты: кто купил, остаток, срок, история'],
     ['suppliers', ['arrivals', 'transfer', 'stock', 'writeoff'], '🏭', 'Поставщики', 'Контакты, ИНН, закупки по каждому'],
     ['users', 'staff', '👥', 'Сотрудники', 'Роли, права, ставка за смену, процент'],
-    ['accounts', 'accounts', '💰', 'Счета', 'Сколько денег в кассе и на счетах, внесение, изъятие, инкассация'],
+    ['accounts', 'accounts', '💰', 'Счета', 'Счета и способы оплаты: сколько денег в кассе и на счетах, внесение, изъятие, кнопки оплаты на кассе'],
+    ['loyaltyset', 'loyalty', '🎯', 'Лояльность', 'Накопительная система: сколько бонусов с покупки, сколько можно оплатить, скидка в день рождения'],
     ['branches', ['settings', 'staff', 'transfer'], '🏬', 'Магазины', 'Филиалы: у каждого свои товары, сотрудники и кассы'],
     ['registers', ['settings', 'shifts', 'dashboard'], '🖥️', 'Кассы', 'Рабочие места, кто сейчас на кассе, выручка за день'],
   ]],
@@ -42,7 +43,7 @@ const MORE_GROUPS = [
   ]],
   ['Отчёты', [
     ['reports', 'dashboard', '📈', 'Отчёты', 'Расходы и чистая прибыль, топ товаров и сотрудников, ABC / XYZ матрица, товары и остатки — за период, как на главной'],
-    ['kpi', ['kpi', 'salary'], '📊', 'Отчёты', 'Зарплата с 1 по 15 и с 16 по конец месяца, топ продавцов, хиты товаров'],
+    ['kpi', ['kpi', 'salary'], '📊', 'Зарплата и продавцы', 'Зарплата с 1 по 15 и с 16 по конец месяца, топ продавцов, хиты товаров'],
     ['money', 'reports.money', '💹', 'ДДС и прибыль', 'Сколько денег пришло и ушло по месяцам, по статьям; выручка, расходы и чистая прибыль'],
     ['stockreport', 'reports.stock', '📦', 'Товарный отчёт', 'Остаток на начало, приход, расход, остаток на конец; остатки на любую дату'],
     ['deadstock', 'reports.stock', '🐌', 'Неликвиды', 'Что не продаётся 30, 60, 90 дней, сколько денег в этом лежит; уценка и ценники'],
@@ -51,11 +52,11 @@ const MORE_GROUPS = [
   ]],
   ['Управление', [
     ['access', 'staff', '🔐', 'Права и доступ', 'Все сотрудники и права одной таблицей: дать или убрать право сразу многим'],
-    ['audit', ['audit', 'undo.own'], '🛡️', 'Журнал действий', 'Входы, попытки входа и все изменения; отмена изменений'],
+    ['audit', ['audit', 'undo.own'], '🛡️', 'Журнал событий', 'Входы, попытки входа и все изменения; отмена изменений'],
     ['design', 'design', '🎨', 'Оформление', 'Название, цвета, шрифт, свой CSS'],
     ['automation', 'automation', '🤖', 'Автоматика', 'Отчёты в Telegram по расписанию и автоуценка неликвидов — без вашего участия'],
     ['print', 'print.design', '🖨️', 'Чеки и этикетки', 'Конструктор чека покупателю и этикеток на товар: что печатать, размер, шрифт'],
-    ['settings', ['settings', 'currency'], '⚙️', 'Настройки', 'Уведомления в Telegram, курс доллара, способы оплаты'],
+    ['settings', ['settings', 'currency'], '⚙️', 'Настройки компании', 'Уведомления в Telegram, курс доллара, SMS, Instagram, WhatsApp'],
   ]],
 ];
 
@@ -88,7 +89,9 @@ function renderMore() {
   // «Касса» — первой плиткой (на телефоне её нет в нижней панели).
   const kassa = session.can('pos') ? `<section class="more-group"><div class="more-tiles"><a class="more-tile more-kassa" href="/kassa.html" target="_blank"><span class="more-icon" aria-hidden="true">🖥️</span><span class="more-text"><b>Касса</b><span>Окно кассира: продажа, смена, чеки</span></span></a></div></section>` : '';
   $('#more-groups').innerHTML = kassa + MORE_GROUPS.map(([group, items]) => {
-    const visible = orderedItems(group, items).map(sectionView).filter((x) => canAny(x.right) && (!x.hidden || session.isOwner));
+    // На компьютере с меню слева — только то, чего в меню нет.
+    const side = document.body.classList.contains('ui-side') && typeof SIDE_KEYS !== 'undefined';
+    const visible = orderedItems(group, items).filter((it) => !(side && SIDE_KEYS.has(it[0]))).map(sectionView).filter((x) => canAny(x.right) && (!x.hidden || session.isOwner));
     if (!visible.length) return '';
     return `<section class="more-group">
       <h2>${group}</h2>

@@ -5,6 +5,11 @@
 const loyaltyView = { query: '', list: [], customer: null };
 
 async function renderLoyalty() {
+  fillLoyaltyForm();
+  await renderCustomers();
+}
+// «Компания → Лояльность»: правила накопительной системы.
+function fillLoyaltyForm() {
   const f = $('#loyalty-form');
   const rules = session.loyalty;
   f.elements.enabled.checked = rules.enabled;
@@ -14,7 +19,6 @@ async function renderLoyalty() {
   f.elements.birthdayDays.value = rules.birthdayDays || '';
   // Управляющий видит правила, но менять их может только администратор.
   for (const el of f.elements) el.disabled = !session.can('loyalty');
-  await renderCustomers();
 }
 
 // Сегменты рейтинга. Каждый покупатель попадает в один — первый подходящий сверху.
@@ -297,6 +301,7 @@ $('#customers-search').addEventListener('input', (e) => {
 });
 
 views.loyalty = { show: () => { renderLoyalty(); renderCodes(); }, right: 'customers' };
+views.loyaltyset = { show: fillLoyaltyForm, right: ['loyalty', 'customers'] };
 
 // Ручная правка бонусов: показать покупателю в истории на сайте или скрыть.
 $('#customer-history').addEventListener('click', async (e) => {

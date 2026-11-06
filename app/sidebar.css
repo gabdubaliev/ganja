@@ -33,6 +33,18 @@
   .pn-cats button { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: 0; border-radius: 9px; background: none; color: var(--ink-2); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
   .pn-cats button:hover, .pn-cats button[aria-pressed="true"] { background: var(--hover); color: var(--ink); }
   .pn-cats i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  /* Полное меню разделов (база): вместо короткого верхнего меню. */
+  body.ui-side:not(.kassa) .nav-main { display: none !important; }
+  body.ui-side .nav-side { display: flex; flex-direction: column; gap: 1px; }
+  .nav-side > a, .nav-side .side-group, .nav-side .side-sub { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 0; border-radius: 9px; background: none; color: var(--ink-2); font: inherit; font-size: 14.5px; font-weight: 500; text-align: left; text-decoration: none; cursor: pointer; }
+  .nav-side svg { width: 17px; height: 17px; flex: none; opacity: .85; }
+  .nav-side > a:hover, .nav-side .side-group:hover, .nav-side .side-sub:hover { background: var(--hover); color: var(--ink); }
+  .nav-side a[aria-current="page"] { background: var(--series-soft); color: var(--series); }
+  .nav-side .side-group i { margin-left: auto; font-style: normal; font-size: 11px; color: var(--muted); }
+  .nav-side .side-items { display: grid; gap: 1px; margin: 0 0 4px; }
+  .nav-side .side-sub { padding: 7px 10px 7px 37px; font-size: 14px; }
+  .nav-side .badge { margin-left: auto; }
+  .nav-side span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .nav-user:has(#bell) .btn { width: auto !important; }
   #screen-guard { left: 248px; }
 }

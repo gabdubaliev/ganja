@@ -2,7 +2,7 @@
 
 // Смены и штрафы сотрудников.
 
-const shiftsView = { range: 'half', list: [], editing: null };
+const shiftsView = { range: 'half', list: [], editing: null, user: '', branch: '', reg: '' };
 const finesView = { range: 'half', list: [] };
 let staffList = [];
 
@@ -27,17 +27,30 @@ function duration(ms) {
 async function renderShifts() {
   renderRanges($('#shifts-ranges'), ['today', 'week', 'half', 'prevHalf', 'month', 'prevMonth'], shiftsView.range);
   const [from, to] = RANGES[shiftsView.range][1]();
+  // Несколько магазинов — фильтр «Магазин»: по умолчанию текущий, можно «Все магазины».
+  const multi = (session.branch?.allowed?.length || 0) > 1;
+  const curBranch = session.branch?.id || 1;
+  const branch = multi ? shiftsView.branch || String(curBranch) : '';
   try {
-    shiftsView.list = await api(`/api/shifts?from=${from}&to=${to}`);
+    shiftsView.list = await api(`/api/shifts?from=${from}&to=${to}${branch ? `&branch=${branch}` : ''}`);
   } catch (err) {
     return toast(err.message, 'error');
   }
-  const list = shiftsView.list;
-  const people = new Set(list.map((s) => s.user_id)).size;
-  $('#shifts-sub').textContent = `${list.length} ${plural(list.length, ['смена', 'смены', 'смен'])} · ${people} ${plural(people, ['сотрудник', 'сотрудника', 'сотрудников'])}`;
+  const opt = (v, label, cur) => `<option value="${esc(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(label)}</option>`;
+  const uniq = (key) => [...new Set(shiftsView.list.map((s) => s[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru'));
+  $('#shifts-user').innerHTML = opt('', 'Все кассиры', shiftsView.user) + uniq('user_name').map((n) => opt(n, n, shiftsView.user)).join('');
+  $('#shifts-reg').innerHTML = opt('', 'Все кассы', shiftsView.reg) + uniq('register_name').map((n) => opt(n, n, shiftsView.reg)).join('');
+  $('#shifts-branch').hidden = !multi;
+  if (multi) $('#shifts-branch').innerHTML = opt('all', 'Все магазины', branch) + session.branch.allowed.map((b) => opt(b.id, b.name, branch)).join('');
+  const list = shiftsView.list.filter((s) => (!shiftsView.user || s.user_name === shiftsView.user) && (!shiftsView.reg || s.register_name === shiftsView.reg));
+  const people = new Set(list.map((s) => `${s.branch_id || ''}:${s.user_id}`)).size;
+  const revenue = list.reduce((a, s) => a + (s.revenue || 0), 0);
+  $('#shifts-sub').textContent = `${list.length} ${plural(list.length, ['смена', 'смены', 'смен'])} · ${people} ${plural(people, ['сотрудник', 'сотрудника', 'сотрудников'])} · выручка ${money(revenue)}`;
+  // Исправлять можно смены текущего магазина (другой — переключите магазин вверху).
   const edit = session.can('shifts');
   $('#shifts-body').innerHTML = list.length ? list.map((s) => `<tr>
       <td><div class="pname">${esc(s.user_name)}</div>${s.note ? `<div class="pcat">${esc(s.note)}</div>` : ''}${s.edited_by ? `<div class="pcat">исправил: ${esc(s.edited_by)}</div>` : ''}</td>
+      <td>${esc(s.register_name || '—')}${s.branch_name && branch === 'all' ? `<div class="pcat">${esc(s.branch_name)}</div>` : ''}</td>
       <td>${dateTime(s.opened_at)}</td>
       <td>${s.closed_at ? dateTime(s.closed_at) : '<span class="seg-tag regular">идёт сейчас</span>'}</td>
       <td>${duration((s.closed_at || Date.now()) - s.opened_at)}</td>
@@ -45,8 +58,11 @@ async function renderShifts() {
       <td>${money(s.revenue)}</td>
       <td class="pcat">${money(s.cash)} / ${money(s.card)}</td>
       <td class="shift-cash">${shiftCashCell(s)}</td>
-      <td>${edit ? `<button type="button" class="btn small ghost" data-shift="${s.id}">Изменить</button>` : ''}</td>
-    </tr>`).join('') : '<tr><td colspan="9" class="empty">За этот период смен нет</td></tr>';
+      <td>${edit && (!s.branch_id || s.branch_id === curBranch) ? `<button type="button" class="btn small ghost" data-shift="${s.id}">Изменить</button>` : ''}</td>
+    </tr>`).join('') : '<tr><td colspan="10" class="empty">За этот период смен нет</td></tr>';
+}
+for (const [id, key] of [['#shifts-user', 'user'], ['#shifts-reg', 'reg'], ['#shifts-branch', 'branch']]) {
+  $(id).addEventListener('change', (e) => { shiftsView[key] = e.target.value; renderShifts(); });
 }
 
 // Деньги в кассе: при открытии насчитали, при закрытии насчитали / сдали на счёт / оставили; расхождения красным.
@@ -112,7 +128,7 @@ $('#shift-cancel').addEventListener('click', () => $('#shift-dialog').close());
 $('#shift-add').addEventListener('click', () => openShiftDialog());
 $('#shifts-body').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-shift]');
-  if (btn) openShiftDialog(shiftsView.list.find((s) => s.id === Number(btn.dataset.shift)));
+  if (btn) openShiftDialog(shiftsView.list.find((s) => s.id === Number(btn.dataset.shift) && (!s.branch_id || s.branch_id === (session.branch?.id || 1))));
 });
 $('#shifts-ranges').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-range]');
