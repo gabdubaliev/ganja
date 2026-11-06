@@ -1110,3 +1110,17 @@ function placeNavUser() {
 }
 session.ready?.then?.(() => panelSidebar());
 matchMedia('(min-width: 1100px)').addEventListener?.('change', () => { panelSidebar(); if (typeof renderAll === 'function' && typeof state !== 'undefined' && state.data) renderAll(); });
+
+/* ---------- Нижняя панель кассы: каждая кнопка (кроме «+») — открыть раздел и обновить страницу ---------- */
+// Как «Главная» в базе: свежие остатки, смена и заказы без ручного обновления.
+if (document.body.classList.contains('kassa')) {
+  document.querySelector('.nav-main')?.addEventListener('click', (e) => {
+    const a = e.target.closest('a[href^="#"]');
+    if (!a || e.defaultPrevented || e.metaKey || e.ctrlKey) return;
+    const h = a.getAttribute('href');
+    if (!h || h === '#') return;
+    e.preventDefault();
+    if (location.hash !== h) history.replaceState(null, '', h);
+    location.reload();
+  });
+}
