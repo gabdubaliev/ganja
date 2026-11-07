@@ -2349,9 +2349,9 @@ function createStore(file) {
         };
         switch (action) {
           case 'delete': {
-            const used = db.prepare('SELECT 1 FROM sale_items WHERE product_id = ? UNION SELECT 1 FROM arrival_items WHERE product_id = ? UNION SELECT 1 FROM order_items WHERE product_id = ? LIMIT 1');
+            const used = db.prepare('SELECT 1 FROM sale_items WHERE product_id = ? UNION SELECT 1 FROM arrival_items WHERE product_id = ? UNION SELECT 1 FROM order_items WHERE product_id = ? UNION SELECT 1 FROM doc_items WHERE product_id = ? LIMIT 1');
             for (const p of list) {
-              if (used.get(p.id, p.id, p.id)) {
+              if (used.get(p.id, p.id, p.id, p.id)) {
                 db.prepare('UPDATE products SET deleted = 1, archived = 1 WHERE id = ?').run(p.id);
               } else {
                 db.prepare('DELETE FROM product_photos WHERE product_id = ?').run(p.id);
@@ -2447,6 +2447,62 @@ function createStore(file) {
       db.prepare('UPDATE products SET name = ?, barcode = ?, code = ?, price = ?, cost = ?, options = ?, archived = ?, purchase = ?, article = ?, supplier_id = ?, discount = ? WHERE id = ?')
         .run(f.name, f.barcode, f.code || current.code || nextCode(db), f.price, f.cost, JSON.stringify(opts), archived, f.purchase, f.article, f.supplier_id, f.discount, current.id);
       return getProduct(current.id);
+    },
+
+    // Окно «Модификации» как в переносе из CloudShop — для уже заведённого товара: цвета × размеры и количество по ячейкам.
+    // Новые ячейки → новые модификации (свой штрихкод). Убранные ячейки → модификации удаляются (история продаж остаётся).
+    // Разница в остатках проводится документом «Инвентаризация» — видна в «Движении товара».
+    // checkRemoved(list) — проверка снаружи (например, нет ли у убираемых модификаций остатка в других магазинах).
+    regridVariants(id, { colors = [], sizes = [], qty = {} } = {}, user = null, checkRemoved = null) {
+      const base = getProduct(id);
+      if (base.parent_id) throw new UserError('Откройте основной товар, а не модификацию');
+      const clean = (list, field, up) => {
+        const seen = new Set();
+        return (Array.isArray(list) ? list : []).map((x) => text(x, field, { max: 60 })).filter(Boolean)
+          .map((x) => (up ? x.toUpperCase() : x)).filter((x) => { const k = x.toLowerCase().replace(/ё/g, 'е'); if (seen.has(k)) return false; seen.add(k); return true; });
+      };
+      const cs = clean(colors, 'Цвет'), ss = clean(sizes, 'Размер', true);
+      if (!cs.length && !ss.length) throw new UserError('Отметьте цвета и/или размеры');
+      if (Math.max(1, cs.length) * Math.max(1, ss.length) > 300) throw new UserError('Слишком много модификаций: не больше 300');
+      const kids = childrenOf(base.id);
+      for (const k of kids) {
+        const other = Object.keys(JSON.parse(k.options || '{}')).filter((n) => n !== 'Цвет' && n !== 'Размер');
+        if (other.length) throw new UserError(`У модификации «${k.name}» есть свойство «${other[0]}» — такой товар правьте по одной модификации`);
+      }
+      const norm = (x) => String(x ?? '').toLowerCase().replace(/ё/g, 'е');
+      const nkey = (c, s) => `${norm(c)}\u0001${norm(s)}`;
+      const kidKey = (k) => { const o = JSON.parse(k.options || '{}'); return nkey(o['Цвет'], o['Размер']); };
+      const cells = [];
+      for (const c of cs.length ? cs : [null]) for (const sz of ss.length ? ss : [null]) {
+        const raw = qty?.[`${c ?? ''}\u0001${sz ?? ''}`];
+        cells.push({ c, s: sz, q: raw === undefined || raw === null || raw === '' ? 0 : number(raw, `Количество ${[c, sz].filter(Boolean).join(', ')}`, { min: 0 }) });
+      }
+      const opts = (x) => ({ ...(x.c ? { Цвет: x.c } : {}), ...(x.s ? { Размер: x.s } : {}) });
+      const keep = new Set(cells.map((x) => nkey(x.c, x.s)));
+      const removed = kids.filter((k) => !keep.has(kidKey(k)));
+      if (removed.length && checkRemoved) checkRemoved(removed);
+      return transaction(db, () => {
+        // Товар ещё без модификаций — как в окне товара: его остаток переходит в модификации.
+        if (!kids.length) {
+          const made = this.createVariants(base.id, { barcodes: true, variants: cells.map((x) => ({ options: opts(x), price: base.price, purchase: base.purchase, cost: base.cost, stock: x.q })) });
+          return { created: made.length, removed: 0, changed: 0, doc: null };
+        }
+        const have = new Map(kids.map((k) => [kidKey(k), k]));
+        const fresh = cells.filter((x) => !have.has(nkey(x.c, x.s)));
+        const proto = kids[0];
+        if (fresh.length) this.createVariants(base.id, { barcodes: true, variants: fresh.map((x) => ({ options: opts(x), price: proto.price, purchase: proto.purchase, cost: proto.cost, stock: 0 })) });
+        const now = new Map(childrenOf(base.id).map((k) => [kidKey(k), k]));
+        const items = [];
+        for (const x of cells) { const k = now.get(nkey(x.c, x.s)); if (k && round2(k.stock || 0) !== round2(x.q)) items.push({ productId: k.id, actual: x.q }); }
+        for (const k of removed) if (k.stock) items.push({ productId: k.id, actual: 0 });
+        let doc = null;
+        if (items.length) {
+          doc = this.saveDoc(null, { kind: 'inventory', items, note: `Цвета и размеры «${base.name}» изменены${removed.length ? `, убраны: ${removed.map((k) => Object.values(JSON.parse(k.options || '{}')).join(' ')).join(', ')}` : ''}` }, user);
+          doc = this.postDoc(doc.id, user);
+        }
+        for (const k of removed) db.prepare('UPDATE products SET deleted = 1, archived = 1 WHERE id = ?').run(k.id);
+        return { created: fresh.length, removed: removed.length, changed: items.length, doc: doc ? { id: doc.id, number: doc.number } : null };
+      });
     },
 
     // Создаёт модификации товара. variants — [{ options, price, cost, barcode, code, stock }].

@@ -1384,6 +1384,22 @@ const routes = [
   ['PUT', '/api/categories-order', (p, url, body) => store.sortCategories(body.ids), ['products', 'shop', 'categories']],
   // Картинка категории для витрины: загрузить (mime + data) или убрать (пустое тело).
   ['PUT', '/api/categories/:id/image', (p, url, body) => store.setCategoryImage(p.id, body.data ? store.addImage(body).id : null), ['products', 'shop', 'photos', 'categories']],
+  // Окно «Цвета и размеры» (как в переносе из CloudShop) для уже заведённого товара. Остатки меняются инвентаризацией.
+  ['POST', '/api/products/:id/regrid', (p, url, body, user) => {
+    if (auth.enabled && user && !can(user, 'stock')) throw new UserError('Менять остатки по размерам может сотрудник с правом «Инвентаризация» — попросите владельца');
+    const here = current();
+    return store.regridVariants(p.id, body, user, (removed) => {
+      // Убираемая модификация не должна числиться в других магазинах — иначе их остаток пропадёт.
+      for (const b of branchList()) {
+        if (b.id === here.id) continue;
+        const other = contextOf(b.id)?.store;
+        for (const k of removed) {
+          const same = other?.findSameProduct(k);
+          if (same && same.parent_id && Number(same.stock)) throw new UserError(`«${k.name}»: в магазине «${b.name}» остаток ${same.stock} шт. Сначала перенесите или спишите его там, потом убирайте этот размер`);
+        }
+      }
+    });
+  }, 'products'],
   ['POST', '/api/products/:id/variants', (p, url, body, user) => store.createVariants(p.id, { ...body, variants: Array.isArray(body.variants) ? body.variants.map((v) => stripCost(user, { ...v })) : body.variants }), 'products'],
   ['GET', '/api/barcode', () => ({ barcode: store.newBarcode() }), 'products'],
   ['GET', '/api/products/:id/info', (p, url, body, user) => {

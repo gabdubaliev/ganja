@@ -705,7 +705,10 @@ function openProductDialog(product = null, onSaved = null) {
 
 function renderVariantsList() {
   const kids = editingProduct ? catalog.children(editingProduct.id) : [];
-  $('#pf-variants-list').innerHTML = kids.length ? `
+  // То же окно, что в «Перенос из CloudShop»: снять лишние цвета/размеры, отметить нужные, разложить остаток.
+  const grid = editingProduct && typeof openProductGrid === 'function'
+    ? `<button type="button" class="btn small" id="pf-grid-open">🎨 Цвета и размеры${kids.length ? ' — изменить' : ''}</button>` : '';
+  $('#pf-variants-list').innerHTML = grid + (kids.length ? `
     <table class="variants-table">
       <thead><tr><th>Модификация</th><th>Штрихкод</th><th>Цена</th><th>Остаток</th><th></th></tr></thead>
       <tbody>${kids.map((k) => `<tr>
@@ -715,7 +718,7 @@ function renderVariantsList() {
         <td class="${k.stock !== null && k.stock <= 0 ? 'neg' : ''}">${k.stock === null ? '—' : qty(k.stock, k.unit)}</td>
         <td><button type="button" class="btn small ghost" data-variant-edit="${k.id}">Изменить</button></td>
       </tr>`).join('')}</tbody>
-    </table>` : '';
+    </table>` : '');
 }
 
 // Готовые значения свойства — галочками, чтобы не писать каждый раз заново:
@@ -884,6 +887,9 @@ $('#product-form').addEventListener('click', (e) => {
   if (del) {
     gen.options.splice(Number(del.dataset.genDel), 1);
     renderGenOptions();
+  } else if (e.target.closest('#pf-grid-open')) {
+    const done = productDialogDone;
+    openProductGrid(editingProduct, (fresh) => { $('#product-dialog').close(); if (fresh) openProductDialog(fresh, done); done?.(fresh); });
   } else if (edit) {
     openProductDialog(catalog.byId(edit.dataset.variantEdit), productDialogDone);
   } else if (base) {

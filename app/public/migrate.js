@@ -327,9 +327,13 @@ $('#mig-run').addEventListener('click', async () => {
 });
 
 /* ---------- Модификации: цвета × размеры, остаток по ячейкам ---------- */
-const migVar = { id: null, v: null };
+const migVar = { id: null, v: null, mode: 'mig', stock: 0, product: null, done: null };
+// Сколько всего надо разложить по ячейкам: в переносе — остаток из CloudShop, у товара — сколько сейчас на складе.
+const migVarStock = () => (migVar.mode === 'product' ? migVar.stock : Number(migItem(migVar.id)?.data.stock) || 0);
 function openMigVariants(id) {
   const it = migItem(id);
+  migVar.mode = 'mig';
+  $('#mig-var-on').closest('label').hidden = false;
   migVar.id = id;
   migVar.v = JSON.parse(JSON.stringify(it.data.variants || { on: false, colors: [], sizes: [], qty: {} }));
   migVar.v.qty ||= {};
@@ -342,7 +346,6 @@ function openMigVariants(id) {
   $('#mig-var').showModal();
 }
 function migVarDraw() {
-  const it = migItem(migVar.id);
   const v = migVar.v;
   const body = $('#mig-var-body');
   if (!v.on) { body.innerHTML = '<p class="pick-meta">Товар перенесётся без модификаций — одной карточкой с общим остатком и старым штрихкодом.</p>'; return; }
@@ -355,7 +358,7 @@ function migVarDraw() {
   const colors = v.colors.length ? v.colors : [null];
   const sizes = v.sizes.length ? (typeof sizeSort === 'function' ? sizeSort(v.sizes) : v.sizes) : [null];
   const { total } = migSplit({ variants: v });
-  const stock = Number(it.data.stock) || 0;
+  const stock = migVarStock();
   const ok = Math.abs(total - stock) < 1e-9;
   body.innerHTML = `
     <div class="mig-var-row"><b>Цвета</b> <small>(можно без цвета — тогда только размеры)</small></div>
@@ -409,10 +412,13 @@ function migVarSum() {
   const foot = $('#mig-var-foot');
   if (!v.on || !(v.colors.length || v.sizes.length)) { foot.innerHTML = ''; return; }
   const { total } = migSplit({ variants: v });
-  const stock = Number(migItem(migVar.id).data.stock) || 0;
+  const stock = migVarStock();
   const ok = Math.abs(total - stock) < 1e-9;
+  const differ = migVar.mode === 'product'
+    ? `Остаток изменится: было ${migFmt(stock)} шт, станет ${migFmt(total)} шт (проведётся инвентаризацией)`
+    : `Остаток отличается от CloudShop — перенести ${migFmt(total)} шт, как распределено`;
   foot.innerHTML = `<p class="mig-sum ${ok ? 'ok' : 'bad'}">Распределено <b>${migFmt(total)}</b> из ${migFmt(stock)} шт ${ok ? '✓' : ''}</p>
-    ${ok ? '' : `<label class="check mv-ignore"><input type="checkbox" id="mv-ignore" ${migVar.ignore ? 'checked' : ''}> Остаток отличается от CloudShop — перенести ${migFmt(total)} шт, как распределено</label>`}`;
+    ${ok ? '' : `<label class="check mv-ignore"><input type="checkbox" id="mv-ignore" ${migVar.ignore ? 'checked' : ''}> ${differ}</label>`}`;
   for (const el of document.querySelectorAll('[data-mv-ctotal]')) {
     const c = el.dataset.mvCtotal;
     const sizes = v.sizes.length ? v.sizes : [null];
@@ -451,11 +457,55 @@ $('#mig-var-form').addEventListener('submit', async (e) => {
   // В сохранение — только ячейки выбранных цветов и размеров.
   const qty = {};
   for (const c of v.colors.length ? v.colors : [null]) for (const s of v.sizes.length ? v.sizes : [null]) { const k = migKey(c, s); if (v.qty[k]) qty[k] = v.qty[k]; }
+  if (migVar.mode === 'product') return saveProductGrid(qty);
   const it = await migSave(migVar.id, { variants: { on: v.on, colors: v.colors, sizes: v.sizes, qty }, ignoreMismatch: migVar.ignore });
   if (!it) return;
   $('#mig-var').close();
   migDraw();
 });
+
+/* ---------- То же окно для уже заведённого товара («Товары» → товар → «Цвета и размеры») ---------- */
+// Например, джинсам при переносе по ошибке дали размеры M, L, XL: снимите их, отметьте 30–36 и разложите остаток.
+function openProductGrid(product, done) {
+  const kids = catalog.children(product.id);
+  const other = kids.flatMap((k) => Object.keys(JSON.parse(k.options || '{}'))).find((n) => n !== 'Цвет' && n !== 'Размер');
+  if (other) return toast(`У модификаций этого товара есть свойство «${other}» — правьте их по одной (кнопка «Изменить» у модификации)`, 'error');
+  const v = { on: true, colors: [], sizes: [], qty: {} };
+  for (const k of kids) {
+    const o = JSON.parse(k.options || '{}');
+    if (o['Цвет'] && !v.colors.includes(o['Цвет'])) v.colors.push(o['Цвет']);
+    if (o['Размер'] && !v.sizes.includes(o['Размер'])) v.sizes.push(o['Размер']);
+    if (Number(k.stock) > 0) v.qty[migKey(o['Цвет'] ?? null, o['Размер'] ?? null)] = Number(k.stock);
+  }
+  const stock = kids.length ? kids.reduce((a, k) => a + Math.max(0, Number(k.stock) || 0), 0) : Math.max(0, Number(product.stock) || 0);
+  Object.assign(migVar, { mode: 'product', id: null, product, done, stock, v, ignore: false });
+  $('#mig-var-on').closest('label').hidden = true;
+  $('#mig-var-title').textContent = `${product.name}: цвета и размеры`;
+  $('#mig-var-sub').textContent = `Сейчас на складе: ${migFmt(stock)} шт. Снимите лишние цвета и размеры, отметьте нужные и разложите остаток по ячейкам. `
+    + 'Убранные размеры удалятся (история продаж останется), новым создадутся свои штрихкоды. Изменения остатков проведутся документом «Инвентаризация».';
+  $('#mig-var-src').innerHTML = '';
+  migVarDraw();
+  $('#mig-var').showModal();
+}
+async function saveProductGrid(qty) {
+  const v = migVar.v;
+  const { total } = migSplit({ variants: v });
+  if (!v.colors.length && !v.sizes.length) return toast('Отметьте цвета и/или размеры', 'error');
+  if (Math.abs(total - migVar.stock) > 1e-9 && !migVar.ignore) return toast(`Распределено ${migFmt(total)} из ${migFmt(migVar.stock)} шт — разложите весь остаток или отметьте «Остаток изменится»`, 'error');
+  const btn = $('#mig-var-form button[type=submit]');
+  btn.disabled = true;
+  try {
+    const r = await api(`/api/products/${migVar.product.id}/regrid`, { method: 'POST', body: { colors: v.colors, sizes: v.sizes, qty } });
+    $('#mig-var').close();
+    toast(['Цвета и размеры сохранены', r.created ? `новых: ${r.created}` : '', r.removed ? `убрано: ${r.removed}` : '', r.doc ? `инвентаризация №${r.doc.number}` : ''].filter(Boolean).join(' · '));
+    await catalog.load();
+    migVar.done?.(catalog.byId(migVar.product.id));
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
 
 let migCostExtra = 0;
 api('/api/settings/currency').then((r) => { migCostExtra = r.costExtra || 0; }).catch(() => {});
