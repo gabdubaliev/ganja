@@ -705,66 +705,18 @@ function openProductDialog(product = null, onSaved = null) {
 
 function renderVariantsList() {
   const kids = editingProduct ? catalog.children(editingProduct.id) : [];
-  if (!kids.length) { $('#pf-variants-list').innerHTML = ''; return; }
-  // Все существующие модификации правятся прямо здесь: свойства, штрихкод, цена, закупка. Сохраняются вместе с товаром.
-  // Остаток здесь не меняется — только документами (оприходование, списание, инвентаризация).
-  const names = [...new Set(kids.flatMap((k) => Object.keys(JSON.parse(k.options || '{}'))))];
-  const cost = seesCost();
-  const cell = (k, f, v, cls = '') => `<input class="input vx ${cls}" data-vx="${k.id}" data-f="${esc(f)}" value="${esc(v ?? '')}" ${cls === 'num' ? 'inputmode="decimal"' : ''} autocomplete="off" aria-label="${esc(f)} — ${esc(optionsText(k))}">`;
-  $('#pf-variants-list').innerHTML = `
-    <div class="vx-bulk"><span class="pick-meta">Всем модификациям:</span>
-      <input class="input num" id="vx-all-price" inputmode="decimal" placeholder="цена" aria-label="Цена всем модификациям">
-      ${cost ? '<input class="input num" id="vx-all-purchase" inputmode="decimal" placeholder="закупка" aria-label="Закупка всем модификациям">' : ''}
-      <button type="button" class="btn small" id="vx-all-apply">Подставить</button></div>
-    <div class="table-wrap"><table class="variants-table vx-table">
-      <thead><tr>${names.map((n) => `<th>${esc(n)}</th>`).join('')}<th>Штрихкод</th><th>Цена</th>${cost ? '<th>Закупка</th>' : ''}<th>Остаток</th><th></th></tr></thead>
-      <tbody>${kids.map((k) => { const o = JSON.parse(k.options || '{}'); return `<tr data-vx-row="${k.id}">
-        ${names.map((n) => `<td data-l="${esc(n)}">${cell(k, 'opt:' + n, o[n])}</td>`).join('')}
-        <td data-l="Штрихкод">${cell(k, 'barcode', k.barcode)}</td>
-        <td data-l="Цена">${cell(k, 'price', k.price, 'num')}</td>
-        ${cost ? `<td data-l="Закупка">${cell(k, 'purchase', k.purchase ?? k.cost, 'num')}</td>` : ''}
-        <td data-l="Остаток" class="num vx-stock ${k.stock !== null && k.stock <= 0 ? 'neg' : ''}">${k.stock === null ? '—' : qty(k.stock, k.unit)}</td>
-        <td><button type="button" class="btn small ghost" data-variant-edit="${k.id}" title="Все поля модификации: код, артикул, скидка, поставщик">⋯</button></td>
-      </tr>`; }).join('')}</tbody>
-    </table></div>
-    <p class="pick-meta">Изменения модификаций сохранятся кнопкой «Сохранить». Остаток меняется документами: оприходование, списание, инвентаризация.</p>`;
+  $('#pf-variants-list').innerHTML = kids.length ? `
+    <table class="variants-table">
+      <thead><tr><th>Модификация</th><th>Штрихкод</th><th>Цена</th><th>Остаток</th><th></th></tr></thead>
+      <tbody>${kids.map((k) => `<tr>
+        <td>${esc(optionsText(k))}</td>
+        <td class="num">${esc(k.barcode) || '—'}</td>
+        <td>${money2(k.price)}</td>
+        <td class="${k.stock !== null && k.stock <= 0 ? 'neg' : ''}">${k.stock === null ? '—' : qty(k.stock, k.unit)}</td>
+        <td><button type="button" class="btn small ghost" data-variant-edit="${k.id}">Изменить</button></td>
+      </tr>`).join('')}</tbody>
+    </table>` : '';
 }
-// Что поменяли в таблице модификаций: [{ id, body }] — только изменённые строки.
-function changedVariants() {
-  const out = [];
-  for (const row of document.querySelectorAll('#pf-variants-list [data-vx-row]')) {
-    const k = catalog.byId(Number(row.dataset.vxRow));
-    if (!k) continue;
-    const o = JSON.parse(k.options || '{}');
-    const body = {};
-    const opts = { ...o };
-    let optsChanged = false;
-    for (const i of row.querySelectorAll('[data-f]')) {
-      const f = i.dataset.f, v = i.value.trim();
-      if (f.startsWith('opt:')) { const n = f.slice(4); if (v !== String(o[n] ?? '')) { optsChanged = true; if (v) opts[n] = v; else delete opts[n]; } }
-      else if (f === 'barcode') { if (v !== String(k.barcode || '')) body.barcode = v; }
-      else if (f === 'price') { if (parseNum(v) !== Number(k.price)) body.price = parseNum(v); }
-      else if (f === 'purchase') {
-        const old = k.purchase ?? k.cost ?? 0;
-        if (parseNum(v) !== Number(old)) { body.purchase = parseNum(v); if (!k.cost || k.cost === old) body.cost = parseNum(v); }
-      }
-    }
-    if (optsChanged) {
-      if (!Object.keys(opts).length) throw new Error(`У модификации «${optionsText(k)}» должно остаться хотя бы одно свойство`);
-      body.options = opts;
-    }
-    if (Object.keys(body).length) out.push({ id: k.id, name: optionsText(k), body });
-  }
-  return out;
-}
-$('#pf-variants-list').addEventListener('click', (e) => {
-  if (!e.target.closest('#vx-all-apply')) return;
-  const price = $('#vx-all-price').value.trim(), purchase = $('#vx-all-purchase')?.value.trim();
-  if (!price && !purchase) return toast('Впишите цену или закупку, чтобы подставить всем', 'error');
-  for (const i of document.querySelectorAll('#pf-variants-list [data-f="price"]')) if (price) i.value = price;
-  for (const i of document.querySelectorAll('#pf-variants-list [data-f="purchase"]')) if (purchase) i.value = purchase;
-  toast('Подставлено всем модификациям — нажмите «Сохранить»');
-});
 
 // Готовые значения свойства — галочками, чтобы не писать каждый раз заново:
 // сначала те, что уже есть у товаров (чаще встречающиеся — раньше), затем стандартные цвета или размеры.
@@ -990,15 +942,11 @@ $('#product-form').addEventListener('submit', async (e) => {
   submit.textContent = 'Сохраняю…';
   let saved = null;
   try {
-    const kidEdits = variant ? [] : changedVariants();
     saved = await api(editingProduct ? `/api/products/${editingProduct.id}` : '/api/products', { method: editingProduct ? 'PUT' : 'POST', body: { ...body, requestId: productRequestId } });
-    for (const v of kidEdits) {
-      try { await api(`/api/products/${v.id}`, { method: 'PUT', body: v.body }); } catch (err) { throw new Error(`Модификация «${v.name}»: ${err.message}`); }
-    }
     let made = [];
     if (variants.length) made = await api(`/api/products/${saved.id}/variants`, { method: 'POST', body: { variants, barcodes: $('#pf-gen-barcodes').checked, requestId: productRequestId } });
     $('#product-dialog').close();
-    toast((editingProduct ? 'Сохранено' : `Товар «${saved.name}» добавлен`) + (kidEdits.length ? `, изменено модификаций: ${kidEdits.length}` : '') + (made.length ? `, модификаций: ${made.length}` : ''));
+    toast((editingProduct ? 'Сохранено' : `Товар «${saved.name}» добавлен`) + (made.length ? `, модификаций: ${made.length}` : ''));
     await catalog.load();
     productDialogDone?.(saved);
   } catch (err) {
