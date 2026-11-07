@@ -2487,3 +2487,22 @@ body.drawer-open { overflow: hidden; }
 .st-viewer { position: fixed; inset: 0; z-index: 80; display: grid; grid-template-rows: 1fr auto; place-items: center; gap: 12px; padding: calc(12px + env(safe-area-inset-top, 0px)) 12px calc(14px + env(safe-area-inset-bottom, 0px)); background: rgba(10, 10, 14, .88); }
 .st-viewer img { max-width: 100%; max-height: calc(100vh - 120px); object-fit: contain; border-radius: 10px; }
 .st-viewer-bar { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+/* Редактирование существующих модификаций прямо в окне товара */
+.vx-bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.vx-bulk .input { width: 110px; padding: 5px 8px; }
+.vx-table .input { min-width: 64px; padding: 5px 8px; }
+.vx-table .input.num { max-width: 110px; text-align: right; }
+.vx-table td { vertical-align: middle; }
+@media (max-width: 700px) {
+  .vx-table thead { display: none; }
+  .vx-table, .vx-table tbody, .vx-table td { display: block; }
+  .vx-table tr { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; padding: 10px 0; border-bottom: 1px solid var(--grid); }
+  .vx-table td, .variants-table.vx-table td:first-child { padding: 0; text-align: left; }
+  .vx-table td[data-l]::before { content: attr(data-l); display: block; font-size: 12px; color: var(--muted, #8a8a8e); margin-bottom: 2px; }
+  .vx-table .input, .vx-table .input.num { width: 100%; max-width: none; min-width: 0; font-size: 16px; text-align: left; }
+  .vx-table .vx-stock { align-self: center; }
+  .vx-table td:last-child { align-self: end; justify-self: end; }
+  .vx-bulk .input { flex: 1; width: auto; min-width: 0; font-size: 16px; }
+  .vx-bulk > span { flex-basis: 100%; }
+  .vx-table td { border: 0; }
+}
