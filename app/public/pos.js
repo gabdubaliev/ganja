@@ -749,6 +749,7 @@ $('#checkout').addEventListener('click', async () => {
     // Нет интернета — чек сохраняется на устройстве и пробьётся сам, когда появится связь (с этим временем).
     if (err.offline && saleBody) {
       offlineQueue.add(saleBody, cartTotal());
+      printOfflineReceipt(saleBody);
       for (const l of pos.cart) { const p = catalog.byId(l.productId); if (p && typeof p.stock === 'number') p.stock -= l.qty; }
       pos.clientId = null;
       toast(`📴 Нет интернета. Чек на ${money2(cartTotal())} сохранён и пробьётся сам, когда появится связь`);
@@ -768,15 +769,26 @@ $('#checkout').addEventListener('click', async () => {
 
 /* ---------- Печать чека покупателю (шаблон — «Чеки и этикетки») ---------- */
 async function afterSalePrint(saleId) {
+  // Чек печатается после каждой продажи обязательно; кнопка остаётся для повторной печати (бумага кончилась и т.п.).
   pos.lastSale = saleId;
   const btn = $('#cart-print');
   btn.hidden = false;
-  btn.textContent = `🖨️ Печать чека №${saleId}`;
-  let mode = 'off';
-  try { mode = (await printDesigns()).receipt.autoPrint; } catch { /* шаблон не загрузился — только кнопка */ }
-  btn.classList.toggle('primary', mode === 'ask');
-  if (mode === 'always') printReceipt(saleId);
-  if (mode === 'ask') toast(`Чек №${saleId}: нажмите «🖨️ Печать чека», если покупателю нужен чек`);
+  btn.classList.remove('primary');
+  btn.textContent = `🖨️ Повторить чек №${saleId}`;
+  printReceipt(saleId);
+}
+// Продажа без интернета: чек печатается сразу с кассы (номер появится, когда чек дойдёт до сервера).
+function printOfflineReceipt(body) {
+  const calc = calcCart();
+  const paid = r2(calc.total - (body.bonusSpend || 0) - (pos.cert ? certUse() : 0));
+  const reg = pos.registers?.find?.((x) => x.id === pos.shift?.register_id);
+  printReceiptData({
+    id: 'б/н (без связи)', created_at: Date.now(), total: calc.total, discount: r2(calc.full - calc.total), bonus_spent: body.bonusSpend || 0,
+    cashier: session.user?.name || '', register: reg?.name || '', shop: session.design?.name || '',
+    items: pos.cart.map((l, i) => { const p = catalog.byId(l.productId) || {}; return { name: p.name || '', qty: l.qty, price: calc.lines[i].final, code: p.code || '', unit: p.unit || 'шт' }; }),
+    payments: payParts(paid).filter((x) => x.method && x.amount > 0).map((x) => ({ name: x.method.name, amount: x.amount, kind: x.method.kind })),
+    customer: pos.customer ? { name: pos.customer.name, phone: pos.customer.phone, card: pos.customer.card, bonus: pos.customer.bonus } : null,
+  });
 }
 $('#cart-print').addEventListener('click', () => {
   if (!pos.lastSale) return;

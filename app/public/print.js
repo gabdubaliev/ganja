@@ -295,9 +295,16 @@ function receiptHtml(r, data) {
 async function printReceipt(saleId) {
   try {
     const [{ receipt: r }, data] = await Promise.all([printDesigns(), api(`/api/sales/${saleId}/receipt`)]);
-    const one = receiptHtml(r, data);
-    printHtml(Array.from({ length: r.copies || 1 }, () => one).join('<div style="page-break-after:always"></div>'), receiptCss(r), `Чек №${saleId}`);
+    printReceiptHtml(r, data, `Чек №${saleId}`);
   } catch (err) {
     toast(err.message, 'error');
   }
+}
+// Чек по готовым данным — для продажи без интернета (чек ещё не на сервере, печатаем с кассы).
+async function printReceiptData(data) {
+  try { printReceiptHtml((await printDesigns()).receipt, data, 'Чек'); } catch (err) { toast(err.message, 'error'); }
+}
+function printReceiptHtml(r, data, title) {
+  const one = receiptHtml(r, data);
+  printHtml(Array.from({ length: r.copies || 1 }, () => one).join('<div style="page-break-after:always"></div>'), receiptCss(r), title);
 }

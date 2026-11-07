@@ -1240,7 +1240,7 @@ const SHOP_FONTS = ['Inter', 'Manrope', 'Montserrat', 'Rubik', 'Nunito', 'Ralewa
 const RECEIPT_DEFAULTS = {
   paper: 58, fontSize: 'normal', logoId: null, title: '', header: '', footer: 'Спасибо за покупку!',
   showNumber: true, showDate: true, showCashier: true, showRegister: false, showCustomer: true, showBonus: true,
-  showPayments: true, showDiscount: true, showItemCodes: false, autoPrint: 'off', copies: 1,
+  showPayments: true, showDiscount: true, showItemCodes: false, autoPrint: 'always', copies: 1,
 };
 const LABEL_FIELDS = ['shop', 'name', 'options', 'article', 'code', 'category', 'price', 'oldPrice', 'barcode', 'text'];
 const LABEL_DEFAULTS = {
@@ -1330,7 +1330,7 @@ function cleanReceipt(r) {
     return { ...base, showCard: b.showCard !== false, showEarned: b.showEarned !== false, showBalance: b.showBalance !== false, showPhone: Boolean(b.showPhone) };
   });
   return { paper: Number(r?.paper) === 80 ? 80 : 58, margin: clampNum(r?.margin, 0, 10, 2), font: pick(r?.font, [...FONTS_PRINT, ...customFamilies()], 'Arial'),
-    lineHeight: clampNum(r?.lineHeight, 0.8, 2.5, 1.25), autoPrint: pick(r?.autoPrint, ['off', 'ask', 'always'], 'off'),
+    lineHeight: clampNum(r?.lineHeight, 0.8, 2.5, 1.25), autoPrint: 'always', // чек печатается после каждой продажи обязательно
     copies: clampNum(r?.copies, 1, 3, 1), blocks };
 }
 

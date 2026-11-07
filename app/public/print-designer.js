@@ -867,7 +867,7 @@ function renderReceiptProps() {
       <div class="field"><label>Шрифт</label><select class="input" data-rg="font">${FONT_OPTIONS()}</select><button type="button" class="btn small" data-font-upload="rg">＋ Загрузить свой шрифт</button></div></div>
     <div class="lz-grid2"><div class="field"><label>Поля, мм</label><input class="input num" data-rg="margin" data-num="1" value="${r.margin}"></div>
       <div class="field"><label>Межстрочный</label><input class="input num" data-rg="lineHeight" data-num="1" value="${r.lineHeight}"></div></div>
-    <div class="field"><label>После продажи на кассе</label><select class="input" data-rg="autoPrint"><option value="off">Не печатать — кнопкой «Печать чека»</option><option value="ask">Спрашивать кассира</option><option value="always">Печатать сразу</option></select></div>
+    <div class="field"><label>После продажи на кассе</label><p class="sub">Чек печатается сразу после каждой продажи — обязательно. Кнопка «Печать чека» на кассе — для повторной печати.</p></div>
     <div class="field"><label>Копий</label><select class="input" data-rg="copies"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></div>`;
   if (b) {
     h += `<h3>Блок: ${BLOCK_NAMES[b.type]}</h3>`;
